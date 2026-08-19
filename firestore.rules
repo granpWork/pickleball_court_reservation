@@ -1,0 +1,131 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==========================================
+    // Helper Functions
+    // ==========================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isPrimaryAdmin() {
+      return request.auth != null && (
+        request.auth.token.email == 'admin@picklepoint.com' ||
+        request.auth.token.email.matches('(?i)admin@picklepoint\\.com')
+      );
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        isPrimaryAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin')
+      );
+    }
+
+    function isClientAdmin() {
+      return isAuthenticated() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'client_admin'
+      );
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || isClientAdmin();
+    }
+
+    // ==========================================
+    // 1. Users Collection
+    // ==========================================
+    match /users/{userId} {
+      allow read: if true;
+      // Allow registration (even if auth state is resolving) and authenticated user profile management
+      allow create: if true;
+      allow update: if isAuthenticated();
+      // Allow Super Admin, Client Admin, or the user themselves to delete
+      allow delete: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
+    }
+
+    // ==========================================
+    // 2. Companies & Subcollections
+    // ==========================================
+    match /companies/{companyId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+
+      match /{allSubcollections=**} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
+    }
+
+    // ==========================================
+    // 3. Courts
+    // ==========================================
+    match /courts/{courtId} {
+      allow read: if true;
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    // ==========================================
+    // 4. Bookings
+    // ==========================================
+    match /bookings/{bookingId} {
+      allow read, create, update: if true;
+      allow delete: if isAuthenticated();
+    }
+
+    // ==========================================
+    // 5. Vouchers
+    // ==========================================
+    match /vouchers/{voucherId} {
+      allow read, create, update: if true;
+      allow delete: if isAuthenticated();
+    }
+
+    // ==========================================
+    // 6. Settings (Global & Per-User Checkout Settings)
+    // ==========================================
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+
+      match /{allSubcollections=**} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+      }
+    }
+
+    // ==========================================
+    // 7. Open Play Events & Registrations
+    // ==========================================
+    match /openplay_events/{eventId} {
+      allow read: if true;
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    match /openplay_registrations/{registrationId} {
+      allow read, create, update: if true;
+      allow delete: if isAuthenticated();
+    }
+
+    // ==========================================
+    // 8. Notifications & Reminders
+    // ==========================================
+    match /reminders/{reminderId} {
+      allow read, write: if true;
+    }
+
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+
+    // ==========================================
+    // 9. Client Admin Invitations
+    // ==========================================
+    match /invitations/{invitationId} {
+      allow read, write: if true;
+    }
+  }
+}

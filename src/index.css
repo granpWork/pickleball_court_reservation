@@ -1,0 +1,113 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-brand-lime: #b5f529;
+  --color-brand-emerald: #059669;
+  --color-dark-bg: #090d16;
+  --color-dark-card: #0e1424;
+  --color-dark-border: #1e293b;
+  --color-dark-hover: #1e294b;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --animate-glow: glow 8s infinite alternate;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-fade-in: fadeIn 0.8s ease-out forwards;
+  --animate-slide-up: slideUp 0.6s ease-out forwards;
+
+  @keyframes glow {
+    0% {
+      filter: drop-shadow(0 0 15px rgba(181, 245, 41, 0.15)) drop-shadow(0 0 30px rgba(5, 150, 105, 0.1));
+    }
+    100% {
+      filter: drop-shadow(0 0 25px rgba(181, 245, 41, 0.3)) drop-shadow(0 0 50px rgba(5, 150, 105, 0.25));
+    }
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  --animate-slide-up: slideUp 0.6s ease-out forwards;
+  --animate-progress: progress 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+
+  @keyframes progress {
+    0% {
+      transform: translateX(-100%);
+    }
+    50% {
+      transform: translateX(30%);
+    }
+    100% {
+      transform: translateX(180%);
+    }
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #090d16;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+body {
+  background-color: #090d16;
+  color: #f8fafc;
+  overflow-x: hidden;
+  font-family: var(--font-sans);
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+  background: rgba(14, 20, 36, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(14, 20, 36, 0.85);
+  border-color: rgba(181, 245, 41, 0.25);
+  box-shadow: 0 10px 30px -10px rgba(181, 245, 41, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Custom Court Lines Overlay */
+.court-lines {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
