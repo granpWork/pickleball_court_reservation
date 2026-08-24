@@ -1217,3 +1217,89 @@ export const sendRegistrationConfirmationEmail = async (params: RegistrationConf
   });
 };
 
+export interface OpenPlayInvitationParams {
+  guestEmail: string;
+  guestName: string;
+  primaryPlayerName: string;
+  eventTitle: string;
+  eventCategory: string;
+  eventDate: string;
+  timeSlot: string;
+  location?: string;
+  companyName?: string;
+  registrationReference: string;
+}
+
+export const sendOpenPlayInvitationEmail = async (
+  params: OpenPlayInvitationParams
+): Promise<{ success: boolean; message: string }> => {
+  const baseUrl = getBaseUrl();
+  const subject = `You're Invited to Open Play: ${params.eventTitle} (${params.eventDate})`;
+  
+  const bodyContent = `
+    <p style="margin: 0 0 16px 0; font-size: 15px; color: #e2e8f0; line-height: 1.6;">
+      Hello <strong style="color: #ffffff;">${params.guestName || 'Pickleball Player'}</strong>,
+    </p>
+    <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+      <strong style="color: #a6e224;">${params.primaryPlayerName}</strong> has registered you as a guest for an upcoming Pickleball Open Play session! Here are your event details:
+    </p>
+
+    <!-- Summary Card -->
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #1e293b; border-radius: 14px; border: 1px solid #334155; margin-bottom: 20px;">
+      <tr>
+        <td style="padding: 18px;">
+          <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #a6e224; letter-spacing: 1px; margin-bottom: 12px;">
+            OPEN PLAY INVITATION
+          </div>
+          
+          <div style="margin-bottom: 10px;">
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Event Title & Skill Level</span>
+            <span style="font-size: 15px; color: #ffffff; font-weight: 800;">${params.eventTitle} (${params.eventCategory})</span>
+          </div>
+
+          <div style="margin-bottom: 10px;">
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Event Date & Time</span>
+            <span style="font-size: 14px; color: #cbd5e1; font-weight: 700;">${params.eventDate} • ${params.timeSlot}</span>
+          </div>
+
+          ${params.location ? `
+          <div style="margin-bottom: 10px;">
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Venue Location</span>
+            <span style="font-size: 13px; color: #cbd5e1;">${params.location}</span>
+          </div>
+          ` : ''}
+
+          <div>
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Host Venue / Organizer</span>
+            <span style="font-size: 13px; color: #a6e224; font-weight: 700;">${params.companyName || 'PicklePoint Host'}</span>
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- ACTION BUTTON -->
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px; margin-bottom: 24px;">
+      <tr>
+        <td align="center">
+          <a href="${baseUrl}" target="_blank" style="display: inline-block; padding: 14px 36px; background-color: #a6e224; color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; box-shadow: 0 8px 20px -4px rgba(166, 226, 36, 0.35); text-align: center;">
+            View Open Play Details &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const htmlMessage = buildHtmlWrapper(
+    'Open Play Guest Invitation',
+    `You're invited by ${params.primaryPlayerName}`,
+    bodyContent
+  );
+
+  return sendCustomUserEmail({
+    toEmail: params.guestEmail,
+    toName: params.guestName || 'Open Play Guest',
+    subject,
+    message: htmlMessage,
+  });
+};
+

@@ -3,17 +3,21 @@ import {
   ArrowLeft, CheckCircle, Calendar, Clock, 
   MapPin, User, Mail, Phone, ShieldCheck, 
   Download, ChevronRight, Lock, Check, Shield, X,
-  Copy, UploadCloud, ExternalLink, Tag, Sparkles
+  Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users
 } from 'lucide-react';
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, getDoc, setDoc, getDocs, collection } from 'firebase/firestore';
-import { sendBookingConfirmationEmail } from '../services/emailService';
+import { sendBookingConfirmationEmail, sendOpenPlayInvitationEmail } from '../services/emailService';
 
 interface CheckoutProps {
-  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup') => void;
+  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'openplay') => void;
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
   checkoutDetails: {
+    type?: 'court' | 'openplay';
+    openPlayEventId?: string;
+    openPlayTitle?: string;
+    openPlayCategory?: string;
     courtId: string;
     courtName: string;
     courtType: string;
@@ -23,15 +27,21 @@ interface CheckoutProps {
     slots: string[];
     rentals: { id: string; name: string; price: number; pricingType: string; quantity: number }[];
     totalCost: number;
+    basePricePerSpot?: number;
+    maxAvailableSlots?: number;
     companyId?: string;
     courtOwnerId?: string;
     gcashAccountId?: string;
     companyName?: string;
     companyAddress?: string;
+    companyLogoUrl?: string;
     ownerCompanyName?: string;
     ownerCompanyAddress?: string;
     hostEmail?: string;
     hostPhone?: string;
+    gcashName?: string;
+    gcashNumber?: string;
+    gcashQrCode?: string;
   };
   setCheckoutDetails: (details: any) => void;
   setSelectedCourtId: (id: string) => void;
@@ -104,22 +114,69 @@ export default function Checkout({
   const [voucherError, setVoucherError] = useState<string | null>(null);
   const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
 
+  // Open Play Guest (+1 / +2) States
+  const isOpenPlay = checkoutDetails?.type === 'openplay';
+  const [playerCount, setPlayerCount] = useState<number>(1);
+  const [guests, setGuests] = useState<{ name: string; email: string }[]>([]);
+  const [guestEmailErrors, setGuestEmailErrors] = useState<{ [key: number]: string }>({});
+
+  const handlePlayerCountChange = (newCount: number) => {
+    const minCount = 1;
+    const maxCount = checkoutDetails?.maxAvailableSlots || 16;
+    const clamped = Math.max(minCount, Math.min(maxCount, newCount));
+    setPlayerCount(clamped);
+
+    const neededGuests = clamped - 1;
+    setGuests(prev => {
+      if (prev.length === neededGuests) return prev;
+      if (prev.length < neededGuests) {
+        const added = Array.from({ length: neededGuests - prev.length }, () => ({ name: '', email: '' }));
+        return [...prev, ...added];
+      }
+      return prev.slice(0, neededGuests);
+    });
+  };
+
+  const handleGuestChange = (index: number, field: 'name' | 'email', value: string) => {
+    setGuests(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+
+    if (field === 'email') {
+      const trimmed = value.trim();
+      if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        setGuestEmailErrors(prev => ({ ...prev, [index]: 'Please enter a valid email address' }));
+      } else {
+        setGuestEmailErrors(prev => {
+          const updated = { ...prev };
+          delete updated[index];
+          return updated;
+        });
+      }
+    }
+  };
+
   // Dynamic cost calculations
+  const baseCostPerSpot = checkoutDetails?.basePricePerSpot || checkoutDetails?.totalCost || 0;
+  const rawSubtotal = isOpenPlay ? (baseCostPerSpot * playerCount) : checkoutDetails.totalCost;
+
   const calculateDiscount = () => {
     if (!appliedVoucher) return 0;
     if (appliedVoucher.discountType === 'percentage') {
-      return Math.round((checkoutDetails.totalCost * appliedVoucher.discountValue) / 100);
+      return Math.round((rawSubtotal * appliedVoucher.discountValue) / 100);
     }
-    return Math.min(appliedVoucher.discountValue, checkoutDetails.totalCost);
+    return Math.min(appliedVoucher.discountValue, rawSubtotal);
   };
 
   const discountAmount = calculateDiscount();
   const isFullyCoveredByVoucher = !!appliedVoucher && (
     (appliedVoucher.discountType === 'percentage' && appliedVoucher.discountValue >= 100) ||
-    (discountAmount >= checkoutDetails.totalCost)
+    (discountAmount >= rawSubtotal)
   );
   
-  const netCourtCost = Math.max(0, checkoutDetails.totalCost - discountAmount);
+  const netCourtCost = Math.max(0, rawSubtotal - discountAmount);
   const effectiveServiceFee = isFullyCoveredByVoucher ? 0 : (serviceFeeEnabled ? serviceFee : 0);
   const finalTotal = isFullyCoveredByVoucher ? 0 : (netCourtCost + effectiveServiceFee);
 
@@ -534,6 +591,83 @@ export default function Checkout({
     setIsProcessing(true);
     setError('');
 
+    // Pre-submission validation: check if player has schedule conflicts across venues on this date
+    const playerEmail = email.trim().toLowerCase();
+    const playerUid = user?.uid;
+    const requestedSlots = checkoutDetails.slots || [];
+    const targetDate = checkoutDetails.date;
+
+    let conflictingSlot: string | null = null;
+    let conflictingVenue: string = 'another venue';
+
+    if (isFirebaseConfigured && db) {
+      try {
+        const { collection: fCollection, query: fQuery, where: fWhere, getDocs: fGetDocs } = await import('firebase/firestore');
+        const bookingsRef = fCollection(db, 'bookings');
+        const q = fQuery(bookingsRef, fWhere('date', '==', targetDate));
+        const querySnapshot = await fGetDocs(q);
+
+        querySnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.status !== 'cancelled' && data.slots && Array.isArray(data.slots)) {
+            const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
+            const bUid = data.userId || data.user?.uid;
+            const isSamePlayer = (playerEmail && bEmail === playerEmail) || (playerUid && bUid === playerUid);
+
+            if (isSamePlayer) {
+              const overlap = requestedSlots.find((st: string) => data.slots.includes(st));
+              if (overlap) {
+                conflictingSlot = overlap;
+                conflictingVenue = data.courtName || data.ownerCompanyName || 'another court/venue';
+              }
+            }
+          }
+        });
+      } catch (err) {
+        console.warn('Schedule conflict pre-check error:', err);
+      }
+    } else {
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings');
+        const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
+        localBookings.forEach((b: any) => {
+          if (b.date === targetDate && b.status !== 'cancelled' && b.slots && Array.isArray(b.slots)) {
+            const bEmail = b.userEmail?.toLowerCase() || b.user?.email?.toLowerCase();
+            const bUid = b.userId || b.user?.uid;
+            const isSamePlayer = (playerEmail && bEmail === playerEmail) || (playerUid && bUid === playerUid);
+
+            if (isSamePlayer) {
+              const overlap = requestedSlots.find((st: string) => b.slots.includes(st));
+              if (overlap) {
+                conflictingSlot = overlap;
+                conflictingVenue = b.courtName || b.ownerCompanyName || 'another court/venue';
+              }
+            }
+          }
+        });
+      } catch (err) {}
+    }
+
+    if (conflictingSlot) {
+      setIsProcessing(false);
+      setError(`Schedule Conflict Detected: You already have an active reservation at ${conflictingVenue} for time slot "${conflictingSlot}" on ${formatDate(targetDate)}. A player cannot book overlapping time slots across different venues.`);
+      setIsErrorModalOpen(true);
+      return;
+    }
+
+    // Validate guest emails if provided
+    if (isOpenPlay && guests.length > 0) {
+      for (let i = 0; i < guests.length; i++) {
+        const g = guests[i];
+        if (g.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email.trim())) {
+          setIsProcessing(false);
+          setError(`Invalid Email format for Guest #${i + 1} (${g.email.trim()}). Please correct the email address or leave it blank.`);
+          setIsErrorModalOpen(true);
+          return;
+        }
+      }
+    }
+
     const refNum = `PP-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const resolvedOwnerCompanyName = (ownerCompanyName && ownerCompanyName !== checkoutDetails.courtName)
@@ -618,6 +752,64 @@ export default function Checkout({
     if (isFirebaseConfigured && db) {
       try {
         await setDoc(doc(db, 'bookings', refNum), cleanPayload);
+        
+        // Save Open Play Registration record if this is an open play checkout
+        if (isOpenPlay && checkoutDetails.openPlayEventId) {
+          const regId = 'opreg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+          const validGuests = guests.map(g => ({ name: g.name.trim(), email: g.email.trim() }));
+          const regPayload = {
+            id: regId,
+            eventId: checkoutDetails.openPlayEventId,
+            eventTitle: checkoutDetails.openPlayTitle || checkoutDetails.courtName,
+            eventDate: checkoutDetails.date,
+            registrationFee: finalTotal,
+            playerUid: user?.uid || '',
+            playerName: name,
+            playerEmail: email,
+            playerPhone: phone,
+            playerCount: playerCount,
+            guestCount: guests.length,
+            guests: validGuests,
+            guestNames: validGuests.map(g => g.name).filter(Boolean),
+            guestEmails: validGuests.map(g => g.email).filter(Boolean),
+            gcashReferenceNumber: isVoucherPayment ? (appliedVoucher?.code || 'VOUCHER') : gcashReferenceNumber,
+            receiptImageUrl: isVoucherPayment ? '' : receiptImageBase64,
+            paymentStatus: finalTotal === 0 ? ('paid' as const) : ('pending_verification' as const),
+            status: finalTotal === 0 ? ('approved' as const) : ('pending' as const),
+            createdAt: new Date().toISOString(),
+          };
+
+          const cleanRegPayload = JSON.parse(JSON.stringify(regPayload));
+          await setDoc(doc(db, 'openplay_registrations', regId), cleanRegPayload);
+
+          try {
+            const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations');
+            const localRegs = localRegsStr ? JSON.parse(localRegsStr) : [];
+            localRegs.push(cleanRegPayload);
+            localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(localRegs));
+          } catch (e) {}
+
+          // If free or voucher waiver, send guest email invitations immediately
+          if (finalTotal === 0 && validGuests.length > 0) {
+            validGuests.forEach(g => {
+              if (g.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) {
+                sendOpenPlayInvitationEmail({
+                  guestEmail: g.email,
+                  guestName: g.name || 'Guest',
+                  primaryPlayerName: name,
+                  eventTitle: checkoutDetails.openPlayTitle || checkoutDetails.courtName,
+                  eventCategory: checkoutDetails.openPlayCategory || 'Open Play',
+                  eventDate: checkoutDetails.date,
+                  timeSlot: checkoutDetails.slots[0] || '',
+                  location: checkoutDetails.courtLocation,
+                  companyName: checkoutDetails.companyName,
+                  registrationReference: regId,
+                }).catch(err => console.warn('Guest email invitation failed:', err));
+              }
+            });
+          }
+        }
+
         setBookingRef(refNum);
         setSuccess(true);
         sendBookingConfirmationEmail({
@@ -1006,6 +1198,103 @@ export default function Checkout({
                     Enter the phone number associated with the payment for tracking.
                   </span>
                 </div>
+
+                {/* OPEN PLAY GUEST (+1 / +2) QUANTITY & EMAIL SELECTOR */}
+                {isOpenPlay && (
+                  <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 animate-fade-in text-left mt-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                      <div>
+                        <h4 className="text-xs md:text-sm font-bold text-white flex items-center gap-2">
+                          <Users className="w-4 h-4 text-brand-lime" /> Reserve Spots / Bring Guests (+1)
+                        </h4>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Select total spots to reserve for yourself and your guests.</p>
+                      </div>
+
+                      {/* Stepper Quantity Control */}
+                      <div className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 shadow-inner">
+                        <button
+                          type="button"
+                          onClick={() => handlePlayerCountChange(playerCount - 1)}
+                          disabled={playerCount <= 1}
+                          className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                        >
+                          -
+                        </button>
+
+                        <div className="text-center min-w-[65px]">
+                          <span className="text-xs font-black text-white block">
+                            {playerCount} {playerCount === 1 ? 'Spot' : 'Spots'}
+                          </span>
+                          {playerCount > 1 && (
+                            <span className="text-[9px] font-bold text-brand-lime block uppercase">
+                              (+{playerCount - 1} {playerCount - 1 === 1 ? 'Guest' : 'Guests'})
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePlayerCountChange(playerCount + 1)}
+                          disabled={playerCount >= (checkoutDetails?.maxAvailableSlots || 16)}
+                          className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-brand-lime font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Guest Input List */}
+                    {guests.length > 0 && (
+                      <div className="space-y-3 pt-1">
+                        <div className="text-[10.5px] font-bold text-brand-lime uppercase tracking-wider flex items-center justify-between">
+                          <span>Guest Information ({guests.length})</span>
+                          <span className="text-slate-500 font-normal text-[10px]">Guest email receives event invitation</span>
+                        </div>
+
+                        {guests.map((guest, idx) => (
+                          <div key={idx} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                            <div className="text-[11px] font-bold text-slate-300">
+                              Guest #{idx + 1}
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-400 block mb-1">Guest Name</label>
+                                <input
+                                  type="text"
+                                  placeholder={`e.g. Guest ${idx + 1} Name`}
+                                  value={guest.name}
+                                  onChange={(e) => handleGuestChange(idx, 'name', e.target.value)}
+                                  className="w-full bg-slate-900 border border-slate-800 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-brand-lime"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                                  Guest Email <span className="text-slate-500 font-normal">(Optional)</span>
+                                </label>
+                                <input
+                                  type="email"
+                                  placeholder="guest@example.com"
+                                  value={guest.email}
+                                  onChange={(e) => handleGuestChange(idx, 'email', e.target.value)}
+                                  className={`w-full bg-slate-900 border text-white rounded-lg px-3 py-2 text-xs focus:outline-none ${
+                                    guestEmailErrors[idx] ? 'border-red-500 focus:border-red-500' : 'border-slate-800 focus:border-brand-lime'
+                                  }`}
+                                />
+                                {guestEmailErrors[idx] && (
+                                  <span className="text-[10px] text-red-400 mt-1 block font-semibold">
+                                    {guestEmailErrors[idx]}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {isFullyCoveredByVoucher ? (
@@ -1470,12 +1759,57 @@ export default function Checkout({
 
             {/* Pricing Cost breakdown */}
             <div className="border-t border-slate-850 pt-4 space-y-2.5">
-              <div className="flex justify-between text-xs text-slate-400">
-                <span>Court booking total</span>
-                <span className="font-bold text-slate-200">
-                  ₱{checkoutDetails.totalCost - checkoutDetails.rentals.reduce((sum, r) => sum + (r.price * r.quantity), 0)}
-                </span>
-              </div>
+              {isOpenPlay ? (
+                <>
+                  {/* Itemized Open Play Breakdown */}
+                  <div className="space-y-2 pb-2 border-b border-slate-850">
+                    <span className="text-[10px] font-extrabold text-brand-lime uppercase tracking-wider block text-left">
+                      Itemized Registration Breakdown
+                    </span>
+
+                    {/* Primary Player Line */}
+                    <div className="flex justify-between text-xs text-slate-300">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-brand-lime"></span>
+                        Primary Player (1x)
+                      </span>
+                      <span className="font-bold text-slate-200">
+                        {baseCostPerSpot > 0 ? `₱${baseCostPerSpot.toLocaleString()}` : 'FREE'}
+                      </span>
+                    </div>
+
+                    {/* Guest Line (+1, +2, +3...) */}
+                    {playerCount > 1 && (
+                      <div className="flex justify-between text-xs text-slate-300">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                          Additional Guests (+{playerCount - 1} {playerCount - 1 === 1 ? 'Guest' : 'Guests'})
+                        </span>
+                        <span className="font-bold text-slate-200">
+                          ₱{((playerCount - 1) * baseCostPerSpot).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Session Subtotal */}
+                    <div className="flex justify-between text-xs font-bold text-slate-300 pt-1 text-left">
+                      <span className="text-slate-400 text-[11px]">
+                        Subtotal ({playerCount} {playerCount === 1 ? 'Player' : 'Players'} total @ {baseCostPerSpot > 0 ? `₱${baseCostPerSpot.toLocaleString()}` : 'Free'} / player)
+                      </span>
+                      <span className="text-brand-lime">
+                        ₱{(playerCount * baseCostPerSpot).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between text-xs text-slate-400">
+                  <span>Court booking total</span>
+                  <span className="font-bold text-slate-200">
+                    ₱{checkoutDetails.totalCost - checkoutDetails.rentals.reduce((sum, r) => sum + (r.price * r.quantity), 0)}
+                  </span>
+                </div>
+              )}
               
               {checkoutDetails.rentals.length > 0 && (
                 <div className="flex justify-between text-xs text-slate-400">

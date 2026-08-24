@@ -39,8 +39,7 @@ function App() {
     if (params.get('view') === 'profile' || window.location.pathname === '/profile') {
       return 'profile';
     }
-    const savedCheckout = sessionStorage.getItem('picklepoint_checkout_details');
-    if (window.location.pathname === '/checkout' || (savedCheckout && window.location.pathname !== '/pickle-admin')) {
+    if (window.location.pathname === '/checkout' || params.get('view') === 'checkout') {
       return 'checkout';
     }
     if (window.location.pathname === '/pickle-admin') {
@@ -49,7 +48,27 @@ function App() {
     return 'landing';
   });
   const [openPlayEventId, setOpenPlayEventId] = useState<string | null>(null);
-  const [selectedCourtId, setSelectedCourtId] = useState<string>('');
+  const [selectedCourtId, setSelectedCourtIdState] = useState<string>(() => {
+    return sessionStorage.getItem('picklepoint_active_court_id') || localStorage.getItem('picklepoint_pending_court_id') || '';
+  });
+
+  const setSelectedCourtId = (id: string) => {
+    if (id) {
+      sessionStorage.setItem('picklepoint_active_court_id', id);
+    } else {
+      sessionStorage.removeItem('picklepoint_active_court_id');
+    }
+    setSelectedCourtIdState(id);
+  };
+
+  const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding') => {
+    setOpenPlayEventId(null);
+    if (nextView === 'landing') {
+      setSelectedCourtId('');
+    }
+    setView(nextView);
+  };
+
   const [checkoutDetails, setCheckoutDetails] = useState<{
     courtId: string;
     courtName: string;
@@ -91,31 +110,65 @@ function App() {
   });
   const [deactivatedModalOpen, setDeactivatedModalOpen] = useState(false);
 
-  // Synchronize checkoutDetails with sessionStorage to survive page refreshes
+  // Synchronize checkoutDetails with sessionStorage
   useEffect(() => {
     if (checkoutDetails) {
       sessionStorage.setItem('picklepoint_checkout_details', JSON.stringify(checkoutDetails));
-      if (window.location.pathname !== '/checkout' && window.location.pathname !== '/pickle-admin') {
-        window.history.pushState({}, '', '/checkout');
-      }
     } else {
       sessionStorage.removeItem('picklepoint_checkout_details');
-      if (window.location.pathname === '/checkout') {
-        window.history.pushState({}, '', '/');
-      }
     }
   }, [checkoutDetails]);
 
   const restoreSessionView = () => {
+    // If user is explicitly visiting the root URL "/" with no view search params, remain on landing view
+    if (window.location.pathname === '/' && !window.location.search) {
+      setView('landing');
+      return;
+    }
+
+    const activeCourtId = sessionStorage.getItem('picklepoint_active_court_id') || localStorage.getItem('picklepoint_pending_court_id');
+    const savedCheckoutStr = sessionStorage.getItem('picklepoint_checkout_details');
+
+    // Restore checkout session ONLY if explicitly on /checkout route
+    if (window.location.pathname === '/checkout') {
+      if (savedCheckoutStr) {
+        try {
+          const parsed = JSON.parse(savedCheckoutStr);
+          setCheckoutDetails(parsed);
+          setView('checkout');
+          return;
+        } catch (e) {}
+      }
+    }
+
+    // 3. Admin path check
+    if (window.location.pathname === '/pickle-admin') {
+      sessionStorage.removeItem('picklepoint_checkout_details');
+      setCheckoutDetails(null);
+      window.history.pushState({}, '', '/pickle-admin');
+      setView('admin');
+      return;
+    }
+
+    // 5. URL view parameters
     const params = new URLSearchParams(window.location.search);
-    if (params.get('view') === 'register' || params.get('inviteToken') || window.location.pathname === '/register') {
-      setView('register');
-      return;
+    const isUserLoggedIn = !!auth?.currentUser || !!localStorage.getItem('picklepoint_session');
+
+    if (!isUserLoggedIn) {
+      if (params.get('view') === 'register' || params.get('inviteToken') || window.location.pathname === '/register') {
+        setView('register');
+        return;
+      }
+      if (params.get('view') === 'login' || params.get('invite') === 'true' || window.location.pathname === '/login') {
+        setView('login');
+        return;
+      }
+    } else {
+      if ((params.get('view') === 'login' || params.get('view') === 'register' || window.location.pathname === '/login' || window.location.pathname === '/register') && !params.get('inviteToken')) {
+        window.history.pushState({}, '', '/');
+      }
     }
-    if (params.get('view') === 'login' || params.get('invite') === 'true' || window.location.pathname === '/login') {
-      setView('login');
-      return;
-    }
+
     if (params.get('view') === 'lookup' || params.get('ref')) {
       setView('lookup');
       return;
@@ -133,32 +186,12 @@ function App() {
       return;
     }
 
-    const pendingCourtId = localStorage.getItem('picklepoint_pending_court_id');
-    const savedCheckoutStr = sessionStorage.getItem('picklepoint_checkout_details');
-
-    if (pendingCourtId) {
-      setSelectedCourtId(pendingCourtId);
+    if (selectedCourtId) {
       setView('details');
-      localStorage.removeItem('picklepoint_pending_court_id');
-    } else if (window.location.pathname === '/checkout' || (savedCheckoutStr && window.location.pathname !== '/pickle-admin')) {
-      if (savedCheckoutStr) {
-        try {
-          const parsed = JSON.parse(savedCheckoutStr);
-          setCheckoutDetails(parsed);
-          if (window.location.pathname !== '/checkout') {
-            window.history.pushState({}, '', '/checkout');
-          }
-          setView('checkout');
-          return;
-        } catch (e) {}
-      }
-      setView('landing');
-    } else if (window.location.pathname === '/pickle-admin') {
-      window.history.pushState({}, '', '/pickle-admin');
-      setView('admin');
-    } else {
-      setView('landing');
+      return;
     }
+
+    setView('landing');
   };
 
   // Check URL parameters for invitation links, tracking links & Open Play shareable links
@@ -212,6 +245,27 @@ function App() {
             } else {
               role = firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player';
               status = 'active';
+              try {
+                await setDoc(userDocRef, {
+                  uid: firebaseUser.uid,
+                  name: firebaseUser.displayName || 'Player',
+                  email: firebaseUser.email || '',
+                  role: role,
+                  status: 'active',
+                  createdAt: new Date().toISOString()
+                });
+                const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
+                const loginUrl = `${origin}/?view=login&registered=true&email=${encodeURIComponent(firebaseUser.email || '')}`;
+                const { sendRegistrationConfirmationEmail } = await import('./services/emailService');
+                sendRegistrationConfirmationEmail({
+                  toEmail: firebaseUser.email || '',
+                  toName: firebaseUser.displayName || 'Player',
+                  role: role,
+                  loginUrl,
+                }).catch((e) => console.warn('Welcome email error:', e));
+              } catch (e) {
+                console.warn('Could not auto-create user document on auth state change:', e);
+              }
             }
 
             if (status === 'inactive' || status === 'deleted') {
@@ -471,10 +525,16 @@ function App() {
       setView('details');
       localStorage.removeItem('picklepoint_pending_court_id');
     } else if (isClientAdminNeedsOnboarding) {
+      sessionStorage.removeItem('picklepoint_checkout_details');
+      setCheckoutDetails(null);
       setView('client_onboarding');
     } else if (updatedUser.isAdmin || updatedUser.email.toLowerCase() === 'admin@picklepoint.com') {
+      sessionStorage.removeItem('picklepoint_checkout_details');
+      setCheckoutDetails(null);
       window.history.pushState({}, '', '/pickle-admin');
       setView('admin');
+    } else if (selectedCourtId) {
+      setView('details');
     } else {
       setView('landing');
     }
@@ -491,6 +551,9 @@ function App() {
       localStorage.removeItem('picklepoint_session');
     }
     setUser(null);
+    setSelectedCourtId('');
+    sessionStorage.removeItem('picklepoint_active_court_id');
+    localStorage.removeItem('picklepoint_pending_court_id');
     window.history.pushState({}, '', '/');
     setView('landing');
   };
@@ -543,26 +606,32 @@ function App() {
 
   if (openPlayEventId && currentView !== 'login' && currentView !== 'register') {
     return (
-      <>
-        <OpenPlayDetails 
-          eventId={openPlayEventId} 
-          user={user} 
-          onNavigateToAuth={(mode) => setView(mode)} 
-          onBack={() => {
-            setOpenPlayEventId(null);
-            window.history.pushState({}, '', '/open-play');
-            setView('openplay');
-          }} 
-        />
+      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
+        <main className="flex-grow">
+          <OpenPlayDetails 
+            eventId={openPlayEventId} 
+            user={user} 
+            setCheckoutDetails={setCheckoutDetails}
+            setView={handleSetView}
+            onNavigateToAuth={(mode) => setView(mode)} 
+            onBack={() => {
+              setOpenPlayEventId(null);
+              window.history.pushState({}, '', '/open-play');
+              setView('openplay');
+            }} 
+          />
+        </main>
+        <Footer />
         {renderDeactivatedModal()}
-      </>
+      </div>
     );
   }
 
   if (currentView === 'login') {
     return (
       <>
-        <Login setView={setView} onLoginSuccess={handleLoginSuccess} invitationNotice={invitationNotice} />
+        <Login setView={handleSetView} onLoginSuccess={handleLoginSuccess} invitationNotice={invitationNotice} />
         {renderDeactivatedModal()}
       </>
     );
@@ -571,7 +640,7 @@ function App() {
   if (currentView === 'register') {
     return (
       <>
-        <Register setView={setView} onLoginSuccess={handleLoginSuccess} invitationNotice={invitationNotice} />
+        <Register setView={handleSetView} onLoginSuccess={handleLoginSuccess} invitationNotice={invitationNotice} />
         {renderDeactivatedModal()}
       </>
     );
@@ -596,7 +665,7 @@ function App() {
   if (currentView === 'admin') {
     return (
       <>
-        <AdminDashboard setView={setView} user={user} onLogout={handleLogout} />
+        <AdminDashboard setView={handleSetView} user={user} onLogout={handleLogout} />
         {renderDeactivatedModal()}
       </>
     );
@@ -606,13 +675,16 @@ function App() {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
 
         {/* Main Content Area */}
         <main className="flex-grow">
           <OpenPlayPage
-            onSelectEvent={(eventId) => setOpenPlayEventId(eventId)}
-            setView={setView}
+            onSelectEvent={(eventId) => {
+              window.scrollTo({ top: 0, behavior: 'instant' });
+              setOpenPlayEventId(eventId);
+            }}
+            setView={handleSetView}
           />
         </main>
 
@@ -627,11 +699,11 @@ function App() {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
 
         {/* Main Content Area */}
         <main className="flex-grow">
-          <Bootcamp setView={setView} />
+          <Bootcamp setView={handleSetView} />
         </main>
 
         {/* Footer Branding & Newsletter */}
@@ -645,11 +717,11 @@ function App() {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
 
         {/* Main Content Area */}
         <main className="flex-grow">
-          <BookingStatus setView={setView} />
+          <BookingStatus setView={handleSetView} />
         </main>
 
         {/* Footer Branding & Newsletter */}
@@ -663,12 +735,12 @@ function App() {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
 
         {/* Main Content Area */}
         <main className="flex-grow pt-28 pb-20 md:pt-36 md:pb-28">
           <Checkout
-            setView={setView}
+            setView={handleSetView}
             user={user}
             checkoutDetails={checkoutDetails}
             setCheckoutDetails={setCheckoutDetails}
@@ -687,13 +759,13 @@ function App() {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
 
         {/* Main Content Area */}
         <main className="flex-grow">
           <CourtDetails
             courtId={selectedCourtId}
-            setView={setView}
+            setView={handleSetView}
             user={user}
             setSelectedCourtId={setSelectedCourtId}
             setCheckoutDetails={setCheckoutDetails}
@@ -711,11 +783,11 @@ function App() {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
 
         {/* Main Content Area */}
         <main className="flex-grow pt-20">
-          <Profile user={user} setView={setView} onLogout={handleLogout} />
+          <Profile user={user} setView={handleSetView} onLogout={handleLogout} />
         </main>
 
         {/* Footer Branding & Newsletter */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Trophy,
   Calendar,
@@ -15,8 +15,16 @@ import {
   Upload,
   UserCheck,
   MapPin,
-  Building2
+  Building2,
+  CheckCircle,
+  Eye,
+  X,
+  Navigation,
+  ExternalLink,
+  Sparkles,
+  Repeat,
 } from 'lucide-react';
+import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, getDoc, collection, getDocs, setDoc, query, where } from 'firebase/firestore';
 
@@ -38,10 +46,12 @@ export interface OpenPlayEvent {
   gcashQrCode?: string;
   companyId?: string;
   companyName?: string;
+  companyLogoUrl?: string;
   createdByUid: string;
   createdByEmail: string;
   createdAt: string;
   status: 'active' | 'completed' | 'cancelled' | 'expired';
+  rotationRule?: 'winners_stay' | 'all_4_rotate' | 'split_winners';
   courtIds?: string[];
   courtNames?: string[];
   isRecurring?: boolean;
@@ -49,31 +59,76 @@ export interface OpenPlayEvent {
   recurrenceGroupId?: string;
 }
 
+export interface AssignedCourtInfo {
+  id: string;
+  name: string;
+  location?: string;
+  barangay?: string;
+  municipality?: string;
+  province?: string;
+  mapUrl?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 export const isEventExpired = (eventDate: string, endTime?: string): boolean => {
-  if (!eventDate) return false;
+  if (!eventDate || !eventDate.trim()) return false;
   const now = new Date();
   
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const todayStr = `${year}-${month}-${day}`;
-  
-  if (eventDate < todayStr) return true;
-  if (eventDate > todayStr) return false;
+  let evYear: number | null = null;
+  let evMonth: number | null = null;
+  let evDay: number | null = null;
 
-  if (!endTime) return false;
+  const trimmedDate = eventDate.trim();
   
+  const isoMatch = trimmedDate.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  const usMatch = trimmedDate.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+
+  if (isoMatch) {
+    evYear = parseInt(isoMatch[1], 10);
+    evMonth = parseInt(isoMatch[2], 10);
+    evDay = parseInt(isoMatch[3], 10);
+  } else if (usMatch) {
+    evMonth = parseInt(usMatch[1], 10);
+    evDay = parseInt(usMatch[2], 10);
+    evYear = parseInt(usMatch[3], 10);
+  } else {
+    const parsed = new Date(trimmedDate);
+    if (!isNaN(parsed.getTime())) {
+      evYear = parsed.getFullYear();
+      evMonth = parsed.getMonth() + 1;
+      evDay = parsed.getDate();
+    }
+  }
+
+  if (!evYear || !evMonth || !evDay) return false;
+
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+  const curDay = now.getDate();
+
+  if (evYear < curYear) return true;
+  if (evYear > curYear) return false;
+
+  if (evMonth < curMonth) return true;
+  if (evMonth > curMonth) return false;
+
+  if (evDay < curDay) return true;
+  if (evDay > curDay) return false;
+
+  if (!endTime || !endTime.trim()) return false;
+
   let endHour = 23;
   let endMinute = 59;
   
-  const trimmed = endTime.trim();
-  if (trimmed.includes(':')) {
-    const parts = trimmed.split(':');
+  const trimmedTime = endTime.trim();
+  if (trimmedTime.includes(':')) {
+    const parts = trimmedTime.split(':');
     let h = parseInt(parts[0], 10);
     let m = parseInt(parts[1]?.substring(0, 2) || '0', 10);
     
-    if (trimmed.toLowerCase().includes('pm') && h < 12) h += 12;
-    if (trimmed.toLowerCase().includes('am') && h === 12) h = 0;
+    if (trimmedTime.toLowerCase().includes('pm') && h < 12) h += 12;
+    if (trimmedTime.toLowerCase().includes('am') && h === 12) h = 0;
     
     endHour = isNaN(h) ? 23 : h;
     endMinute = isNaN(m) ? 59 : m;
@@ -88,17 +143,220 @@ export const isEventExpired = (eventDate: string, endTime?: string): boolean => 
   return false;
 };
 
+export const calculateEventDuration = (startTime?: string, endTime?: string): string => {
+  if (!startTime || !endTime) return '';
+  
+  const parseMins = (tStr: string) => {
+    const trimmed = tStr.trim();
+    let h = 0;
+    let m = 0;
+    if (trimmed.includes(':')) {
+      const parts = trimmed.split(':');
+      h = parseInt(parts[0], 10) || 0;
+      m = parseInt(parts[1]?.substring(0, 2) || '0', 10) || 0;
+      if (trimmed.toLowerCase().includes('pm') && h < 12) h += 12;
+      if (trimmed.toLowerCase().includes('am') && h === 12) h = 0;
+    }
+    return h * 60 + m;
+  };
+
+  const startMins = parseMins(startTime);
+  let endMins = parseMins(endTime);
+
+  if (endMins <= startMins) {
+    endMins += 24 * 60;
+  }
+
+  const diffMins = endMins - startMins;
+  const hours = Math.floor(diffMins / 60);
+  const mins = diffMins % 60;
+
+  if (hours > 0 && mins > 0) {
+    return `${hours} hrs ${mins} mins gameplay`;
+  } else if (hours > 0) {
+    return `${hours} ${hours === 1 ? 'hr' : 'hrs'} gameplay`;
+  } else {
+    return `${mins} mins gameplay`;
+  }
+};
+
+export const formatTime12h = (timeStr?: string): string => {
+  if (!timeStr) return '';
+  const match12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (match12) return `${match12[1]}:${match12[2]} ${match12[3].toUpperCase()}`;
+  
+  let h = 0;
+  let m = 0;
+  if (timeStr.includes(':')) {
+    const parts = timeStr.trim().split(':');
+    h = parseInt(parts[0], 10) || 0;
+    m = parseInt(parts[1]?.substring(0, 2) || '0', 10) || 0;
+  }
+  const period = h >= 12 ? 'PM' : 'AM';
+  const displayH = h % 12 || 12;
+  return `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
+};
+
+export const formatEventDateLong = (dateStr?: string): string => {
+  if (!dateStr || !dateStr.trim()) return '';
+  
+  const match = dateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    const monthIndex = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    const d = new Date(year, monthIndex, day);
+    if (!isNaN(d.getTime())) {
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${dayNames[d.getDay()]}`;
+    }
+  }
+
+  try {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${dayNames[d.getDay()]}`;
+    }
+  } catch (e) {}
+
+  return dateStr;
+};
+
+export const splitAddressComponents = (locationStr?: string) => {
+  if (!locationStr || !locationStr.trim()) return { primary: '', secondary: '' };
+  
+  let cleaned = locationStr.trim();
+  cleaned = cleaned.replace(/,\s*Philippines$/i, '');
+  cleaned = cleaned.replace(/,\s*Region\s+[I|V|X|VI|VII|VIII|IX|XI|XII|XIII\d]+(?:\s*\([^)]*\))?/gi, '');
+  cleaned = cleaned.replace(/,\s*Postal:\s*\d+/gi, '');
+  cleaned = cleaned.replace(/,\s*\d{4,}$/gi, '');
+
+  const parts = cleaned.split(',').map(s => s.trim()).filter(Boolean);
+  
+  if (parts.length <= 1) {
+    return { primary: cleaned, secondary: '' };
+  }
+
+  if (parts.length === 2) {
+    return { primary: parts[0], secondary: parts[1] };
+  }
+
+  let secondaryStartIndex = Math.max(1, parts.length - 2);
+  
+  for (let i = 0; i < parts.length; i++) {
+    const partLower = parts[i].toLowerCase();
+    if (
+      partLower.includes('city') ||
+      partLower.includes('municipality') ||
+      partLower.includes('libmanan') ||
+      partLower.includes('naga') ||
+      partLower.includes('sur') ||
+      partLower.includes('norte') ||
+      partLower.includes('metro') ||
+      partLower.includes('manila')
+    ) {
+      secondaryStartIndex = i;
+      break;
+    }
+  }
+
+  const primary = parts.slice(0, secondaryStartIndex).join(', ');
+  const secondary = parts.slice(secondaryStartIndex).join(', ');
+
+  return { primary: primary || parts[0], secondary: secondary || parts.slice(1).join(', ') };
+};
+
+export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => {
+  if (!data) {
+    return {
+      id,
+      title: 'Open Play Session',
+      eventDate: '',
+      startTime: '18:00',
+      endTime: '21:00',
+      category: 'Open to All',
+      description: '',
+      maxParticipants: 16,
+      registrationFee: 0,
+      createdByUid: '',
+      createdByEmail: '',
+      createdAt: new Date().toISOString(),
+      status: 'active'
+    };
+  }
+
+  const eventDate = data.eventDate || data.date || data.startDate || data.event_date || data.scheduleDate || data.day || '';
+  const endTime = data.endTime || '21:00';
+  const isPast = isEventExpired(eventDate, endTime);
+
+  let effectiveStatus: 'active' | 'completed' | 'cancelled' | 'expired' = data.status || (isPast ? 'expired' : 'active');
+  if (isPast && effectiveStatus === 'active') {
+    effectiveStatus = 'expired';
+  } else if (!isPast && effectiveStatus === 'expired') {
+    effectiveStatus = 'active';
+  }
+
+  return {
+    id,
+    title: data.title || data.name || data.eventTitle || 'Open Play Session',
+    location: data.location || data.address || '',
+    eventDate,
+    startTime: data.startTime || '18:00',
+    endTime,
+    category: data.category || data.skillLevel || 'Open to All',
+    description: data.description || '',
+    posterImageUrl: data.posterImageUrl || data.imageUrl || data.posterUrl || undefined,
+    maxParticipants: Number(data.maxParticipants || data.maxPlayers || data.slots) || 16,
+    registrationFee: Number(data.registrationFee || data.fee || data.price) || 0,
+    gcashAccountId: data.gcashAccountId || 'global',
+    gcashName: data.gcashName || '',
+    gcashNumber: data.gcashNumber || '',
+    gcashQrCode: data.gcashQrCode || '',
+    companyId: data.companyId || '',
+    companyName: data.companyName || '',
+    companyLogoUrl: data.companyLogoUrl || data.logoUrl || data.companyLogo || undefined,
+    createdByUid: data.createdByUid || '',
+    createdByEmail: data.createdByEmail || '',
+    createdAt: data.createdAt || new Date().toISOString(),
+    status: effectiveStatus,
+    rotationRule: data.rotationRule || 'winners_stay',
+    courtIds: data.courtIds || [],
+    courtNames: data.courtNames || [],
+    isRecurring: Boolean(data.isRecurring),
+    recurrencePattern: data.recurrencePattern,
+    recurrenceGroupId: data.recurrenceGroupId
+  };
+};
+
 export interface OpenPlayRegistration {
   id: string;
   eventId: string;
-  eventTitle: string;
-  eventDate: string;
-  registrationFee: number;
-  playerUid: string;
-  playerName: string;
-  playerEmail: string;
+  eventTitle?: string;
+  eventDate?: string;
+  registrationFee?: number;
+  playerUid?: string;
+  userId?: string;
+  playerName?: string;
+  userName?: string;
+  playerEmail?: string;
+  userEmail?: string;
   playerPhone?: string;
-  gcashReferenceNumber: string;
+  userPhone?: string;
+  playerCount?: number;
+  guestCount?: number;
+  guests?: { name: string; email?: string }[];
+  guestNames?: string[];
+  guestEmails?: string[];
+  gcashReferenceNumber?: string;
   receiptImageUrl?: string;
   paymentStatus: 'pending_verification' | 'paid' | 'failed';
   status: 'pending' | 'approved' | 'cancelled';
@@ -110,9 +368,11 @@ interface OpenPlayDetailsProps {
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
   onNavigateToAuth: (mode: 'login' | 'register') => void;
   onBack: () => void;
+  setCheckoutDetails?: (details: any) => void;
+  setView?: (view: any) => void;
 }
 
-export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBack }: OpenPlayDetailsProps) {
+export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBack, setCheckoutDetails, setView }: OpenPlayDetailsProps) {
   const [event, setEvent] = useState<OpenPlayEvent | null>(null);
   const [registrations, setRegistrations] = useState<OpenPlayRegistration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,8 +385,12 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [companyInfo, setCompanyInfo] = useState<{ name: string; logoUrl: string }>({ name: '', logoUrl: '' });
+  const [associatedCourt, setAssociatedCourt] = useState<AssignedCourtInfo | null>(null);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
 
   useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
     fetchEventDetails();
   }, [eventId]);
 
@@ -154,6 +418,91 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
           const localEvents = JSON.parse(localEventsStr) as OpenPlayEvent[];
           foundEvent = localEvents.find(e => e.id === eventId) || null;
         }
+      }
+
+      // Fetch company logo and name from companies or users collection
+      if (foundEvent) {
+        let compName = foundEvent.companyName || '';
+        let compLogo = foundEvent.companyLogoUrl || '';
+
+        if (isFirebaseConfigured && db) {
+          if (foundEvent.companyId) {
+            try {
+              const compSnap = await getDoc(doc(db, 'companies', foundEvent.companyId));
+              if (compSnap.exists()) {
+                const compData = compSnap.data();
+                compName = compName || compData.name || compData.companyName || '';
+                compLogo = compLogo || compData.logoUrl || compData.logo || '';
+              }
+            } catch (e) {}
+          }
+          if ((!compName || !compLogo) && foundEvent.createdByUid) {
+            try {
+              const userSnap = await getDoc(doc(db, 'users', foundEvent.createdByUid));
+              if (userSnap.exists()) {
+                const uData = userSnap.data();
+                compName = compName || uData.companyName || uData.name || '';
+                compLogo = compLogo || uData.companyLogoUrl || uData.logoUrl || '';
+              }
+            } catch (e) {}
+          }
+        }
+        setCompanyInfo({ name: compName || 'PicklePoint Venue Host', logoUrl: compLogo });
+
+        // Fetch associated court details for exact location & map pin matching View Court Details page
+        let matchedCourt: AssignedCourtInfo | null = null;
+        const targetCourtId = (foundEvent.courtIds && foundEvent.courtIds.length > 0) ? foundEvent.courtIds[0] : null;
+
+        if (targetCourtId && isFirebaseConfigured && db) {
+          try {
+            const courtSnap = await getDoc(doc(db, 'courts', targetCourtId));
+            if (courtSnap.exists()) {
+              const cData = courtSnap.data();
+              matchedCourt = {
+                id: courtSnap.id,
+                name: cData.name || '',
+                location: cData.location || '',
+                barangay: cData.barangay || '',
+                municipality: cData.municipality || '',
+                province: cData.province || '',
+                mapUrl: cData.mapUrl || '',
+                latitude: cData.latitude,
+                longitude: cData.longitude,
+              };
+            }
+          } catch (cErr) {
+            console.warn('Failed to read court from Firestore:', cErr);
+          }
+        }
+
+        if (!matchedCourt) {
+          const localCourtsStr = localStorage.getItem('picklepoint_courts');
+          if (localCourtsStr) {
+            try {
+              const localCourts = JSON.parse(localCourtsStr) as any[];
+              const foundC = localCourts.find((c: any) =>
+                (targetCourtId && c.id === targetCourtId) ||
+                (foundEvent?.companyId && c.companyId === foundEvent.companyId) ||
+                (foundEvent?.createdByUid && c.ownerId === foundEvent.createdByUid)
+              );
+              if (foundC) {
+                matchedCourt = {
+                  id: foundC.id,
+                  name: foundC.name || '',
+                  location: foundC.location || '',
+                  barangay: foundC.barangay || '',
+                  municipality: foundC.municipality || '',
+                  province: foundC.province || '',
+                  mapUrl: foundC.mapUrl || '',
+                  latitude: foundC.latitude,
+                  longitude: foundC.longitude,
+                };
+              }
+            } catch (e) {}
+          }
+        }
+
+        setAssociatedCourt(matchedCourt);
       }
 
       // Fetch registrations for this event directly using Firestore query
@@ -187,12 +536,174 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       setLoading(false);
     }
   };
+  const getFormattedEventDate = (dateStr?: string) => {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr + 'T00:00:00');
+      if (isNaN(d.getTime())) return dateStr;
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+      const monthName = d.toLocaleDateString('en-US', { month: 'short' });
+      const dayNum = d.getDate();
+      const year = d.getFullYear();
+      return `${dayName}, ${monthName} ${dayNum}, ${year}`;
+    } catch (e) {
+      return dateStr;
+    }
+  };
 
-  const isAlreadyRegistered = user && registrations.some(r => r.playerEmail.toLowerCase() === user.email.toLowerCase() || (user.uid && r.playerUid === user.uid));
-  const activeRegistrationsCount = registrations.filter(r => r.status !== 'cancelled').length;
+  const parseTimeToMinutes = (timeStr?: string) => {
+    if (!timeStr) return 0;
+    const match12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match12) {
+      let hours = parseInt(match12[1], 10);
+      const minutes = parseInt(match12[2], 10);
+      const period = match12[3].toUpperCase();
+      if (period === 'PM' && hours < 12) hours += 12;
+      if (period === 'AM' && hours === 12) hours = 0;
+      return hours * 60 + minutes;
+    }
+    const match24 = timeStr.match(/^(\d{1,2}):(\d{2})/);
+    if (match24) {
+      const hours = parseInt(match24[1], 10);
+      const minutes = parseInt(match24[2], 10);
+      return hours * 60 + minutes;
+    }
+    return 0;
+  };
+
+  const formatTime12h = (timeStr?: string) => {
+    if (!timeStr) return '';
+    const match12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match12) return `${match12[1]}:${match12[2]} ${match12[3].toUpperCase()}`;
+    const totalMins = parseTimeToMinutes(timeStr);
+    let hours = Math.floor(totalMins / 60);
+    const mins = totalMins % 60;
+    const period = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${hours}:${mins.toString().padStart(2, '0')} ${period}`;
+  };
+
+  const calculateDuration = (startTime?: string, endTime?: string) => {
+    if (!startTime || !endTime) return '';
+    const startMins = parseTimeToMinutes(startTime);
+    const endMins = parseTimeToMinutes(endTime);
+    let diff = endMins - startMins;
+    if (diff <= 0) diff += 24 * 60;
+    const hours = diff / 60;
+    return hours % 1 === 0 ? `${hours} hrs` : `${hours.toFixed(1)} hrs`;
+  };
+
+  const parsedMapInfo = useMemo(() => {
+    if (!event) return null;
+
+    if (associatedCourt) {
+      const courtFallback = [
+        associatedCourt.name,
+        associatedCourt.location,
+        associatedCourt.barangay,
+        associatedCourt.municipality,
+        associatedCourt.province
+      ].filter(Boolean).join(', ');
+
+      if (associatedCourt.latitude !== undefined && associatedCourt.longitude !== undefined && associatedCourt.latitude !== null && associatedCourt.longitude !== null) {
+        const coordUrl = `https://www.google.com/maps?q=${associatedCourt.latitude},${associatedCourt.longitude}`;
+        return parseGoogleMapsUrl(coordUrl, courtFallback || event.location);
+      }
+      if (associatedCourt.mapUrl) {
+        return parseGoogleMapsUrl(associatedCourt.mapUrl, courtFallback || event.location);
+      }
+    }
+
+    if (event.location) {
+      return parseGoogleMapsUrl('', event.location);
+    }
+    return null;
+  }, [event, associatedCourt]);
+
+  const directionsUrl = useMemo(() => {
+    if (associatedCourt?.latitude && associatedCourt?.longitude) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${associatedCourt.latitude},${associatedCourt.longitude}`;
+    }
+    if (parsedMapInfo?.coordinates) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${parsedMapInfo.coordinates.lat},${parsedMapInfo.coordinates.lng}`;
+    }
+    if (parsedMapInfo?.directUrl) {
+      return parsedMapInfo.directUrl;
+    }
+    if (event?.location) {
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.location)}`;
+    }
+    return '';
+  }, [associatedCourt, parsedMapInfo, event]);
+
+  const displayCompanyName = event?.companyName || companyInfo.name || 'PicklePoint Venue Host';
+  const displayCompanyLogo = companyInfo.logoUrl || event?.companyLogoUrl || '';
+
+  const handleProceedToCheckout = () => {
+    if (!event) return;
+    if (isExpired) {
+      alert('This Open Play session has already concluded.');
+      return;
+    }
+    if (isFull) {
+      alert('This Open Play session is at maximum capacity.');
+      return;
+    }
+    if (!user) {
+      onNavigateToAuth('login');
+      return;
+    }
+
+    const durationText = calculateDuration(event.startTime, event.endTime);
+    const slotString = `${formatTime12h(event.startTime)} - ${formatTime12h(event.endTime)}${durationText ? ` (${durationText})` : ''}`;
+
+    const checkoutPayload = {
+      type: 'openplay',
+      openPlayEventId: event.id,
+      openPlayTitle: event.title,
+      openPlayCategory: event.category,
+      courtId: event.id,
+      courtName: event.title,
+      courtType: event.category,
+      courtImage: event.posterImageUrl || '',
+      courtLocation: event.location || '',
+      date: event.eventDate,
+      slots: [slotString],
+      rentals: [],
+      basePricePerSpot: event.registrationFee,
+      maxAvailableSlots: availableSlots,
+      totalCost: event.registrationFee,
+      companyId: event.companyId,
+      courtOwnerId: event.createdByUid,
+      gcashAccountId: event.gcashAccountId,
+      companyName: displayCompanyName,
+      companyLogoUrl: displayCompanyLogo,
+      gcashName: event.gcashName,
+      gcashNumber: event.gcashNumber,
+      gcashQrCode: event.gcashQrCode,
+    };
+
+    if (setCheckoutDetails) {
+      setCheckoutDetails(checkoutPayload);
+    }
+    if (setView) {
+      window.history.pushState({}, '', '/checkout');
+      setView('checkout');
+    }
+  };
+
+  const isAlreadyRegistered = user && registrations.some(r => r.status !== 'cancelled' && (r.playerEmail.toLowerCase() === user.email.toLowerCase() || (user.uid && r.playerUid === user.uid)));
+  const activeRegistrations = useMemo(() => registrations.filter(r => r.status !== 'cancelled'), [registrations]);
+  const approvedRegistrations = useMemo(() => activeRegistrations.filter(r => r.status === 'approved' || r.paymentStatus === 'paid'), [activeRegistrations]);
+  const pendingRegistrations = useMemo(() => activeRegistrations.filter(r => r.status === 'pending' || r.paymentStatus === 'pending_verification'), [activeRegistrations]);
+
+  const activeRegistrationsCount = useMemo(() => activeRegistrations.reduce((acc, r) => acc + (r.playerCount || 1), 0), [activeRegistrations]);
+  const approvedCount = useMemo(() => approvedRegistrations.reduce((acc, r) => acc + (r.playerCount || 1), 0), [approvedRegistrations]);
+  const pendingCount = useMemo(() => pendingRegistrations.reduce((acc, r) => acc + (r.playerCount || 1), 0), [pendingRegistrations]);
   const availableSlots = event ? Math.max(0, event.maxParticipants - activeRegistrationsCount) : 0;
   const isFull = availableSlots <= 0;
   const isExpired = event ? isEventExpired(event.eventDate, event.endTime) : false;
+  const fillPercentage = event ? Math.min(100, Math.round((activeRegistrationsCount / event.maxParticipants) * 100)) : 0;
 
   const handleProcessReceiptUpload = (file: File) => {
     const reader = new FileReader();
@@ -245,6 +756,10 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       playerName: user.name,
       playerEmail: user.email,
       playerPhone: playerPhone.trim(),
+      playerCount: 1,
+      guestCount: 0,
+      guests: [],
+      guestNames: [],
       gcashReferenceNumber: isFree ? 'FREE-ENTRY' : gcashRef.trim(),
       receiptImageUrl: receiptImage || undefined,
       paymentStatus: isFree ? 'paid' : 'pending_verification',
@@ -308,32 +823,41 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   }
 
   return (
-    <div className="min-h-screen bg-dark-bg text-slate-100 relative overflow-hidden py-12 px-4">
+    <div className="min-h-screen bg-dark-bg text-slate-100 relative overflow-hidden pt-20 md:pt-24 pb-12 px-4 md:px-8">
       {/* Decorative background glows */}
       <div className="absolute top-[5%] left-[15%] w-[45%] h-[45%] bg-brand-lime/10 blur-[150px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[5%] right-[15%] w-[45%] h-[45%] bg-brand-emerald/10 blur-[150px] rounded-full pointer-events-none"></div>
 
-      {/* Lightbox for receipt or QR code */}
+      {/* Lightbox for poster, receipt or QR code */}
       {lightboxImage && (
         <div 
           onClick={() => setLightboxImage(null)} 
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out animate-fade-in"
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 cursor-zoom-out animate-fade-in"
         >
-          <div className="relative max-w-xl max-h-[85vh] rounded-2xl overflow-hidden border border-slate-700 shadow-2xl">
-            <img src={lightboxImage} alt="Enlarged preview" className="w-full h-full object-contain" />
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-5xl max-h-[90vh] w-full rounded-3xl overflow-y-auto custom-scrollbar bg-slate-950 border border-slate-800 shadow-2xl p-3 sm:p-5 flex flex-col items-center cursor-default"
+          >
             <button 
               onClick={() => setLightboxImage(null)}
-              className="absolute top-3 right-3 p-2 rounded-full bg-slate-900/80 text-white hover:bg-slate-800 transition-colors"
+              className="sticky top-2 right-2 self-end z-20 p-2.5 rounded-full bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors shadow-lg cursor-pointer"
+              title="Close Fullscreen View"
             >
-              ×
+              <X className="w-5 h-5" />
             </button>
+
+            <img
+              src={lightboxImage}
+              alt="Enlarged poster preview"
+              className="max-w-full h-auto object-contain rounded-2xl select-none mx-auto shadow-2xl my-auto"
+            />
           </div>
         </div>
       )}
 
-      <div className="max-w-4xl mx-auto relative z-10">
+      <div className="w-full max-w-7xl mx-auto relative z-10">
         {/* Navigation Bar */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <button
             onClick={onBack}
             className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors cursor-pointer group uppercase tracking-wider"
@@ -341,12 +865,6 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
             <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
             Back to App
           </button>
-          {event.companyName && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-lime/10 border border-brand-lime/20 text-brand-lime text-xs font-extrabold uppercase tracking-wider">
-              <Shield className="w-3.5 h-3.5" />
-              <span>{event.companyName}</span>
-            </div>
-          )}
         </div>
 
         {/* Main Event Registration Container */}
@@ -356,9 +874,21 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 mb-8 pb-8 border-b border-dark-border/60">
             {/* Event Poster Column */}
             <div className="md:col-span-5">
-              <div className="w-full aspect-[4/5] rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden relative shadow-xl group">
+              <div
+                onClick={() => event.posterImageUrl && setLightboxImage(event.posterImageUrl)}
+                className={`w-full aspect-[4/5] rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden relative shadow-xl group ${
+                  event.posterImageUrl ? 'cursor-zoom-in' : ''
+                }`}
+              >
                 {event.posterImageUrl ? (
-                  <img src={event.posterImageUrl} alt={event.title} className="w-full h-full object-cover" />
+                  <>
+                    <img src={event.posterImageUrl} alt={event.title} className="w-full h-full object-contain group-hover:scale-102 transition-transform duration-300" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                      <span className="px-3 py-1.5 rounded-xl bg-slate-950/90 border border-brand-lime/50 text-brand-lime text-xs font-bold shadow-lg flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5" /> Tap for Fullscreen
+                      </span>
+                    </div>
+                  </>
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-br from-slate-900 via-slate-950 to-dark-bg">
                     <Trophy className="w-16 h-16 text-brand-lime/40 mb-3" />
@@ -376,44 +906,132 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
             {/* Event Info Column */}
             <div className="md:col-span-7 flex flex-col justify-between text-left">
               <div>
-                <div className="flex items-center gap-2 text-xs font-extrabold text-brand-lime uppercase tracking-widest mb-2">
-                  <Trophy className="w-4 h-4" /> Open Play Registration
+                {/* Title Header Row with Book Now Button Opposite Title */}
+                <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                  <div>
+                    <div className="flex items-center gap-2 text-xs font-extrabold text-brand-lime uppercase tracking-widest mb-1.5">
+                      <Trophy className="w-4 h-4" /> Open Play Event
+                    </div>
+
+                    <h1 className="text-2xl md:text-4xl font-extrabold text-white leading-tight">{event.title}</h1>
+                  </div>
+
+                  {/* Book Now Button Opposite Title */}
+                  <button
+                    type="button"
+                    onClick={handleProceedToCheckout}
+                    disabled={isExpired || isFull}
+                    className="px-7 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs md:text-sm uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-xl shadow-brand-lime/10 flex items-center gap-2.5 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 my-auto"
+                  >
+                    <Sparkles className="w-4.5 h-4.5 text-dark-bg" />
+                    <span>{isExpired ? 'Session Concluded' : isFull ? 'Session Full' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+                  </button>
                 </div>
-                <h1 className="text-2xl md:text-4xl font-extrabold text-white leading-tight mb-4">{event.title}</h1>
+
+                {/* Host Company Card under Title */}
+                {displayCompanyName && (
+                  <div className="flex items-center gap-3 py-2.5 px-4 rounded-2xl bg-slate-900/80 border border-slate-800 w-fit mb-6 shadow-sm">
+                    {displayCompanyLogo ? (
+                      <img src={displayCompanyLogo} alt={displayCompanyName} className="w-8 h-8 rounded-full object-cover border border-brand-lime/40 flex-shrink-0" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center flex-shrink-0">
+                        <Building2 className="w-4 h-4" />
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hosted & Managed By</div>
+                      <div className="text-xs font-black text-white flex items-center gap-1.5">
+                        <span>{displayCompanyName}</span>
+                        <Shield className="w-3.5 h-3.5 text-brand-lime" />
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Date, Time & Location Highlights */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
                   <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime">
+                    <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime flex-shrink-0">
                       <Calendar className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Event Date</div>
-                      <div className="text-xs font-black text-white">{event.eventDate}</div>
+                      <div className="text-xs font-black text-white">{getFormattedEventDate(event.eventDate)}</div>
                     </div>
                   </div>
 
                   <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
                       <Clock className="w-5 h-5" />
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time Slot</div>
-                      <div className="text-xs font-black text-white">{event.startTime} - {event.endTime}</div>
+                      <div className="text-xs font-black text-white flex items-center gap-1.5 flex-wrap">
+                        <span>{formatTime12h(event.startTime)} - {formatTime12h(event.endTime)}</span>
+                        {calculateDuration(event.startTime, event.endTime) && (
+                          <span className="px-2 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/30 text-blue-400 text-[10px] font-extrabold uppercase tracking-wider">
+                            {calculateDuration(event.startTime, event.endTime)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {event.location && (
-                    <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3 sm:col-span-2">
-                      <div className="w-10 h-10 rounded-xl bg-brand-emerald/10 border border-brand-emerald/20 flex items-center justify-center text-brand-emerald">
-                        <MapPin className="w-5 h-5" />
+                  {event.location && (() => {
+                    const { primary, secondary } = splitAddressComponents(event.location);
+                    return (
+                      <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-start justify-between gap-3 sm:col-span-2">
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-brand-emerald/10 border border-brand-emerald/20 flex items-center justify-center text-brand-emerald flex-shrink-0 mt-0.5">
+                            <MapPin className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venue Location</div>
+                            <div className="text-xs font-extrabold text-white">{primary}</div>
+                            {secondary && (
+                              <div className="text-xs font-semibold text-brand-emerald/90 mt-0.5">{secondary}</div>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsMapModalOpen(true)}
+                          className="px-3.5 py-2 rounded-xl bg-brand-emerald/10 hover:bg-brand-emerald/20 border border-brand-emerald/30 text-brand-emerald text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:scale-[1.02] flex-shrink-0 self-center"
+                        >
+                          <MapPin className="w-4 h-4 text-brand-emerald" />
+                          <span>View Map</span>
+                        </button>
                       </div>
-                      <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venue Location</div>
-                        <div className="text-xs font-black text-white">{event.location}</div>
+                    );
+                  })()}
+
+                  {/* Paddle Rotation Rule */}
+                  <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3 sm:col-span-2">
+                    <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 flex-shrink-0">
+                      <Repeat className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Court Rotation & Play Format</div>
+                      <div className="text-xs font-black text-white">
+                        {(!event.rotationRule || event.rotationRule === 'winners_stay') && (
+                          <span className="text-brand-lime font-extrabold">
+                            👑 Winners Stay, Losers Rotate (Max 2 games stay)
+                          </span>
+                        )}
+                        {event.rotationRule === 'all_4_rotate' && (
+                          <span className="text-blue-400 font-extrabold">
+                            🔄 All 4 Players Rotate Off (Full Court Rotation)
+                          </span>
+                        )}
+                        {event.rotationRule === 'split_winners' && (
+                          <span className="text-purple-300 font-extrabold">
+                            🔀 Split Winners & Rotate (Mix & Match Partners)
+                          </span>
+                        )}
                       </div>
                     </div>
-                  )}
+                  </div>
 
                   {event.courtNames && event.courtNames.length > 0 && (
                     <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3 sm:col-span-2">
@@ -439,30 +1057,73 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                 )}
               </div>
 
-              {/* Event Key Stats Card */}
-              <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Registration Fee</div>
-                  <div className="text-xl font-black text-brand-lime font-sans">
-                    {event.registrationFee > 0 ? `₱${event.registrationFee}` : 'FREE ENTRY'}
+              {/* Event Key Stats Card & Live Capacity Progress Bar */}
+              <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4 shadow-lg">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Registration Fee</div>
+                    <div className="text-2xl font-black text-brand-lime font-sans mt-0.5">
+                      {event.registrationFee > 0 ? `₱${event.registrationFee}` : 'FREE ENTRY'}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Session Capacity</div>
+                    <div className="text-sm font-black text-white flex items-center gap-1.5 justify-end mt-0.5">
+                      <Users className="w-4 h-4 text-brand-lime" />
+                      <span className={isFull ? 'text-red-400 font-extrabold' : 'text-slate-200'}>
+                        {activeRegistrationsCount} / {event.maxParticipants} Registered
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-extrabold mt-0.5">
+                      {isFull ? (
+                        <span className="text-red-400 uppercase tracking-wider">Full / Waitlist Only</span>
+                      ) : (
+                        <span className="text-brand-lime">{availableSlots} {availableSlots === 1 ? 'slot' : 'slots'} remaining</span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Available Capacity</div>
-                  <div className="text-xs font-black text-white flex items-center gap-1.5 justify-end mt-0.5">
-                    <Users className="w-4 h-4 text-brand-lime" />
-                    <span className={isFull ? 'text-red-400' : 'text-slate-200'}>
-                      {activeRegistrationsCount} / {event.maxParticipants} Registered ({availableSlots} slots left)
-                    </span>
+                {/* Animated Capacity Progress Bar */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between text-[11px] font-bold">
+                    <span className="text-slate-400 uppercase tracking-wider">Capacity Fill Rate</span>
+                    <span className="text-slate-300 font-mono">{fillPercentage}% Full</span>
                   </div>
+                  <div className="w-full h-3 rounded-full bg-slate-950 border border-slate-800 overflow-hidden flex">
+                    <div
+                      style={{ width: `${fillPercentage}%` }}
+                      className={`h-full transition-all duration-500 ${
+                        isFull ? 'bg-red-500' : fillPercentage > 80 ? 'bg-amber-400' : 'bg-brand-lime'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {/* Registration Status Breakdown Badges */}
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] pt-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-lg bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold flex items-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5" /> {approvedCount} Confirmed
+                    </span>
+                    {pendingCount > 0 && (
+                      <span className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5" /> {pendingCount} Pending Review
+                      </span>
+                    )}
+                  </div>
+
+                  <span className="text-slate-500 text-[10px] font-medium">
+                    Updated real-time from roster
+                  </span>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Registration Section / Step Switcher */}
-          <div className="text-left">
+          {/* Action Bar & Registration Control */}
+          <div className="text-left mt-8">
             {/* CASE 0: Event Expired / Concluded */}
             {isExpired && (
               <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-center animate-fade-in">
@@ -531,232 +1192,154 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
               </div>
             )}
 
-            {/* CASE 5: Not Registered, User Authenticated, Slots Available */}
-            {event.status === 'active' && !isAlreadyRegistered && user && !isFull && (
-              <div>
-                {step === 'details' && (
-                  <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800 animate-fade-in">
-                    <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-                      <UserCheck className="w-5 h-5 text-brand-lime" /> Player Details Confirmation
-                    </h3>
-                    <p className="text-xs text-slate-400 mb-6">Confirm your contact information to reserve your Open Play slot.</p>
 
-                    <div className="space-y-4 max-w-xl">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Player Name</label>
-                          <input 
-                            type="text"
-                            disabled
-                            value={user.name}
-                            className="w-full bg-slate-950 border border-dark-border text-slate-300 text-xs font-bold rounded-xl px-4 py-3 cursor-not-allowed select-none"
-                          />
+          </div>
+
+          {/* Book Now Action Button */}
+          <div className="mt-8 flex justify-end">
+            <button
+              type="button"
+              onClick={handleProceedToCheckout}
+              disabled={isExpired || isFull}
+              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs md:text-sm uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-xl shadow-brand-lime/10 flex items-center justify-center gap-2.5 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Sparkles className="w-4.5 h-4.5 text-dark-bg" />
+              <span>{isExpired ? 'Session Concluded' : isFull ? 'Session Full' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+            </button>
+          </div>
+
+          {/* SESSION PARTICIPANT ROSTER CARD */}
+          {activeRegistrations.length > 0 && (
+            <div className="mt-8 pt-8 border-t border-dark-border/60 text-left animate-fade-in">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-brand-lime" />
+                  <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">
+                    Session Player Roster ({activeRegistrations.length})
+                  </h3>
+                </div>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {approvedCount} Confirmed • {pendingCount} Pending Review
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                {activeRegistrations.map((reg, idx) => {
+                  const isApproved = reg.status === 'approved' || reg.paymentStatus === 'paid';
+                  const spots = reg.playerCount || 1;
+                  const guestBadge = reg.guestNames && reg.guestNames.length > 0 ? ` (+${reg.guestNames.length} ${reg.guestNames.length === 1 ? 'Guest' : 'Guests'})` : (spots > 1 ? ` (+${spots - 1} Guests)` : '');
+
+                  return (
+                    <div
+                      key={reg.id}
+                      className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-300 text-[11px] flex-shrink-0">
+                          {idx + 1}
                         </div>
-
-                        <div>
-                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Player Email</label>
-                          <input 
-                            type="email"
-                            disabled
-                            value={user.email}
-                            className="w-full bg-slate-950 border border-dark-border text-slate-300 text-xs font-bold rounded-xl px-4 py-3 cursor-not-allowed select-none"
-                          />
+                        <div className="truncate">
+                          <span className="font-bold text-white block truncate">
+                            {reg.playerName || 'Player'}
+                            {guestBadge && <span className="text-brand-lime text-[11px] font-extrabold ml-1">{guestBadge}</span>}
+                          </span>
+                          <span className="text-[10px] text-slate-500 block truncate font-mono">
+                            {reg.createdAt ? reg.createdAt.split('T')[0] : 'Registered'} • {spots} {spots === 1 ? 'spot' : 'spots'}
+                          </span>
                         </div>
                       </div>
 
-                      <div>
-                        <label className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block mb-1">Contact Phone Number (Optional)</label>
-                        <div className="relative">
-                          <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3.5 pointer-events-none" />
-                          <input 
-                            type="text"
-                            value={playerPhone}
-                            onChange={(e) => setPlayerPhone(e.target.value)}
-                            placeholder="e.g. 09171234567"
-                            className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="pt-3">
-                        <button
-                          type="button"
-                          disabled={submitting}
-                          onClick={() => {
-                            if (event.registrationFee > 0) {
-                              setStep('checkout');
-                            } else {
-                              handleSubmitRegistration();
-                            }
-                          }}
-                          className="w-full py-3.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10 hover:scale-[1.01] flex items-center justify-center gap-2"
-                        >
-                          {submitting ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin text-dark-bg" />
-                              <span>Submitting Registration...</span>
-                            </>
-                          ) : event.registrationFee > 0 ? (
-                            `Proceed to GCash Payment (₱${event.registrationFee})`
-                          ) : (
-                            'Confirm Free Registration'
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Step 2: GCash Checkout */}
-                {step === 'checkout' && (
-                  <form onSubmit={handleSubmitRegistration} className="p-6 md:p-8 rounded-3xl bg-slate-900/60 border border-slate-800 animate-fade-in">
-                    <div className="flex items-center justify-between pb-4 border-b border-dark-border mb-6">
-                      <div>
-                        <h3 className="text-base font-bold text-white flex items-center gap-2">
-                          <DollarSign className="w-5 h-5 text-brand-lime" /> GCash Registration Checkout
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1">Scan or transfer registration fee to the organizer's designated GCash account.</p>
-                      </div>
-                      <span className="text-sm font-black text-brand-lime font-sans">
-                        ₱{event.registrationFee}
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex-shrink-0 ${
+                        isApproved
+                          ? 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime'
+                          : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+                      }`}>
+                        {isApproved ? 'Confirmed' : 'Pending'}
                       </span>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      {/* LOCATION MAP MODAL */}
+      {isMapModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-left">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-950/60">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shadow-sm">
+                  <MapPin className="w-5 h-5 text-brand-lime" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white">Venue Location Map</h3>
+                  <p className="text-xs text-slate-400 truncate max-w-md">
+                    {associatedCourt ? (
+                      [associatedCourt.name, associatedCourt.location, associatedCourt.barangay, associatedCourt.municipality, associatedCourt.province].filter(Boolean).join(', ')
+                    ) : (
+                      event?.location
+                    )}
+                  </p>
+                </div>
+              </div>
 
-                    {/* GCash Account Info Card */}
-                    <div className="mb-6 p-5 rounded-2xl bg-slate-950 border border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
-                      <div>
-                        <div className="text-[10px] font-extrabold text-brand-lime uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                          <Shield className="w-3.5 h-3.5" /> Designated GCash Recipient
-                        </div>
-                        <div className="space-y-2 text-xs">
-                          <div className="flex justify-between border-b border-dark-border/40 pb-1.5">
-                            <span className="text-slate-400 font-bold uppercase tracking-wider">Account Name</span>
-                            <span className="text-white font-extrabold">{event.gcashName || 'PicklePoint Venue'}</span>
-                          </div>
-                          <div className="flex justify-between border-b border-dark-border/40 pb-1.5">
-                            <span className="text-slate-400 font-bold uppercase tracking-wider">Account Number</span>
-                            <span className="text-brand-lime font-mono font-bold">{event.gcashNumber || '0917-000-0000'}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* QR Code screenshot preview */}
-                      <div className="text-center md:border-l md:border-dark-border/40 md:pl-5">
-                        {event.gcashQrCode ? (
-                          <div>
-                            <div 
-                              onClick={() => setLightboxImage(event.gcashQrCode || null)}
-                              className="w-24 h-24 mx-auto rounded-xl bg-white p-1 border border-slate-700 cursor-zoom-in hover:scale-105 transition-transform"
-                            >
-                              <img src={event.gcashQrCode} alt="GCash QR" className="w-full h-full object-contain rounded-lg" />
-                            </div>
-                            <span className="text-[10px] text-brand-lime font-bold hover:underline cursor-pointer block mt-1 uppercase tracking-wider">
-                              Tap to Expand QR Code
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-slate-500 italic">No QR screenshot provided. Please send via GCash mobile number above.</div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Payment Inputs */}
-                    <div className="space-y-5 max-w-xl">
-                      <div>
-                        <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1">
-                          GCash Reference Number <span className="text-red-400">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={gcashRef}
-                          onChange={(e) => setGcashRef(e.target.value)}
-                          placeholder="e.g. 100234567891"
-                          className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3.5 focus:outline-none focus:border-brand-lime font-mono transition-all"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1">
-                          Upload Receipt Screenshot (Optional)
-                        </label>
-                        <div className="flex items-center gap-3">
-                          <label className="flex-1 px-4 py-3 rounded-xl bg-slate-900 border border-dark-border text-slate-300 text-xs font-bold hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-center gap-2">
-                            <Upload className="w-4 h-4 text-brand-lime" />
-                            <span>{receiptImage ? 'Change Receipt Screenshot' : 'Upload Receipt File'}</span>
-                            <input 
-                              type="file" 
-                              accept="image/*" 
-                              onChange={(e) => e.target.files?.[0] && handleProcessReceiptUpload(e.target.files[0])}
-                              className="hidden" 
-                            />
-                          </label>
-
-                          {receiptImage && (
-                            <div 
-                              onClick={() => setLightboxImage(receiptImage)}
-                              className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-700 overflow-hidden cursor-zoom-in flex-shrink-0"
-                            >
-                              <img src={receiptImage} alt="Receipt" className="w-full h-full object-cover" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 pt-3">
-                        <button
-                          type="button"
-                          onClick={() => setStep('details')}
-                          className="py-3 px-5 rounded-xl border border-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider hover:bg-slate-800 transition-all cursor-pointer"
-                        >
-                          Back
-                        </button>
-                        <button
-                          type="submit"
-                          disabled={submitting}
-                          className="flex-1 py-3.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10 flex items-center justify-center gap-2 hover:scale-[1.01]"
-                        >
-                          {submitting ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin text-dark-bg" />
-                              <span>Submitting Registration...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Check className="w-4 h-4" />
-                              <span>Submit Open Play Registration</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  </form>
+              <div className="flex items-center gap-2">
+                {directionsUrl && (
+                  <a
+                    href={directionsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-1.5 rounded-xl bg-brand-lime/10 hover:bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Get Directions</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
                 )}
 
-                {/* Step 3: Success Screen */}
-                {step === 'success' && (
-                  <div className="p-8 rounded-3xl bg-brand-emerald/10 border border-brand-emerald/30 text-center animate-fade-in">
-                    <div className="w-16 h-16 rounded-full bg-brand-emerald/20 border border-brand-emerald/30 text-brand-emerald flex items-center justify-center mx-auto mb-4 shadow-lg">
-                      <Check className="w-8 h-8" />
-                    </div>
-                    <h2 className="text-xl font-extrabold text-white mb-2">Open Play Registration Submitted!</h2>
-                    <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed mb-6">
-                      Your entry for <strong className="text-brand-lime">{event.title}</strong> has been received. The organizer will verify your GCash reference number (<span className="font-mono text-white font-bold">{gcashRef}</span>) and update your registration status.
-                    </p>
-                    
-                    <button
-                      onClick={onBack}
-                      className="px-8 py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg"
-                    >
-                      Return to PicklePoint App
-                    </button>
+                <button
+                  onClick={() => setIsMapModalOpen(false)}
+                  className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 overflow-y-auto">
+              <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 relative shadow-inner">
+                {parsedMapInfo?.embedUrl ? (
+                  <iframe
+                    title="Location Map"
+                    src={parsedMapInfo.embedUrl}
+                    className="w-full h-full border-0"
+                    loading="lazy"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs font-mono">
+                    Map preview unavailable for this location.
                   </div>
                 )}
               </div>
-            )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex justify-end">
+              <button
+                onClick={() => setIsMapModalOpen(false)}
+                className="px-6 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white font-extrabold text-xs uppercase tracking-wider hover:bg-slate-700 transition-all cursor-pointer"
+              >
+                Close Map
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

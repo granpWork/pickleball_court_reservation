@@ -101,8 +101,8 @@ service cloud.firestore {
     // 7. Open Play Events & Registrations
     // ==========================================
     match /openplay_events/{eventId} {
-      allow read: if true;
-      allow create, update, delete: if isAuthenticated();
+      allow read, create, update: if true;
+      allow delete: if isAuthenticated();
     }
 
     match /openplay_registrations/{registrationId} {

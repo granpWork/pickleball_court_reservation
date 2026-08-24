@@ -3,6 +3,7 @@ import { ArrowLeft, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, CheckCircle2 }
 import { auth, db, googleProvider, facebookProvider, isFirebaseConfigured } from '../firebase';
 import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
 interface LoginProps {
   setView: (view: 'landing' | 'login' | 'register' | 'client_onboarding') => void;
@@ -165,6 +166,16 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
                 status: 'active',
                 createdAt: new Date().toISOString()
               });
+
+              // Send welcome email for newly created user profile via social login
+              const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
+              const loginUrl = `${origin}/?view=login&registered=true&email=${encodeURIComponent(fbUser.email || '')}`;
+              sendRegistrationConfirmationEmail({
+                toEmail: fbUser.email || '',
+                toName: fbUser.displayName || 'Player',
+                role: role,
+                loginUrl,
+              }).catch((e) => console.warn('Welcome email error:', e));
             }
           } catch (e) {
             console.error('Error fetching role during social login:', e);

@@ -104,6 +104,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
 
   // Dynamic booking slots states
   const [bookedSlotsForDate, setBookedSlotsForDate] = useState<string[]>([]);
+  const [playerConflictsForDate, setPlayerConflictsForDate] = useState<Record<string, { courtName: string }>>({});
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   
   // Carousel State
@@ -433,26 +434,41 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
   useEffect(() => {
     if (!selectedDate || !court?.id) {
       setBookedSlotsForDate([]);
+      setPlayerConflictsForDate({});
       return;
     }
 
     const fetchBookingsForDate = async () => {
       setLoadingAvailability(true);
       let booked: string[] = [];
+      let conflicts: Record<string, { courtName: string }> = {};
+      const currentUserEmail = user?.email?.toLowerCase();
+      const currentUserUid = user?.uid;
 
       if (isFirebaseConfigured && db) {
         try {
           const bookingsRef = collection(db, 'bookings');
           const q = query(
             bookingsRef,
-            where('courtId', '==', court.id),
             where('date', '==', selectedDate)
           );
           const querySnapshot = await getDocs(q);
           querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
             if (data.status !== 'cancelled' && data.slots && Array.isArray(data.slots)) {
-              booked.push(...data.slots);
+              if (data.courtId === court.id) {
+                booked.push(...data.slots);
+              } else if (currentUserEmail || currentUserUid) {
+                const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
+                const bUid = data.userId || data.user?.uid;
+                const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
+                if (isSamePlayer) {
+                  const targetCourtName = data.courtName || data.ownerCompanyName || 'Another Venue';
+                  data.slots.forEach((st: string) => {
+                    conflicts[st] = { courtName: targetCourtName };
+                  });
+                }
+              }
             }
           });
         } catch (err) {
@@ -464,9 +480,19 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
           const bookingsStr = localStorage.getItem('picklepoint_bookings');
           const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
           localBookings.forEach((b: any) => {
-            if (b.courtId === court.id && b.date === selectedDate && b.status !== 'cancelled') {
-              if (b.slots && Array.isArray(b.slots)) {
+            if (b.date === selectedDate && b.status !== 'cancelled' && b.slots && Array.isArray(b.slots)) {
+              if (b.courtId === court.id) {
                 booked.push(...b.slots);
+              } else if (currentUserEmail || currentUserUid) {
+                const bEmail = b.userEmail?.toLowerCase() || b.user?.email?.toLowerCase();
+                const bUid = b.userId || b.user?.uid;
+                const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
+                if (isSamePlayer) {
+                  const targetCourtName = b.courtName || b.ownerCompanyName || 'Another Venue';
+                  b.slots.forEach((st: string) => {
+                    conflicts[st] = { courtName: targetCourtName };
+                  });
+                }
               }
             }
           });
@@ -477,11 +503,31 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
       
       // Ensure unique list
       setBookedSlotsForDate([...new Set(booked)]);
+      setPlayerConflictsForDate(conflicts);
       setLoadingAvailability(false);
     };
 
     fetchBookingsForDate();
-  }, [selectedDate, court?.id]);
+  }, [selectedDate, court?.id, user?.email, user?.uid]);
+
+  const effectiveOperatingHours = court?.operatingHours || hostDetails?.operatingHours || DEFAULT_OPERATING_HOURS;
+
+  const currentSchedule = useMemo(() => {
+    return getScheduleForDate(selectedDate, effectiveOperatingHours);
+  }, [selectedDate, effectiveOperatingHours]);
+
+  const isSelectedDateDayOff = currentSchedule.isDayOff;
+
+  // Prune any selected slots that do not fall within the current day's active slots
+  useEffect(() => {
+    if (selectedSlots.length > 0 && currentSchedule.slots.length > 0) {
+      const validSlotTimes = new Set(currentSchedule.slots.map((s) => s.time));
+      const filtered = selectedSlots.filter((st) => validSlotTimes.has(st));
+      if (filtered.length !== selectedSlots.length) {
+        setSelectedSlots(filtered);
+      }
+    }
+  }, [currentSchedule, selectedSlots]);
 
   if (loadingCourt) {
     return (
@@ -509,25 +555,6 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
       </div>
     );
   }
-
-  const effectiveOperatingHours = court?.operatingHours || hostDetails?.operatingHours || DEFAULT_OPERATING_HOURS;
-
-  const currentSchedule = useMemo(() => {
-    return getScheduleForDate(selectedDate, effectiveOperatingHours);
-  }, [selectedDate, effectiveOperatingHours]);
-
-  const isSelectedDateDayOff = currentSchedule.isDayOff;
-
-  // Prune any selected slots that do not fall within the current day's active slots
-  useEffect(() => {
-    if (selectedSlots.length > 0 && currentSchedule.slots.length > 0) {
-      const validSlotTimes = new Set(currentSchedule.slots.map((s) => s.time));
-      const filtered = selectedSlots.filter((st) => validSlotTimes.has(st));
-      if (filtered.length !== selectedSlots.length) {
-        setSelectedSlots(filtered);
-      }
-    }
-  }, [currentSchedule, selectedSlots]);
 
   const getSlotPrice = (startHour: number) => {
     if (!court) return 0;
@@ -1401,14 +1428,24 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                 const isSelected = selectedSlots.includes(slot.time);
                                 const isSlotBooked = bookedSlotsForDate.includes(slot.time);
                                 const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
-                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed;
+                                const isPlayerConflict = playerConflictsForDate[slot.time];
+                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict;
                                 return (
                                   <button
                                     key={`am-${idx}`}
-                                    disabled={isSlotDisabled}
-                                    onClick={() => handleToggleSlot(slot.time)}
+                                    disabled={isSlotDisabled && !isPlayerConflict}
+                                    onClick={() => {
+                                      if (isPlayerConflict) {
+                                        alert(`Schedule Conflict: You already have an active reservation at ${isPlayerConflict.courtName} on ${formatDate(selectedDate)} for ${slot.time}. A player cannot book overlapping times across multiple venues.`);
+                                        return;
+                                      }
+                                      handleToggleSlot(slot.time);
+                                    }}
+                                    title={isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : ''}
                                     className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
-                                      isSlotDisabled
+                                      isPlayerConflict
+                                        ? 'bg-amber-950/30 border-amber-500/40 text-amber-300 font-medium cursor-pointer shadow-sm hover:border-amber-400'
+                                        : isSlotDisabled
                                         ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
                                         : isSelected
                                         ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans'
@@ -1416,8 +1453,8 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                     }`}
                                   >
                                     <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-extrabold ${isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
-                                      {isSlotBooked ? 'Booked' : `₱${price}`}
+                                    <span className={`text-xs font-extrabold ${isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
+                                      {isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
                                     </span>
                                   </button>
                                 );
@@ -1446,23 +1483,33 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                 const isSelected = selectedSlots.includes(slot.time);
                                 const isSlotBooked = bookedSlotsForDate.includes(slot.time);
                                 const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
-                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed;
+                                const isPlayerConflict = playerConflictsForDate[slot.time];
+                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict;
                                 return (
                                   <button
                                     key={`pm-${idx}`}
-                                    disabled={isSlotDisabled}
-                                    onClick={() => handleToggleSlot(slot.time)}
+                                    disabled={isSlotDisabled && !isPlayerConflict}
+                                    onClick={() => {
+                                      if (isPlayerConflict) {
+                                        alert(`Schedule Conflict: You already have an active reservation at ${isPlayerConflict.courtName} on ${formatDate(selectedDate)} for ${slot.time}. A player cannot book overlapping times across multiple venues.`);
+                                        return;
+                                      }
+                                      handleToggleSlot(slot.time);
+                                    }}
+                                    title={isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : ''}
                                     className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
-                                      isSlotDisabled
-                                        ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-655 cursor-not-allowed'
+                                      isPlayerConflict
+                                        ? 'bg-amber-950/30 border-amber-500/40 text-amber-300 font-medium cursor-pointer shadow-sm hover:border-amber-400'
+                                        : isSlotDisabled
+                                        ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
                                         : isSelected
                                         ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans'
                                         : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
                                     }`}
                                   >
                                     <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-extrabold ${isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
-                                      {isSlotBooked ? 'Booked' : `₱${price}`}
+                                    <span className={`text-xs font-extrabold ${isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
+                                      {isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
                                     </span>
                                   </button>
                                 );

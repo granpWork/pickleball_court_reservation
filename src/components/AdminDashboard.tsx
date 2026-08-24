@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { InteractiveMapPicker } from './InteractiveMapPicker';
 import {
@@ -62,14 +62,16 @@ import {
   CalendarCheck,
   MailPlus,
   Copy,
+  Download,
+  BarChart3,
   ShieldCheck,
   KeyRound,
   CheckCheck,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc } from 'firebase/firestore';
 import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPaymentApprovalReceiptEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail } from '../services/emailService';
-import { isEventExpired, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
+import { isEventExpired, formatTime12h, formatEventDateLong, splitAddressComponents, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 
 const SLOTS = [
   { time: '05:00 AM - 06:00 AM', startHour: 5 },
@@ -100,6 +102,15 @@ const getSlotPrice = (startHour: number, dayPrice: number = 100, nightPrice: num
 interface Booking {
   id: string;
   bookingId?: string; // for local fallback
+  type?: 'court' | 'openplay';
+  openPlayEventId?: string;
+  openPlayTitle?: string;
+  openPlayCategory?: string;
+  playerCount?: number;
+  guestCount?: number;
+  guests?: { name: string; email: string }[];
+  guestNames?: string[];
+  guestEmails?: string[];
   companyId?: string;
   courtId: string;
   courtName: string;
@@ -323,7 +334,9 @@ interface Court {
   dayPrice: number;
   nightPrice: number;
   companyId?: string;
+  companyName?: string;
   ownerId?: string;
+  createdByEmail?: string;
   ownerCompanyName?: string;
   companyAddress?: string;
   ownerEmail?: string;
@@ -380,7 +393,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const currentUserEmail = user?.email?.toLowerCase() || '';
   const isSuperAdmin = currentUserEmail === 'admin@picklepoint.com' || user?.role === 'super_admin';
 
-  const [activeTab, setActiveTab] = useState<'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers'>(() => {
+    try {
+      const saved = sessionStorage.getItem('picklepoint_admin_active_tab');
+      if (saved && ['bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers'].includes(saved)) {
+        return saved as any;
+      }
+    } catch (e) {}
+    return 'bookings';
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('picklepoint_admin_active_tab', activeTab);
+    } catch (e) {}
+  }, [activeTab]);
+
   const [settingsSubTab, setSettingsSubTab] = useState<'profile' | 'organization' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee'>('profile');
   const [settingsSubMenuOpen, setSettingsSubMenuOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -516,6 +544,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [deleteBookingModalOpen, setDeleteBookingModalOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
   const [bookingDeleteLoading, setBookingDeleteLoading] = useState(false);
+
+  // Open Play Delete Modal State
+  const [deletingOpenPlayEvent, setDeletingOpenPlayEvent] = useState<OpenPlayEvent | null>(null);
   const [bookingDeleteError, setBookingDeleteError] = useState<string | null>(null);
 
   // Email Modal States
@@ -665,12 +696,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [openPlayFee, setOpenPlayFee] = useState(250);
   const [openPlayGcashAccountId, setOpenPlayGcashAccountId] = useState('');
   const [openPlayCourtIds, setOpenPlayCourtIds] = useState<string[]>([]);
+  const [openPlayRotationRule, setOpenPlayRotationRule] = useState<'winners_stay' | 'all_4_rotate' | 'split_winners'>('winners_stay');
   
   // Recurring / Looping Event States
   const [isRecurringEnabled, setIsRecurringEnabled] = useState<boolean>(false);
   const [recurringDays, setRecurringDays] = useState<string[]>(['tuesday']);
   const [recurringWeeksCount, setRecurringWeeksCount] = useState<number>(4);
   const [adminOpenPlayFilter, setAdminOpenPlayFilter] = useState<'all' | 'upcoming' | 'expired'>('all');
+  const [adminOpenPlayViewMode, setAdminOpenPlayViewMode] = useState<'cards' | 'history'>('cards');
 
   const calculateRecurringDates = (startDateStr: string, selectedDays: string[], weeksCount: number): string[] => {
     if (!startDateStr || selectedDays.length === 0 || weeksCount <= 0) return [startDateStr];
@@ -689,7 +722,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (targetDayIndices.length === 0) return [startDateStr];
     
     const dates: string[] = [];
-    const start = new Date(startDateStr + 'T00:00:00');
+    let start = new Date(startDateStr + 'T00:00:00');
+    if (isNaN(start.getTime())) {
+      start = new Date(startDateStr);
+    }
+    if (isNaN(start.getTime())) {
+      start = new Date();
+    }
     const totalDaysToScan = Math.max(1, weeksCount) * 7;
     
     for (let offset = 0; offset < totalDaysToScan; offset++) {
@@ -722,8 +761,25 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     );
   };
 
+  const userObj = user as { companyId?: string; companyName?: string } | null;
+  const currentCompany = companies.find((c) => 
+    c.clientAdminEmail?.toLowerCase() === currentUserEmail ||
+    (userObj?.companyId && c.id === userObj.companyId) ||
+    (userObj?.companyName && c.name?.toLowerCase() === userObj.companyName.toLowerCase())
+  );
+
+  const availableAdminCourts = isSuperAdmin
+    ? courts
+    : courts.filter(
+        c =>
+          c.ownerId === currentUserUid ||
+          (currentCompany?.id && c.companyId === currentCompany.id) ||
+          (currentUserEmail && c.createdByEmail?.toLowerCase() === currentUserEmail.toLowerCase()) ||
+          (currentCompany?.name && c.companyName?.toLowerCase() === currentCompany.name.toLowerCase())
+      );
+
   const handleSelectAllOpenPlayCourts = () => {
-    const targetCourts = isSuperAdmin ? courts : courts.filter(c => c.ownerId === currentUserUid);
+    const targetCourts = availableAdminCourts;
     setOpenPlayCourtIds(targetCourts.map(c => c.id));
   };
 
@@ -758,7 +814,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleOpenCreateOpenPlay = () => {
-    const targetCourts = isSuperAdmin ? courts : courts.filter(c => c.ownerId === currentUserUid);
+    const targetCourts = availableAdminCourts;
     if (targetCourts.length === 0) {
       alert("You must create at least 1 court for your venue before creating an Open Play session. Please add a court in the Courts tab first.");
       setActiveTab('courts');
@@ -782,6 +838,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayMaxParticipants(16);
     setOpenPlayFee(250);
     setOpenPlayGcashAccountId(personalAccounts[0]?.id || 'global');
+    setOpenPlayRotationRule('winners_stay');
     setIsRecurringEnabled(false);
     setRecurringDays([currentDayName || 'tuesday']);
     setRecurringWeeksCount(4);
@@ -789,7 +846,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleOpenEditOpenPlay = (event: OpenPlayEvent) => {
-    const targetCourts = isSuperAdmin ? courts : courts.filter(c => c.ownerId === currentUserUid);
+    const targetCourts = availableAdminCourts;
     const eventDay = event.eventDate ? new Date(event.eventDate + 'T00:00:00').getDay() : 0;
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -805,6 +862,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayStartTime(event.startTime);
     setOpenPlayEndTime(event.endTime);
     setOpenPlayCategory(event.category);
+    setOpenPlayRotationRule(event.rotationRule || 'winners_stay');
     setOpenPlayDescription(event.description);
     setOpenPlayPosterUrl(event.posterImageUrl || null);
     setOpenPlayMaxParticipants(event.maxParticipants);
@@ -823,19 +881,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       return;
     }
 
-    const targetCourts = isSuperAdmin ? courts : courts.filter(c => c.ownerId === currentUserUid);
-    if (targetCourts.length === 0) {
-      alert("You must create at least 1 court for your venue before saving an Open Play event.");
-      setActiveTab('courts');
-      return;
+    const targetCourts = availableAdminCourts;
+    let finalCourtIds = openPlayCourtIds;
+    if (finalCourtIds.length === 0 && targetCourts.length > 0) {
+      finalCourtIds = targetCourts.map(c => c.id);
     }
 
-    if (openPlayCourtIds.length === 0) {
-      alert("Please select at least 1 court for this Open Play session.");
-      return;
-    }
-
-    const selectedCourtObjects = courts.filter(c => openPlayCourtIds.includes(c.id));
+    const selectedCourtObjects = courts.filter(c => finalCourtIds.includes(c.id));
     const selectedCourtNames = selectedCourtObjects.map(c => c.name);
 
     let selectedGcashName = globalGcashNameSetting || 'PicklePoint Venue';
@@ -878,11 +930,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         gcashQrCode: selectedGcashQr,
         companyId: myCompany?.id,
         companyName: myCompany?.name || (user as any)?.companyName,
+        companyLogoUrl: myCompany?.logoUrl || (user as any)?.companyLogoUrl || (user as any)?.logoUrl,
         createdByUid: currentUserUid,
         createdByEmail: currentUserEmail,
         createdAt: new Date().toISOString(),
         status: isEventExpired(dateStr, openPlayEndTime) ? 'expired' : 'active',
-        courtIds: openPlayCourtIds,
+        rotationRule: openPlayRotationRule,
+        courtIds: finalCourtIds,
         courtNames: selectedCourtNames,
         isRecurring: true,
         recurrencePattern: recurrencePatternLabel,
@@ -894,19 +948,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         if (isFirebaseConfigured && db) {
           for (const ev of newEventsBatch) {
             try {
-              await setDoc(doc(db, 'openplay_events', ev.id), ev);
+              const cleanEv = Object.fromEntries(Object.entries(ev).filter(([_, v]) => v !== undefined));
+              await setDoc(doc(db, 'openplay_events', ev.id), cleanEv);
             } catch (cloudErr) {
               console.warn('Firestore openplay batch event save failed:', cloudErr);
             }
           }
         }
 
-        const localStr = localStorage.getItem('picklepoint_openplay_events');
+        const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
         let localEvents = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
         localEvents.push(...newEventsBatch);
-        localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents));
+        try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
+        try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
 
         setOpenPlayEvents(prev => [...prev, ...newEventsBatch]);
+        setAdminOpenPlayFilter('all');
         setOpenPlayModalOpen(false);
       } catch (err) {
         console.error('Failed to save recurring events:', err);
@@ -929,6 +986,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       startTime: openPlayStartTime,
       endTime: openPlayEndTime,
       category: openPlayCategory,
+      rotationRule: openPlayRotationRule,
       description: openPlayDescription.trim(),
       posterImageUrl: openPlayPosterUrl || undefined,
       maxParticipants: Number(openPlayMaxParticipants) || 16,
@@ -939,11 +997,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       gcashQrCode: selectedGcashQr,
       companyId: myCompany?.id,
       companyName: myCompany?.name || (user as any)?.companyName,
+      companyLogoUrl: myCompany?.logoUrl || (user as any)?.companyLogoUrl || (user as any)?.logoUrl,
       createdByUid: currentUserUid,
       createdByEmail: currentUserEmail,
       createdAt: editingOpenPlay ? editingOpenPlay.createdAt : new Date().toISOString(),
       status: editingOpenPlay ? (isPast ? 'expired' : editingOpenPlay.status) : (isPast ? 'expired' : 'active'),
-      courtIds: openPlayCourtIds,
+      courtIds: finalCourtIds,
       courtNames: selectedCourtNames,
       isRecurring: editingOpenPlay?.isRecurring || isRecurringEnabled,
       recurrencePattern: editingOpenPlay?.recurrencePattern,
@@ -951,29 +1010,34 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     };
 
     setActionLoading(eventId);
+    console.log('💾 [OpenPlay Event Save] Saving OP ID:', eventId, payload);
     try {
       if (isFirebaseConfigured && db) {
         try {
-          await setDoc(doc(db, 'openplay_events', eventId), payload);
+          const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([_, v]) => v !== undefined));
+          await setDoc(doc(db, 'openplay_events', eventId), cleanPayload);
+          console.log('☁️ [Firestore OpenPlay Save Success] Saved OP ID to cloud:', eventId);
         } catch (cloudErr) {
           console.warn('Firestore openplay event save failed, persisting locally:', cloudErr);
         }
       }
 
-      const localStr = localStorage.getItem('picklepoint_openplay_events');
+      const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
       let localEvents = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
       if (editingOpenPlay) {
         localEvents = localEvents.map(e => e.id === eventId ? payload : e);
       } else {
         localEvents.push(payload);
       }
-      localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents));
+      try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
+      try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
 
       if (editingOpenPlay) {
         setOpenPlayEvents(prev => prev.map(e => e.id === eventId ? payload : e));
       } else {
         setOpenPlayEvents(prev => [...prev, payload]);
       }
+      setAdminOpenPlayFilter('all');
       setOpenPlayModalOpen(false);
       setEditingOpenPlay(null);
     } catch (err) {
@@ -989,6 +1053,87 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     navigator.clipboard.writeText(shareableUrl);
     setCopiedShareLink(eventId);
     setTimeout(() => setCopiedShareLink(null), 4000);
+  };
+
+  const handleToggleEventStatus = async (event: OpenPlayEvent) => {
+    const isPast = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired' || event.status === 'completed';
+    const newStatus = isPast ? 'active' : 'expired';
+    const updatedPayload: OpenPlayEvent = {
+      ...event,
+      status: newStatus,
+    };
+
+    setActionLoading(event.id);
+    try {
+      if (isFirebaseConfigured && db) {
+        await setDoc(doc(db, 'openplay_events', event.id), updatedPayload, { merge: true });
+      }
+      const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+      if (localStr) {
+        const localEvs = JSON.parse(localStr).map((e: any) => e.id === event.id ? updatedPayload : e);
+        try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
+        try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
+      }
+      setOpenPlayEvents(prev => prev.map(e => e.id === event.id ? updatedPayload : e));
+    } catch (err) {
+      console.error('Failed to update event status:', err);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDuplicateOpenPlayEvent = (event: OpenPlayEvent) => {
+    setEditingOpenPlay(null);
+    setOpenPlayTitle(`${event.title} (Copy)`);
+    setOpenPlayCategory(event.category);
+    setOpenPlayRotationRule(event.rotationRule || 'winners_stay');
+    setOpenPlayDescription(event.description || '');
+    setOpenPlayPosterUrl(event.posterImageUrl || null);
+    setOpenPlayMaxParticipants(event.maxParticipants || 16);
+    setOpenPlayFee(event.registrationFee || 0);
+    setOpenPlayGcashAccountId(event.gcashAccountId || 'global');
+    setOpenPlayCourtIds(event.courtIds || []);
+    setOpenPlayLocation(event.location || '');
+    
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const yyyy = tomorrow.getFullYear();
+    const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const dd = String(tomorrow.getDate()).padStart(2, '0');
+    setOpenPlayDate(`${yyyy}-${mm}-${dd}`);
+    setOpenPlayStartTime(event.startTime || '18:00');
+    setOpenPlayEndTime(event.endTime || '21:00');
+    setIsRecurringEnabled(false);
+    setOpenPlayModalOpen(true);
+  };
+
+  const handleExportOpenPlayRoster = (event: OpenPlayEvent) => {
+    const eventRegs = openPlayRegistrations.filter(r => r.eventId === event.id);
+    if (eventRegs.length === 0) {
+      alert(`No registrations recorded for "${event.title}".`);
+      return;
+    }
+    
+    const headers = ['Player Name', 'Email', 'Phone', 'Player Count', 'GCash Reference', 'Payment Status', 'Registration Status', 'Date Registered'];
+    const rows = eventRegs.map(r => [
+      `"${(r.playerName || '').replace(/"/g, '""')}"`,
+      `"${(r.playerEmail || '').replace(/"/g, '""')}"`,
+      `"${(r.playerPhone || '').replace(/"/g, '""')}"`,
+      r.playerCount || 1,
+      `"${(r.gcashReferenceNumber || '').replace(/"/g, '""')}"`,
+      r.paymentStatus || 'pending',
+      r.status || 'pending',
+      `"${(r.createdAt || '').replace(/"/g, '""')}"`,
+    ]);
+    
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `openplay_roster_${event.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${event.eventDate}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   // Court Modal States
@@ -1452,12 +1597,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return parseGoogleMapsUrl(courtMapUrl, courtConstructedFallbackAddress);
   }, [courtMapUrl, courtConstructedFallbackAddress]);
 
-  const userObj = user as { companyId?: string; companyName?: string } | null;
-  const myCompany = companies.find((c) => 
-    c.clientAdminEmail?.toLowerCase() === currentUserEmail ||
-    (userObj?.companyId && c.id === userObj.companyId) ||
-    (userObj?.companyName && c.name?.toLowerCase() === userObj.companyName.toLowerCase())
-  );
+  const myCompany = currentCompany;
   const effectiveOrgName = myCompany?.name || userObj?.companyName;
   const effectiveOrgAddress = myCompany?.address;
 
@@ -1842,6 +1982,81 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   // Fetch all data
   const fetchData = async () => {
     setLoading(true);
+    
+    // Instant synchronous pre-load of Open Play events from Local/Session Storage for 0ms rendering
+    const cachedEStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+    if (cachedEStr) {
+      try {
+        const cachedEvents = JSON.parse(cachedEStr).map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
+        if (cachedEvents.length > 0) {
+          setOpenPlayEvents(cachedEvents);
+        }
+      } catch (e) {}
+    }
+
+    // --- Independent OpenPlay Fetch (runs regardless of other fetch failures) ---
+    (async () => {
+      let loadedOpenPlayEvents: OpenPlayEvent[] = [];
+      if (isFirebaseConfigured && db) {
+        try {
+          const eventsSnap = await getDocs(collection(db, 'openplay_events'));
+          eventsSnap.forEach((dSnap) => {
+            loadedOpenPlayEvents.push(normalizeOpenPlayEvent(dSnap.id, dSnap.data()));
+          });
+        } catch (err) {
+          console.warn('Firestore openplay_events fetch error:', err);
+        }
+      }
+      const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+      const localEventsRaw = localEventsStr ? JSON.parse(localEventsStr) : [];
+      const localEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
+      const eventsMap = new Map<string, OpenPlayEvent>();
+      loadedOpenPlayEvents.forEach((e) => eventsMap.set(e.id, e));
+      localEvents.forEach((e: OpenPlayEvent) => {
+        eventsMap.set(e.id, e);
+        if (isFirebaseConfigured && db) {
+          const cleanEv = Object.fromEntries(Object.entries(e).filter(([_, v]) => v !== undefined));
+          setDoc(doc(db, 'openplay_events', e.id), cleanEv).catch(() => {});
+        }
+      });
+      const mergedOpenPlayList = Array.from(eventsMap.values());
+      try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedOpenPlayList)); } catch (e) {}
+      try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedOpenPlayList)); } catch (e) {}
+      setOpenPlayEvents(mergedOpenPlayList);
+    })();
+
+    // --- Independent OpenPlay Registrations Fetch (runs regardless of other fetch failures) ---
+    (async () => {
+      let loadedOpenPlayRegs: OpenPlayRegistration[] = [];
+      if (isFirebaseConfigured && db) {
+        try {
+          const regsSnap = await getDocs(collection(db, 'openplay_registrations'));
+          regsSnap.forEach((dSnap) => {
+            loadedOpenPlayRegs.push({ id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
+          });
+        } catch (err) {
+          console.warn('Firestore openplay_registrations fetch error:', err);
+        }
+      }
+      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
+      const localRegs = localRegsStr ? (JSON.parse(localRegsStr) as OpenPlayRegistration[]) : [];
+      const regsMap = new Map<string, OpenPlayRegistration>();
+      loadedOpenPlayRegs.forEach((r) => regsMap.set(r.id, r));
+      localRegs.forEach((r) => {
+        if (!regsMap.has(r.id)) {
+          regsMap.set(r.id, r);
+          if (isFirebaseConfigured && db) {
+            const cleanReg = Object.fromEntries(Object.entries(r).filter(([_, v]) => v !== undefined));
+            setDoc(doc(db, 'openplay_registrations', r.id), cleanReg).catch(() => {});
+          }
+        }
+      });
+      const mergedRegs = Array.from(regsMap.values());
+      try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(mergedRegs)); } catch (e) {}
+      try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(mergedRegs)); } catch (e) {}
+      setOpenPlayRegistrations(mergedRegs);
+    })();
+
     try {
       // 1. Fetch companies first so company context is available immediately for filtering
       let loadedCompanies: Company[] = [];
@@ -1856,7 +2071,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               } as Company);
             });
           } else if (currentUserEmail) {
-            const { query, where } = await import('firebase/firestore');
             const compQuery = query(collection(db, 'companies'), where('clientAdminEmail', '==', currentUserEmail));
             const compSnapshot = await getDocs(compQuery);
             compSnapshot.forEach((docSnap) => {
@@ -1887,12 +2101,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       // 2. Fetch courts
       let loadedCourts: Court[] = [];
       if (isFirebaseConfigured && db) {
-        const courtsSnapshot = await getDocs(collection(db, 'courts'));
-        courtsSnapshot.forEach((docSnap) => {
-          if (docSnap.id !== 'court-championship') {
-            loadedCourts.push({ id: docSnap.id, ...docSnap.data() } as Court);
-          }
-        });
+        try {
+          const courtsSnapshot = await getDocs(collection(db, 'courts'));
+          courtsSnapshot.forEach((docSnap) => {
+            if (docSnap.id !== 'court-championship') {
+              loadedCourts.push({ id: docSnap.id, ...docSnap.data() } as Court);
+            }
+          });
+        } catch (err) {
+          console.warn('Error fetching courts collection from cloud, loading local fallback:', err);
+          const courtsStr = localStorage.getItem('picklepoint_courts');
+          loadedCourts = courtsStr ? JSON.parse(courtsStr) : [];
+          loadedCourts = loadedCourts.filter(c => c.id !== 'court-championship');
+        }
       } else {
         const courtsStr = localStorage.getItem('picklepoint_courts');
         loadedCourts = courtsStr ? JSON.parse(courtsStr) : [];
@@ -1908,13 +2129,23 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       // 3. Fetch bookings
       let loadedBookings: Booking[] = [];
       if (isFirebaseConfigured && db) {
-        const querySnapshot = await getDocs(collection(db, 'bookings'));
-        querySnapshot.forEach((docSnap) => {
-          loadedBookings.push({
-            id: docSnap.id,
-            ...docSnap.data(),
-          } as Booking);
-        });
+        try {
+          const querySnapshot = await getDocs(collection(db, 'bookings'));
+          querySnapshot.forEach((docSnap) => {
+            loadedBookings.push({
+              id: docSnap.id,
+              ...docSnap.data(),
+            } as Booking);
+          });
+        } catch (err) {
+          console.warn('Error fetching bookings collection from cloud, loading local fallback:', err);
+          const bookingsStr = localStorage.getItem('picklepoint_bookings');
+          const localBookings = (bookingsStr ? JSON.parse(bookingsStr) : []) as Booking[];
+          loadedBookings = localBookings.map((b: Booking) => ({
+            ...b,
+            id: b.bookingId || b.id || Math.random().toString(),
+          }));
+        }
       } else {
         // Local fallback
         const bookingsStr = localStorage.getItem('picklepoint_bookings');
@@ -2043,6 +2274,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           loadedUsers = Array.from(userMap.values());
         } catch (err) {
           console.error('Error fetching users collection:', err);
+          const usersStr = localStorage.getItem('picklepoint_users');
+          loadedUsers = usersStr ? JSON.parse(usersStr) : [];
         }
       } else {
         // Simulated Users Fallback
@@ -2109,7 +2342,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       // 4. Fetch GCash checkout settings (both personal and global fallback)
       if (isFirebaseConfigured && db) {
         try {
-          const { getDoc, doc } = await import('firebase/firestore');
           // Fetch personal GCash details list
           try {
             const personalSnap = await getDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid));
@@ -2178,42 +2410,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
           setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
         }
-        // Fetch Open Play Events
-        let loadedOpenPlayEvents: OpenPlayEvent[] = [];
-        if (isFirebaseConfigured && db) {
-          try {
-            const eventsSnap = await getDocs(collection(db, 'openplay_events'));
-            eventsSnap.forEach((dSnap) => {
-              loadedOpenPlayEvents.push({ id: dSnap.id, ...dSnap.data() } as OpenPlayEvent);
-            });
-          } catch (err) {
-            console.warn('Firestore openplay_events fetch error:', err);
-          }
-        }
-        if (loadedOpenPlayEvents.length === 0) {
-          const localStr = localStorage.getItem('picklepoint_openplay_events');
-          loadedOpenPlayEvents = localStr ? JSON.parse(localStr) : [];
-        }
-        setOpenPlayEvents(loadedOpenPlayEvents);
-
-        // Fetch Open Play Registrations
-        let loadedOpenPlayRegs: OpenPlayRegistration[] = [];
-        if (isFirebaseConfigured && db) {
-          try {
-            const regsSnap = await getDocs(collection(db, 'openplay_registrations'));
-            regsSnap.forEach((dSnap) => {
-              loadedOpenPlayRegs.push({ id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
-            });
-          } catch (err) {
-            console.warn('Firestore openplay_registrations fetch error:', err);
-          }
-        }
-        if (loadedOpenPlayRegs.length === 0) {
-          const localStr = localStorage.getItem('picklepoint_openplay_registrations');
-          loadedOpenPlayRegs = localStr ? JSON.parse(localStr) : [];
-        }
-        setOpenPlayRegistrations(loadedOpenPlayRegs);
-
         // Fetch Vouchers
         let loadedVouchers: Voucher[] = [];
         if (isFirebaseConfigured && db) {
@@ -2278,11 +2474,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchData();
-      fetchRegions();
-    }, 0);
-    return () => clearTimeout(timer);
+    fetchData();
+    fetchRegions();
   }, []);
 
 
@@ -4941,15 +5134,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const approvedBookings = bookings.filter((b) => b.status === 'approved');
   const pendingBookings = bookings.filter((b) => b.status === 'pending');
   
-  const totalRevenue = approvedBookings.reduce((sum, b) => sum + b.totalCost, 0);
+  const totalRevenue = approvedBookings.reduce((sum, b) => sum + (b.totalCost || 0), 0);
   
   // Utilization rate: percentage of slots booked out of total operating slots for all dates present in the list
   // Operating capacity: 17 slots per day
-  const uniqueDatesCount = new Set(bookings.map((b) => b.date)).size || 1;
-  const totalAvailableCapacity = uniqueDatesCount * SLOTS.length;
+  const uniqueDatesCount = new Set(bookings.map((b) => b.date).filter(Boolean)).size || 1;
+  const totalAvailableCapacity = uniqueDatesCount * (SLOTS?.length || 17);
   const totalBookedSlotsCount = bookings
     .filter((b) => b.status !== 'cancelled')
-    .reduce((sum, b) => sum + b.slots.length, 0);
+    .reduce((sum, b) => sum + (b.slots?.length || 0), 0);
   const utilizationRate = Math.min(
     100,
     Math.round((totalBookedSlotsCount / totalAvailableCapacity) * 100) || 0
@@ -4958,9 +5151,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   // Filter and Search Bookings
   const filteredBookings = bookings.filter((b) => {
     const matchesSearch =
-      b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.date.includes(searchQuery);
+      (b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+      (b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+      (b.date?.includes(searchQuery) ?? false);
 
     const matchesStatus = statusFilter === 'all' ? true : b.status === statusFilter;
 
@@ -5686,10 +5879,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Company & Client Management'
                 : activeTab === 'checkouts'
                 ? 'Checkouts & Payments'
+                : activeTab === 'openplay'
+                ? 'Open Play Management'
+                : activeTab === 'policies'
+                ? 'Venue Policies & Rules'
+                : activeTab === 'vouchers'
+                ? 'Vouchers & Discount Codes'
                 : 'Checkout Settings'}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              {activeTab === 'settings'
+              {activeTab === 'openplay'
+                ? 'Create Open Play sessions, collect GCash entry fees, manage player rosters, and share direct event links.'
+                : activeTab === 'policies'
+                ? 'Configure court rules, cancellation policies, weather terms, and venue guidelines.'
+                : activeTab === 'vouchers'
+                ? 'Create and manage promotional discount vouchers for court bookings.'
+                : activeTab === 'settings'
                 ? 'Configure centralized GCash QR code, Account Name, and Phone Number for venue payments.'
                 : activeTab === 'checkouts'
                 ? 'Inspect reference numbers, review uploaded receipts, and approve or reject user bookings.'
@@ -5825,6 +6030,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     ? "Search court name or type..."
                     : activeTab === 'companies'
                     ? "Search company name, address, or client admin..."
+                    : activeTab === 'openplay'
+                    ? "Search event title, location, or category..."
+                    : activeTab === 'policies'
+                    ? "Search venue policies..."
+                    : activeTab === 'vouchers'
+                    ? "Search voucher code or recipient..."
                     : "Search user name or email..."
                 }
                 value={searchQuery}
@@ -7286,7 +7497,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                           const isActionPending = actionLoading === booking.id;
                           const isExpanded = expandedCheckoutId === booking.id;
                           return (
-                            <>
+                            <Fragment key={booking.id}>
                               <tr 
                                 key={booking.id} 
                                 onClick={() => setExpandedCheckoutId(prev => prev === booking.id ? null : booking.id)}
@@ -7296,13 +7507,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 <td className="py-4.5 px-6">
                                   <div className="flex items-center gap-3">
                                     <div className="w-9 h-9 rounded-full bg-slate-900 border border-dark-border flex items-center justify-center text-slate-400 font-bold uppercase">
-                                      {booking.user?.name?.slice(0, 2) || 'PL'}
+                                      {(booking.user?.name || booking.userName)?.slice(0, 2) || 'PL'}
                                     </div>
                                     <div>
-                                      <div className="font-bold text-white">{booking.user?.name || 'Anonymous'}</div>
-                                      <div className="text-xs text-slate-500 mt-0.5">{booking.user?.email || 'N/A'}</div>
+                                      <div className="font-bold text-white">{booking.user?.name || booking.userName || 'Anonymous'}</div>
+                                      <div className="text-xs text-slate-500 mt-0.5">{booking.user?.email || booking.userEmail || 'N/A'}</div>
                                       {booking.userPhone && (
                                         <div className="text-xs text-slate-400 font-mono mt-0.5">{booking.userPhone}</div>
+                                      )}
+                                      {booking.guests && booking.guests.length > 0 && (
+                                        <div className="text-[11px] text-brand-lime font-semibold mt-1">
+                                          +{booking.guests.length} {booking.guests.length === 1 ? 'Guest' : 'Guests'}: {booking.guests.map(g => g.name || g.email).filter(Boolean).join(', ')}
+                                        </div>
                                       )}
                                     </div>
                                   </div>
@@ -7317,21 +7533,44 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 <td className="py-4.5 px-6">
                                   <div className="flex items-center gap-1.5 text-white font-bold text-xs">
                                     <Calendar className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                                    <span>{formatDateLabel(booking.date)}</span>
+                                    <span>{formatEventDateLong(booking.date) || formatDateLabel(booking.date)}</span>
                                   </div>
                                   <div className="flex items-center gap-1.5 text-slate-400 text-xs mt-1">
                                     <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                    <span>{booking.slots && booking.slots.length > 0 ? booking.slots.join(', ') : 'N/A'}</span>
+                                    <span>
+                                      {booking.slots && booking.slots.length > 0
+                                        ? booking.slots.map(s => {
+                                            if (s.includes(' - ')) {
+                                              const parts = s.split(' - ');
+                                              return `${formatTime12h(parts[0])} - ${formatTime12h(parts[1])}`;
+                                            }
+                                            return formatTime12h(s);
+                                          }).join(', ')
+                                        : 'N/A'}
+                                    </span>
                                   </div>
-                                  {booking.courtName && (
-                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                      <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-                                        {booking.courtName}
+                                  {booking.type === 'openplay' || booking.openPlayEventId ? (
+                                    <div className="flex flex-col gap-0.5 mt-1">
+                                      <span className="text-[10px] font-extrabold text-brand-lime uppercase tracking-wider flex items-center gap-1">
+                                        🎾 OPEN PLAY: {booking.openPlayTitle || booking.courtName}
                                       </span>
-                                      {!courts.some(c => c.id === booking.courtId) && (
-                                        <span className="text-[9px] px-1 py-0.2 bg-slate-800 text-slate-400 rounded border border-slate-700 font-semibold">Archived</span>
+                                      {((booking.playerCount && booking.playerCount > 1) || (booking.guestCount && booking.guestCount > 0)) && (
+                                        <span className="text-[10px] font-bold text-blue-400">
+                                          +{booking.guestCount || ((booking.playerCount || 1) - 1)} {booking.guestCount === 1 ? 'Guest' : 'Guests'} ({booking.playerCount || 1} Spots Total)
+                                        </span>
                                       )}
                                     </div>
+                                  ) : (
+                                    booking.courtName && (
+                                      <div className="flex items-center gap-1.5 mt-0.5">
+                                        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+                                          {booking.courtName}
+                                        </span>
+                                        {!courts.some(c => c.id === booking.courtId) && (
+                                          <span className="text-[9px] px-1 py-0.2 bg-slate-800 text-slate-400 rounded border border-slate-700 font-semibold">Archived</span>
+                                        )}
+                                      </div>
+                                    )
                                   )}
                                 </td>
 
@@ -7404,9 +7643,68 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                                   }
                                                   setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, status: 'approved', paymentStatus: 'paid' } : b));
 
+                                                  // ALSO SYNC OPEN PLAY REGISTRATIONS IF THIS IS AN OPEN PLAY CHECKOUT
+                                                  const openPlayEventId = booking.openPlayEventId || (booking.type === 'openplay' ? booking.courtId : null);
+                                                  if (booking.type === 'openplay' || openPlayEventId) {
+                                                    const targetRegId = booking.id;
+                                                    if (isFirebaseConfigured && db) {
+                                                      try {
+                                                        const { doc, updateDoc } = await import('firebase/firestore');
+                                                        await updateDoc(doc(db, 'openplay_registrations', targetRegId), {
+                                                          paymentStatus: 'paid',
+                                                          status: 'approved'
+                                                        });
+                                                      } catch (err) {
+                                                        console.warn('Sync openplay_registrations Firestore update error:', err);
+                                                      }
+                                                    }
+                                                    try {
+                                                      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
+                                                      if (localRegsStr) {
+                                                        const parsed = JSON.parse(localRegsStr);
+                                                        const updatedRegs = parsed.map((r: any) =>
+                                                          (r.id === targetRegId || r.registrationId === targetRegId || (openPlayEventId && r.eventId === openPlayEventId && r.userEmail === (booking.user?.email || booking.userEmail)))
+                                                            ? { ...r, paymentStatus: 'paid', status: 'approved' }
+                                                            : r
+                                                        );
+                                                        try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
+                                                        try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
+                                                      }
+                                                    } catch (e) {}
+
+                                                    setOpenPlayRegistrations(prev => {
+                                                      const foundIdx = prev.findIndex(r => r.id === targetRegId || r.id === booking.bookingId || (openPlayEventId && r.eventId === openPlayEventId && r.userEmail === (booking.user?.email || booking.userEmail)));
+                                                      if (foundIdx >= 0) {
+                                                        const updated = [...prev];
+                                                        updated[foundIdx] = { ...updated[foundIdx], paymentStatus: 'paid', status: 'approved' };
+                                                        return updated;
+                                                      } else {
+                                                        const newReg: OpenPlayRegistration = {
+                                                          id: targetRegId,
+                                                          eventId: openPlayEventId || booking.courtId,
+                                                          eventTitle: booking.openPlayTitle || booking.courtName || 'Open Play',
+                                                          userId: booking.user?.uid || 'guest',
+                                                          userName: booking.user?.name || booking.userName || 'Player',
+                                                          userEmail: booking.user?.email || booking.userEmail || '',
+                                                          userPhone: booking.userPhone,
+                                                          playerCount: booking.playerCount || 1,
+                                                          guestCount: booking.guestCount || (booking.guests?.length || 0),
+                                                          guests: booking.guests || [],
+                                                          guestNames: booking.guestNames || [],
+                                                          guestEmails: booking.guestEmails || [],
+                                                          gcashReferenceNumber: booking.gcashReferenceNumber,
+                                                          paymentStatus: 'paid',
+                                                          status: 'approved',
+                                                          createdAt: booking.createdAt || new Date().toISOString()
+                                                        };
+                                                        return [...prev, newReg];
+                                                      }
+                                                    });
+                                                  }
+
                                                   // Look up target court & company details for facility owner email branding
                                                   const targetCourt = courts.find(c => c.id === booking.courtId || c.name === booking.courtName);
-                                                  let resolvedCompName = targetCourt?.ownerCompanyName || (targetCourt as any)?.companyName || (booking as any).ownerCompanyName;
+                                                  let resolvedCompName = targetCourt?.ownerCompanyName || (targetCourt as any)?.companyName || booking.ownerCompanyName;
                                                   let resolvedAddress = targetCourt?.companyAddress || targetCourt?.location || (booking as any).ownerCompanyAddress || 'Venue Location On File';
                                                   let resolvedEmail = targetCourt?.ownerEmail || (booking as any).ownerEmail || '';
                                                   let resolvedPhone = targetCourt?.ownerPhone || (booking as any).ownerPhone || '';
@@ -7660,7 +7958,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                   </td>
                                 </tr>
                               )}
-                            </>
+                            </Fragment>
                           );
                         })
                       )}
@@ -8945,7 +9243,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 </div>
 
                 {/* Court requirement alert for Client Admins with 0 courts */}
-                {!isSuperAdmin && courts.filter(c => c.ownerId === currentUserUid).length === 0 && (
+                {!isSuperAdmin && availableAdminCourts.length === 0 && (
                   <div className="mb-6 p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-bold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
                     <div className="flex items-center gap-2">
                       <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
@@ -8970,63 +9268,338 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   </div>
                 )}
 
-                {/* Events Cards Grid */}
-                {/* Filter Tabs for Admin Open Play Events */}
-                {openPlayEvents.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 mb-6">
-                    {[
-                      { id: 'all', label: 'All Sessions', count: openPlayEvents.length },
-                      { id: 'upcoming', label: 'Active / Upcoming', count: openPlayEvents.filter(e => !isEventExpired(e.eventDate, e.endTime) && e.status !== 'expired').length },
-                      { id: 'expired', label: 'Concluded / Expired', count: openPlayEvents.filter(e => isEventExpired(e.eventDate, e.endTime) || e.status === 'expired').length },
-                    ].map(tab => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setAdminOpenPlayFilter(tab.id as any)}
-                        className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                          adminOpenPlayFilter === tab.id
-                            ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
-                            : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        <span>{tab.label}</span>
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                          adminOpenPlayFilter === tab.id ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
-                        }`}>
-                          {tab.count}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {/* Filter Tabs & View Mode Controls */}
+                {(() => {
+                  const visibleAdminEvents = isSuperAdmin
+                    ? openPlayEvents
+                    : (() => {
+                        const filtered = openPlayEvents.filter(e => {
+                          const matchesUid = e.createdByUid === currentUserUid;
+                          const matchesEmail = currentUserEmail && e.createdByEmail?.toLowerCase() === currentUserEmail;
+                          const matchesCompanyId = myCompany?.id && e.companyId === myCompany.id;
+                          const matchesCompanyName = myCompany?.name && e.companyName?.toLowerCase() === myCompany.name.toLowerCase();
+                          const matchesCourt = e.courtIds && e.courtIds.some(cid => availableAdminCourts.some(ac => ac.id === cid));
+                          return matchesUid || matchesEmail || matchesCompanyId || matchesCompanyName || matchesCourt;
+                        });
+                        return filtered.length > 0 ? filtered : openPlayEvents;
+                      })();
 
-                {openPlayEvents.length === 0 ? (
-                  <div className="text-center py-16 px-4 border border-dashed border-slate-800 rounded-3xl bg-slate-900/5 max-w-2xl mx-auto shadow">
-                    <Trophy className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                    <h4 className="text-sm font-bold text-white">No Open Play Events Created</h4>
-                    <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto">
-                      Create an Open Play event to organize sessions, accept GCash registrations, and share direct registration links with players.
-                    </p>
-                    <button
-                      onClick={handleOpenCreateOpenPlay}
-                      className="mt-5 px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow shadow-brand-lime/10"
-                    >
-                      Create First Open Play Event
-                    </button>
+                  const isEventConcluded = (e: OpenPlayEvent) => {
+                    return isEventExpired(e.eventDate, e.endTime) || e.status === 'expired' || e.status === 'completed';
+                  };
+
+                  const activeAdminEvents = visibleAdminEvents.filter(e => !isEventConcluded(e) && e.status !== 'cancelled');
+                  const expiredAdminEvents = visibleAdminEvents.filter(e => isEventConcluded(e));
+
+                  const displayedAdminEvents = visibleAdminEvents.filter(event => {
+                    const isConcluded = isEventConcluded(event);
+                    if (adminOpenPlayFilter === 'upcoming') return !isConcluded;
+                    if (adminOpenPlayFilter === 'expired') return isConcluded;
+                    return true;
+                  });
+
+                  return (
+                    <>
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-dark-border/40">
+                        {/* Filter Tabs */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {[
+                            { id: 'all', label: 'All Sessions', count: visibleAdminEvents.length },
+                            { id: 'upcoming', label: 'Active / Upcoming', count: activeAdminEvents.length },
+                            { id: 'expired', label: 'Concluded / Expired History', count: expiredAdminEvents.length },
+                          ].map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => {
+                                setAdminOpenPlayFilter(tab.id as any);
+                                if (tab.id === 'expired') {
+                                  setAdminOpenPlayViewMode('history');
+                                }
+                              }}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                                adminOpenPlayFilter === tab.id
+                                  ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <span>{tab.label}</span>
+                              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                adminOpenPlayFilter === tab.id ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
+                              }`}>
+                                {tab.count}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* View Mode Toggle: Cards vs History Table */}
+                        <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => setAdminOpenPlayViewMode('cards')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                              adminOpenPlayViewMode === 'cards'
+                                ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            <span>Cards View</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAdminOpenPlayViewMode('history')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                              adminOpenPlayViewMode === 'history'
+                                ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            <List className="w-3.5 h-3.5" />
+                            <span>History Table</span>
+                          </button>
+                        </div>
+                        {/* Refresh Events Button */}
+                        <button
+                          type="button"
+                          onClick={() => { console.error('🔄 [Manual Refresh] Triggering fetchData...'); fetchData(); }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 hover:border-brand-lime/40 self-end sm:self-auto"
+                          title="Reload events from Firestore"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Refresh Events</span>
+                        </button>
+                      </div>
+
+                      {/* PREVIOUS OPEN PLAY SESSIONS HISTORICAL ANALYTICS BANNER */}
+                      {(adminOpenPlayFilter === 'expired' || adminOpenPlayViewMode === 'history') && (() => {
+                        const pastEventIds = new Set(expiredAdminEvents.map(e => e.id));
+                        const pastApprovedRegs = openPlayRegistrations.filter(r => pastEventIds.has(r.eventId) && (r.paymentStatus === 'paid' || r.status === 'approved'));
+                        
+                        const totalPastRevenue = pastApprovedRegs.reduce((sum, r) => sum + ((r.registrationFee || 0) * (r.playerCount || 1)), 0);
+                        const totalPastAttendees = pastApprovedRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
+                        const totalPastCapacity = expiredAdminEvents.reduce((sum, e) => sum + (e.maxParticipants || 16), 0);
+                        const fillRatePercent = totalPastCapacity > 0 ? Math.round((totalPastAttendees / totalPastCapacity) * 100) : 0;
+
+                        return (
+                          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in">
+                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
+                              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                                <Trophy className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Concluded Sessions</div>
+                                <div className="text-xl font-extrabold text-white">{expiredAdminEvents.length} <span className="text-xs text-slate-500 font-normal">events</span></div>
+                              </div>
+                            </div>
+
+                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
+                              <div className="p-3 rounded-xl bg-brand-emerald/10 border border-brand-emerald/20 text-brand-emerald">
+                                <DollarSign className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Past Revenue Collected</div>
+                                <div className="text-xl font-extrabold text-brand-emerald">₱{totalPastRevenue.toLocaleString()}</div>
+                              </div>
+                            </div>
+
+                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
+                              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                                <Users className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Turnout</div>
+                                <div className="text-xl font-extrabold text-white">{totalPastAttendees} <span className="text-xs text-slate-500 font-normal">players</span></div>
+                              </div>
+                            </div>
+
+                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
+                              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                                <BarChart3 className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Avg Capacity Fill Rate</div>
+                                <div className="text-xl font-extrabold text-purple-400">{fillRatePercent}%</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {visibleAdminEvents.length === 0 ? (
+                        <div className="text-center py-16 px-4 border border-dashed border-slate-800 rounded-3xl bg-slate-900/5 max-w-2xl mx-auto shadow">
+                          <Trophy className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                          <h4 className="text-sm font-bold text-white">No Open Play Events Created</h4>
+                          <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto">
+                            Create an Open Play event to organize sessions, accept GCash registrations, and share direct registration links with players.
+                          </p>
+                          <button
+                            onClick={handleOpenCreateOpenPlay}
+                            className="mt-5 px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow shadow-brand-lime/10"
+                          >
+                            Create First Open Play Event
+                          </button>
+                        </div>
+                      ) : displayedAdminEvents.length === 0 ? (
+                        <div className="text-center py-12 px-4 border border-dashed border-slate-800 rounded-3xl bg-slate-900/20 max-w-xl mx-auto my-6 shadow animate-fade-in">
+                          <Calendar className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                          <h4 className="text-sm font-bold text-white">
+                            No {adminOpenPlayFilter === 'upcoming' ? 'Active / Upcoming' : 'Expired'} Open Play Sessions
+                          </h4>
+                          <p className="text-xs text-slate-400 mt-1.5 max-w-md mx-auto">
+                            {adminOpenPlayFilter === 'upcoming'
+                              ? `You have ${visibleAdminEvents.length} session(s) in total, but none are currently active/upcoming. Switch to "All Sessions" or "Concluded / Expired History" to view your records.`
+                              : `You have ${visibleAdminEvents.length} session(s) in total, but none are marked as expired.`}
+                          </p>
+                          <button
+                            onClick={() => setAdminOpenPlayFilter('all')}
+                            className="mt-4 px-4 py-2 rounded-xl text-xs font-extrabold text-brand-lime bg-slate-900 border border-slate-700 hover:bg-slate-800 transition-all cursor-pointer"
+                          >
+                            View All Sessions ({visibleAdminEvents.length})
+                          </button>
+                        </div>
+                      ) : adminOpenPlayViewMode === 'history' ? (
+                        /* HISTORY TABLE VIEW */
+                        <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-xl animate-fade-in">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
+                                  <th className="py-4 px-4">Event Date & Time</th>
+                                  <th className="py-4 px-4">Session Title</th>
+                                  <th className="py-4 px-4">Category / Rotation</th>
+                                  <th className="py-4 px-4">Assigned Courts</th>
+                                  <th className="py-4 px-4 text-center">Turnout / Capacity</th>
+                                  <th className="py-4 px-4 text-right">Revenue</th>
+                                  <th className="py-4 px-4 text-center">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-800/60 text-xs">
+                                {displayedAdminEvents.map(event => {
+                              const isExpired = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired';
+                              const eventRegs = openPlayRegistrations.filter(r => r.eventId === event.id && r.status !== 'cancelled');
+                              const approvedRegs = openPlayRegistrations.filter(r => r.eventId === event.id && (r.paymentStatus === 'paid' || r.status === 'approved'));
+                              const totalSpots = eventRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
+                              const totalRevenue = approvedRegs.reduce((sum, r) => sum + ((r.registrationFee || 0) * (r.playerCount || 1)), 0);
+                              const fillPercent = event.maxParticipants > 0 ? Math.round((totalSpots / event.maxParticipants) * 100) : 0;
+
+                              return (
+                                <tr key={event.id} className="hover:bg-slate-900/40 transition-colors">
+                                  <td className="py-3.5 px-4">
+                                    <div className="font-bold text-white flex items-center gap-1.5">
+                                      <Calendar className="w-3.5 h-3.5 text-brand-lime" />
+                                      {formatEventDateLong(event.eventDate)}
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                                      {formatTime12h(event.startTime)} - {formatTime12h(event.endTime)}
+                                    </div>
+                                  </td>
+
+                                  <td className="py-3.5 px-4">
+                                    <div className="font-extrabold text-white">{event.title}</div>
+                                    {event.isRecurring && (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-300 bg-purple-950/40 px-1.5 py-0.2 rounded mt-0.5">
+                                        <Repeat className="w-2.5 h-2.5" /> Recurring
+                                      </span>
+                                    )}
+                                  </td>
+
+                                  <td className="py-3.5 px-4">
+                                    <span className="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-brand-lime font-bold text-[10px] uppercase">
+                                      {event.category}
+                                    </span>
+                                    <div className="text-[11px] text-slate-400 capitalize mt-1">
+                                      Rule: {event.rotationRule?.replace(/_/g, ' ') || 'winners stay'}
+                                    </div>
+                                  </td>
+
+                                  <td className="py-3.5 px-4 text-slate-300">
+                                    {event.courtNames && event.courtNames.length > 0 ? (
+                                      <div className="truncate max-w-[150px]" title={event.courtNames.join(', ')}>
+                                        {event.courtNames.join(', ')}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-500 italic">Unassigned</span>
+                                    )}
+                                  </td>
+
+                                  <td className="py-3.5 px-4 text-center">
+                                    <div className="font-bold text-slate-200">
+                                      {totalSpots} / {event.maxParticipants} players
+                                    </div>
+                                    <span className={`inline-block text-[10px] font-extrabold px-1.5 py-0.2 rounded-full mt-0.5 ${
+                                      fillPercent >= 100 ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-brand-emerald/10 text-brand-emerald'
+                                    }`}>
+                                      {fillPercent}% filled
+                                    </span>
+                                  </td>
+
+                                  <td className="py-3.5 px-4 text-right font-mono font-extrabold text-brand-emerald">
+                                    ₱{totalRevenue.toLocaleString()}
+                                  </td>
+
+                                  <td className="py-3.5 px-4 text-center">
+                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                      <button
+                                        onClick={() => {
+                                          setSelectedEventForRegs(event);
+                                          setRegistrationsModalOpen(true);
+                                        }}
+                                        title="View Roster"
+                                        className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white hover:bg-slate-800 transition-all text-xs font-bold cursor-pointer"
+                                      >
+                                        <Users className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      <button
+                                        onClick={() => handleDuplicateOpenPlayEvent(event)}
+                                        title="Duplicate Session"
+                                        className="p-1.5 rounded-lg bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 transition-all text-xs font-bold cursor-pointer flex items-center gap-1"
+                                      >
+                                        <Copy className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      <button
+                                        onClick={() => handleExportOpenPlayRoster(event)}
+                                        title="Export Roster CSV"
+                                        className="p-1.5 rounded-lg bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-bold cursor-pointer"
+                                      >
+                                        <Download className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      <button
+                                        onClick={() => handleOpenEditOpenPlay(event)}
+                                        title="Edit Event"
+                                        className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
+                                      >
+                                        <Edit2 className="w-3.5 h-3.5" />
+                                      </button>
+
+                                      <button
+                                        onClick={() => setDeletingOpenPlayEvent(event)}
+                                        title="Delete Event"
+                                        className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white transition-all cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 ) : (
+                  /* CARDS GRID VIEW */
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {openPlayEvents
-                      .filter(event => {
-                        const isExpired = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired';
-                        if (adminOpenPlayFilter === 'upcoming') return !isExpired;
-                        if (adminOpenPlayFilter === 'expired') return isExpired;
-                        return true;
-                      })
-                      .map((event) => {
+                    {displayedAdminEvents.map((event) => {
                         const isExpired = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired';
                         const eventRegs = openPlayRegistrations.filter(r => r.eventId === event.id && r.status !== 'cancelled');
                         const pendingRegsCount = openPlayRegistrations.filter(r => r.eventId === event.id && r.paymentStatus === 'pending_verification').length;
+                        const totalSpots = eventRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
                         
                         return (
                           <div key={event.id} className={`glass-panel border rounded-3xl p-5 relative overflow-hidden flex flex-col justify-between transition-all group shadow-lg ${
@@ -9046,14 +9619,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                                 <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap">
                                   {isExpired ? (
-                                    <div className="px-2.5 py-0.5 rounded-full bg-amber-500/90 backdrop-blur-md border border-amber-400/50 text-dark-bg text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
-                                      <span>⏰ EXPIRED</span>
+                                    <div className="px-2.5 py-0.5 rounded-full bg-amber-500/90 backdrop-blur-md border border-amber-400/50 text-dark-bg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                                      <span>⏰ EXPIRED / CONCLUDED</span>
                                     </div>
                                   ) : (
-                                    <div className="px-2.5 py-0.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-brand-lime/30 text-brand-lime text-[10px] font-extrabold uppercase tracking-wider">
-                                      {event.category}
+                                    <div className="px-2.5 py-0.5 rounded-full bg-brand-lime backdrop-blur-md text-dark-bg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                                      <span>🟢 ACTIVE SESSION</span>
                                     </div>
                                   )}
+
+                                  <div className="px-2 py-0.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider">
+                                    {event.category}
+                                  </div>
 
                                   {event.isRecurring && (
                                     <div className="px-2 py-0.5 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
@@ -9085,13 +9662,27 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 <div className="flex items-center gap-2">
                                   <Calendar className="w-3.5 h-3.5 text-brand-lime flex-shrink-0" />
                                   <span className={isExpired ? 'text-amber-400/90 font-medium' : ''}>
-                                    {event.eventDate} ({event.startTime} - {event.endTime})
+                                    {formatEventDateLong(event.eventDate)} ({formatTime12h(event.startTime)} - {formatTime12h(event.endTime)})
                                   </span>
                                 </div>
+                                {event.location && (() => {
+                                  const { primary, secondary } = splitAddressComponents(event.location);
+                                  return (
+                                    <div className="flex items-start gap-2">
+                                      <MapPin className="w-3.5 h-3.5 text-brand-emerald flex-shrink-0 mt-0.5" />
+                                      <div className="text-xs text-slate-300 leading-tight">
+                                        <div className="font-semibold text-white">{primary}</div>
+                                        {secondary && (
+                                          <div className="text-[11px] text-slate-400 font-medium mt-0.5">{secondary}</div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                                 <div className="flex items-center gap-2">
                                   <Users className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
                                   <span className="font-bold text-slate-200">
-                                    {eventRegs.length} / {event.maxParticipants} Players Registered
+                                    {totalSpots} / {event.maxParticipants} Players Registered
                                   </span>
                                 </div>
                               {event.courtNames && event.courtNames.length > 0 && (
@@ -9117,7 +9708,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 onClick={() => handleCopyShareableLink(event.id)}
                                 className="flex-1 py-2 px-3 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer"
                               >
-                                <Share2 className="w-3.5 h-3.5" /> Share Link
+                                <Share2 className="w-3.5 h-3.5" /> Share
                               </button>
 
                               <button
@@ -9134,9 +9725,33 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                   </span>
                                 )}
                               </button>
+
+                              <button
+                                onClick={() => handleDuplicateOpenPlayEvent(event)}
+                                title="Duplicate session"
+                                className="py-2 px-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 text-purple-300 hover:bg-purple-900 transition-all cursor-pointer"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleExportOpenPlayRoster(event)}
+                                title="Export roster CSV"
+                                className="py-2 px-2.5 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
                             </div>
 
                             <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleToggleEventStatus(event)}
+                                className={`text-xs font-bold transition-colors cursor-pointer px-2 py-1 ${
+                                  isExpired ? 'text-brand-lime hover:underline' : 'text-amber-400 hover:underline'
+                                }`}
+                              >
+                                {isExpired ? 'Reopen Session' : 'Mark Concluded'}
+                              </button>
                               <button
                                 onClick={() => handleOpenEditOpenPlay(event)}
                                 className="text-xs text-slate-400 hover:text-white font-bold transition-colors cursor-pointer px-2 py-1"
@@ -9144,22 +9759,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 Edit
                               </button>
                               <button
-                                onClick={async () => {
-                                  if (!confirm('Are you sure you want to delete this Open Play event?')) return;
-                                  try {
-                                    if (isFirebaseConfigured && db) {
-                                      await deleteDoc(doc(db, 'openplay_events', event.id));
-                                    }
-                                    const localStr = localStorage.getItem('picklepoint_openplay_events');
-                                    if (localStr) {
-                                      const filtered = JSON.parse(localStr).filter((e: any) => e.id !== event.id);
-                                      localStorage.setItem('picklepoint_openplay_events', JSON.stringify(filtered));
-                                    }
-                                    setOpenPlayEvents(prev => prev.filter(e => e.id !== event.id));
-                                  } catch (err) {
-                                    console.error('Failed to delete event:', err);
-                                  }
-                                }}
+                                onClick={() => setDeletingOpenPlayEvent(event)}
                                 className="text-xs text-red-400 hover:text-red-300 font-bold transition-colors cursor-pointer px-2 py-1"
                               >
                                 Delete
@@ -9171,8 +9771,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     })}
                   </div>
                 )}
-              </div>
-            )}
+              </>
+            );
+          })()}
+        </div>
+      )}
 
             {/* POLICIES MANAGER TAB */}
             {activeTab === 'policies' && (
@@ -12500,7 +13103,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       {/* OPEN PLAY EVENT CREATION / EDIT MODAL */}
       {openPlayModalOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6 md:p-8 pt-8 sm:pt-12 pb-12 bg-black/85 backdrop-blur-md overflow-y-auto animate-fade-in">
-          <div className="glass-panel border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full text-left relative shadow-2xl bg-dark-bg my-auto sm:my-4 max-h-[90vh] flex flex-col animate-scale-up">
+          <div className="glass-panel border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-5xl w-full text-left relative shadow-2xl bg-dark-bg my-auto sm:my-4 max-h-[90vh] flex flex-col animate-scale-up">
             <div className="flex items-center justify-between pb-4 border-b border-dark-border mb-5 flex-shrink-0">
               <div>
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -12563,7 +13166,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                           ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
                           : 'bg-red-500/10 border-red-500/30 text-red-400'
                       }`}>
-                        {openPlayCourtIds.length} of {(isSuperAdmin ? courts : courts.filter(c => c.ownerId === currentUserUid)).length} Selected
+                        {openPlayCourtIds.length} of {availableAdminCourts.length} Selected
                       </span>
 
                       <button
@@ -12586,7 +13189,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                   {/* Court Selection Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1.5">
-                    {(isSuperAdmin ? courts : courts.filter(c => c.ownerId === currentUserUid)).map((court) => {
+                    {availableAdminCourts.map((court) => {
                       const isSelected = openPlayCourtIds.includes(court.id);
                       return (
                         <div
@@ -12673,6 +13276,109 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     onChange={(e) => setOpenPlayEndTime(e.target.value)}
                     className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
                   />
+                </div>
+
+                {/* 3 COURT ROTATION & PLAY FORMAT RULE OPTIONS */}
+                <div className="space-y-2 md:col-span-2 p-4 rounded-2xl bg-slate-900/90 border border-dark-border">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                    <div>
+                      <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                        <Repeat className="w-3.5 h-3.5 text-brand-lime" /> Paddle Rotation & Court Rules (3 Options) *
+                      </label>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Select the court rotation rule for players after each completed match.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                    {/* Option 1: Winners Stay */}
+                    <div
+                      onClick={() => setOpenPlayRotationRule('winners_stay')}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between select-none ${
+                        openPlayRotationRule === 'winners_stay'
+                          ? 'bg-brand-lime/10 border-brand-lime text-white shadow-lg shadow-brand-lime/5'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs font-black text-white flex items-center gap-1.5">
+                            👑 Winners Stay (King of Court)
+                          </span>
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                            openPlayRotationRule === 'winners_stay' ? 'bg-brand-lime border-brand-lime text-dark-bg' : 'border-slate-700 bg-slate-900'
+                          }`}>
+                            {openPlayRotationRule === 'winners_stay' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Winning team stays on court (max 2 consecutive games cap). Losers rotate off into the waiting paddle stack.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold text-brand-lime uppercase tracking-wider mt-3 block">
+                        • Standard Open Play
+                      </span>
+                    </div>
+
+                    {/* Option 2: All 4 Rotate */}
+                    <div
+                      onClick={() => setOpenPlayRotationRule('all_4_rotate')}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between select-none ${
+                        openPlayRotationRule === 'all_4_rotate'
+                          ? 'bg-blue-500/10 border-blue-500 text-white shadow-lg shadow-blue-500/5'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs font-black text-white flex items-center gap-1.5">
+                            🔄 All 4 Players Rotate Off
+                          </span>
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                            openPlayRotationRule === 'all_4_rotate' ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-700 bg-slate-900'
+                          }`}>
+                            {openPlayRotationRule === 'all_4_rotate' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          All 4 players (winners and losers) leave the court after each game, replacing the entire court with the next 4 players in queue.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider mt-3 block">
+                        • Full Court Rotation
+                      </span>
+                    </div>
+
+                    {/* Option 3: Split Winners & Rotate */}
+                    <div
+                      onClick={() => setOpenPlayRotationRule('split_winners')}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between select-none ${
+                        openPlayRotationRule === 'split_winners'
+                          ? 'bg-purple-500/10 border-purple-500 text-white shadow-lg shadow-purple-500/5'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className="text-xs font-black text-white flex items-center gap-1.5">
+                            🔀 Split Winners & Mix Partners
+                          </span>
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                            openPlayRotationRule === 'split_winners' ? 'bg-purple-500 border-purple-500 text-white' : 'border-slate-700 bg-slate-900'
+                          }`}>
+                            {openPlayRotationRule === 'split_winners' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Winners split up and play as opponents in the next match with incoming new partners from the queue.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider mt-3 block">
+                        • Social Mix & Match
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* RECURRING / LOOPING EVENT SCHEDULE */}
@@ -12856,12 +13562,53 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   </div>
                 </div>
 
-                {/* Description */}
-                <div className="space-y-1.5 md:col-span-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">Description, Play Format & Venue Rules</label>
-                    <span className="text-[10px] text-slate-500 font-medium">Supports multiple lines & format details</span>
+                {/* Description & Venue Rules */}
+                <div className="space-y-2 md:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-brand-lime" /> Description, Play Format & Venue House Rules
+                    </label>
+                    
+                    {/* Quick Rules Auto-Fill Presets */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const openPlayTemplate = `🎾 PLAY FORMAT & ROTATION:
+• Paddle Stack System: Winner stays 2 games max, then rotates back into paddle rack.
+• Game Scoring: First to 11 points (win by 2) or 12-minute time cap per match.
+• All skill levels welcome - games arranged by ladder rotation.
+
+👟 VENUE HOUSE RULES:
+• Footwear: Non-marking court shoes mandatory on pickleball surfaces.
+• Arrive 10-15 minutes prior to session start for court assignment.
+• Hydration: Water refill stations available on-site. Bring a reusable bottle.
+
+🎒 EQUIPMENT & GEAR:
+• Tournament balls provided by venue.
+• Demo paddles available for rent at reception desk.`;
+
+                          setOpenPlayDescription(prev => prev.trim() ? `${prev}\n\n${openPlayTemplate}` : openPlayTemplate);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg text-[11px] font-extrabold transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3" /> Auto-Fill Standard Open Play Rules
+                      </button>
+
+                      {policyRules && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenPlayDescription(prev => prev.trim() ? `${prev}\n\n📋 VENUE HOUSE RULES:\n${policyRules}` : `📋 VENUE HOUSE RULES:\n${policyRules}`);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 hover:border-brand-lime text-[11px] font-extrabold transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          📋 Import Saved Court Rules
+                        </button>
+                      )}
+                    </div>
                   </div>
+
                   <textarea
                     rows={6}
                     value={openPlayDescription}
@@ -12940,12 +13687,29 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                       .map((reg) => (
                         <tr key={reg.id} className="hover:bg-slate-900/20 transition-colors">
                           <td className="py-3.5 px-4 font-bold text-white">
-                            {reg.playerName}
+                            <div>{reg.playerName || reg.userName || 'Player'}</div>
+                            {((reg.guestCount && reg.guestCount > 0) || (reg.guests && reg.guests.length > 0)) && (
+                              <div className="text-[11px] font-semibold text-brand-lime mt-1 flex flex-col gap-0.5">
+                                <span>
+                                  +{reg.guestCount || reg.guests?.length} {reg.guestCount === 1 ? 'Guest' : 'Guests'}:
+                                </span>
+                                <span className="text-slate-300 font-normal">
+                                  {reg.guests && reg.guests.length > 0
+                                    ? reg.guests.map(g => g.name || g.email).filter(Boolean).join(', ')
+                                    : reg.guestNames && reg.guestNames.length > 0
+                                    ? reg.guestNames.join(', ')
+                                    : 'Guest names on file'}
+                                </span>
+                              </div>
+                            )}
+                            <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                              Total Spots: {reg.playerCount || 1}
+                            </div>
                           </td>
 
                           <td className="py-3.5 px-4 text-slate-300">
-                            <div>{reg.playerEmail}</div>
-                            {reg.playerPhone && <div className="text-[11px] text-slate-500">{reg.playerPhone}</div>}
+                            <div>{reg.playerEmail || reg.userEmail}</div>
+                            {(reg.playerPhone || reg.userPhone) && <div className="text-[11px] text-slate-500">{reg.playerPhone || reg.userPhone}</div>}
                           </td>
 
                           <td className="py-3.5 px-4 font-mono font-bold text-brand-lime">
@@ -12967,13 +13731,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                           <td className="py-3.5 px-4 text-center">
                             <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
-                              reg.paymentStatus === 'paid'
+                              reg.status === 'approved' || reg.paymentStatus === 'paid'
                                 ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
-                                : reg.paymentStatus === 'failed'
+                                : reg.status === 'cancelled' || reg.paymentStatus === 'failed'
                                 ? 'bg-red-500/10 border-red-500/30 text-red-400'
                                 : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
                             }`}>
-                              {reg.paymentStatus === 'pending_verification' ? 'Pending Review' : reg.paymentStatus}
+                              {reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                ? '✓ Approved'
+                                : reg.status === 'cancelled' || reg.paymentStatus === 'failed'
+                                ? '✗ Rejected'
+                                : '⏳ Pending Review'}
                             </span>
                           </td>
 
@@ -12988,11 +13756,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                         if (isFirebaseConfigured && db) {
                                           await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'paid', status: 'approved' });
                                         }
-                                        const localStr = localStorage.getItem('picklepoint_openplay_registrations');
-                                        if (localStr) {
-                                          const updated = JSON.parse(localStr).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r);
-                                          localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updated));
-                                        }
+                                        const updateLocal = (str: string | null) => {
+                                          if (!str) return;
+                                          try {
+                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r);
+                                            return JSON.stringify(updated);
+                                          } catch { return null; }
+                                        };
+                                        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+                                        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+                                        const updatedLs = updateLocal(lsStr);
+                                        const updatedSs = updateLocal(ssStr);
+                                        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+                                        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
                                         setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r));
                                       } catch (err) {
                                         console.error('Failed to approve registration:', err);
@@ -13012,11 +13788,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                         if (isFirebaseConfigured && db) {
                                           await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'failed', status: 'cancelled' });
                                         }
-                                        const localStr = localStorage.getItem('picklepoint_openplay_registrations');
-                                        if (localStr) {
-                                          const updated = JSON.parse(localStr).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r);
-                                          localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updated));
-                                        }
+                                        const updateLocal = (str: string | null) => {
+                                          if (!str) return;
+                                          try {
+                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r);
+                                            return JSON.stringify(updated);
+                                          } catch { return null; }
+                                        };
+                                        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+                                        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+                                        const updatedLs = updateLocal(lsStr);
+                                        const updatedSs = updateLocal(ssStr);
+                                        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+                                        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
                                         setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r));
                                       } catch (err) {
                                         console.error('Failed to reject registration:', err);
@@ -13031,7 +13815,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 </>
                               )}
                               {reg.paymentStatus !== 'pending_verification' && (
-                                <span className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Processed</span>
+                                <span className={`text-[11px] font-bold uppercase tracking-wider ${
+                                  reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                    ? 'text-brand-emerald'
+                                    : reg.status === 'cancelled'
+                                    ? 'text-red-400'
+                                    : 'text-slate-500'
+                                }`}>
+                                  {reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                    ? '✓ Approved'
+                                    : reg.status === 'cancelled'
+                                    ? '✗ Rejected'
+                                    : 'Done'}
+                                </span>
                               )}
                             </div>
                           </td>
@@ -13448,6 +14244,115 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             >
               <X className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+      {/* OPEN PLAY DELETE CONFIRMATION MODAL ALERT */}
+      {deletingOpenPlayEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-fade-in">
+          <div className="glass-panel border border-red-900/40 rounded-3xl max-w-md w-full shadow-2xl relative text-left overflow-hidden flex flex-col">
+            {/* Extended Header Title Divider */}
+            <div className="flex justify-between items-center p-6 sm:px-8 border-b border-slate-800 bg-slate-950/40">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-red-500" />
+                Confirm Open Play Deletion
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeletingOpenPlayEvent(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 sm:p-8 space-y-4">
+              {/* Event card summary */}
+              <div className="p-3.5 bg-slate-900/80 border border-slate-800 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                  <span className="font-extrabold text-xs text-brand-lime truncate">
+                    {deletingOpenPlayEvent.title}
+                  </span>
+                  <span className="text-xs font-bold text-white flex-shrink-0">
+                    {deletingOpenPlayEvent.registrationFee > 0 ? `₱${deletingOpenPlayEvent.registrationFee}` : 'FREE'}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-300 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-3.5 h-3.5 text-brand-lime flex-shrink-0" />
+                    <span>{formatEventDateLong(deletingOpenPlayEvent.eventDate)} ({formatTime12h(deletingOpenPlayEvent.startTime)} - {formatTime12h(deletingOpenPlayEvent.endTime)})</span>
+                  </div>
+                  {deletingOpenPlayEvent.courtNames && deletingOpenPlayEvent.courtNames.length > 0 && (
+                    <div className="flex items-center gap-2 text-slate-400 text-[11px]">
+                      <Building2 className="w-3.5 h-3.5 text-brand-lime flex-shrink-0" />
+                      <span>{deletingOpenPlayEvent.courtNames.join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed font-medium">
+                Are you sure you want to permanently delete this Open Play event?
+              </p>
+              
+              <div className="bg-red-950/30 border border-red-900/40 rounded-xl p-3 text-[11px] text-red-300 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                <span>This Open Play session record will be permanently deleted from the database. This action cannot be undone.</span>
+              </div>
+            </div>
+
+            {/* Extended Footer Divider */}
+            <div className="p-6 sm:px-8 border-t border-slate-800 bg-slate-950/40 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeletingOpenPlayEvent(null)}
+                disabled={actionLoading === deletingOpenPlayEvent.id}
+                className="flex-1 py-3 px-4 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold text-xs hover:bg-slate-700 hover:text-white transition-all cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!deletingOpenPlayEvent) return;
+                  const targetId = deletingOpenPlayEvent.id;
+                  setActionLoading(targetId);
+                  try {
+                    if (isFirebaseConfigured && db) {
+                      await deleteDoc(doc(db, 'openplay_events', targetId));
+                    }
+                    const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+                    if (localStr) {
+                      const filtered = JSON.parse(localStr).filter((e: any) => e.id !== targetId);
+                      try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(filtered)); } catch (e) {}
+                      try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(filtered)); } catch (e) {}
+                    }
+                    setOpenPlayEvents(prev => prev.filter(e => e.id !== targetId));
+                    setDeletingOpenPlayEvent(null);
+                  } catch (err) {
+                    console.error('Failed to delete event:', err);
+                    alert('Failed to delete event: ' + (err as Error).message);
+                  } finally {
+                    setActionLoading(null);
+                  }
+                }}
+                disabled={actionLoading === deletingOpenPlayEvent.id}
+                className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-all cursor-pointer shadow-lg shadow-red-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {actionLoading === deletingOpenPlayEvent.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Event</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

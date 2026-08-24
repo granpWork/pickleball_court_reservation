@@ -357,10 +357,22 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       } catch (err) {
         const firebaseError = err as { code?: string; message?: string };
         console.error('Firebase Google Register Error:', firebaseError);
-        if (firebaseError.code !== 'auth/popup-closed-by-user') {
-          setError(firebaseError.message || 'Failed to sign up with Google.');
-        }
         setLoading(false);
+
+        if (firebaseError.code === 'auth/popup-blocked') {
+          try {
+            const { signInWithRedirect } = await import('firebase/auth');
+            await signInWithRedirect(auth, googleProvider);
+            return;
+          } catch (redirectErr) {
+            console.error('Google Redirect fallback error:', redirectErr);
+            setError('Google sign-in popup was blocked by your browser or extension. Please allow pop-ups for this site or use email registration.');
+          }
+        } else if (firebaseError.code === 'auth/popup-closed-by-user') {
+          setError('Google sign-in popup was closed before completing registration.');
+        } else {
+          setError(firebaseError.message || 'An error occurred during Google sign in.');
+        }
       }
     } else {
       setTimeout(async () => {

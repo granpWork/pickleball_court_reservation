@@ -173,8 +173,8 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
           setSelectedCourtId(pendingCourtId);
           setSearchQuery(court.name);
           setView('details');
+          localStorage.removeItem('picklepoint_pending_court_id');
         }
-        localStorage.removeItem('picklepoint_pending_court_id');
       }
     }
   }, [courts]);
