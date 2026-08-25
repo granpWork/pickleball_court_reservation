@@ -534,7 +534,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
             {isVerifiedInvite ? 'Client Admin Setup' : 'Create Account'}
           </h2>
           <p className="text-slate-400 text-base font-normal mt-1.5">
-            {isVerifiedInvite ? 'Set your secure password to get started' : 'Join the PicklePoint community today'}
+            {isVerifiedInvite ? 'Set your secure password to get started' : 'Join the Book Picklecourt community today'}
           </p>
         </div>
 

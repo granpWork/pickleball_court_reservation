@@ -1,4 +1,4 @@
-// Email Service Utility for PicklePoint Platform
+// Email Service Utility for Book Picklecourt Platform
 
 interface SendCustomEmailParams {
   toEmail: string;
@@ -79,7 +79,7 @@ const buildHtmlWrapper = (title: string, subtitle: string, bodyContent: string, 
           <tr>
             <td style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 32px 28px; text-align: center; border-bottom: 1px solid #1e293b;">
               <div style="display: inline-block; padding: 6px 18px; background-color: rgba(166, 226, 36, 0.1); border: 1px solid rgba(166, 226, 36, 0.25); border-radius: 50px; margin-bottom: 14px;">
-                <span style="font-size: 18px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px;">Pickle<span style="color: #a6e224;">Point</span></span>
+                <span style="font-size: 18px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px;">Book <span style="color: #a6e224;">Picklecourt</span></span>
               </div>
               <h1 style="margin: 0; font-size: 22px; font-weight: 800; color: #ffffff; line-height: 1.3;">
                 ${title}
@@ -98,7 +98,7 @@ const buildHtmlWrapper = (title: string, subtitle: string, bodyContent: string, 
             <td style="background-color: #0b132b; padding: 20px 28px; text-align: center; border-top: 1px solid #1e293b;">
               ${ownerCompanyName ? `<p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #cbd5e1;">Transaction Direct with <strong style="color: #ffffff;">${ownerCompanyName}</strong></p>` : ''}
               <p style="margin: 0 0 4px 0; font-size: 11px; color: #64748b;">
-                Powered by PicklePoint Court Reservation Platform (Platform Provider)
+                Powered by Book Picklecourt Court Reservation Platform (Platform Provider)
               </p>
               <p style="margin: 0; font-size: 11px; color: #475569;">
                 If you have questions regarding facility rules or schedules, contact the venue owner directly.
@@ -168,7 +168,7 @@ const sendHostingerMailApi = async (
       },
       body: JSON.stringify({
         to: [toEmail],
-        displayName: 'PicklePoint Booking Platform',
+        displayName: 'Book Picklecourt Platform',
         subject: subject,
         html: htmlContent,
         text: htmlContent.replace(/<[^>]*>?/gm, ''),
@@ -206,7 +206,7 @@ export const sendCustomUserEmail = async ({
     ? message
     : buildHtmlWrapper(
         subject,
-        'Notification from PicklePoint',
+        'Notification from Book Picklecourt',
         `<p style="font-size: 14px; color: #cbd5e1; line-height: 1.6; whitespace: pre-line;">${message.replace(/\n/g, '<br/>')}</p>`
       );
 
@@ -310,7 +310,7 @@ export const sendBookingConfirmationEmail = async (
       Hello <strong style="color: #ffffff;">${booking.userName}</strong>,
     </p>
     <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-      Thank you for reserving a court at <strong style="color: #a6e224;">${booking.ownerCompanyName || booking.courtName}</strong> via PicklePoint! Here are your reservation details:
+      Thank you for reserving a court at <strong style="color: #a6e224;">${booking.ownerCompanyName || booking.courtName}</strong> via Book Picklecourt! Here are your reservation details:
     </p>
 
     <!-- Summary Card -->
@@ -462,8 +462,8 @@ export const sendCompanyInvitationEmail = async ({
   const inviteLink = `${baseUrl}?invite=true&email=${encodeURIComponent(clientAdminEmail)}&company=${encodeURIComponent(companyName)}`;
   const isPending = status === 'pending';
   const subject = isPending
-    ? `Welcome to PicklePoint! Organization Registration Pending Review: ${companyName}`
-    : `Welcome to PicklePoint! Client Admin Invitation for ${companyName}`;
+    ? `Welcome to Book Picklecourt! Organization Registration Pending Review: ${companyName}`
+    : `Welcome to Book Picklecourt! Client Admin Invitation for ${companyName}`;
 
   const bodyContent = `
     <p style="margin: 0 0 16px 0; font-size: 15px; color: #e2e8f0; line-height: 1.6;">
@@ -471,8 +471,8 @@ export const sendCompanyInvitationEmail = async ({
     </p>
     <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
       ${isPending
-        ? `Your organization/venue has been registered on <strong style="color: #a6e224;">PicklePoint</strong> and is currently in <strong style="color: #facc15;">Pending Review</strong> status.`
-        : `Congratulations! Your company/venue has been officially registered and activated on the <strong style="color: #a6e224;">PicklePoint Court Reservation Platform</strong>.`
+        ? `Your organization/venue has been registered on <strong style="color: #a6e224;">Book Picklecourt</strong> and is currently in <strong style="color: #facc15;">Pending Review</strong> status.`
+        : `Congratulations! Your company/venue has been officially registered and activated on the <strong style="color: #a6e224;">Book Picklecourt Court Reservation Platform</strong>.`
       }
     </p>
 
@@ -517,7 +517,7 @@ export const sendCompanyInvitationEmail = async ({
           <div style="width: 24px; height: 24px; background-color: rgba(166, 226, 36, 0.15); border: 1px solid rgba(166, 226, 36, 0.3); border-radius: 50%; color: #a6e224; font-weight: 800; font-size: 12px; line-height: 24px; text-align: center;">1</div>
         </td>
         <td style="padding-bottom: 10px; font-size: 13px; color: #cbd5e1; line-height: 1.5;">
-          Click the button below to claim your Client Admin account on the <strong style="color: #ffffff;">PicklePoint Portal</strong>.
+          Click the button below to claim your Client Admin account on the <strong style="color: #ffffff;">Book Picklecourt Portal</strong>.
         </td>
       </tr>
       <tr>
@@ -577,14 +577,14 @@ export const sendCompanyApprovalEmail = async ({
 }: CompanyInvitationParams): Promise<{ success: boolean; message: string }> => {
   const baseUrl = getBaseUrl();
   const loginLink = `${baseUrl}?view=admin`;
-  const subject = `🎉 Approved! Your Organization ${companyName} is Now Active on PicklePoint`;
+  const subject = `🎉 Approved! Your Organization ${companyName} is Now Active on Book Picklecourt`;
 
   const bodyContent = `
     <p style="margin: 0 0 16px 0; font-size: 15px; color: #e2e8f0; line-height: 1.6;">
       Dear <strong style="color: #ffffff;">${companyName} Administrator</strong>,
     </p>
     <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-      Great news! Your partner organization application for <strong style="color: #a6e224;">${companyName}</strong> has been reviewed and <strong style="color: #a6e224;">approved</strong> by the PicklePoint Super Admin team.
+      Great news! Your partner organization application for <strong style="color: #a6e224;">${companyName}</strong> has been reviewed and <strong style="color: #a6e224;">approved</strong> by the Book Picklecourt Super Admin team.
     </p>
 
     <!-- Venue Card -->
@@ -631,7 +631,7 @@ export const sendCompanyApprovalEmail = async ({
 
   const htmlMessage = buildHtmlWrapper(
     'Organization Approved',
-    `${companyName} is active on PicklePoint`,
+    `${companyName} is active on Book Picklecourt`,
     bodyContent
   );
 
@@ -657,7 +657,7 @@ interface VoucherEmailParams {
 export const sendVoucherIssuedEmail = async (params: VoucherEmailParams): Promise<{ success: boolean; message: string }> => {
   const venueName = params.companyName || params.ownerCompanyName;
   const title = `🎟️ You Received a Credit Voucher!`;
-  const subtitle = venueName ? `Valid Exclusively at ${venueName}` : `PicklePoint Court Reservation Credit`;
+  const subtitle = venueName ? `Valid Exclusively at ${venueName}` : `Book Picklecourt Court Reservation Credit`;
 
   const bodyContent = `
     <p style="margin: 0 0 16px 0; font-size: 14px; color: #cbd5e1; line-height: 1.6;">
@@ -683,7 +683,7 @@ export const sendVoucherIssuedEmail = async (params: VoucherEmailParams): Promis
   return sendCustomUserEmail({
     toEmail: params.userEmail,
     toName: params.userName,
-    subject: `🎟️ Credit Voucher Issued: ${params.voucherCode} (${params.discountText}) - ${venueName || 'PicklePoint'}`,
+    subject: `🎟️ Credit Voucher Issued: ${params.voucherCode} (${params.discountText}) - ${venueName || 'Book Picklecourt'}`,
     message: htmlMessage,
   });
 };
@@ -1073,7 +1073,7 @@ export const sendPendingPaymentsReminderEmail = async (
 ): Promise<{ success: boolean; message: string }> => {
   const baseUrl = getBaseUrl();
   const dashboardUrl = `${baseUrl}?view=admin`;
-  const subject = `⚠️ Reminder: ${params.pendingCount} Customer Payment(s) Awaiting Approval - PicklePoint`;
+  const subject = `⚠️ Reminder: ${params.pendingCount} Customer Payment(s) Awaiting Approval - Book Picklecourt`;
 
   const pendingRowsHtml = (params.pendingList && params.pendingList.length > 0)
     ? params.pendingList.slice(0, 6).map((item, idx) => `
@@ -1180,7 +1180,7 @@ export interface ClientAdminInvitationEmailParams {
 }
 
 export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitationEmailParams): Promise<{ success: boolean; error?: string }> => {
-  const subject = `Official Invitation: Become a Client Admin on PicklePoint`;
+  const subject = `Official Invitation: Become a Client Admin on Book Picklecourt`;
   const inviteeDisplayName = params.toName || params.toEmail.split('@')[0];
   const formattedExpiry = new Date(params.expiresAt).toLocaleDateString('en-US', {
     weekday: 'short',
@@ -1197,7 +1197,7 @@ export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitati
         Hello <strong style="color: #ffffff;">${inviteeDisplayName}</strong>,
       </p>
       <p style="margin: 0 0 14px 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
-        You have been invited by the PicklePoint System Administration${params.invitedBy ? ` (<strong>${params.invitedBy}</strong>)` : ''} to register as an authorized <strong>Client Admin (Venue & Facility Host)</strong> on the PicklePoint Platform.
+        You have been invited by the Book Picklecourt System Administration${params.invitedBy ? ` (<strong>${params.invitedBy}</strong>)` : ''} to register as an authorized <strong>Client Admin (Venue & Facility Host)</strong> on the Book Picklecourt Platform.
       </p>
       ${params.customMessage ? `
         <div style="background-color: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
@@ -1363,7 +1363,7 @@ export const sendOpenPlayInvitationEmail = async (
 
           <div>
             <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Host Venue / Organizer</span>
-            <span style="font-size: 13px; color: #a6e224; font-weight: 700;">${params.companyName || 'PicklePoint Host'}</span>
+            <span style="font-size: 13px; color: #a6e224; font-weight: 700;">${params.companyName || 'Book Picklecourt Host'}</span>
           </div>
         </td>
       </tr>

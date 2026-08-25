@@ -41,7 +41,7 @@ export default function Footer() {
                 <circle cx="16.5" cy="12" r="0.75" />
               </svg>
               <span className="text-xl font-bold tracking-tight text-white">
-                Pickle<span className="text-brand-lime">Point</span>
+                Book <span className="text-brand-lime">Picklecourt</span>
               </span>
             </div>
             <p className="text-base font-normal text-slate-400 mb-6 leading-relaxed">
@@ -155,7 +155,7 @@ export default function Footer() {
 
         {/* Divider */}
         <div className="border-t border-dark-border pt-8 mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm font-normal">
-          <p>© {new Date().getFullYear()} PicklePoint Inc. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} Book Picklecourt Inc. All rights reserved.</p>
           <div className="flex gap-6">
             <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
             <a href="#" className="hover:text-white transition-colors">Terms of Service</a>

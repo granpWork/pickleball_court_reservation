@@ -78,7 +78,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
               <div className="absolute inset-0 bg-brand-lime/25 blur-md rounded-full -z-10 group-hover:bg-brand-lime/40 transition duration-300"></div>
             </div>
             <span className="text-xl font-semibold tracking-tight text-white whitespace-nowrap">
-              Pickle<span className="text-brand-lime">Point</span>
+              Book <span className="text-brand-lime">Picklecourt</span>
             </span>
           </div>
 

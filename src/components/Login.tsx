@@ -354,7 +354,7 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
             </svg>
           </div>
           <h2 className="text-3xl font-bold text-white">Welcome Back</h2>
-          <p className="text-slate-400 text-base font-normal mt-1.5">Sign in to your PicklePoint account</p>
+          <p className="text-slate-400 text-base font-normal mt-1.5">Sign in to your Book Picklecourt account</p>
         </div>
 
         {/* Social Sign-In buttons */}
