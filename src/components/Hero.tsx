@@ -302,7 +302,7 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
             </div>
 
             {/* Headline */}
-            <h1 className="text-5xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.15] font-sans">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.15] font-sans">
               Reserve Your Court.<br />
               <span className="bg-gradient-to-r from-brand-lime via-brand-lime to-brand-emerald bg-clip-text text-transparent">
                 Rule the Kitchen.
@@ -310,17 +310,17 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
             </h1>
 
             {/* Description */}
-            <p className="text-xl font-normal text-slate-400 max-w-xl leading-relaxed">
+            <p className="text-sm sm:text-base md:text-lg lg:text-xl font-normal text-slate-400 max-w-xl leading-relaxed">
               Book premium indoor and outdoor pickleball courts in seconds. Join matches, level up your DUPR rating, and play with your local community.
             </p>
           </div>
 
           {/* Sticky Spotlight Search Bar Container */}
-          <div id="booking-widget" className="w-full max-w-4xl sticky top-[96px] z-30 animate-slide-up">
+          <div id="booking-widget" className="w-full max-w-4xl sticky top-[76px] sm:top-[96px] z-30 animate-slide-up">
             <div className="relative group">
               {/* Outer floating search wrapper (Borderless) */}
               <div 
-                className={`w-full h-16 rounded-2xl bg-slate-900/60 backdrop-blur-2xl px-6 flex items-center gap-4 transition-all duration-300 shadow-[0_20px_50px_rgba(0,0,0,0.55)] border border-slate-800/40 ${
+                className={`w-full h-14 sm:h-16 rounded-2xl bg-slate-900/60 backdrop-blur-2xl px-4 sm:px-6 flex items-center gap-3 sm:gap-4 transition-all duration-300 shadow-[0_20px_50px_rgba(0,0,0,0.55)] border border-slate-800/40 ${
                   isFocused 
                     ? 'bg-slate-900/80 shadow-[0_20px_50px_rgba(181,245,41,0.06)] border-brand-lime/20' 
                     : 'hover:bg-slate-900/70'
@@ -521,15 +521,15 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
               </div>
 
               {/* Sorting and Category Badges */}
-              <div className="flex flex-wrap items-center gap-3">
-                {/* Category filters */}
-                <div className="flex flex-wrap gap-1.5 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80">
+              <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full lg:w-auto">
+                {/* Category filters (Horizontally scrollable on mobile) */}
+                <div className="flex items-center gap-1.5 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80 overflow-x-auto scrollbar-none max-w-full">
                   {['All', 'Indoor', 'Outdoor', 'Multi-Court', 'Premium'].map((cat) => (
                     <button
                       key={cat}
                       type="button"
                       onClick={() => setSelectedCategory(cat)}
-                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      className={`whitespace-nowrap flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                         selectedCategory === cat
                           ? 'bg-brand-lime text-dark-bg font-sans font-bold shadow-md shadow-brand-lime/5'
                           : 'text-slate-400 hover:text-white'
@@ -540,47 +540,49 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
                   ))}
                 </div>
 
-                {/* Sort Dropdown */}
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-500">Sort by:</span>
-                  <select
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as any)}
-                    className="bg-slate-900 border border-slate-800 text-slate-300 text-sm font-normal rounded-xl px-3 py-2 focus:outline-none focus:border-brand-lime transition-all cursor-pointer"
-                  >
-                    <option value="relevance">Relevance</option>
-                    <option value="dayPrice">Price: Low to High</option>
-                    <option value="nightPrice">Night Rate: Low to High</option>
-                    <option value="courts">Most Courts</option>
-                  </select>
-                </div>
+                <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
+                  {/* Sort Dropdown */}
+                  <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+                    <span className="text-xs sm:text-sm font-medium text-slate-500 flex-shrink-0">Sort by:</span>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value as any)}
+                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs sm:text-sm font-normal rounded-xl px-3 py-2 focus:outline-none focus:border-brand-lime transition-all cursor-pointer w-full sm:w-auto"
+                    >
+                      <option value="relevance">Relevance</option>
+                      <option value="dayPrice">Price: Low to High</option>
+                      <option value="nightPrice">Night Rate: Low to High</option>
+                      <option value="courts">Most Courts</option>
+                    </select>
+                  </div>
 
-                {/* View Mode Toggle (Grid/List) */}
-                <div className="flex items-center gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('grid')}
-                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                      viewMode === 'grid'
-                        ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="Grid View"
-                  >
-                    <LayoutGrid className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('list')}
-                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                      viewMode === 'list'
-                        ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                    title="List View"
-                  >
-                    <List className="w-4 h-4" />
-                  </button>
+                  {/* View Mode Toggle (Grid/List) */}
+                  <div className="flex items-center gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('grid')}
+                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                        viewMode === 'grid'
+                          ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Grid View"
+                    >
+                      <LayoutGrid className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('list')}
+                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                        viewMode === 'list'
+                          ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="List View"
+                    >
+                      <List className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
