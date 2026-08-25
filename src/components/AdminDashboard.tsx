@@ -855,20 +855,40 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const userObj = user as { companyId?: string; companyName?: string } | null;
   const currentCompany = companies.find((c) => 
-    c.clientAdminEmail?.toLowerCase() === currentUserEmail ||
+    (c.clientAdminEmail && currentUserEmail && c.clientAdminEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
     (userObj?.companyId && c.id === userObj.companyId) ||
-    (userObj?.companyName && c.name?.toLowerCase() === userObj.companyName.toLowerCase())
+    (c.id && currentUserUid && c.id === currentUserUid) ||
+    (userObj?.companyName && c.name && c.name.toLowerCase() === userObj.companyName.toLowerCase())
   );
 
-  const availableAdminCourts = isSuperAdmin
-    ? courts
-    : courts.filter(
-        c =>
-          c.ownerId === currentUserUid ||
-          (currentCompany?.id && c.companyId === currentCompany.id) ||
-          (currentUserEmail && c.createdByEmail?.toLowerCase() === currentUserEmail.toLowerCase()) ||
-          (currentCompany?.name && c.companyName?.toLowerCase() === currentCompany.name.toLowerCase())
-      );
+  const availableAdminCourts = courts.filter((c) => {
+    if (isSuperAdmin) return true;
+
+    // 1. Direct Owner UID match
+    if (c.ownerId && currentUserUid && c.ownerId === currentUserUid) return true;
+
+    // 2. Direct Owner Email or Creator Email match
+    if (currentUserEmail) {
+      if (c.ownerEmail && c.ownerEmail.toLowerCase() === currentUserEmail) return true;
+      if (c.createdByEmail && c.createdByEmail.toLowerCase() === currentUserEmail) return true;
+    }
+
+    // 3. Company ID match
+    if (currentCompany?.id && c.companyId && c.companyId === currentCompany.id) return true;
+
+    // 4. Company Name match (avoid matching default placeholder names like 'PicklePoint Venue' or 'Book Picklecourt Venue')
+    const hostCompName = currentCompany?.name || userObj?.companyName;
+    if (
+      hostCompName &&
+      hostCompName.trim().toLowerCase() !== 'picklepoint venue' &&
+      hostCompName.trim().toLowerCase() !== 'book picklecourt venue'
+    ) {
+      if (c.ownerCompanyName && c.ownerCompanyName.toLowerCase() === hostCompName.toLowerCase()) return true;
+      if (c.companyName && c.companyName.toLowerCase() === hostCompName.toLowerCase()) return true;
+    }
+
+    return false;
+  });
 
   const handleSelectAllOpenPlayCourts = () => {
     const targetCourts = availableAdminCourts;
@@ -5473,7 +5493,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.type.toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesOwner = isSuperAdmin || c.ownerId === currentUserUid;
+    const matchesOwner = isSuperAdmin || availableAdminCourts.some(ac => ac.id === c.id);
     return matchesSearch && matchesOwner;
   });
 
