@@ -943,7 +943,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     setEditingOpenPlay(null);
     setOpenPlayTitle('');
-    setOpenPlayCourtIds(targetCourts.map(c => c.id)); // Pre-select all available courts by default
+    // Automatically select court only if 1 court is available; if > 1 court, leave empty for explicit host selection
+    setOpenPlayCourtIds(targetCourts.length === 1 ? [targetCourts[0].id] : []);
     setOpenPlayLocation(targetCourts[0]?.location || myCompany?.address || myCompany?.name || '');
     setOpenPlayDate(today.toISOString().split('T')[0]);
     setOpenPlayStartTime('18:00');
@@ -971,7 +972,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayCourtIds(
       event.courtIds && event.courtIds.length > 0 
         ? event.courtIds 
-        : targetCourts.map(c => c.id)
+        : (targetCourts.length === 1 ? [targetCourts[0].id] : [])
     );
     setOpenPlayLocation(event.location || targetCourts[0]?.location || myCompany?.address || '');
     setOpenPlayDate(event.eventDate);
