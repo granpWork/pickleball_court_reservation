@@ -114,9 +114,12 @@ const buildHtmlWrapper = (title: string, subtitle: string, bodyContent: string, 
 };
 
 let cachedHostingerMailboxResourceId: string | null = null;
+let lastUsedHostingerToken: string | null = null;
 
 const getHostingerMailboxResourceId = async (token: string, senderEmail: string): Promise<string | null> => {
-  if (cachedHostingerMailboxResourceId) return cachedHostingerMailboxResourceId;
+  if (cachedHostingerMailboxResourceId && lastUsedHostingerToken === token) {
+    return cachedHostingerMailboxResourceId;
+  }
   try {
     const res = await fetch('https://api.mail.hostinger.com/api/v1/me', {
       method: 'GET',
@@ -131,6 +134,7 @@ const getHostingerMailboxResourceId = async (token: string, senderEmail: string)
       const match = mailboxes.find((m: any) => m.address?.toLowerCase() === senderEmail?.toLowerCase()) || mailboxes[0];
       if (match?.resourceId) {
         cachedHostingerMailboxResourceId = match.resourceId;
+        lastUsedHostingerToken = token;
         return cachedHostingerMailboxResourceId;
       }
     } else {
