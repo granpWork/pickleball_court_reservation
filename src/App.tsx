@@ -835,7 +835,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
+    <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg overflow-x-hidden w-full relative">
       {/* Header Navigation */}
       <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
 

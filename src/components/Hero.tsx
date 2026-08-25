@@ -285,7 +285,7 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
   }, [filteredVenues, sortBy]);
 
   return (
-    <section className="relative z-20 pt-32 pb-24 md:pt-40 md:pb-36">
+    <section className="relative z-20 pt-32 pb-24 md:pt-40 md:pb-36 overflow-hidden">
       {/* Background Decorative Gradients */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-emerald/10 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[10%] right-[-10%] w-[50%] h-[50%] bg-brand-lime/10 blur-[120px] rounded-full pointer-events-none"></div>
