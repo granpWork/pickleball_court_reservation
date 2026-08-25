@@ -167,9 +167,13 @@ export default function Checkout({
     }
   };
 
-  // Restore saved submission state on refresh
+  // Restore saved submission state on refresh (only if NOT starting a new checkout flow)
   useEffect(() => {
     try {
+      // If active checkoutDetails is for a NEW booking (no bookingRef attached), do NOT force old completed receipt screen!
+      if (checkoutDetails && !checkoutDetails.bookingRef) {
+        return;
+      }
       const savedStr = sessionStorage.getItem('picklepoint_last_submitted_booking') || localStorage.getItem('picklepoint_last_submitted_booking');
       if (savedStr) {
         const savedData = JSON.parse(savedStr);

@@ -730,6 +730,11 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       return;
     }
 
+    try {
+      sessionStorage.removeItem('picklepoint_last_submitted_booking');
+      localStorage.removeItem('picklepoint_last_submitted_booking');
+    } catch (e) {}
+
     const durationText = calculateDuration(event.startTime, event.endTime);
     const slotString = `${formatTime12h(event.startTime)} - ${formatTime12h(event.endTime)}${durationText ? ` (${durationText})` : ''}`;
 

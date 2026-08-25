@@ -723,7 +723,10 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
           }))
       : [];
 
-    const courtLocation = [court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || '';
+    try {
+      sessionStorage.removeItem('picklepoint_last_submitted_booking');
+      localStorage.removeItem('picklepoint_last_submitted_booking');
+    } catch (e) {}
 
     setCheckoutDetails({
       type: 'court',
