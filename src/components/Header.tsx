@@ -194,14 +194,25 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
             )}
           </div>
 
-          {/* Mobile Menu Button */}
-          <div className="flex lg:hidden">
+          {/* Mobile & Tablet Hamburger Menu Button */}
+          <div className="flex lg:hidden items-center gap-2">
             <button
+              type="button"
               onClick={() => setIsOpen(!isOpen)}
-              className="text-slate-300 hover:text-white focus:outline-none cursor-pointer p-1.5"
-              aria-label="Toggle menu"
+              className="p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-900/90 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all cursor-pointer shadow-lg flex items-center gap-2 group"
+              aria-label="Toggle Navigation Menu"
             >
-              {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+              {isOpen ? (
+                <>
+                  <X className="w-5 h-5 text-brand-lime group-hover:text-dark-bg transition-colors" />
+                  <span className="text-xs font-black uppercase tracking-wider hidden sm:inline text-white group-hover:text-dark-bg">Close</span>
+                </>
+              ) : (
+                <>
+                  <Menu className="w-5 h-5 text-brand-lime group-hover:text-dark-bg transition-colors" />
+                  <span className="text-xs font-black uppercase tracking-wider hidden sm:inline text-white group-hover:text-dark-bg">Menu</span>
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -209,10 +220,10 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
 
       {/* Mobile Drawer Menu */}
       <div
-        className={`lg:hidden fixed inset-x-0 z-40 bg-dark-bg/95 backdrop-blur-lg transition-all duration-300 border-b border-dark-border ${
+        className={`lg:hidden fixed inset-x-0 z-40 bg-slate-950/95 backdrop-blur-2xl transition-all duration-300 border-b border-dark-border shadow-2xl ${
           isOpen ? 'translate-y-0 opacity-100 pointer-events-auto visible' : '-translate-y-4 opacity-0 pointer-events-none invisible'
         }`}
-        style={{ top: '65px', height: 'auto' }}
+        style={{ top: '72px', height: 'auto' }}
       >
         <div className="px-4 pt-4 pb-8 space-y-4 shadow-2xl">
           <nav className="flex flex-col gap-3">
