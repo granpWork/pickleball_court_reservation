@@ -326,5 +326,6 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
         </div>
       </div>
     </header>
+    </>
   );
 }
