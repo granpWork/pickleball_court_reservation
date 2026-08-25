@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Menu, X, ChevronRight, User, Trophy, Flame } from 'lucide-react';
+import { Menu, X, ChevronRight, User, Trophy, Flame, Calendar, Search, Shield } from 'lucide-react';
 
 interface HeaderProps {
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
@@ -43,188 +43,186 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
   };
 
   return (
-    <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled || currentView !== 'landing'
-          ? 'bg-dark-bg/85 backdrop-blur-md border-b border-dark-border py-4 shadow-lg shadow-black/20'
-          : 'bg-transparent py-6'
-      }`}
-    >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between">
-          {/* Logo */}
-          <div 
-            onClick={() => handleNavClick('landing', '/')}
-            className="flex items-center gap-2 group cursor-pointer"
-          >
-            <div className="relative">
-              {/* Custom SVG Pickleball */}
-              <svg
-                className="w-8 h-8 text-brand-lime transition-transform duration-500 group-hover:rotate-90"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" fill="none" />
-                <circle cx="8" cy="8" r="0.75" />
-                <circle cx="16" cy="8" r="0.75" />
-                <circle cx="12" cy="12" r="0.75" />
-                <circle cx="8" cy="16" r="0.75" />
-                <circle cx="16" cy="16" r="0.75" />
-                <circle cx="12" cy="7.5" r="0.75" />
-                <circle cx="12" cy="16.5" r="0.75" />
-                <circle cx="7.5" cy="12" r="0.75" />
-                <circle cx="16.5" cy="12" r="0.75" />
-              </svg>
-              <div className="absolute inset-0 bg-brand-lime/25 blur-md rounded-full -z-10 group-hover:bg-brand-lime/40 transition duration-300"></div>
+    <>
+      {/* Mobile Drawer Backdrop Overlay */}
+      {isOpen && (
+        <div
+          onClick={() => setIsOpen(false)}
+          className="fixed inset-0 bg-black/70 backdrop-blur-xs z-40 lg:hidden animate-fade-in"
+        />
+      )}
+
+      <header
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          scrolled || currentView !== 'landing'
+            ? 'bg-dark-bg/90 backdrop-blur-md border-b border-dark-border py-3.5 sm:py-4 shadow-lg shadow-black/20'
+            : 'bg-dark-bg/60 lg:bg-transparent backdrop-blur-md lg:backdrop-blur-none border-b border-slate-800/40 lg:border-none py-3.5 sm:py-4 lg:py-6'
+        }`}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between">
+            {/* Logo */}
+            <div 
+              onClick={() => handleNavClick('landing', '/')}
+              className="flex items-center gap-2 group cursor-pointer"
+            >
+              <div className="relative">
+                {/* Custom SVG Pickleball */}
+                <svg
+                  className="w-8 h-8 text-brand-lime transition-transform duration-500 group-hover:rotate-90"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" fill="none" />
+                  <circle cx="8" cy="8" r="0.75" />
+                  <circle cx="16" cy="8" r="0.75" />
+                  <circle cx="12" cy="12" r="0.75" />
+                  <circle cx="8" cy="16" r="0.75" />
+                  <circle cx="16" cy="16" r="0.75" />
+                  <circle cx="12" cy="7.5" r="0.75" />
+                  <circle cx="12" cy="16.5" r="0.75" />
+                  <circle cx="7.5" cy="12" r="0.75" />
+                  <circle cx="16.5" cy="12" r="0.75" />
+                </svg>
+                <div className="absolute inset-0 bg-brand-lime/25 blur-md rounded-full -z-10 group-hover:bg-brand-lime/40 transition duration-300"></div>
+              </div>
+              <span className="text-xl font-semibold tracking-tight text-white whitespace-nowrap">
+                Book <span className="text-brand-lime">Picklecourt</span>
+              </span>
             </div>
-            <span className="text-xl font-semibold tracking-tight text-white whitespace-nowrap">
-              Book <span className="text-brand-lime">Picklecourt</span>
-            </span>
-          </div>
 
-          {/* Desktop Nav Links */}
-          <nav className="hidden lg:flex items-center gap-6 xl:gap-8 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => handleNavClick('landing', '/', 'booking-widget')}
-              className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap ${
-                currentView === 'landing' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
-              }`}
-            >
-              Book Court
-              {currentView === 'landing' && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleNavClick('openplay', '/open-play')}
-              className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 flex items-center gap-1.5 whitespace-nowrap ${
-                currentView === 'openplay' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
-              }`}
-            >
-              <Trophy className="w-4 h-4 flex-shrink-0" />
-              <span>Open Play</span>
-              {currentView === 'openplay' && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleNavClick('bootcamp', '/bootcamp')}
-              className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 flex items-center gap-1.5 whitespace-nowrap ${
-                currentView === 'bootcamp' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
-              }`}
-            >
-              <Flame className="w-4 h-4 flex-shrink-0" />
-              <span>Bootcamp</span>
-              {currentView === 'bootcamp' && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleNavClick('lookup', '/?view=lookup')}
-              className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap ${
-                currentView === 'lookup' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
-              }`}
-            >
-              Check Status
-              {currentView === 'lookup' && (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
-              )}
-            </button>
-          </nav>
-
-          {/* Desktop Auth CTA */}
-          <div className="hidden lg:flex items-center gap-3 xl:gap-4 flex-shrink-0">
-            {user ? (
-              <>
-                {(user.isAdmin || user.email.toLowerCase() === 'admin@picklepoint.com') && (
-                  <button
-                    onClick={() => {
-                      window.history.pushState({}, '', '/pickle-admin');
-                      setView('admin');
-                    }}
-                    className="text-xs xl:text-sm font-semibold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all px-3.5 py-1.5 xl:px-4 xl:py-2 rounded-full cursor-pointer shadow-md shadow-brand-lime/10 whitespace-nowrap flex-shrink-0"
-                  >
-                    Admin Dashboard
-                  </button>
+            {/* Desktop Nav Links */}
+            <nav className="hidden lg:flex items-center gap-6 xl:gap-8 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => handleNavClick('landing', '/', 'booking-widget')}
+                className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap ${
+                  currentView === 'landing' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
+                }`}
+              >
+                Book Court
+                {currentView === 'landing' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
                 )}
-                <button
-                  onClick={() => handleNavClick('profile', '/profile')}
-                  className={`flex items-center gap-2 text-xs xl:text-sm font-semibold transition-all cursor-pointer border px-3.5 py-1.5 xl:px-4 xl:py-2 rounded-full shadow-sm whitespace-nowrap flex-shrink-0 ${
-                    currentView === 'profile'
-                      ? 'border-brand-lime bg-brand-lime/25 text-brand-lime ring-1 ring-brand-lime/30'
-                      : 'border-brand-lime/40 bg-brand-lime/10 text-white hover:bg-brand-lime/20 hover:text-brand-lime'
-                  }`}
-                  title="View & Edit Profile Settings"
-                >
-                  <User className="w-4 h-4 text-brand-lime flex-shrink-0" />
-                  <span className="truncate max-w-[140px] xl:max-w-[180px]">{user.name}</span>
-                </button>
-                <button
-                  onClick={onLogout}
-                  className="text-xs xl:text-sm font-medium text-slate-400 hover:text-white transition-colors cursor-pointer border border-dark-border px-3.5 py-1.5 xl:px-4 xl:py-2 rounded-full hover:bg-dark-hover whitespace-nowrap flex-shrink-0"
-                >
-                  Log Out
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setView('login')}
-                  className="text-sm xl:text-base font-medium text-slate-300 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  Log In
-                </button>
-                <button
-                  onClick={() => setView('register')}
-                  className="relative group px-4 py-2 xl:px-5 xl:py-2.5 rounded-full text-xs xl:text-sm font-semibold text-dark-bg bg-brand-lime overflow-hidden shadow-lg shadow-brand-lime/20 cursor-pointer whitespace-nowrap flex-shrink-0"
-                >
-                  <span className="relative z-10 flex items-center gap-1">
-                    Register <ChevronRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
-                  </span>
-                  <div className="absolute inset-0 bg-white translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
-                </button>
-              </>
-            )}
-          </div>
+              </button>
 
-          {/* Mobile & Tablet Hamburger Menu Button */}
-          <div className="flex lg:hidden items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsOpen(!isOpen)}
-              className="p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-900/90 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all cursor-pointer shadow-lg flex items-center gap-2 group"
-              aria-label="Toggle Navigation Menu"
-            >
-              {isOpen ? (
+              <button
+                type="button"
+                onClick={() => handleNavClick('openplay', '/open-play')}
+                className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap flex items-center gap-1.5 ${
+                  currentView === 'openplay' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
+                }`}
+              >
+                <Trophy className="w-4 h-4 text-brand-lime" />
+                <span>Open Play</span>
+                {currentView === 'openplay' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('bootcamp', '/bootcamp')}
+                className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap flex items-center gap-1.5 ${
+                  currentView === 'bootcamp' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
+                }`}
+              >
+                <Flame className="w-4 h-4 text-amber-400" />
+                <span>Bootcamp</span>
+                {currentView === 'bootcamp' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('lookup', '/?view=lookup')}
+                className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap ${
+                  currentView === 'lookup' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
+                }`}
+              >
+                Check Status
+                {currentView === 'lookup' && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
+                )}
+              </button>
+            </nav>
+
+            {/* Right CTAs */}
+            <div className="hidden lg:flex items-center gap-3 xl:gap-4 flex-shrink-0">
+              {user ? (
                 <>
-                  <X className="w-5 h-5 text-brand-lime group-hover:text-dark-bg transition-colors" />
-                  <span className="text-xs font-black uppercase tracking-wider hidden sm:inline text-white group-hover:text-dark-bg">Close</span>
+                  {(user.isAdmin || user.email.toLowerCase() === 'admin@picklepoint.com') && (
+                    <button
+                      onClick={() => {
+                        window.history.pushState({}, '', '/pickle-admin');
+                        setView('admin');
+                      }}
+                      className="text-xs xl:text-sm font-semibold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all px-3.5 py-1.5 xl:px-4 xl:py-2 rounded-full cursor-pointer shadow-md shadow-brand-lime/10 whitespace-nowrap flex-shrink-0"
+                    >
+                      Admin Dashboard
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleNavClick('profile', '/profile')}
+                    className={`flex items-center gap-2 text-xs xl:text-sm font-semibold transition-all cursor-pointer border px-3.5 py-1.5 xl:px-4 xl:py-2 rounded-full shadow-sm whitespace-nowrap flex-shrink-0 ${
+                      currentView === 'profile'
+                        ? 'border-brand-lime bg-brand-lime/25 text-brand-lime ring-1 ring-brand-lime/30'
+                        : 'border-brand-lime/40 bg-brand-lime/10 text-white hover:bg-brand-lime/20 hover:text-brand-lime'
+                    }`}
+                    title="View & Edit Profile Settings"
+                  >
+                    <User className="w-4 h-4 text-brand-lime flex-shrink-0" />
+                    <span className="truncate max-w-[140px] xl:max-w-[180px]">{user.name}</span>
+                  </button>
+                  <button
+                    onClick={onLogout}
+                    className="text-xs xl:text-sm font-medium text-slate-400 hover:text-white transition-colors cursor-pointer border border-dark-border px-3.5 py-1.5 xl:px-4 xl:py-2 rounded-full hover:bg-dark-hover whitespace-nowrap flex-shrink-0"
+                  >
+                    Log Out
+                  </button>
                 </>
               ) : (
                 <>
-                  <Menu className="w-5 h-5 text-brand-lime group-hover:text-dark-bg transition-colors" />
-                  <span className="text-xs font-black uppercase tracking-wider hidden sm:inline text-white group-hover:text-dark-bg">Menu</span>
+                  <button
+                    onClick={() => setView('login')}
+                    className="text-sm xl:text-base font-medium text-slate-300 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    Log In
+                  </button>
+                  <button
+                    onClick={() => setView('register')}
+                    className="relative group px-4 py-2 xl:px-5 xl:py-2.5 rounded-full text-xs xl:text-sm font-semibold text-dark-bg bg-brand-lime overflow-hidden shadow-lg shadow-brand-lime/20 cursor-pointer whitespace-nowrap flex-shrink-0"
+                  >
+                    <span className="relative z-10 flex items-center gap-1">
+                      Register <ChevronRight className="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1" />
+                    </span>
+                    <div className="absolute inset-0 bg-white translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+                  </button>
                 </>
               )}
-            </button>
+            </div>
+
+            {/* Mobile & Tablet Hamburger Menu Button */}
+            <div className="flex lg:hidden items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsOpen(!isOpen)}
+                className="p-2 sm:p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-200 hover:text-brand-lime transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                aria-label="Toggle Navigation Menu"
+              >
+                {isOpen ? <X className="w-5 h-5 text-brand-lime" /> : <Menu className="w-5 h-5 text-brand-lime" />}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Mobile Drawer Menu */}
-      <div
-        className={`lg:hidden fixed inset-x-0 z-40 bg-slate-950/95 backdrop-blur-2xl transition-all duration-300 border-b border-dark-border shadow-2xl ${
-          isOpen ? 'translate-y-0 opacity-100 pointer-events-auto visible' : '-translate-y-4 opacity-0 pointer-events-none invisible'
-        }`}
-        style={{ top: '72px', height: 'auto' }}
-      >
+        {/* Mobile Drawer Menu (Anchored directly to bottom edge of header) */}
+        <div
+          className={`lg:hidden absolute top-full left-0 right-0 z-50 bg-slate-950/98 backdrop-blur-2xl transition-all duration-300 border-b border-slate-800 shadow-2xl ${
+            isOpen ? 'translate-y-0 opacity-100 pointer-events-auto visible' : '-translate-y-2 opacity-0 pointer-events-none invisible'
+          }`}
+        >
         <div className="px-4 pt-4 pb-8 space-y-4 shadow-2xl">
           <nav className="flex flex-col gap-3">
             <button
