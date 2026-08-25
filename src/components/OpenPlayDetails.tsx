@@ -24,6 +24,7 @@ import {
   Sparkles,
   Repeat,
   UserPlus,
+  Award,
 } from 'lucide-react';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -1136,19 +1137,38 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                     </div>
                   </div>
 
-                  {event.courtNames && event.courtNames.length > 0 && (
-                    <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3 sm:col-span-2">
-                      <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime">
+                  {/* Reserved Courts & Category / Skill Level Section (Side-by-Side) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:col-span-2">
+                    {/* Reserved Courts */}
+                    <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime flex-shrink-0">
                         <Building2 className="w-5 h-5" />
                       </div>
                       <div>
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                          Reserved {event.courtNames.length === 1 ? 'Court' : 'Courts'} ({event.courtNames.length})
+                          Reserved {event.courtNames && event.courtNames.length > 1 ? 'Courts' : 'Court'} {event.courtNames && event.courtNames.length > 0 ? `(${event.courtNames.length})` : ''}
                         </div>
-                        <div className="text-xs font-black text-white">{event.courtNames.join(', ')}</div>
+                        <div className="text-xs font-black text-white">
+                          {event.courtNames && event.courtNames.length > 0 ? event.courtNames.join(', ') : 'Venue Facility Courts'}
+                        </div>
                       </div>
                     </div>
-                  )}
+
+                    {/* Category / Skill Level */}
+                    <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 flex-shrink-0">
+                        <Award className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Category / Skill Level</div>
+                        <div className="text-xs font-black text-white flex items-center gap-1.5 mt-0.5">
+                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-extrabold uppercase tracking-wider text-[11px]">
+                            {event.category || 'Open to All'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Description */}
