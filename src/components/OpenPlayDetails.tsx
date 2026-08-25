@@ -979,11 +979,6 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                     <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Pickleball Open Play</span>
                   </div>
                 )}
-                
-                {/* Category Badge overlay */}
-                <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-brand-lime/40 text-brand-lime text-xs font-black uppercase tracking-wider shadow">
-                  {event.category}
-                </div>
               </div>
             </div>
 
