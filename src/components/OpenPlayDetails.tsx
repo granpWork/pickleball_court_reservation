@@ -4,16 +4,11 @@ import {
   Calendar,
   Clock,
   Users,
-  DollarSign,
   ArrowLeft,
   Shield,
-  Check,
   AlertCircle,
   Loader2,
   Lock,
-  Phone,
-  Upload,
-  UserCheck,
   MapPin,
   Building2,
   CheckCircle,
@@ -385,14 +380,15 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   
   // Registration Form States
   const [step, setStep] = useState<'details' | 'checkout' | 'success'>('details');
-  const [playerPhone, setPlayerPhone] = useState('');
-  const [gcashRef, setGcashRef] = useState('');
+  const [playerPhone] = useState('');
+  const [gcashRef] = useState('');
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [companyInfo, setCompanyInfo] = useState<{ name: string; logoUrl: string }>({ name: '', logoUrl: '' });
   const [associatedCourt, setAssociatedCourt] = useState<AssignedCourtInfo | null>(null);
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+  void step; void setStep; void playerPhone; void gcashRef; void receiptImage; void submitting; void setSubmitting;
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
@@ -776,7 +772,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     }
   };
 
-  const isAlreadyRegistered = user && registrations.some(r => r.status !== 'cancelled' && (r.playerEmail.toLowerCase() === user.email.toLowerCase() || (user.uid && r.playerUid === user.uid)));
+  const isAlreadyRegistered = user && registrations.some(r => r.status !== 'cancelled' && ((r.playerEmail || '').toLowerCase() === user.email.toLowerCase() || (user.uid && r.playerUid === user.uid)));
   const activeRegistrations = useMemo(() => registrations.filter(r => r.status !== 'cancelled'), [registrations]);
   const approvedRegistrations = useMemo(() => activeRegistrations.filter(r => r.status === 'approved' || r.paymentStatus === 'paid'), [activeRegistrations]);
   const pendingRegistrations = useMemo(() => activeRegistrations.filter(r => r.status === 'pending' || r.paymentStatus === 'pending_verification'), [activeRegistrations]);
@@ -814,6 +810,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     };
     reader.readAsDataURL(file);
   };
+  void handleProcessReceiptUpload;
 
   const handleSubmitRegistration = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -874,6 +871,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       setSubmitting(false);
     }
   };
+  void handleSubmitRegistration;
 
   if (loading) {
     return (
@@ -1379,7 +1377,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
               for (let gIdx = 0; gIdx < numGuests; gIdx++) {
                 const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
-                const gPhoto = reg.guests?.[gIdx]?.photoUrl;
+                const gPhoto = (reg.guests?.[gIdx] as any)?.photoUrl;
                 participants.push({
                   id: `${reg.id}-guest-${gIdx}`,
                   name: gName,
@@ -1412,7 +1410,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                  {participants.map((p, idx) => (
+                  {participants.map((p) => (
                     <div
                       key={p.id}
                       className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs transition-all ${

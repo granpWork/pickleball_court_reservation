@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, ShieldCheck, Loader2 } from 'lucide-react';
-import { auth, db, googleProvider, facebookProvider, isFirebaseConfigured } from '../firebase';
+import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
 import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut, deleteUser } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
@@ -395,6 +395,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
     }
   };
 
+  /*
   const handleFacebookSignIn = async () => {
     setError('');
     setLoading(true);
@@ -454,6 +455,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       }, 800);
     }
   };
+  */
 
   return (
     <div className="min-h-screen bg-dark-bg relative flex flex-col items-center justify-center px-4 overflow-hidden py-12">

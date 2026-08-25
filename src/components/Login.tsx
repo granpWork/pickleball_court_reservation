@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, CheckCircle2 } from 'lucide-react';
-import { auth, db, googleProvider, facebookProvider, isFirebaseConfigured } from '../firebase';
+import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
 import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
@@ -223,6 +223,7 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
     }
   };
 
+  /*
   const handleFacebookSignIn = async () => {
     setError('');
     setLoading(true);
@@ -233,43 +234,6 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
         const fbUser = result.user;
         
         let role: string = 'player';
-        let status: string = 'active';
-        if (db) {
-          try {
-            const userDocRef = doc(db, 'users', fbUser.uid);
-            const userDocSnap = await getDoc(userDocRef);
-            if (userDocSnap.exists()) {
-              const uData = userDocSnap.data();
-              role = uData.role || 'player';
-              status = uData.status || (uData.isInvitedPending ? 'pending' : 'active');
-            } else {
-              role = fbUser.email?.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player';
-              status = 'active';
-              await setDoc(userDocRef, {
-                uid: fbUser.uid,
-                name: fbUser.displayName || 'Player',
-                email: fbUser.email || '',
-                role: role,
-                status: 'active',
-                createdAt: new Date().toISOString()
-              });
-            }
-          } catch (e) {
-            console.error('Error fetching role during social login:', e);
-          }
-        }
-
-        await onLoginSuccess({
-          uid: fbUser.uid,
-          name: fbUser.displayName || 'Facebook Player',
-          email: fbUser.email || '',
-          role: role,
-          status: status,
-          isAdmin: role === 'super_admin' || role === 'client_admin',
-        });
-        setLoading(false);
-      } catch (err) {
-        const firebaseError = err as { code?: string; message?: string };
         console.error('Firebase Facebook Login Error:', firebaseError);
         setLoading(false);
 
@@ -298,6 +262,7 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
       }, 800);
     }
   };
+  */
 
   return (
     <div className="min-h-screen bg-dark-bg relative flex flex-col items-center justify-center px-4 overflow-hidden py-12">

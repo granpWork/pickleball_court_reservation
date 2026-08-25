@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { 
   ArrowLeft, CheckCircle, Calendar, Clock, 
   MapPin, User, Mail, Phone, ShieldCheck, 
-  Download, ChevronRight, Lock, Check, Shield, X,
+  Download, Lock, Check, Shield, X,
   Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap
 } from 'lucide-react';
 import type { Voucher } from './AdminDashboard';
@@ -171,7 +171,7 @@ export default function Checkout({
   useEffect(() => {
     try {
       // If active checkoutDetails is for a NEW booking (no bookingRef attached), do NOT force old completed receipt screen!
-      if (checkoutDetails && !checkoutDetails.bookingRef) {
+      if (checkoutDetails && !(checkoutDetails as any).bookingRef) {
         return;
       }
       const savedStr = sessionStorage.getItem('picklepoint_last_submitted_booking') || localStorage.getItem('picklepoint_last_submitted_booking');
@@ -215,11 +215,11 @@ export default function Checkout({
 
   // Open Play Guest (+1 / +2) States
   const isOpenPlay = checkoutDetails?.type === 'open_play' || checkoutDetails?.type === 'openplay' || !!checkoutDetails?.openPlayEventId;
-  const isAddGuestOnly = checkoutDetails?.isAddGuestOnly === true;
-  const [playerCount, setPlayerCount] = useState<number>(checkoutDetails?.initialGuestCount || 1);
+  const isAddGuestOnly = (checkoutDetails as any)?.isAddGuestOnly === true;
+  const [playerCount, setPlayerCount] = useState<number>((checkoutDetails as any)?.initialGuestCount || 1);
   const [guests, setGuests] = useState<{ name: string; email: string }[]>(() => {
-    if (checkoutDetails?.isAddGuestOnly) {
-      return Array.from({ length: checkoutDetails?.initialGuestCount || 1 }, () => ({ name: '', email: '' }));
+    if ((checkoutDetails as any)?.isAddGuestOnly) {
+      return Array.from({ length: (checkoutDetails as any)?.initialGuestCount || 1 }, () => ({ name: '', email: '' }));
     }
     return [];
   });

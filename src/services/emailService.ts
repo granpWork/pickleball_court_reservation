@@ -154,6 +154,7 @@ const sendHostingerMailApi = async (
   subject: string,
   htmlContent: string
 ): Promise<{ success: boolean; message: string }> => {
+  void toName;
   try {
     const mailboxResourceId = await getHostingerMailboxResourceId(token, senderEmail);
     if (!mailboxResourceId) {

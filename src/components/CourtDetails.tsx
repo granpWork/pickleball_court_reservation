@@ -711,6 +711,8 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
   const handleProceedToCheckout = () => {
     if (selectedSlots.length === 0 || !selectedDate || !court) return;
 
+    const courtLocation = [court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || '';
+
     const selectedRentalsList = court.rentals
       ? court.rentals
           .filter((r) => r.enabled && selectedRentals[r.id] > 0)
@@ -746,10 +748,21 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
       ownerCompanyName: (hostDetails?.companyName && hostDetails.companyName !== court.name ? hostDetails.companyName : (court.ownerCompanyName && court.ownerCompanyName !== court.name ? court.ownerCompanyName : 'PicklePoint Venue')),
       companyAddress: hostDetails?.companyAddress || court.companyAddress || courtLocation,
       ownerCompanyAddress: hostDetails?.companyAddress || court.companyAddress || courtLocation,
-      hostEmail: hostDetails?.email || court.createdByEmail || '',
+      hostEmail: hostDetails?.email || (court as any).createdByEmail || '',
       hostPhone: hostDetails?.phone || '',
     });
     setView('checkout');
+  };
+
+  const formatTime12h = (time24: string) => {
+    if (!time24) return '';
+    const [hStr, mStr] = time24.split(':');
+    let h = parseInt(hStr || '0', 10);
+    const m = mStr || '00';
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${h}:${m} ${ampm}`;
   };
 
 

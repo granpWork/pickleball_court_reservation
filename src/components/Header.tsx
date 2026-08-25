@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Menu, X, ChevronRight, User, Trophy, Flame, Calendar, Search, Shield } from 'lucide-react';
+import { Menu, X, ChevronRight, User, Trophy, Flame } from 'lucide-react';
 
 interface HeaderProps {
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;

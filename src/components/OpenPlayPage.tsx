@@ -143,8 +143,8 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
     const localEventsRaw = localEStr ? JSON.parse(localEStr) : [];
     const localEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
     const eventsMap = new Map<string, OpenPlayEvent>();
-    eventsList.forEach(e => eventsMap.set(e.id, e));
-    localEvents.forEach(e => {
+    eventsList.forEach((e: any) => eventsMap.set(e.id, e));
+    localEvents.forEach((e: any) => {
       eventsMap.set(e.id, e);
     });
     console.log('🌐 [Public OpenPlay Page] Displaying OP IDs:', Array.from(eventsMap.values()).map(e => e.id));

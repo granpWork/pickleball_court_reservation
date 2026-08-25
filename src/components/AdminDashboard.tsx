@@ -2762,7 +2762,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (isFirebaseConfigured && db) {
       import('firebase/firestore').then(({ collection, onSnapshot }) => {
         try {
-          unsubscribeBookings = onSnapshot(collection(db, 'bookings'), (snapshot) => {
+          unsubscribeBookings = onSnapshot(collection(db!, 'bookings'), (snapshot) => {
             const bookingMap = new Map<string, Booking>();
 
             // 1. Include local storage base
@@ -10596,7 +10596,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                               const fillPercent = event.maxParticipants > 0 ? Math.round((totalSpots / event.maxParticipants) * 100) : 0;
 
                               return (
-                                <tr key={event.id} className="hover:bg-slate-900/40 transition-colors">
+                                <tr key={event.id} className={isExpired ? "opacity-60 hover:bg-slate-900/40 transition-colors" : "hover:bg-slate-900/40 transition-colors"}>
                                   <td className="py-3.5 px-4">
                                     <div className="font-bold text-white flex items-center gap-1.5">
                                       <Calendar className="w-3.5 h-3.5 text-brand-lime" />
@@ -14751,7 +14751,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       {/* PLAYER ROSTER & PAYMENT VERIFICATION MODAL (Disabled - using Full Page Roster view instead) */}
       {false && registrationsModalOpen && selectedEventForRegs && (() => {
-        const eventRegs = openPlayRegistrations.filter(r => r.eventId === selectedEventForRegs.id);
+        const selEvt = selectedEventForRegs!;
+        const eventRegs = openPlayRegistrations.filter(r => r.eventId === selEvt.id);
         
         interface RosterAttendee {
           id: string;
@@ -14856,7 +14857,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-dark-border mb-5 gap-3 flex-shrink-0">
                 <div>
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <Users className="w-5 h-5 text-brand-lime" /> {selectedEventForRegs.title} — Player & Guest Roster
+                    <Users className="w-5 h-5 text-brand-lime" /> {selEvt.title} — Player & Guest Roster
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
                     Full headcount breakdown: review registered primary players, guests, verify GCash payments, and track session attendance.
@@ -14865,7 +14866,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
-                    onClick={() => handleExportOpenPlayRoster(selectedEventForRegs)}
+                    onClick={() => handleExportOpenPlayRoster(selEvt)}
                     className="py-1.5 px-3 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                     title="Export complete player & guest CSV"
                   >
@@ -14885,7 +14886,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               <div className="flex flex-wrap items-center justify-between gap-3 mb-5 p-3 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-xs flex-shrink-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="px-3 py-1 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-extrabold flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" /> Total Headcount: {totalHeadcount} / {selectedEventForRegs.maxParticipants}
+                    <Users className="w-3.5 h-3.5" /> Total Headcount: {totalHeadcount} / {selEvt.maxParticipants}
                   </span>
                   <span className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold">
                     👤 {primaryCount} Primary Players

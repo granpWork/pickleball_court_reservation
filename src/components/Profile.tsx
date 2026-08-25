@@ -1098,7 +1098,7 @@ export default function Profile({ user, setView, onLogout }: ProfileProps) {
                     <div className="text-right flex-shrink-0">
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Fee</div>
                       <div className="text-base font-black text-brand-lime font-sans">
-                        {reg.registrationFee > 0 ? `₱${reg.registrationFee}` : 'FREE'}
+                        {(reg.registrationFee || 0) > 0 ? `₱${reg.registrationFee}` : 'FREE'}
                       </div>
                     </div>
                   </div>
