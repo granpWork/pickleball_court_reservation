@@ -113,6 +113,77 @@ const buildHtmlWrapper = (title: string, subtitle: string, bodyContent: string, 
 </html>`;
 };
 
+let cachedHostingerMailboxResourceId: string | null = null;
+
+const getHostingerMailboxResourceId = async (token: string, senderEmail: string): Promise<string | null> => {
+  if (cachedHostingerMailboxResourceId) return cachedHostingerMailboxResourceId;
+  try {
+    const res = await fetch('https://api.mail.hostinger.com/api/v1/me', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const mailboxes = json?.data?.mailboxes || [];
+      const match = mailboxes.find((m: any) => m.address?.toLowerCase() === senderEmail?.toLowerCase()) || mailboxes[0];
+      if (match?.resourceId) {
+        cachedHostingerMailboxResourceId = match.resourceId;
+        return cachedHostingerMailboxResourceId;
+      }
+    } else {
+      console.warn('Hostinger /api/v1/me check failed:', res.status, await res.text());
+    }
+  } catch (e) {
+    console.warn('Hostinger Mail API me endpoint error:', e);
+  }
+  return null;
+};
+
+const sendHostingerMailApi = async (
+  token: string,
+  senderEmail: string,
+  toEmail: string,
+  toName: string,
+  subject: string,
+  htmlContent: string
+): Promise<{ success: boolean; message: string }> => {
+  try {
+    const mailboxResourceId = await getHostingerMailboxResourceId(token, senderEmail);
+    if (!mailboxResourceId) {
+      return { success: false, message: 'Could not resolve Hostinger mailbox resourceId' };
+    }
+
+    const response = await fetch(`https://api.mail.hostinger.com/api/v1/mailboxes/${mailboxResourceId}/send`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: [toEmail],
+        displayName: 'PicklePoint Booking Platform',
+        subject: subject,
+        html: htmlContent,
+        text: htmlContent.replace(/<[^>]*>?/gm, ''),
+      }),
+    });
+
+    if (response.ok || response.status === 204) {
+      return { success: true, message: 'Email sent successfully via Hostinger Mail API.' };
+    } else {
+      const errRes = await response.text();
+      console.warn('Hostinger Mail API send error:', response.status, errRes);
+      return { success: false, message: `Hostinger Mail API error (${response.status}): ${errRes}` };
+    }
+  } catch (err) {
+    console.error('Hostinger Mail API network error:', err);
+    return { success: false, message: 'Hostinger Mail API network error' };
+  }
+};
+
 export const sendCustomUserEmail = async ({
   toEmail,
   toName,
@@ -123,6 +194,8 @@ export const sendCustomUserEmail = async ({
   const serviceId = import.meta.env.VITE_EMAILJS_SERVICE_ID;
   const templateId = import.meta.env.VITE_EMAILJS_TEMPLATE_ID;
   const publicKey = import.meta.env.VITE_EMAILJS_PUBLIC_KEY;
+  const hostingerToken = import.meta.env.VITE_HOSTINGER_MAIL_API_TOKEN;
+  const hostingerSenderEmail = import.meta.env.VITE_HOSTINGER_SENDER_EMAIL || 'no-reply@bookpicklecourt.com';
 
   // Format message as HTML wrapper if not already formatted
   const finalHtmlMessage = message.trim().startsWith('<!DOCTYPE') || message.trim().startsWith('<html')
@@ -132,6 +205,21 @@ export const sendCustomUserEmail = async ({
         'Notification from PicklePoint',
         `<p style="font-size: 14px; color: #cbd5e1; line-height: 1.6; whitespace: pre-line;">${message.replace(/\n/g, '<br/>')}</p>`
       );
+
+  // 1. Try Hostinger Mail REST API first if token is available
+  if (hostingerToken) {
+    const hResult = await sendHostingerMailApi(
+      hostingerToken,
+      hostingerSenderEmail,
+      toEmail,
+      toName,
+      subject,
+      finalHtmlMessage
+    );
+    if (hResult.success) {
+      return hResult;
+    }
+  }
 
   if (serviceId && templateId && publicKey) {
     try {
