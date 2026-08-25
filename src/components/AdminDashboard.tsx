@@ -861,34 +861,38 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     (userObj?.companyName && c.name && c.name.toLowerCase() === userObj.companyName.toLowerCase())
   );
 
-  const availableAdminCourts = courts.filter((c) => {
-    if (isSuperAdmin) return true;
+  const availableAdminCourts = (() => {
+    const hostEmail = currentUserEmail.trim().toLowerCase();
+    const hostCompanyId = currentCompany?.id;
+    const hostCompName = (currentCompany?.name || userObj?.companyName || '').trim().toLowerCase();
+    const isGenericPlaceholder = !hostCompName || hostCompName === 'picklepoint venue' || hostCompName === 'book picklecourt venue';
 
-    // 1. Direct Owner UID match
-    if (c.ownerId && currentUserUid && c.ownerId === currentUserUid) return true;
+    const matched = courts.filter((c) => {
+      // 1. Direct Owner UID match
+      if (c.ownerId && currentUserUid && currentUserUid !== 'unknown' && c.ownerId === currentUserUid) return true;
 
-    // 2. Direct Owner Email or Creator Email match
-    if (currentUserEmail) {
-      if (c.ownerEmail && c.ownerEmail.toLowerCase() === currentUserEmail) return true;
-      if (c.createdByEmail && c.createdByEmail.toLowerCase() === currentUserEmail) return true;
-    }
+      // 2. Direct Owner Email or Creator Email match
+      if (hostEmail) {
+        if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === hostEmail) return true;
+        if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === hostEmail) return true;
+      }
 
-    // 3. Company ID match
-    if (currentCompany?.id && c.companyId && c.companyId === currentCompany.id) return true;
+      // 3. Company ID match
+      if (hostCompanyId && c.companyId && c.companyId === hostCompanyId) return true;
 
-    // 4. Company Name match (avoid matching default placeholder names like 'PicklePoint Venue' or 'Book Picklecourt Venue')
-    const hostCompName = currentCompany?.name || userObj?.companyName;
-    if (
-      hostCompName &&
-      hostCompName.trim().toLowerCase() !== 'picklepoint venue' &&
-      hostCompName.trim().toLowerCase() !== 'book picklecourt venue'
-    ) {
-      if (c.ownerCompanyName && c.ownerCompanyName.toLowerCase() === hostCompName.toLowerCase()) return true;
-      if (c.companyName && c.companyName.toLowerCase() === hostCompName.toLowerCase()) return true;
-    }
+      // 4. Company Name match (avoid matching generic default placeholders)
+      if (!isGenericPlaceholder) {
+        if (c.ownerCompanyName && c.ownerCompanyName.trim().toLowerCase() === hostCompName) return true;
+        if (c.companyName && c.companyName.trim().toLowerCase() === hostCompName) return true;
+      }
 
-    return false;
-  });
+      return false;
+    });
+
+    if (matched.length > 0) return matched;
+    if (isSuperAdmin && !currentCompany) return courts;
+    return [];
+  })();
 
   const handleSelectAllOpenPlayCourts = () => {
     const targetCourts = availableAdminCourts;
@@ -2375,16 +2379,31 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
       setCourts(loadedCourts);
 
-      const availableAdminCourts = isSuperAdmin
-        ? loadedCourts
-        : loadedCourts.filter(c =>
-            c.ownerId === currentUserUid ||
-            (currentUserEmail && c.createdByEmail && c.createdByEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
-            (myActiveCompany?.id && c.companyId === myActiveCompany.id) ||
-            (myActiveCompany?.name && c.companyName && c.companyName.toLowerCase() === myActiveCompany.name.toLowerCase()) ||
-            ((user as any)?.companyName && c.companyName && c.companyName.toLowerCase() === (user as any).companyName.toLowerCase())
-          );
-      const ownedCourtIds = availableAdminCourts.map(c => c.id);
+      const scopedAdminCourts = (() => {
+        const hostEmail = currentUserEmail.trim().toLowerCase();
+        const hostCompanyId = myActiveCompany?.id;
+        const hostCompName = (myActiveCompany?.name || (user as any)?.companyName || '').trim().toLowerCase();
+        const isGenericPlaceholder = !hostCompName || hostCompName === 'picklepoint venue' || hostCompName === 'book picklecourt venue';
+
+        const matched = loadedCourts.filter((c) => {
+          if (c.ownerId && currentUserUid && currentUserUid !== 'unknown' && c.ownerId === currentUserUid) return true;
+          if (hostEmail) {
+            if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === hostEmail) return true;
+            if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === hostEmail) return true;
+          }
+          if (hostCompanyId && c.companyId && c.companyId === hostCompanyId) return true;
+          if (!isGenericPlaceholder) {
+            if (c.ownerCompanyName && c.ownerCompanyName.trim().toLowerCase() === hostCompName) return true;
+            if (c.companyName && c.companyName.trim().toLowerCase() === hostCompName) return true;
+          }
+          return false;
+        });
+
+        if (matched.length > 0) return matched;
+        if (isSuperAdmin && !myActiveCompany) return loadedCourts;
+        return [];
+      })();
+      const ownedCourtIds = scopedAdminCourts.map(c => c.id);
 
       // 3. Fetch bookings (Merge Firestore & LocalStorage for 100% data fidelity)
       const bookingMap = new Map<string, Booking>();
