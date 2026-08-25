@@ -60,16 +60,16 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 w-full">
             {/* Logo */}
             <div 
               onClick={() => handleNavClick('landing', '/')}
-              className="flex items-center gap-2 group cursor-pointer"
+              className="flex items-center gap-2 group cursor-pointer flex-shrink-0"
             >
               <div className="relative">
                 {/* Custom SVG Pickleball */}
                 <svg
-                  className="w-8 h-8 text-brand-lime transition-transform duration-500 group-hover:rotate-90"
+                  className="w-7 h-7 sm:w-8 sm:h-8 text-brand-lime transition-transform duration-500 group-hover:rotate-90"
                   viewBox="0 0 24 24"
                   fill="currentColor"
                 >
@@ -86,7 +86,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
                 </svg>
                 <div className="absolute inset-0 bg-brand-lime/25 blur-md rounded-full -z-10 group-hover:bg-brand-lime/40 transition duration-300"></div>
               </div>
-              <span className="text-xl font-semibold tracking-tight text-white whitespace-nowrap">
+              <span className="text-lg sm:text-xl font-bold tracking-tight text-white whitespace-nowrap">
                 Book <span className="text-brand-lime">Picklecourt</span>
               </span>
             </div>
@@ -204,11 +204,11 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
             </div>
 
             {/* Mobile & Tablet Hamburger Menu Button */}
-            <div className="flex lg:hidden items-center gap-2">
+            <div className="flex lg:hidden items-center flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
-                className="p-2 sm:p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-200 hover:text-brand-lime transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                className="w-10 h-10 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 text-slate-200 hover:text-brand-lime transition-all cursor-pointer flex items-center justify-center shadow-md active:scale-95"
                 aria-label="Toggle Navigation Menu"
               >
                 {isOpen ? <X className="w-5 h-5 text-brand-lime" /> : <Menu className="w-5 h-5 text-brand-lime" />}
