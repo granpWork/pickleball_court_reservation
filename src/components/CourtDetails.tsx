@@ -101,10 +101,12 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
   const [rentalActiveImageIndex, setRentalActiveImageIndex] = useState(0);
   const [isRentalZoomed, setIsRentalZoomed] = useState(false);
   const [rentalZoomPosition, setRentalZoomPosition] = useState({ x: 0, y: 0 });
+  const [isEquipmentRentalEnabled, setIsEquipmentRentalEnabled] = useState(false);
 
   // Dynamic booking slots states
   const [bookedSlotsForDate, setBookedSlotsForDate] = useState<string[]>([]);
   const [playerConflictsForDate, setPlayerConflictsForDate] = useState<Record<string, { courtName: string }>>({});
+  const [openPlayBlockedSlots, setOpenPlayBlockedSlots] = useState<Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }>>({});
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   
   // Carousel State
@@ -438,10 +440,32 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
       return;
     }
 
+    const parseTimeHour = (timeStr?: string): number => {
+      if (!timeStr) return 0;
+      const trimmed = timeStr.trim();
+      const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      if (match12) {
+        let h = parseInt(match12[1], 10);
+        const pm = match12[3].toUpperCase() === 'PM';
+        if (pm && h < 12) h += 12;
+        if (!pm && h === 12) h = 0;
+        return h;
+      }
+      if (trimmed.includes(':')) {
+        const parts = trimmed.split(':');
+        let h = parseInt(parts[0], 10) || 0;
+        if (trimmed.toLowerCase().includes('pm') && h < 12) h += 12;
+        if (trimmed.toLowerCase().includes('am') && h === 12) h = 0;
+        return h;
+      }
+      return parseInt(trimmed, 10) || 0;
+    };
+
     const fetchBookingsForDate = async () => {
       setLoadingAvailability(true);
       let booked: string[] = [];
       let conflicts: Record<string, { courtName: string }> = {};
+      let openPlayBlocks: Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }> = {};
       const currentUserEmail = user?.email?.toLowerCase();
       const currentUserUid = user?.uid;
 
@@ -474,6 +498,35 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
         } catch (err) {
           console.error('Error fetching bookings:', err);
         }
+
+        // Fetch active Open Play events on selectedDate to prevent time overlaps
+        try {
+          const opQuery = query(collection(db, 'openplay_events'), where('eventDate', '==', selectedDate));
+          const opSnap = await getDocs(opQuery);
+          opSnap.forEach((docSnap) => {
+            const ev = docSnap.data();
+            if (ev.status !== 'cancelled') {
+              const isCourtMatch = !ev.courtIds || ev.courtIds.length === 0 || ev.courtIds.includes(court.id);
+              if (isCourtMatch) {
+                const startH = parseTimeHour(ev.startTime);
+                const endH = parseTimeHour(ev.endTime);
+                MASTER_SLOTS.forEach((s) => {
+                  if (s.startHour >= startH && s.startHour < endH) {
+                    openPlayBlocks[s.time] = {
+                      eventId: docSnap.id,
+                      title: ev.title || 'Open Play Session',
+                      category: ev.category || 'Open Play',
+                      startTime: ev.startTime || '13:00',
+                      endTime: ev.endTime || '19:00',
+                    };
+                  }
+                });
+              }
+            }
+          });
+        } catch (e) {
+          console.warn('Error fetching Open Play events for court availability:', e);
+        }
       } else {
         // LocalStorage fallback
         try {
@@ -499,11 +552,41 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
         } catch (err) {
           console.error('Error loading bookings fallback:', err);
         }
+
+        // LocalStorage fallback for Open Play events
+        try {
+          const opStr = localStorage.getItem('picklepoint_openplay_events');
+          if (opStr) {
+            const localEvents = JSON.parse(opStr);
+            localEvents.forEach((ev: any) => {
+              const evDate = ev.eventDate || ev.date;
+              if (evDate === selectedDate && ev.status !== 'cancelled') {
+                const isCourtMatch = !ev.courtIds || ev.courtIds.length === 0 || ev.courtIds.includes(court.id);
+                if (isCourtMatch) {
+                  const startH = parseTimeHour(ev.startTime);
+                  const endH = parseTimeHour(ev.endTime);
+                  MASTER_SLOTS.forEach((s) => {
+                    if (s.startHour >= startH && s.startHour < endH) {
+                      openPlayBlocks[s.time] = {
+                        eventId: ev.id,
+                        title: ev.title || 'Open Play Session',
+                        category: ev.category || 'Open Play',
+                        startTime: ev.startTime || '13:00',
+                        endTime: ev.endTime || '19:00',
+                      };
+                    }
+                  });
+                }
+              }
+            });
+          }
+        } catch (e) {}
       }
       
       // Ensure unique list
       setBookedSlotsForDate([...new Set(booked)]);
       setPlayerConflictsForDate(conflicts);
+      setOpenPlayBlockedSlots(openPlayBlocks);
       setLoadingAvailability(false);
     };
 
@@ -643,6 +726,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
     const courtLocation = [court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || '';
 
     setCheckoutDetails({
+      type: 'court',
       courtId: court.id,
       courtName: court.name,
       courtType: court.type,
@@ -653,14 +737,14 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
       rentals: selectedRentalsList,
       totalCost,
       companyId: court.companyId || (hostDetails as any)?.companyId || '',
-      courtOwnerId: court.ownerId || 'system',
+      courtOwnerId: court.ownerId || '',
       gcashAccountId: court.gcashAccountId || '',
       companyName: (hostDetails?.companyName && hostDetails.companyName !== court.name ? hostDetails.companyName : (court.ownerCompanyName && court.ownerCompanyName !== court.name ? court.ownerCompanyName : 'PicklePoint Venue')),
       ownerCompanyName: (hostDetails?.companyName && hostDetails.companyName !== court.name ? hostDetails.companyName : (court.ownerCompanyName && court.ownerCompanyName !== court.name ? court.ownerCompanyName : 'PicklePoint Venue')),
       companyAddress: hostDetails?.companyAddress || court.companyAddress || courtLocation,
       ownerCompanyAddress: hostDetails?.companyAddress || court.companyAddress || courtLocation,
-      hostEmail: hostDetails?.email,
-      hostPhone: hostDetails?.phone,
+      hostEmail: hostDetails?.email || court.createdByEmail || '',
+      hostPhone: hostDetails?.phone || '',
     });
     setView('checkout');
   };
@@ -729,116 +813,6 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
           </div>
         </div>
 
-        {/* Venue Info & Multi-Court Selector Banner */}
-        <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-slate-800 shadow-2xl mb-8 space-y-5 animate-fade-in">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
-            <div className="flex items-center gap-3.5">
-              {hostDetails?.logoUrl || court?.ownerCompanyLogo ? (
-                <img
-                  src={hostDetails?.logoUrl || court?.ownerCompanyLogo}
-                  alt={hostDetails?.companyName || court?.ownerCompanyName}
-                  className="w-12 h-12 rounded-2xl object-cover border border-slate-700/80 bg-slate-900 shadow-md flex-shrink-0"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
-                  }}
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-2xl bg-brand-lime/10 border border-brand-lime/25 flex items-center justify-center text-brand-lime flex-shrink-0 shadow-sm">
-                  <Building2 className="w-6 h-6" />
-                </div>
-              )}
-
-              <div>
-                <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
-                  <span>{court?.ownerCompanyName || hostDetails?.companyName || court.name}</span>
-                </h1>
-                <p className="text-xs sm:text-sm text-slate-400 flex items-center gap-1.5 mt-0.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                  <span>
-                    {[court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || hostDetails?.companyAddress || 'Location details not set.'}
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-start md:self-auto">
-              <span className="px-3 py-1 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-extrabold text-xs flex items-center gap-1.5 shadow-sm">
-                <Layers className="w-3.5 h-3.5" />
-                <span>{venueCourts.length} {venueCourts.length === 1 ? 'Playable Court' : 'Playable Courts'}</span>
-              </span>
-            </div>
-          </div>
-
-          {/* Interactive Multi-Court Selector Tabs */}
-          {venueCourts.length > 1 ? (
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <LayoutGrid className="w-3.5 h-3.5 text-brand-lime" />
-                  <span>Select Court to Reserve ({venueCourts.length} Available):</span>
-                </h2>
-                <span className="text-[11px] text-slate-500">Click a court tab to view its slots & rates</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {venueCourts.map((c, idx) => {
-                  const isSelected = c.id === court?.id;
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => handleSwitchCourt(c)}
-                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-start justify-between gap-3 relative overflow-hidden group ${
-                        isSelected
-                          ? 'bg-brand-lime/10 border-brand-lime text-white shadow-lg shadow-brand-lime/10 ring-1 ring-brand-lime/40'
-                          : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-850'
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
-                            isSelected ? 'bg-brand-lime text-dark-bg' : 'bg-slate-800 text-slate-400 group-hover:text-white'
-                          }`}>
-                            {idx + 1}
-                          </span>
-                          <span className="font-bold text-sm truncate">{c.name}</span>
-                        </div>
-                        <p className="text-xs text-slate-400 truncate pl-8">
-                          {c.type || 'Standard Court'}
-                        </p>
-                        <div className="pl-8 text-xs font-semibold text-brand-lime">
-                          ₱{c.dayPrice} <span className="text-[10px] text-slate-500 font-normal">day</span> / ₱{c.nightPrice} <span className="text-[10px] text-slate-500 font-normal">night</span>
-                        </div>
-                      </div>
-
-                      {isSelected && (
-                        <span className="px-2 py-0.5 rounded-full bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase flex-shrink-0 shadow-sm">
-                          Selected
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80">
-              <div className="flex items-center gap-2.5">
-                <span className="w-7 h-7 rounded-xl bg-brand-lime/10 text-brand-lime flex items-center justify-center font-bold text-xs">
-                  🎾
-                </span>
-                <div>
-                  <span className="text-xs text-slate-400 block font-medium">Active Court:</span>
-                  <span className="text-sm font-bold text-white">{court.name} ({court.type})</span>
-                </div>
-              </div>
-              <div className="text-xs font-semibold text-brand-lime">
-                ₱{court.dayPrice} <span className="text-[10px] text-slate-500 font-normal">day</span> / ₱{court.nightPrice} <span className="text-[10px] text-slate-500 font-normal">night</span>
-              </div>
-            </div>
-          )}
-        </div>
-
         {bookingConfirmed ? (
           <div className="glass-panel rounded-3xl p-12 text-center flex flex-col items-center justify-center max-w-2xl mx-auto shadow-2xl border border-slate-800 animate-fade-in my-10">
             <div className="w-16 h-16 rounded-full bg-brand-emerald/20 flex items-center justify-center border border-brand-emerald text-brand-emerald mb-6 animate-bounce">
@@ -860,9 +834,119 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
           </div>
         ) : (
           <div className="grid lg:grid-cols-12 gap-8 items-start">
-            {/* Left Column: Media Gallery, Info, Map */}
+            {/* Left Column: Venue Info Header, Media Gallery, Info, Map */}
             <div className="lg:col-span-7 space-y-6">
               
+              {/* Venue Info & Multi-Court Selector Banner */}
+              <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-slate-800 shadow-2xl space-y-5 animate-fade-in">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+                  <div className="flex items-center gap-3.5">
+                    {hostDetails?.logoUrl || court?.ownerCompanyLogo ? (
+                      <img
+                        src={hostDetails?.logoUrl || court?.ownerCompanyLogo}
+                        alt={hostDetails?.companyName || court?.ownerCompanyName}
+                        className="w-12 h-12 rounded-2xl object-cover border border-slate-700/80 bg-slate-900 shadow-md flex-shrink-0"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-2xl bg-brand-lime/10 border border-brand-lime/25 flex items-center justify-center text-brand-lime flex-shrink-0 shadow-sm">
+                        <Building2 className="w-6 h-6" />
+                      </div>
+                    )}
+
+                    <div>
+                      <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                        <span>{court?.ownerCompanyName || hostDetails?.companyName || court.name}</span>
+                      </h1>
+                      <p className="text-xs sm:text-sm text-slate-400 flex items-center gap-1.5 mt-0.5">
+                        <MapPin className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                        <span>
+                          {[court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || hostDetails?.companyAddress || 'Location details not set.'}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start md:self-auto">
+                    <span className="px-3 py-1 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-extrabold text-xs flex items-center gap-1.5 shadow-sm">
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{venueCourts.length} {venueCourts.length === 1 ? 'Playable Court' : 'Playable Courts'}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Interactive Multi-Court Selector Tabs */}
+                {venueCourts.length > 1 ? (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <LayoutGrid className="w-3.5 h-3.5 text-brand-lime" />
+                        <span>Select Court ({venueCourts.length} Available):</span>
+                      </h2>
+                      <span className="text-[11px] text-slate-500">Click tab to switch rates</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {venueCourts.map((c, idx) => {
+                        const isSelected = c.id === court?.id;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => handleSwitchCourt(c)}
+                            className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-start justify-between gap-3 relative overflow-hidden group ${
+                              isSelected
+                                ? 'bg-gradient-to-br from-brand-lime/15 via-slate-900 to-slate-900 border-brand-lime shadow-lg shadow-brand-lime/10'
+                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
+                                  isSelected ? 'bg-brand-lime text-dark-bg' : 'bg-slate-800 text-slate-400 group-hover:text-white'
+                                }`}>
+                                  {idx + 1}
+                                </span>
+                                <span className="font-bold text-sm truncate">{c.name}</span>
+                              </div>
+                              <p className="text-xs text-slate-400 truncate pl-8">
+                                {c.type || 'Standard Court'}
+                              </p>
+                              <div className="pl-8 text-xs font-semibold text-brand-lime">
+                                ₱{c.dayPrice} <span className="text-[10px] text-slate-500 font-normal">day</span> / ₱{c.nightPrice} <span className="text-[10px] text-slate-500 font-normal">night</span>
+                              </div>
+                            </div>
+
+                            {isSelected && (
+                              <span className="px-2 py-0.5 rounded-full bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase flex-shrink-0 shadow-sm">
+                                Selected
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-7 h-7 rounded-xl bg-brand-lime/10 text-brand-lime flex items-center justify-center font-bold text-xs">
+                        🎾
+                      </span>
+                      <div>
+                        <span className="text-xs text-slate-400 block font-medium">Active Court:</span>
+                        <span className="text-sm font-bold text-white">{court.name} ({court.type})</span>
+                      </div>
+                    </div>
+                    <div className="text-xs font-semibold text-brand-lime">
+                      ₱{court.dayPrice} <span className="text-[10px] text-slate-500 font-normal">day</span> / ₱{court.nightPrice} <span className="text-[10px] text-slate-500 font-normal">night</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Media carousel */}
               <div className="relative rounded-3xl overflow-hidden bg-slate-900/40 border border-slate-800/85 shadow-2xl aspect-[16/10] md:aspect-[3/2] group">
                 {allGalleryImages.length > 0 ? (
@@ -1429,21 +1513,30 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                 const isSlotBooked = bookedSlotsForDate.includes(slot.time);
                                 const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
                                 const isPlayerConflict = playerConflictsForDate[slot.time];
-                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict;
+                                const openPlayInfo = openPlayBlockedSlots[slot.time];
+                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict || !!openPlayInfo;
                                 return (
                                   <button
                                     key={`am-${idx}`}
-                                    disabled={isSlotDisabled && !isPlayerConflict}
+                                    disabled={isSlotDisabled && !isPlayerConflict && !openPlayInfo}
                                     onClick={() => {
+                                      if (openPlayInfo) {
+                                        if (confirm(`Open Play Event: "${openPlayInfo.title}" is hosted on this court from ${formatTime12h(openPlayInfo.startTime)} to ${formatTime12h(openPlayInfo.endTime)}.\n\nWould you like to view and register for this Open Play event?`)) {
+                                          window.location.href = `/?openplay=${openPlayInfo.eventId}`;
+                                        }
+                                        return;
+                                      }
                                       if (isPlayerConflict) {
                                         alert(`Schedule Conflict: You already have an active reservation at ${isPlayerConflict.courtName} on ${formatDate(selectedDate)} for ${slot.time}. A player cannot book overlapping times across multiple venues.`);
                                         return;
                                       }
                                       handleToggleSlot(slot.time);
                                     }}
-                                    title={isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : ''}
+                                    title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : '')}
                                     className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
-                                      isPlayerConflict
+                                      openPlayInfo
+                                        ? 'bg-purple-950/40 border-purple-800/60 text-purple-200 cursor-pointer hover:border-purple-600 shadow-sm'
+                                        : isPlayerConflict
                                         ? 'bg-amber-950/30 border-amber-500/40 text-amber-300 font-medium cursor-pointer shadow-sm hover:border-amber-400'
                                         : isSlotDisabled
                                         ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
@@ -1453,8 +1546,8 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                     }`}
                                   >
                                     <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-extrabold ${isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
-                                      {isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
+                                    <span className={`text-xs font-extrabold ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
+                                      {openPlayInfo ? '🏆 Open Play' : isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
                                     </span>
                                   </button>
                                 );
@@ -1484,21 +1577,30 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                 const isSlotBooked = bookedSlotsForDate.includes(slot.time);
                                 const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
                                 const isPlayerConflict = playerConflictsForDate[slot.time];
-                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict;
+                                const openPlayInfo = openPlayBlockedSlots[slot.time];
+                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict || !!openPlayInfo;
                                 return (
                                   <button
                                     key={`pm-${idx}`}
-                                    disabled={isSlotDisabled && !isPlayerConflict}
+                                    disabled={isSlotDisabled && !isPlayerConflict && !openPlayInfo}
                                     onClick={() => {
+                                      if (openPlayInfo) {
+                                        if (confirm(`Open Play Event: "${openPlayInfo.title}" is hosted on this court from ${formatTime12h(openPlayInfo.startTime)} to ${formatTime12h(openPlayInfo.endTime)}.\n\nWould you like to view and register for this Open Play event?`)) {
+                                          window.location.href = `/?openplay=${openPlayInfo.eventId}`;
+                                        }
+                                        return;
+                                      }
                                       if (isPlayerConflict) {
                                         alert(`Schedule Conflict: You already have an active reservation at ${isPlayerConflict.courtName} on ${formatDate(selectedDate)} for ${slot.time}. A player cannot book overlapping times across multiple venues.`);
                                         return;
                                       }
                                       handleToggleSlot(slot.time);
                                     }}
-                                    title={isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : ''}
+                                    title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : '')}
                                     className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
-                                      isPlayerConflict
+                                      openPlayInfo
+                                        ? 'bg-purple-950/40 border-purple-800/60 text-purple-200 cursor-pointer hover:border-purple-600 shadow-sm'
+                                        : isPlayerConflict
                                         ? 'bg-amber-950/30 border-amber-500/40 text-amber-300 font-medium cursor-pointer shadow-sm hover:border-amber-400'
                                         : isSlotDisabled
                                         ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
@@ -1508,8 +1610,8 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                     }`}
                                   >
                                     <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-extrabold ${isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
-                                      {isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
+                                    <span className={`text-xs font-extrabold ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
+                                      {openPlayInfo ? '🏆 Open Play' : isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
                                     </span>
                                   </button>
                                 );
@@ -1520,128 +1622,129 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                       </div>
                     )}
 
-                     {/* Equipment Rentals Add-ons */}
+                    {/* Equipment Rentals Add-ons */}
                     {court.rentals && court.rentals.filter(r => r.enabled).length > 0 && (
-                      <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-inner">
-                        <div className="flex justify-between items-center pb-2 border-b border-slate-800/60">
-                          <label className="text-xs font-bold text-slate-350 uppercase tracking-wider flex items-center gap-2">
-                            <span className="w-5 h-5 rounded-lg bg-brand-lime/10 flex items-center justify-center text-xs">🏓</span>
-                            Equipment Rentals
-                          </label>
-                          <span className="text-xs font-bold text-slate-500 uppercase bg-slate-950 px-2 py-0.5 rounded border border-slate-850">
-                            Optional Add-ons
-                          </span>
+                      <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-inner transition-all">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-6 h-6 rounded-lg bg-brand-lime/10 flex items-center justify-center text-xs">🏓</span>
+                            <div>
+                              <span className="text-xs font-bold text-slate-200 block">Need Equipment Rentals?</span>
+                              <span className="text-[10px] text-slate-400 block font-normal">Paddles, Balls & Gear Add-ons</span>
+                            </div>
+                          </div>
+
+                          {/* Toggle Switch */}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={isEquipmentRentalEnabled}
+                            onClick={() => {
+                              const nextState = !isEquipmentRentalEnabled;
+                              setIsEquipmentRentalEnabled(nextState);
+                              if (!nextState) {
+                                setSelectedRentals({});
+                              }
+                            }}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              isEquipmentRentalEnabled ? 'bg-brand-lime' : 'bg-slate-800 hover:bg-slate-750'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-slate-950 shadow-md ring-0 transition duration-200 ease-in-out ${
+                                isEquipmentRentalEnabled ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
                         </div>
 
-                        <div className="space-y-2.5">
-                          {court.rentals.filter(r => r.enabled).map((item) => {
-                            const qty = selectedRentals[item.id] || 0;
-                            const itemCost = qty > 0 ? getRentalItemCost(item, qty) : 0;
-                            const isSelected = qty > 0;
-                            return (
-                              <div
-                                key={item.id}
-                                onClick={() => {
-                                  setSelectedRentalForModal(item);
-                                  setRentalActiveImageIndex(0);
-                                  setIsRentalZoomed(false);
-                                }}
-                                className={`flex items-center gap-3.5 p-3 rounded-xl border transition-all duration-300 cursor-pointer ${
-                                  isSelected 
-                                    ? 'border-brand-lime/40 bg-brand-lime/[0.04] shadow-[0_0_12px_rgba(163,230,53,0.06)]' 
-                                    : 'border-slate-800/80 bg-slate-950/20 hover:border-slate-750 hover:bg-slate-900/40'
-                                }`}
-                              >
-                                {/* Item Image/Icon */}
-                                <div className={`w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-xl select-none flex-shrink-0 transition-all relative group/img cursor-pointer ${
-                                  isSelected
-                                    ? 'bg-brand-lime/10 border border-brand-lime/30'
-                                    : 'bg-slate-900 border border-slate-800'
-                                }`}>
-                                  {item.images && item.images.length > 0 ? (
-                                    <>
-                                      <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover transition-transform duration-300 group-hover/img:scale-105" />
-                                      {/* Hover Overlay */}
-                                      <div 
-                                        className="absolute inset-0 bg-black/60 opacity-0 group-hover/img:opacity-100 transition-opacity flex flex-col items-center justify-center text-white"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedRentalForModal(item);
-                                          setRentalActiveImageIndex(0);
-                                          setIsRentalZoomed(false);
-                                        }}
-                                      >
-                                        <Eye className="w-4 h-4 text-brand-lime" />
-                                        <span className="text-[8px] font-bold uppercase mt-0.5 text-slate-350 tracking-wider">Zoom</span>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <span>🏓</span>
-                                  )}
-                                </div>
-
-                                {/* Item Info */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="font-bold text-slate-200 text-xs truncate">{item.name}</div>
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    <span className="text-xs font-medium text-brand-lime bg-brand-lime/5 border border-brand-lime/10 px-1.5 py-0.25 rounded-md font-sans">
-                                      ₱{item.price}
-                                    </span>
-                                    <span className="text-xs text-slate-500 uppercase tracking-tight">
-                                      / {item.pricingType.replace('_', ' ')}
-                                    </span>
-                                  </div>
-                                  {item.description && (
-                                    <div className="text-xs text-slate-400 mt-1 line-clamp-1 leading-normal italic">
-                                      {item.description}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Controls */}
-                                <div 
-                                  className="flex flex-col items-end gap-1 flex-shrink-0"
-                                  onClick={(e) => e.stopPropagation()}
+                        {/* Expandable Equipment List */}
+                        {isEquipmentRentalEnabled && (
+                          <div className="space-y-2.5 pt-3 border-t border-slate-800/60 animate-fade-in">
+                            {court.rentals.filter(r => r.enabled).map((item) => {
+                              const qty = selectedRentals[item.id] || 0;
+                              const itemCost = qty > 0 ? getRentalItemCost(item, qty) : 0;
+                              const isSelected = qty > 0;
+                              return (
+                                <div
+                                  key={item.id}
+                                  onClick={() => {
+                                    setSelectedRentalForModal(item);
+                                    setRentalActiveImageIndex(0);
+                                    setIsRentalZoomed(false);
+                                  }}
+                                  className={`flex items-center gap-3.5 p-3 rounded-xl border transition-all duration-300 cursor-pointer ${
+                                    isSelected 
+                                      ? 'border-brand-lime/40 bg-brand-lime/[0.04] shadow-[0_0_12px_rgba(163,230,53,0.06)]' 
+                                      : 'border-slate-800/80 bg-slate-950/20 hover:border-slate-750 hover:bg-slate-900/40'
+                                  }`}
                                 >
-                                  <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-lg border border-slate-800">
-                                    <button
-                                      type="button"
-                                      onClick={() => setSelectedRentals(prev => ({
-                                        ...prev,
-                                        [item.id]: Math.max(0, (prev[item.id] || 0) - 1)
-                                      }))}
-                                      disabled={qty === 0}
-                                      className="w-6 h-6 rounded-md bg-slate-900 border border-slate-800 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center text-xs font-bold"
-                                    >
-                                      −
-                                    </button>
-                                    <span className="w-6 text-center text-xs font-extrabold text-white font-sans">{qty}</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => setSelectedRentals(prev => ({
-                                        ...prev,
-                                        [item.id]: Math.min(item.quantity, (prev[item.id] || 0) + 1)
-                                      }))}
-                                      disabled={qty >= item.quantity}
-                                      className="w-6 h-6 rounded-md bg-brand-lime/10 border border-brand-lime/20 text-brand-lime hover:bg-brand-lime hover:text-dark-bg disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center text-xs font-bold"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                  
-                                  {/* Availability / Subtotal */}
-                                  <div className="text-[8px] font-semibold text-slate-500 uppercase tracking-widest mr-1">
-                                    {isSelected ? (
-                                      <span className="text-brand-lime/90 font-bold">Total: ₱{itemCost}</span>
+                                  {/* Item Image/Icon */}
+                                  <div className={`w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-xl select-none flex-shrink-0 transition-all relative group/img cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-brand-lime/10 border border-brand-lime/30'
+                                      : 'bg-slate-900 border border-slate-800'
+                                  }`}>
+                                    {item.images && item.images.length > 0 ? (
+                                      <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300" />
                                     ) : (
-                                      <span>Available: {item.quantity}</span>
+                                      <span>🏓</span>
                                     )}
                                   </div>
+
+                                  {/* Item Info */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                                      <h5 className="text-xs font-bold text-white truncate">{item.name}</h5>
+                                    </div>
+                                    <p className="text-[10px] text-slate-400 line-clamp-1 mb-1.5">{item.description || 'Quality court equipment'}</p>
+                                    <div className="text-[11px] font-extrabold text-brand-lime">
+                                      ₱{item.price} <span className="text-[9.5px] font-normal text-slate-400">/{item.pricingType === 'per_hour' ? 'hr' : 'item'}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Quantity Controls & Subtotal */}
+                                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 shadow-inner">
+                                      <button
+                                        type="button"
+                                        disabled={qty <= 0}
+                                        onClick={() => {
+                                          const nextQty = Math.max(0, qty - 1);
+                                          setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
+                                        }}
+                                        className="w-5 h-5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      >
+                                        -
+                                      </button>
+                                      <span className="w-5 text-center text-xs font-black text-white">{qty}</span>
+                                      <button
+                                        type="button"
+                                        disabled={qty >= item.quantity}
+                                        onClick={() => {
+                                          const nextQty = Math.min(item.quantity, qty + 1);
+                                          setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
+                                        }}
+                                        className="w-5 h-5 rounded bg-slate-900 border border-slate-800 text-brand-lime font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                    
+                                    {/* Availability / Subtotal */}
+                                    <div className="text-[8px] font-semibold text-slate-500 uppercase tracking-widest mr-1">
+                                      {isSelected ? (
+                                        <span className="text-brand-lime/90 font-bold">Total: ₱{itemCost}</span>
+                                      ) : (
+                                        <span>Available: {item.quantity}</span>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1959,37 +2062,131 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                   </div>
                 )}
 
-                {/* Add to booking inline action */}
-                <div className="pt-2 flex justify-between items-center border-t border-slate-800/80">
-                  <span className="text-xs text-slate-350 font-bold font-sans">Add to Booking:</span>
-                  <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-850">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRentals(prev => ({
-                        ...prev,
-                        [selectedRentalForModal.id]: Math.max(0, (prev[selectedRentalForModal.id] || 0) - 1)
-                      }))}
-                      disabled={(selectedRentals[selectedRentalForModal.id] || 0) === 0}
-                      className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center text-sm font-bold"
-                    >
-                      −
-                    </button>
-                    <span className="w-8 text-center text-xs font-extrabold text-white font-sans">
-                      {selectedRentals[selectedRentalForModal.id] || 0}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRentals(prev => ({
-                        ...prev,
-                        [selectedRentalForModal.id]: Math.min(selectedRentalForModal.quantity, (prev[selectedRentalForModal.id] || 0) + 1)
-                      }))}
-                      disabled={(selectedRentals[selectedRentalForModal.id] || 0) >= selectedRentalForModal.quantity}
-                      className="w-7 h-7 rounded-lg bg-brand-lime/10 border border-brand-lime/20 text-brand-lime hover:bg-brand-lime hover:text-dark-bg disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition-all flex items-center justify-center text-sm font-bold"
-                    >
-                      +
-                    </button>
+                {/* Equipment Rentals Add-ons */}
+                {court.rentals && court.rentals.filter(r => r.enabled).length > 0 && (
+                  <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-inner transition-all">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-6 h-6 rounded-lg bg-brand-lime/10 flex items-center justify-center text-xs">🏓</span>
+                        <div>
+                          <span className="text-xs font-bold text-slate-200 block">Need Equipment Rentals?</span>
+                          <span className="text-[10px] text-slate-400 block font-normal">Paddles, Balls & Gear Add-ons</span>
+                        </div>
+                      </div>
+
+                      {/* Toggle Switch */}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isEquipmentRentalEnabled}
+                        onClick={() => {
+                          const nextState = !isEquipmentRentalEnabled;
+                          setIsEquipmentRentalEnabled(nextState);
+                          if (!nextState) {
+                            setSelectedRentals({});
+                          }
+                        }}
+                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          isEquipmentRentalEnabled ? 'bg-brand-lime' : 'bg-slate-800 hover:bg-slate-750'
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-slate-950 shadow-md ring-0 transition duration-200 ease-in-out ${
+                            isEquipmentRentalEnabled ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Expandable Equipment List */}
+                    {isEquipmentRentalEnabled && (
+                      <div className="space-y-2.5 pt-3 border-t border-slate-800/60 animate-fade-in">
+                        {court.rentals.filter(r => r.enabled).map((item) => {
+                          const qty = selectedRentals[item.id] || 0;
+                          const itemCost = qty > 0 ? getRentalItemCost(item, qty) : 0;
+                          const isSelected = qty > 0;
+                          return (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setSelectedRentalForModal(item);
+                                setRentalActiveImageIndex(0);
+                                setIsRentalZoomed(false);
+                              }}
+                              className={`flex items-center gap-3.5 p-3 rounded-xl border transition-all duration-300 cursor-pointer ${
+                                isSelected 
+                                  ? 'border-brand-lime/40 bg-brand-lime/[0.04] shadow-[0_0_12px_rgba(163,230,53,0.06)]' 
+                                  : 'border-slate-800/80 bg-slate-950/20 hover:border-slate-750 hover:bg-slate-900/40'
+                              }`}
+                            >
+                              {/* Item Image/Icon */}
+                              <div className={`w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-xl select-none flex-shrink-0 transition-all relative group/img cursor-pointer ${
+                                isSelected
+                                  ? 'bg-brand-lime/10 border border-brand-lime/30'
+                                  : 'bg-slate-900 border border-slate-800'
+                              }`}>
+                                {item.images && item.images.length > 0 ? (
+                                  <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300" />
+                                ) : (
+                                  <span>🏓</span>
+                                )}
+                              </div>
+
+                              {/* Item Info */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-1 mb-0.5">
+                                  <h5 className="text-xs font-bold text-white truncate">{item.name}</h5>
+                                </div>
+                                <p className="text-[10px] text-slate-400 line-clamp-1 mb-1.5">{item.description || 'Quality court equipment'}</p>
+                                <div className="text-[11px] font-extrabold text-brand-lime">
+                                  ₱{item.price} <span className="text-[9.5px] font-normal text-slate-400">/{item.pricingType === 'per_hour' ? 'hr' : 'item'}</span>
+                                </div>
+                              </div>
+
+                              {/* Quantity Controls & Subtotal */}
+                              <div className="flex flex-col items-end gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 shadow-inner">
+                                  <button
+                                    type="button"
+                                    disabled={qty <= 0}
+                                    onClick={() => {
+                                      const nextQty = Math.max(0, qty - 1);
+                                      setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
+                                    }}
+                                    className="w-5 h-5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="w-5 text-center text-xs font-black text-white">{qty}</span>
+                                  <button
+                                    type="button"
+                                    disabled={qty >= item.quantity}
+                                    onClick={() => {
+                                      const nextQty = Math.min(item.quantity, qty + 1);
+                                      setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
+                                    }}
+                                    className="w-5 h-5 rounded bg-slate-900 border border-slate-800 text-brand-lime font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                                
+                                {/* Availability / Subtotal */}
+                                <div className="text-[8px] font-semibold text-slate-500 uppercase tracking-widest mr-1">
+                                  {isSelected ? (
+                                    <span className="text-brand-lime/90 font-bold">Total: ₱{itemCost}</span>
+                                  ) : (
+                                    <span>Available: {item.quantity}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>

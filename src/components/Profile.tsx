@@ -36,6 +36,10 @@ interface Booking {
   id: string;
   bookingId?: string;
   bookingReference?: string;
+  type?: 'court' | 'open_play' | 'openplay' | 'tournament' | 'bootcamp' | 'coaching';
+  openPlayEventId?: string;
+  openPlayTitle?: string;
+  openPlayCategory?: string;
   courtId: string;
   courtName: string;
   courtType?: string;

@@ -67,6 +67,7 @@ import {
   ShieldCheck,
   KeyRound,
   CheckCheck,
+  Phone,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc } from 'firebase/firestore';
@@ -102,7 +103,7 @@ const getSlotPrice = (startHour: number, dayPrice: number = 100, nightPrice: num
 interface Booking {
   id: string;
   bookingId?: string; // for local fallback
-  type?: 'court' | 'openplay';
+  type?: 'court' | 'open_play' | 'openplay' | 'tournament' | 'bootcamp' | 'coaching';
   openPlayEventId?: string;
   openPlayTitle?: string;
   openPlayCategory?: string;
@@ -137,6 +138,9 @@ interface Booking {
   voucherCode?: string;
   discountAmount?: number;
   refundReceiptUrl?: string;
+  isAddGuestOnly?: boolean;
+  primaryPlayerName?: string;
+  primaryPlayerEmail?: string;
   refundAmount?: number;
   refundReason?: string;
   refundedAt?: string;
@@ -514,6 +518,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   // Search and Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'cancelled'>('all');
+  const [checkoutCategoryFilter, setCheckoutCategoryFilter] = useState<'all' | 'court' | 'openplay'>('all');
+  const [checkoutStatusFilter, setCheckoutStatusFilter] = useState<'all' | 'pending' | 'paid' | 'cancelled'>('all');
   const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'player' | 'client_admin' | 'super_admin'>('all');
   const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive' | 'deleted'>('all');
   
@@ -681,7 +687,93 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [editingOpenPlay, setEditingOpenPlay] = useState<OpenPlayEvent | null>(null);
   const [registrationsModalOpen, setRegistrationsModalOpen] = useState(false);
   const [selectedEventForRegs, setSelectedEventForRegs] = useState<OpenPlayEvent | null>(null);
+  const [rosterModalViewMode, setRosterModalViewMode] = useState<'cards' | 'list' | 'table'>('cards');
+  const [rosterSearchQuery, setRosterSearchQuery] = useState('');
+  const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest'>('all');
   const [copiedShareLink, setCopiedShareLink] = useState<string | null>(null);
+
+  // Persistent Attendance Checker State
+  const [attendanceMap, setAttendanceMap] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('picklepoint_attendance_map');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const handleToggleAttendance = (attendeeId: string) => {
+    setAttendanceMap(prev => {
+      const nextState = !prev[attendeeId];
+      const updated = { ...prev, [attendeeId]: nextState };
+      try {
+        localStorage.setItem('picklepoint_attendance_map', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Could not save attendance to localStorage:', e);
+      }
+      return updated;
+    });
+  };
+
+  const checkHasEventStarted = (event: OpenPlayEvent | null, bufferMinutes: number = 15): boolean => {
+    if (!event || !event.eventDate) return true;
+    try {
+      const now = new Date();
+      let eventDateObj: Date | null = null;
+
+      if (event.eventDate.includes('-') && event.eventDate.length === 10) {
+        const [year, month, day] = event.eventDate.split('-').map(Number);
+        eventDateObj = new Date(year, month - 1, day);
+      } else {
+        const parsed = Date.parse(event.eventDate);
+        if (!isNaN(parsed)) {
+          eventDateObj = new Date(parsed);
+        }
+      }
+
+      if (!eventDateObj) return true;
+
+      const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const eventZero = new Date(eventDateObj.getFullYear(), eventDateObj.getMonth(), eventDateObj.getDate()).getTime();
+
+      if (todayZero > eventZero) {
+        return true;
+      }
+      if (todayZero < eventZero) {
+        return false;
+      }
+
+      if (event.startTime) {
+        let startHour = 0;
+        let startMinute = 0;
+
+        const timeStr = event.startTime.trim().toUpperCase();
+        if (timeStr.includes('AM') || timeStr.includes('PM')) {
+          const isPM = timeStr.includes('PM');
+          const isAM = timeStr.includes('AM');
+          const cleanTime = timeStr.replace(/(AM|PM)/g, '').trim();
+          const parts = cleanTime.split(':').map(Number);
+          startHour = parts[0] || 0;
+          startMinute = parts[1] || 0;
+          if (isPM && startHour < 12) startHour += 12;
+          if (isAM && startHour === 12) startHour = 0;
+        } else if (timeStr.includes(':')) {
+          const parts = timeStr.split(':').map(Number);
+          startHour = parts[0] || 0;
+          startMinute = parts[1] || 0;
+        }
+
+        const eventStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHour, startMinute).getTime();
+        const earlyCheckInMs = eventStartMs - (bufferMinutes * 60 * 1000);
+        return now.getTime() >= earlyCheckInMs;
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Error checking event start time:', err);
+      return true;
+    }
+  };
 
   // Form states for Open Play Event creation/edit
   const [openPlayTitle, setOpenPlayTitle] = useState('');
@@ -978,6 +1070,49 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const eventId = editingOpenPlay ? editingOpenPlay.id : 'op-' + Date.now();
     const isPast = isEventExpired(openPlayDate, openPlayEndTime);
 
+    // Conflict Check: Alert admin if private court bookings exist during proposed Open Play hours
+    const parseTimeHour = (tStr?: string): number => {
+      if (!tStr) return 0;
+      const trimmed = tStr.trim();
+      const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      if (match12) {
+        let h = parseInt(match12[1], 10);
+        const pm = match12[3].toUpperCase() === 'PM';
+        if (pm && h < 12) h += 12;
+        if (!pm && h === 12) h = 0;
+        return h;
+      }
+      if (trimmed.includes(':')) {
+        const parts = trimmed.split(':');
+        let h = parseInt(parts[0], 10) || 0;
+        if (trimmed.toLowerCase().includes('pm') && h < 12) h += 12;
+        if (trimmed.toLowerCase().includes('am') && h === 12) h = 0;
+        return h;
+      }
+      return parseInt(trimmed, 10) || 0;
+    };
+
+    const existingConflicts = bookings.filter(b => {
+      if (b.status === 'cancelled' || b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) return false;
+      if (b.date !== openPlayDate) return false;
+      const isCourtMatch = finalCourtIds.length === 0 || finalCourtIds.includes(b.courtId);
+      if (!isCourtMatch) return false;
+
+      const startH = parseTimeHour(openPlayStartTime);
+      const endH = parseTimeHour(openPlayEndTime);
+      return b.slots?.some(s => {
+        const slotStart = parseTimeHour(s.split(' - ')[0]);
+        return slotStart >= startH && slotStart < endH;
+      });
+    });
+
+    if (existingConflicts.length > 0) {
+      const conflictMsg = `Notice: ${existingConflicts.length} existing private court reservation(s) overlap with this Open Play schedule on ${openPlayDate} (${openPlayStartTime} - ${openPlayEndTime}).\n\nThose overlapping hours will be reserved for Open Play. Do you wish to proceed?`;
+      if (!confirm(conflictMsg)) {
+        return;
+      }
+    }
+
     const payload: OpenPlayEvent = {
       id: eventId,
       title: openPlayTitle.trim(),
@@ -1114,18 +1249,54 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       return;
     }
     
-    const headers = ['Player Name', 'Email', 'Phone', 'Player Count', 'GCash Reference', 'Payment Status', 'Registration Status', 'Date Registered'];
-    const rows = eventRegs.map(r => [
-      `"${(r.playerName || '').replace(/"/g, '""')}"`,
-      `"${(r.playerEmail || '').replace(/"/g, '""')}"`,
-      `"${(r.playerPhone || '').replace(/"/g, '""')}"`,
-      r.playerCount || 1,
-      `"${(r.gcashReferenceNumber || '').replace(/"/g, '""')}"`,
-      r.paymentStatus || 'pending',
-      r.status || 'pending',
-      `"${(r.createdAt || '').replace(/"/g, '""')}"`,
-    ]);
+    const headers = ['Attendee Name', 'Participant Role', 'Host Player', 'Email', 'Phone', 'GCash Reference', 'Payment Status', 'Registration Status', 'Date Registered'];
     
+    const rows: (string | number)[][] = [];
+    
+    eventRegs.forEach(r => {
+      const primaryName = r.playerName || r.userName || 'Player';
+      const primaryEmail = r.playerEmail || r.userEmail || '';
+      const primaryPhone = r.playerPhone || r.userPhone || '';
+      const gcashRef = r.gcashReferenceNumber || '';
+      const paymentStatus = r.paymentStatus || 'pending';
+      const status = r.status || 'pending';
+      const dateReg = r.createdAt || '';
+
+      // Primary Player row
+      rows.push([
+        `"${primaryName.replace(/"/g, '""')}"`,
+        '"Primary Player"',
+        '"-"',
+        `"${primaryEmail.replace(/"/g, '""')}"`,
+        `"${primaryPhone.replace(/"/g, '""')}"`,
+        `"${gcashRef.replace(/"/g, '""')}"`,
+        paymentStatus,
+        status,
+        `"${dateReg.replace(/"/g, '""')}"`
+      ]);
+
+      // Guest rows
+      const spots = r.playerCount || 1;
+      const guestCount = Math.max((r.guests?.length || 0), (r.guestNames?.length || 0), (spots > 1 ? spots - 1 : 0));
+      
+      for (let i = 0; i < guestCount; i++) {
+        const guestName = r.guests?.[i]?.name || r.guestNames?.[i] || `Guest #${i + 1} (${primaryName})`;
+        const guestEmail = r.guests?.[i]?.email || r.guestEmails?.[i] || `Shared (${primaryEmail})`;
+        
+        rows.push([
+          `"${guestName.replace(/"/g, '""')}"`,
+          '"Guest"',
+          `"${primaryName.replace(/"/g, '""')}"`,
+          `"${guestEmail.replace(/"/g, '""')}"`,
+          `"${primaryPhone.replace(/"/g, '""')}"`,
+          `"${gcashRef.replace(/"/g, '""')}"`,
+          paymentStatus,
+          status,
+          `"${dateReg.replace(/"/g, '""')}"`
+        ]);
+      }
+    });
+
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
@@ -2003,58 +2174,120 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           eventsSnap.forEach((dSnap) => {
             loadedOpenPlayEvents.push(normalizeOpenPlayEvent(dSnap.id, dSnap.data()));
           });
+          try {
+            localStorage.setItem('picklepoint_openplay_events', JSON.stringify(loadedOpenPlayEvents));
+            sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(loadedOpenPlayEvents));
+          } catch (e) {}
         } catch (err) {
-          console.warn('Firestore openplay_events fetch error:', err);
+          console.warn('Firestore openplay_events fetch error, loading local fallback:', err);
+          const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+          const localEventsRaw = localEventsStr ? JSON.parse(localEventsStr) : [];
+          loadedOpenPlayEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
         }
+      } else {
+        const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+        const localEventsRaw = localEventsStr ? JSON.parse(localEventsStr) : [];
+        loadedOpenPlayEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
       }
-      const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-      const localEventsRaw = localEventsStr ? JSON.parse(localEventsStr) : [];
-      const localEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
-      const eventsMap = new Map<string, OpenPlayEvent>();
-      loadedOpenPlayEvents.forEach((e) => eventsMap.set(e.id, e));
-      localEvents.forEach((e: OpenPlayEvent) => {
-        eventsMap.set(e.id, e);
-        if (isFirebaseConfigured && db) {
-          const cleanEv = Object.fromEntries(Object.entries(e).filter(([_, v]) => v !== undefined));
-          setDoc(doc(db, 'openplay_events', e.id), cleanEv).catch(() => {});
-        }
-      });
-      const mergedOpenPlayList = Array.from(eventsMap.values());
-      try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedOpenPlayList)); } catch (e) {}
-      try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedOpenPlayList)); } catch (e) {}
-      setOpenPlayEvents(mergedOpenPlayList);
+      setOpenPlayEvents(loadedOpenPlayEvents);
     })();
 
     // --- Independent OpenPlay Registrations Fetch (runs regardless of other fetch failures) ---
     (async () => {
-      let loadedOpenPlayRegs: OpenPlayRegistration[] = [];
+      const regMap = new Map<string, OpenPlayRegistration>();
+
+      // 1. Load from LocalStorage picklepoint_bookings
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings');
+        if (bookingsStr) {
+          const allBookings = JSON.parse(bookingsStr);
+          allBookings.forEach((b: any) => {
+            if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId && b.status !== 'cancelled') {
+              const regId = b.id || b.bookingReference;
+              regMap.set(regId, {
+                id: regId,
+                eventId: b.openPlayEventId,
+                eventTitle: b.openPlayTitle || b.courtName,
+                playerUid: b.userId || b.user?.uid || '',
+                playerName: b.user?.name || b.userName || 'Player',
+                playerEmail: b.user?.email || b.userEmail || '',
+                playerPhone: b.userPhone,
+                playerCount: b.playerCount || 1,
+                guestCount: b.guestCount || (b.guests?.length || 0),
+                guests: b.guests || [],
+                guestNames: b.guestNames || [],
+                guestEmails: b.guestEmails || [],
+                gcashReferenceNumber: b.gcashReferenceNumber,
+                paymentStatus: b.paymentStatus || 'paid',
+                status: b.status || 'approved',
+                createdAt: b.createdAt || new Date().toISOString(),
+                isAddGuestOnly: b.isAddGuestOnly === true,
+                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+              } as OpenPlayRegistration);
+            }
+          });
+        }
+        const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
+        if (localRegsStr) {
+          const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
+          allRegs.forEach((r) => {
+            if (r.eventId && !regMap.has(r.id)) regMap.set(r.id, r);
+          });
+        }
+      } catch (e) {}
+
+      // 2. Load from Firestore
       if (isFirebaseConfigured && db) {
         try {
+          // Query bookings collection for open play
+          const bSnap = await getDocs(collection(db, 'bookings'));
+          bSnap.forEach(dSnap => {
+            const b = dSnap.data();
+            if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId && b.status !== 'cancelled') {
+              const regId = dSnap.id;
+              regMap.set(regId, {
+                id: regId,
+                eventId: b.openPlayEventId,
+                eventTitle: b.openPlayTitle || b.courtName,
+                playerUid: b.userId || b.user?.uid || '',
+                playerName: b.user?.name || b.userName || 'Player',
+                playerEmail: b.user?.email || b.userEmail || '',
+                playerPhone: b.userPhone,
+                playerCount: b.playerCount || 1,
+                guestCount: b.guestCount || (b.guests?.length || 0),
+                guests: b.guests || [],
+                guestNames: b.guestNames || [],
+                guestEmails: b.guestEmails || [],
+                gcashReferenceNumber: b.gcashReferenceNumber,
+                paymentStatus: b.paymentStatus || 'paid',
+                status: b.status || 'approved',
+                createdAt: b.createdAt || new Date().toISOString(),
+                isAddGuestOnly: b.isAddGuestOnly === true,
+                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+              } as OpenPlayRegistration);
+            }
+          });
+
+          // Query openplay_registrations collection
           const regsSnap = await getDocs(collection(db, 'openplay_registrations'));
           regsSnap.forEach((dSnap) => {
-            loadedOpenPlayRegs.push({ id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
+            if (!regMap.has(dSnap.id)) {
+              regMap.set(dSnap.id, { id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
+            }
           });
         } catch (err) {
-          console.warn('Firestore openplay_registrations fetch error:', err);
+          console.warn('Firestore registrations fetch error:', err);
         }
       }
-      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
-      const localRegs = localRegsStr ? (JSON.parse(localRegsStr) as OpenPlayRegistration[]) : [];
-      const regsMap = new Map<string, OpenPlayRegistration>();
-      loadedOpenPlayRegs.forEach((r) => regsMap.set(r.id, r));
-      localRegs.forEach((r) => {
-        if (!regsMap.has(r.id)) {
-          regsMap.set(r.id, r);
-          if (isFirebaseConfigured && db) {
-            const cleanReg = Object.fromEntries(Object.entries(r).filter(([_, v]) => v !== undefined));
-            setDoc(doc(db, 'openplay_registrations', r.id), cleanReg).catch(() => {});
-          }
-        }
-      });
-      const mergedRegs = Array.from(regsMap.values());
-      try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(mergedRegs)); } catch (e) {}
-      try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(mergedRegs)); } catch (e) {}
-      setOpenPlayRegistrations(mergedRegs);
+
+      const loadedOpenPlayRegs = Array.from(regMap.values());
+      try {
+        localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(loadedOpenPlayRegs));
+        sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(loadedOpenPlayRegs));
+      } catch (e) {}
+      setOpenPlayRegistrations(loadedOpenPlayRegs);
     })();
 
     try {
@@ -2122,42 +2355,46 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
       setCourts(loadedCourts);
 
-      const ownedCourtIds = loadedCourts
-        .filter(c => c.ownerId === currentUserUid)
-        .map(c => c.id);
+      const availableAdminCourts = isSuperAdmin
+        ? loadedCourts
+        : loadedCourts.filter(c =>
+            c.ownerId === currentUserUid ||
+            (currentUserEmail && c.createdByEmail && c.createdByEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
+            (myActiveCompany?.id && c.companyId === myActiveCompany.id) ||
+            (myActiveCompany?.name && c.companyName && c.companyName.toLowerCase() === myActiveCompany.name.toLowerCase()) ||
+            ((user as any)?.companyName && c.companyName && c.companyName.toLowerCase() === (user as any).companyName.toLowerCase())
+          );
+      const ownedCourtIds = availableAdminCourts.map(c => c.id);
 
-      // 3. Fetch bookings
-      let loadedBookings: Booking[] = [];
+      // 3. Fetch bookings (Merge Firestore & LocalStorage for 100% data fidelity)
+      const bookingMap = new Map<string, Booking>();
+      const localBookingsStr = localStorage.getItem('picklepoint_bookings');
+      if (localBookingsStr) {
+        try {
+          const localBookings = JSON.parse(localBookingsStr) as Booking[];
+          localBookings.forEach((b) => {
+            const key = b.bookingReference || b.bookingId || b.id;
+            if (key) bookingMap.set(key, { ...b, id: key });
+          });
+        } catch (e) {}
+      }
+
       if (isFirebaseConfigured && db) {
         try {
           const querySnapshot = await getDocs(collection(db, 'bookings'));
           querySnapshot.forEach((docSnap) => {
-            loadedBookings.push({
-              id: docSnap.id,
-              ...docSnap.data(),
-            } as Booking);
+            const data = docSnap.data() as Booking;
+            const key = data.bookingReference || docSnap.id;
+            bookingMap.set(key, { ...data, id: key });
           });
         } catch (err) {
-          console.warn('Error fetching bookings collection from cloud, loading local fallback:', err);
-          const bookingsStr = localStorage.getItem('picklepoint_bookings');
-          const localBookings = (bookingsStr ? JSON.parse(bookingsStr) : []) as Booking[];
-          loadedBookings = localBookings.map((b: Booking) => ({
-            ...b,
-            id: b.bookingId || b.id || Math.random().toString(),
-          }));
+          console.warn('Error fetching bookings collection from cloud:', err);
         }
-      } else {
-        // Local fallback
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        const localBookings = (bookingsStr ? JSON.parse(bookingsStr) : []) as Booking[];
-        loadedBookings = localBookings.map((b: Booking) => ({
-          ...b,
-          id: b.bookingId || b.id || Math.random().toString(),
-        }));
       }
 
-      // Filter bookings: each admin only sees bookings/checkouts for courts/organization they own.
-      // Retain all historical booking transactions even if a court is deleted or modified.
+      let loadedBookings: Booking[] = Array.from(bookingMap.values());
+
+      // Filter bookings: each admin sees bookings/checkouts for courts or organization they own.
       if (!isSuperAdmin) {
         loadedBookings = loadedBookings.filter(b => {
           const isOwnedCourt = ownedCourtIds.includes(b.courtId);
@@ -5236,9 +5473,31 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const matchesSearch =
       b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.userName && b.userName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (b.userEmail && b.userEmail.toLowerCase().includes(searchQuery.toLowerCase())) ||
       b.gcashReferenceNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.bookingReference?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
+      b.bookingReference?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      b.courtName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.openPlayTitle && b.openPlayTitle.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const isOpenPlay = b.type === 'openplay' || !!b.openPlayEventId || !!(b as any).isOpenPlay;
+    const matchesCategory =
+      checkoutCategoryFilter === 'all'
+        ? true
+        : checkoutCategoryFilter === 'openplay'
+        ? isOpenPlay
+        : !isOpenPlay;
+
+    const matchesStatus =
+      checkoutStatusFilter === 'all'
+        ? true
+        : checkoutStatusFilter === 'pending'
+        ? b.paymentStatus === 'pending_verification'
+        : checkoutStatusFilter === 'paid'
+        ? b.paymentStatus === 'paid'
+        : (b.paymentStatus === 'refunded' || b.paymentStatus === 'cancelled_no_refund' || b.paymentStatus === 'failed');
+
+    return matchesSearch && matchesCategory && matchesStatus;
   });
 
   const formatDateLabel = (dateStr: string) => {
@@ -5324,7 +5583,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {/* Navigation Links */}
           <nav className="space-y-1">
             <button
-              onClick={() => { setActiveTab('courts'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('courts'); setSelectedEventForRegs(null); setSearchQuery(''); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                 activeTab === 'courts'
                   ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5336,7 +5595,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </button>
 
             <button
-              onClick={() => { setActiveTab('bookings'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('bookings'); setSelectedEventForRegs(null); setSearchQuery(''); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                 activeTab === 'bookings'
                   ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5349,7 +5608,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
             {isSuperAdmin && (
               <button
-                onClick={() => { setActiveTab('companies'); setSearchQuery(''); }}
+                onClick={() => { setActiveTab('companies'); setSelectedEventForRegs(null); setSearchQuery(''); }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                   activeTab === 'companies'
                     ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5362,7 +5621,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             )}
 
             <button
-              onClick={() => { setActiveTab('checkouts'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('checkouts'); setSelectedEventForRegs(null); setSearchQuery(''); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                 activeTab === 'checkouts'
                   ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5379,7 +5638,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </button>
 
             <button
-              onClick={() => { setActiveTab('openplay'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('openplay'); setSelectedEventForRegs(null); setSearchQuery(''); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                 activeTab === 'openplay'
                   ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5396,7 +5655,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </button>
 
             <button
-              onClick={() => { setActiveTab('policies'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('policies'); setSelectedEventForRegs(null); setSearchQuery(''); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                 activeTab === 'policies'
                   ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5408,7 +5667,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </button>
 
             <button
-              onClick={() => { setActiveTab('vouchers'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('vouchers'); setSelectedEventForRegs(null); setSearchQuery(''); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                 activeTab === 'vouchers'
                   ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5420,7 +5679,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </button>
 
             <button
-              onClick={() => { setActiveTab('users'); setSearchQuery(''); }}
+              onClick={() => { setActiveTab('users'); setSelectedEventForRegs(null); setSearchQuery(''); }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
                 activeTab === 'users'
                   ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
@@ -5435,6 +5694,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             <div className="space-y-1">
               <button
                 onClick={() => {
+                  setSelectedEventForRegs(null);
                   if (activeTab !== 'settings') {
                     setActiveTab('settings');
                     setSearchQuery('');
@@ -5649,7 +5909,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 </div>
                 <nav className="space-y-1.5">
                   <button
-                    onClick={() => { setActiveTab('courts'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('courts'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       activeTab === 'courts' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                     }`}
@@ -5658,7 +5918,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     <span>Courts</span>
                   </button>
                   <button
-                    onClick={() => { setActiveTab('bookings'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('bookings'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       activeTab === 'bookings' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                     }`}
@@ -5668,7 +5928,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   </button>
                   {isSuperAdmin && (
                     <button
-                      onClick={() => { setActiveTab('companies'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                      onClick={() => { setActiveTab('companies'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                       className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                         activeTab === 'companies' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                       }`}
@@ -5678,7 +5938,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     </button>
                   )}
                   <button
-                    onClick={() => { setActiveTab('checkouts'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('checkouts'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       activeTab === 'checkouts' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                     }`}
@@ -5692,7 +5952,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     )}
                   </button>
                   <button
-                    onClick={() => { setActiveTab('openplay'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('openplay'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       activeTab === 'openplay' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                     }`}
@@ -5706,7 +5966,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     )}
                   </button>
                   <button
-                    onClick={() => { setActiveTab('policies'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('policies'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       activeTab === 'policies' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                     }`}
@@ -5715,7 +5975,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     Policies & Rules
                   </button>
                   <button
-                    onClick={() => { setActiveTab('vouchers'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('vouchers'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       activeTab === 'vouchers' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                     }`}
@@ -5724,7 +5984,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     Vouchers & Promos
                   </button>
                   <button
-                    onClick={() => { setActiveTab('users'); setSearchQuery(''); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('users'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                       activeTab === 'users' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
                     }`}
@@ -5735,6 +5995,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <div className="space-y-1">
                     <button
                       onClick={() => {
+                        setSelectedEventForRegs(null);
                         if (activeTab !== 'settings') {
                           setActiveTab('settings');
                           setSearchQuery('');
@@ -6015,7 +6276,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         )}
 
         {/* 2. FILTER & SEARCH ACTION BAR */}
-        {activeTab !== 'settings' && (
+        {activeTab !== 'settings' && !selectedEventForRegs && (
           <div className="glass-panel border border-slate-800 rounded-2xl p-4 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="relative flex-grow max-w-md">
               <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
@@ -6251,6 +6512,66 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'checkouts' && (
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Category Filter Dropdown */}
+                <div className="relative flex items-center">
+                  <div className="absolute left-3 pointer-events-none text-brand-lime flex items-center gap-1.5 text-xs font-semibold">
+                    <Filter className="w-3.5 h-3.5 text-brand-lime" />
+                    <span className="hidden sm:inline text-slate-400 text-[11px] uppercase tracking-wider font-bold">Category:</span>
+                  </div>
+                  <select
+                    value={checkoutCategoryFilter}
+                    onChange={(e) => setCheckoutCategoryFilter(e.target.value as any)}
+                    className="appearance-none pl-9 sm:pl-24 pr-8 py-2 bg-slate-900/90 border border-slate-700/80 hover:border-brand-lime/50 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-lime/30 cursor-pointer transition-all shadow-sm"
+                  >
+                    <option value="all" className="bg-slate-900 text-slate-200">All Categories</option>
+                    <option value="court" className="bg-slate-900 text-slate-200">🎾 Court Bookings Only</option>
+                    <option value="openplay" className="bg-slate-900 text-slate-200">🏆 Open Play Sessions Only</option>
+                  </select>
+                  <div className="absolute right-2.5 pointer-events-none text-slate-400">
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+
+                {/* Payment Status Dropdown */}
+                <div className="relative flex items-center">
+                  <div className="absolute left-3 pointer-events-none text-emerald-400 flex items-center gap-1.5 text-xs font-semibold">
+                    <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="hidden sm:inline text-slate-400 text-[11px] uppercase tracking-wider font-bold">Status:</span>
+                  </div>
+                  <select
+                    value={checkoutStatusFilter}
+                    onChange={(e) => setCheckoutStatusFilter(e.target.value as any)}
+                    className="appearance-none pl-9 sm:pl-20 pr-8 py-2 bg-slate-900/90 border border-slate-700/80 hover:border-emerald-400/50 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-400/30 cursor-pointer transition-all shadow-sm"
+                  >
+                    <option value="all" className="bg-slate-900 text-slate-200">All Statuses</option>
+                    <option value="pending" className="bg-slate-900 text-slate-200">Pending Review</option>
+                    <option value="paid" className="bg-slate-900 text-slate-200">Approved / Paid</option>
+                    <option value="cancelled" className="bg-slate-900 text-slate-200">Refunded / Cancelled</option>
+                  </select>
+                  <div className="absolute right-2.5 pointer-events-none text-slate-400">
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+
+                {/* Reset Filters Button */}
+                {(checkoutCategoryFilter !== 'all' || checkoutStatusFilter !== 'all') && (
+                  <button
+                    onClick={() => {
+                      setCheckoutCategoryFilter('all');
+                      setCheckoutStatusFilter('all');
+                    }}
+                    className="text-xs text-slate-300 hover:text-white px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    title="Reset checkout filters"
+                  >
+                    <X className="w-3.5 h-3.5 text-red-400" />
+                    <span className="font-semibold">Reset</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -7476,6 +7797,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     <thead>
                       <tr className="border-b border-dark-border/60 bg-slate-900/30 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
                         <th className="py-4 px-6">Player Info</th>
+                        <th className="py-4 px-6">Category / Type</th>
                         <th className="py-4 px-6">Payment Mode</th>
                         <th className="py-4 px-6">Reservation Schedule</th>
                         <th className="py-4 px-6">Total Cost</th>
@@ -7486,7 +7808,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     <tbody className="divide-y divide-dark-border/40 text-xs">
                       {filteredCheckouts.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-16 text-center text-slate-500">
+                          <td colSpan={7} className="py-16 text-center text-slate-500">
                             <AlertCircle className="w-8 h-8 mx-auto text-slate-600 mb-3" />
                             <p className="font-bold text-white text-sm">No checkout records found</p>
                             <p className="text-xs text-slate-500 mt-1">Try adjusting your search query.</p>
@@ -7522,6 +7844,21 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                       )}
                                     </div>
                                   </div>
+                                </td>
+
+                                {/* Category / Type */}
+                                <td className="py-4.5 px-6">
+                                  {booking.type === 'openplay' || booking.openPlayEventId || (booking as any).isOpenPlay ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shadow-sm">
+                                      <Trophy className="w-3 h-3 text-brand-lime shrink-0" />
+                                      <span>Open Play</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/30 text-blue-300 shadow-sm">
+                                      <Building2 className="w-3 h-3 text-blue-400 shrink-0" />
+                                      <span>Court Booking</span>
+                                    </span>
+                                  )}
                                 </td>
 
                                 {/* Payment Method */}
@@ -7663,17 +8000,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                                       if (localRegsStr) {
                                                         const parsed = JSON.parse(localRegsStr);
                                                         const updatedRegs = parsed.map((r: any) =>
-                                                          (r.id === targetRegId || r.registrationId === targetRegId || (openPlayEventId && r.eventId === openPlayEventId && r.userEmail === (booking.user?.email || booking.userEmail)))
-                                                            ? { ...r, paymentStatus: 'paid', status: 'approved' }
-                                                            : r
-                                                        );
-                                                        try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
-                                                        try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
+                                                           (r.id === targetRegId || r.registrationId === targetRegId || r.bookingId === targetRegId)
+                                                             ? { ...r, paymentStatus: 'paid', status: 'approved' }
+                                                             : r
+                                                         );
+                                                         try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
+                                                         try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
                                                       }
                                                     } catch (e) {}
 
                                                     setOpenPlayRegistrations(prev => {
-                                                      const foundIdx = prev.findIndex(r => r.id === targetRegId || r.id === booking.bookingId || (openPlayEventId && r.eventId === openPlayEventId && r.userEmail === (booking.user?.email || booking.userEmail)));
+                                                      const foundIdx = prev.findIndex(r => r.id === targetRegId || r.id === booking.bookingId || (r as any).registrationId === targetRegId);
                                                       if (foundIdx >= 0) {
                                                         const updated = [...prev];
                                                         updated[foundIdx] = { ...updated[foundIdx], paymentStatus: 'paid', status: 'approved' };
@@ -7695,7 +8032,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                                           gcashReferenceNumber: booking.gcashReferenceNumber,
                                                           paymentStatus: 'paid',
                                                           status: 'approved',
-                                                          createdAt: booking.createdAt || new Date().toISOString()
+                                                          createdAt: booking.createdAt || new Date().toISOString(),
+                                                          isAddGuestOnly: booking.isAddGuestOnly === true,
+                                                          primaryPlayerName: booking.primaryPlayerName || booking.userName || booking.user?.name,
+                                                          primaryPlayerEmail: booking.primaryPlayerEmail || booking.userEmail || booking.user?.email,
                                                         };
                                                         return [...prev, newReg];
                                                       }
@@ -7824,7 +8164,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                               {/* EXPANDED ACCORDION PANEL ROW */}
                               {isExpanded && (
                                 <tr key={`${booking.id}-expanded`} className="bg-slate-950/80 border-b border-dark-border/60 animate-fade-in">
-                                  <td colSpan={6} className="p-6 text-left space-y-6">
+                                  <td colSpan={7} className="p-6 text-left space-y-6">
                                     {/* Structured Details Cards Grid */}
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                       {/* Card 1: Player Information */}
@@ -9224,23 +9564,684 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
             {/* Open Play Management page */}
             {activeTab === 'openplay' && (
-              <div className="w-full animate-fade-in text-left">
-                {/* Header Actions */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-dark-border mb-6">
-                  <div>
-                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                      <Trophy className="w-5 h-5 text-brand-lime" /> Open Play Sessions
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1">Create Open Play registrations, collect GCash entry fees, and share event links with players.</p>
+              selectedEventForRegs ? (
+                /* FULL PAGE PLAYER & GUEST ROSTER VIEW */
+                <div className="w-full animate-fade-in text-left space-y-6">
+                  {/* Top Breadcrumb Navigation Bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-dark-border">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedEventForRegs(null)}
+                        className="inline-flex items-center gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01]"
+                      >
+                        <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Open Play Sessions
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-extrabold text-white flex items-center gap-2">
+                          <Trophy className="w-4 h-4 text-brand-lime" /> {selectedEventForRegs.title}
+                        </span>
+                        {isEventExpired(selectedEventForRegs.eventDate, selectedEventForRegs.endTime) || selectedEventForRegs.status === 'expired' ? (
+                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+                            ⏰ Expired
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-[10px] font-black uppercase tracking-wider">
+                            🟢 Active Session
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleExportOpenPlayRoster(selectedEventForRegs)}
+                        className="py-2.5 px-4 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-extrabold flex items-center gap-2 cursor-pointer shadow-md"
+                      >
+                        <Download className="w-4 h-4" /> Export CSV Roster
+                      </button>
+                    </div>
                   </div>
 
-                  <button
-                    onClick={handleOpenCreateOpenPlay}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Create Open Play Event
-                  </button>
+                  {/* Roster Full Page Body */}
+                  {(() => {
+                    const eventRegs = openPlayRegistrations.filter(r => r.eventId === selectedEventForRegs.id);
+                    
+                    interface RosterAttendee {
+                      id: string;
+                      registrationId: string;
+                      type: 'primary' | 'guest';
+                      name: string;
+                      email: string;
+                      phone: string;
+                      photoUrl?: string;
+                      hostName?: string;
+                      guestIndex?: number;
+                      paymentStatus: string;
+                      status: string;
+                      gcashReferenceNumber?: string;
+                      receiptImageUrl?: string;
+                      createdAt?: string;
+                      regObj: OpenPlayRegistration;
+                    }
+
+                    const allAttendees: RosterAttendee[] = [];
+                    eventRegs.forEach(reg => {
+                      const primaryName = reg.playerName || reg.userName || 'Player';
+                      const primaryEmail = reg.playerEmail || reg.userEmail || '';
+                      const primaryPhone = reg.playerPhone || reg.userPhone || '';
+                      const primaryPhoto = (reg as any).photoUrl || (reg as any).userPhoto || (reg as any).playerPhoto;
+                      const gcashRef = reg.gcashReferenceNumber || '';
+                      const paymentStatus = reg.paymentStatus || 'pending';
+                      const status = reg.status || 'pending';
+
+                      const isAddGuestOnly = reg.isAddGuestOnly === true || (reg as any).isAddGuestOnly === true;
+
+                      // Primary Player (Only if NOT an add-guest-only entry)
+                      if (!isAddGuestOnly) {
+                        allAttendees.push({
+                          id: `${reg.id}-primary`,
+                          registrationId: reg.id,
+                          type: 'primary',
+                          name: primaryName,
+                          email: primaryEmail,
+                          phone: primaryPhone,
+                          photoUrl: primaryPhoto,
+                          paymentStatus,
+                          status,
+                          gcashReferenceNumber: gcashRef,
+                          receiptImageUrl: reg.receiptImageUrl,
+                          createdAt: reg.createdAt,
+                          regObj: reg
+                        });
+                      }
+
+                      // Guests
+                      const spots = reg.playerCount || 1;
+                      const numGuests = isAddGuestOnly
+                        ? Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots || 1)
+                        : Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots > 1 ? spots - 1 : 0);
+                      const hostName = reg.primaryPlayerName || (reg as any).primaryPlayerName || primaryName;
+
+                      for (let gIdx = 0; gIdx < numGuests; gIdx++) {
+                        const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
+                        const gEmail = reg.guests?.[gIdx]?.email || reg.guestEmails?.[gIdx] || `Shared (${reg.primaryPlayerEmail || primaryEmail})`;
+                        const gPhoto = (reg.guests?.[gIdx] as any)?.photoUrl || primaryPhoto;
+                        allAttendees.push({
+                          id: `${reg.id}-guest-${gIdx}`,
+                          registrationId: reg.id,
+                          type: 'guest',
+                          name: gName,
+                          email: gEmail,
+                          phone: primaryPhone,
+                          photoUrl: gPhoto,
+                          hostName: hostName,
+                          guestIndex: gIdx + 1,
+                          paymentStatus,
+                          status,
+                          gcashReferenceNumber: gcashRef,
+                          receiptImageUrl: reg.receiptImageUrl,
+                          createdAt: reg.createdAt,
+                          regObj: reg
+                        });
+                      }
+                    });
+
+                    const filteredAttendees = allAttendees.filter(att => {
+                      if (rosterFilterRole === 'primary' && att.type !== 'primary') return false;
+                      if (rosterFilterRole === 'guest' && att.type !== 'guest') return false;
+                      if (!rosterSearchQuery.trim()) return true;
+                      const q = rosterSearchQuery.toLowerCase();
+                      return (
+                        att.name.toLowerCase().includes(q) ||
+                        att.email.toLowerCase().includes(q) ||
+                        att.phone.toLowerCase().includes(q) ||
+                        (att.hostName && att.hostName.toLowerCase().includes(q)) ||
+                        (att.gcashReferenceNumber && att.gcashReferenceNumber.toLowerCase().includes(q))
+                      );
+                    });
+
+                    const totalHeadcount = allAttendees.length;
+                    const primaryCount = allAttendees.filter(a => a.type === 'primary').length;
+                    const guestCount = allAttendees.filter(a => a.type === 'guest').length;
+                    const approvedHeadcount = allAttendees.filter(a => a.status === 'approved' || a.paymentStatus === 'paid').length;
+                    const pendingHeadcount = allAttendees.filter(a => a.paymentStatus === 'pending_verification' || a.status === 'pending').length;
+                    const attendedCount = allAttendees.filter(a => attendanceMap[a.id]).length;
+                    const attendancePercent = totalHeadcount > 0 ? Math.round((attendedCount / totalHeadcount) * 100) : 0;
+                    const hasEventStarted = checkHasEventStarted(selectedEventForRegs);
+
+                    return (
+                      <div className="space-y-6">
+                        {/* Page Title & Headcount Summary Banner */}
+                        <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden space-y-4">
+                          <div>
+                            <h2 className="text-xl md:text-2xl font-black text-white flex items-center gap-2.5">
+                              <Users className="w-6 h-6 text-brand-lime" /> {selectedEventForRegs.title} — Player & Guest Roster
+                            </h2>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Full headcount breakdown: review registered primary players, guests, verify GCash payments, and track session attendance.
+                            </p>
+                          </div>
+
+                          {/* Headcount Stat Badges */}
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800/80 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="px-3 py-1.5 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-extrabold flex items-center gap-1.5">
+                                <Users className="w-4 h-4" /> Total Headcount: {totalHeadcount} / {selectedEventForRegs.maxParticipants}
+                              </span>
+                              <span className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold">
+                                👤 {primaryCount} Primary Players
+                              </span>
+                              <span className="px-3 py-1.5 rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 font-bold">
+                                👥 {guestCount} Guests
+                              </span>
+                              {!hasEventStarted ? (
+                                <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold flex items-center gap-1.5 text-xs">
+                                  <Clock className="w-4 h-4 text-amber-400" /> ⏳ Early Check-in Opens 15m Before Start ({selectedEventForRegs.startTime || 'Scheduled Time'})
+                                </span>
+                              ) : (
+                                <span className={`px-3 py-1.5 rounded-xl border font-extrabold flex items-center gap-1.5 ${
+                                  attendedCount > 0 ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime' : 'bg-slate-800 border-slate-700 text-slate-400'
+                                }`}>
+                                  <UserCheck className="w-4 h-4 text-brand-lime" /> 🎯 Attendance: {attendedCount}/{totalHeadcount} ({attendancePercent}%)
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className="px-3 py-1.5 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald font-extrabold">
+                                ✓ {approvedHeadcount} Approved
+                              </span>
+                              {pendingHeadcount > 0 && (
+                                <span className="px-3 py-1.5 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 font-extrabold">
+                                  ⏳ {pendingHeadcount} Pending Review
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* View Switcher & Search Bar Controls */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                          {/* View Mode Toggle Buttons */}
+                          <div className="flex items-center gap-1 p-1 rounded-2xl bg-slate-900 border border-slate-800">
+                            <button
+                              onClick={() => setRosterModalViewMode('cards')}
+                              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                rosterModalViewMode === 'cards'
+                                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <LayoutGrid className="w-3.5 h-3.5" /> Cards View
+                            </button>
+                            <button
+                              onClick={() => setRosterModalViewMode('list')}
+                              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                rosterModalViewMode === 'list'
+                                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <List className="w-3.5 h-3.5" /> Attendance List
+                            </button>
+                            <button
+                              onClick={() => setRosterModalViewMode('table')}
+                              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                rosterModalViewMode === 'table'
+                                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                                  : 'text-slate-400 hover:text-white'
+                              }`}
+                            >
+                              <FileText className="w-3.5 h-3.5" /> Bookings Table
+                            </button>
+                          </div>
+
+                          {/* Role Filters */}
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={rosterFilterRole}
+                              onChange={(e) => setRosterFilterRole(e.target.value as any)}
+                              className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-brand-lime cursor-pointer font-bold"
+                            >
+                              <option value="all">All Roles</option>
+                              <option value="primary">Primary Only</option>
+                              <option value="guest">Guests Only</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Content Views */}
+                        <div className="space-y-4">
+                          
+                          {/* VIEW 1: CARDS GRID VIEW */}
+                          {rosterModalViewMode === 'cards' && (
+                            filteredAttendees.length === 0 ? (
+                              <div className="py-12 text-center text-slate-500 italic bg-slate-900/30 rounded-2xl border border-slate-800/50">
+                                No players or guests match the current search filter.
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {filteredAttendees.map((att, idx) => {
+                                  const isApproved = att.status === 'approved' || att.paymentStatus === 'paid';
+                                  const isPending = att.paymentStatus === 'pending_verification';
+
+                                  return (
+                                    <div
+                                      key={att.id}
+                                      className={`glass-panel border rounded-2xl p-4 space-y-3 relative transition-all shadow-md flex flex-col justify-between ${
+                                        attendanceMap[att.id] ? 'border-brand-lime/50 bg-slate-900/90 ring-1 ring-brand-lime/30' : 'border-slate-800 hover:border-slate-700'
+                                      }`}
+                                    >
+                                      <div>
+                                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-[10px] font-black text-slate-300 font-mono">
+                                            #{idx + 1}
+                                          </span>
+                                          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
+                                            att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/40' : 'bg-purple-950/40 text-purple-300 border border-purple-800/50'
+                                          }`}>
+                                            {att.type === 'primary' ? 'Primary Player' : `Guest #${att.guestIndex}`}
+                                          </span>
+                                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ml-auto ${
+                                            isApproved ? 'bg-brand-emerald/10 text-brand-emerald border border-brand-emerald/30' : isPending ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'
+                                          }`}>
+                                            {isApproved ? '✓ Paid' : isPending ? '⏳ Pending' : '✗ Failed'}
+                                          </span>
+                                        </div>
+
+                                        {/* Avatar & Player Name Header */}
+                                        <div className="flex items-center gap-3 mb-2">
+                                          <div className="w-11 h-11 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60 relative">
+                                            <img
+                                              src={att.photoUrl || `https://robohash.org/${encodeURIComponent(att.name)}?set=set4`}
+                                              alt={att.name}
+                                              className="w-full h-full object-cover"
+                                              onError={(e) => {
+                                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(att.name)}&background=b5f529&color=0f172a&bold=true`;
+                                              }}
+                                            />
+                                          </div>
+                                          <div className="min-w-0 flex-1 text-left">
+                                            <div className="font-extrabold text-sm text-white truncate">{att.name}</div>
+                                            {att.hostName && (
+                                              <div className="text-[11px] text-purple-300 font-semibold truncate">
+                                                Host: <strong className="text-white">{att.hostName}</strong>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        <div className="text-xs text-slate-400 truncate mt-1 flex items-center gap-1">
+                                          <Mail className="w-3 h-3 text-slate-500 flex-shrink-0" /> {att.email}
+                                        </div>
+                                        {att.phone && (
+                                          <div className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1">
+                                            <Phone className="w-3 h-3 text-slate-500 flex-shrink-0" /> {att.phone}
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Attendance Checker Button & GCash Metadata */}
+                                      <div className="pt-3 border-t border-slate-800/80 text-[11px] space-y-2">
+                                        {!hasEventStarted ? (
+                                          <div
+                                            className="w-full py-2 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-500 text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-not-allowed select-none"
+                                            title={`Attendance opens when session starts at ${selectedEventForRegs.startTime || 'scheduled time'}`}
+                                          >
+                                            <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                            <span>Attendance Opens At {selectedEventForRegs.startTime || 'Start Time'}</span>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleToggleAttendance(att.id)}
+                                            className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
+                                              attendanceMap[att.id]
+                                                ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
+                                                : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
+                                            }`}
+                                            title={attendanceMap[att.id] ? "Click to revert to Unmarked/Absent" : "Click to mark as Present"}
+                                          >
+                                            {attendanceMap[att.id] ? (
+                                              <>
+                                                <CheckCircle2 className="w-4 h-4 text-dark-bg" />
+                                                <span>🟢 PRESENT</span>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <UserCheck className="w-4 h-4 text-slate-400" />
+                                                <span>MARK PRESENT</span>
+                                              </>
+                                            )}
+                                          </button>
+                                        )}
+
+                                        {att.gcashReferenceNumber && (
+                                          <div className="flex items-center justify-between text-slate-300 pt-1">
+                                            <span className="text-slate-500 font-bold uppercase text-[9px]">GCash Ref:</span>
+                                            <span className="font-mono font-bold text-brand-lime">{att.gcashReferenceNumber}</span>
+                                          </div>
+                                        )}
+
+                                        {att.receiptImageUrl && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setReceiptLightboxImage(att.receiptImageUrl || null)}
+                                            className="w-full py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-brand-lime text-slate-300 hover:text-white text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer"
+                                          >
+                                            <Eye className="w-3 h-3 text-brand-lime" /> View GCash Receipt
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )
+                          )}
+
+                          {/* VIEW 2: ATTENDANCE CHECKLIST */}
+                          {rosterModalViewMode === 'list' && (
+                            <div className="glass-panel border border-slate-800 rounded-3xl p-4 sm:p-6 space-y-3">
+                              {filteredAttendees.length === 0 ? (
+                                <div className="py-8 text-center text-slate-500 italic">No attendees match filter.</div>
+                              ) : (
+                                filteredAttendees.map((att, idx) => (
+                                  <div key={att.id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-2xl border transition-all text-xs gap-3 ${
+                                    attendanceMap[att.id] ? 'bg-slate-900/90 border-brand-lime/40' : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'
+                                  }`}>
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-mono text-slate-500 font-bold text-[11px]">#{idx + 1}</span>
+                                      
+                                      {/* Avatar */}
+                                      <div className="w-10 h-10 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60">
+                                        <img
+                                          src={att.photoUrl || `https://robohash.org/${encodeURIComponent(att.name)}?set=set4`}
+                                          alt={att.name}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(att.name)}&background=b5f529&color=0f172a&bold=true`;
+                                          }}
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <div className="font-extrabold text-white text-sm flex items-center gap-2">
+                                          <span>{att.name}</span>
+                                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                            att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime' : 'bg-purple-950/40 text-purple-300'
+                                          }`}>
+                                            {att.type === 'primary' ? 'Primary' : `Guest (${att.hostName})`}
+                                          </span>
+                                        </div>
+                                        <div className="text-slate-400 text-[11px] mt-0.5">{att.email} • {att.phone || 'No phone'}</div>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2.5 self-end sm:self-auto">
+                                      {!hasEventStarted ? (
+                                        <span
+                                          className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-500 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 cursor-not-allowed select-none"
+                                          title={`Attendance opens when session starts at ${selectedEventForRegs.startTime || 'scheduled time'}`}
+                                        >
+                                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                          <span>Opens at {selectedEventForRegs.startTime || 'Start Time'}</span>
+                                        </span>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleAttendance(att.id)}
+                                          className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
+                                            attendanceMap[att.id]
+                                              ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
+                                              : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
+                                          }`}
+                                        >
+                                          {attendanceMap[att.id] ? (
+                                            <>
+                                              <CheckCircle2 className="w-4 h-4 text-dark-bg" />
+                                              <span>🟢 PRESENT</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <UserCheck className="w-4 h-4 text-slate-400" />
+                                              <span>MARK PRESENT</span>
+                                            </>
+                                          )}
+                                        </button>
+                                      )}
+
+                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
+                                        att.status === 'approved' || att.paymentStatus === 'paid'
+                                          ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
+                                          : att.paymentStatus === 'pending_verification'
+                                          ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                          : 'bg-red-500/10 border-red-500/30 text-red-400'
+                                      }`}>
+                                        {att.status === 'approved' || att.paymentStatus === 'paid' ? '✓ Confirmed' : att.paymentStatus === 'pending_verification' ? '⏳ Pending' : '✗ Rejected'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+
+                          {/* VIEW 3: BOOKINGS TABLE VIEW */}
+                          {rosterModalViewMode === 'table' && (
+                            <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                  <thead>
+                                    <tr className="border-b border-dark-border/60 bg-slate-900/40 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
+                                      <th className="py-3.5 px-4">Primary Player & Guests</th>
+                                      <th className="py-3.5 px-4">Contact</th>
+                                      <th className="py-3.5 px-4">GCash Reference</th>
+                                      <th className="py-3.5 px-4">Receipt</th>
+                                      <th className="py-3.5 px-4 text-center">Status</th>
+                                      <th className="py-3.5 px-4 text-center">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-dark-border/40 text-xs">
+                                    {eventRegs.length === 0 ? (
+                                      <tr>
+                                        <td colSpan={6} className="py-12 text-center text-slate-500 italic">
+                                          No players have registered for this Open Play session yet.
+                                        </td>
+                                      </tr>
+                                    ) : (
+                                      eventRegs.map((reg) => (
+                                        <tr key={reg.id} className="hover:bg-slate-900/20 transition-colors">
+                                          <td className="py-3.5 px-4 font-bold text-white">
+                                            <div className="flex items-center gap-3">
+                                              <div className="w-9 h-9 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60">
+                                                <img
+                                                  src={(reg as any).photoUrl || (reg as any).userPhoto || `https://robohash.org/${encodeURIComponent(reg.playerName || reg.userName || 'Player')}?set=set4`}
+                                                  alt={reg.playerName || reg.userName || 'Player'}
+                                                  className="w-full h-full object-cover"
+                                                  onError={(e) => {
+                                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(reg.playerName || reg.userName || 'Player')}&background=b5f529&color=0f172a&bold=true`;
+                                                  }}
+                                                />
+                                              </div>
+                                              <div>
+                                                <div>{reg.playerName || reg.userName || 'Player'}</div>
+                                                {((reg.guestCount && reg.guestCount > 0) || (reg.guests && reg.guests.length > 0)) && (
+                                                  <div className="text-[11px] font-semibold text-brand-lime mt-0.5 flex flex-col gap-0.5">
+                                                    <span>
+                                                      +{reg.guestCount || reg.guests?.length} {reg.guestCount === 1 ? 'Guest' : 'Guests'}:
+                                                    </span>
+                                                    <span className="text-slate-300 font-normal">
+                                                      {reg.guests && reg.guests.length > 0
+                                                        ? reg.guests.map(g => g.name || g.email).filter(Boolean).join(', ')
+                                                        : reg.guestNames && reg.guestNames.length > 0
+                                                        ? reg.guestNames.join(', ')
+                                                        : 'Guest names on file'}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                                <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                                                  Total Spots: {reg.playerCount || 1}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </td>
+
+                                          <td className="py-3.5 px-4 text-slate-300">
+                                            <div>{reg.playerEmail || reg.userEmail}</div>
+                                            <div className="text-[11px] text-slate-400 font-normal">{reg.playerPhone || reg.userPhone || '—'}</div>
+                                          </td>
+
+                                          <td className="py-3.5 px-4 font-mono font-bold text-brand-lime">
+                                            {reg.gcashReferenceNumber || '—'}
+                                          </td>
+
+                                          <td className="py-3.5 px-4">
+                                            {reg.receiptImageUrl ? (
+                                              <button
+                                                onClick={() => setReceiptLightboxImage(reg.receiptImageUrl || null)}
+                                                className="text-xs font-bold text-brand-lime hover:underline flex items-center gap-1 cursor-pointer"
+                                              >
+                                                <Eye className="w-3.5 h-3.5" /> View Receipt
+                                              </button>
+                                            ) : (
+                                              <span className="text-slate-500 italic text-[11px]">None</span>
+                                            )}
+                                          </td>
+
+                                          <td className="py-3.5 px-4 text-center">
+                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
+                                              reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                                ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
+                                                : reg.paymentStatus === 'pending_verification'
+                                                ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                                : 'bg-red-500/10 border-red-500/30 text-red-400'
+                                            }`}>
+                                              {reg.status === 'approved' || reg.paymentStatus === 'paid' ? '✓ Approved' : reg.paymentStatus === 'pending_verification' ? '⏳ Pending' : '✗ Rejected'}
+                                            </span>
+                                          </td>
+
+                                          <td className="py-3.5 px-4 text-center">
+                                            <div className="flex items-center justify-center gap-1.5">
+                                              {reg.paymentStatus === 'pending_verification' && (
+                                                <>
+                                                  <button
+                                                    onClick={async () => {
+                                                      setActionLoading(reg.id);
+                                                      try {
+                                                        if (isFirebaseConfigured && db) {
+                                                          await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'paid', status: 'approved' });
+                                                        }
+                                                        const updateLocal = (str: string | null) => {
+                                                          if (!str) return;
+                                                          try {
+                                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r);
+                                                            return JSON.stringify(updated);
+                                                          } catch { return null; }
+                                                        };
+                                                        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+                                                        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+                                                        const updatedLs = updateLocal(lsStr);
+                                                        const updatedSs = updateLocal(ssStr);
+                                                        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+                                                        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+                                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r));
+                                                      } catch (err) {
+                                                        console.error('Failed to approve registration:', err);
+                                                      } finally {
+                                                        setActionLoading(null);
+                                                      }
+                                                    }}
+                                                    className="px-2.5 py-1 rounded-lg bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase hover:bg-[#a6e224] transition-all cursor-pointer"
+                                                  >
+                                                    Approve
+                                                  </button>
+                                                  <button
+                                                    onClick={async () => {
+                                                      if (!confirm('Are you sure you want to reject this registration payment?')) return;
+                                                      setActionLoading(reg.id);
+                                                      try {
+                                                        if (isFirebaseConfigured && db) {
+                                                          await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'failed', status: 'cancelled' });
+                                                        }
+                                                        const updateLocal = (str: string | null) => {
+                                                          if (!str) return;
+                                                          try {
+                                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r);
+                                                            return JSON.stringify(updated);
+                                                          } catch { return null; }
+                                                        };
+                                                        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+                                                        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+                                                        const updatedLs = updateLocal(lsStr);
+                                                        const updatedSs = updateLocal(ssStr);
+                                                        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+                                                        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+                                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r));
+                                                      } catch (err) {
+                                                        console.error('Failed to reject registration:', err);
+                                                      } finally {
+                                                        setActionLoading(null);
+                                                      }
+                                                    }}
+                                                    className="px-2.5 py-1 rounded-lg bg-red-950/20 border border-red-900/30 text-red-400 font-extrabold text-[10px] uppercase hover:bg-red-900 hover:text-white transition-all cursor-pointer"
+                                                  >
+                                                    Reject
+                                                  </button>
+                                                </>
+                                              )}
+                                              {reg.paymentStatus !== 'pending_verification' && (
+                                                <span className={`text-[11px] font-bold uppercase tracking-wider ${
+                                                  reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                                    ? 'text-brand-emerald'
+                                                    : reg.status === 'cancelled'
+                                                    ? 'text-red-400'
+                                                    : 'text-slate-500'
+                                                }`}>
+                                                  {reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                                    ? '✓ Approved'
+                                                    : reg.status === 'cancelled'
+                                                    ? '✗ Rejected'
+                                                    : 'Done'}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ))
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
+              ) : (
+                /* OPEN PLAY SESSIONS OVERVIEW LIST & CARDS */
+                <div className="w-full animate-fade-in text-left">
+                  {/* Header Actions */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-dark-border mb-6">
+                    <div>
+                      <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                        <Trophy className="w-5 h-5 text-brand-lime" /> Open Play Sessions
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-1">Create Open Play registrations, collect GCash entry fees, and share event links with players.</p>
+                    </div>
+
+                    <button
+                      onClick={handleOpenCreateOpenPlay}
+                      className="px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Create Open Play Event
+                    </button>
+                  </div>
 
                 {/* Court requirement alert for Client Admins with 0 courts */}
                 {!isSuperAdmin && availableAdminCourts.length === 0 && (
@@ -9544,7 +10545,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                       <button
                                         onClick={() => {
                                           setSelectedEventForRegs(event);
-                                          setRegistrationsModalOpen(true);
                                         }}
                                         title="View Roster"
                                         className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white hover:bg-slate-800 transition-all text-xs font-bold cursor-pointer"
@@ -9712,10 +10712,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                               </button>
 
                               <button
-                                onClick={() => {
-                                  setSelectedEventForRegs(event);
-                                  setRegistrationsModalOpen(true);
-                                }}
+                                onClick={() => setSelectedEventForRegs(event)}
                                 className="py-2 px-3 rounded-xl bg-slate-900 border border-slate-700 text-white hover:bg-slate-800 transition-all font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer relative"
                               >
                                 <Users className="w-3.5 h-3.5" /> Roster
@@ -9775,7 +10772,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             );
           })()}
         </div>
-      )}
+      )
+    )}
 
             {/* POLICIES MANAGER TAB */}
             {activeTab === 'policies' && (
@@ -13641,125 +14639,341 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         </div>
       )}
 
-      {/* PLAYER ROSTER & PAYMENT VERIFICATION MODAL */}
-      {registrationsModalOpen && selectedEventForRegs && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6 md:p-8 pt-8 sm:pt-12 pb-12 bg-black/85 backdrop-blur-md overflow-y-auto animate-fade-in">
-          <div className="glass-panel border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-4xl w-full text-left relative shadow-2xl bg-dark-bg my-auto sm:my-4 max-h-[90vh] flex flex-col animate-scale-up">
-            <div className="flex items-center justify-between pb-4 border-b border-dark-border mb-5 flex-shrink-0">
-              <div>
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Users className="w-5 h-5 text-brand-lime" /> {selectedEventForRegs.title} — Player Roster
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">Review registered players, check GCash reference numbers, and approve or reject payment proofs.</p>
+      {/* PLAYER ROSTER & PAYMENT VERIFICATION MODAL (Disabled - using Full Page Roster view instead) */}
+      {false && registrationsModalOpen && selectedEventForRegs && (() => {
+        const eventRegs = openPlayRegistrations.filter(r => r.eventId === selectedEventForRegs.id);
+        
+        interface RosterAttendee {
+          id: string;
+          registrationId: string;
+          type: 'primary' | 'guest';
+          name: string;
+          email: string;
+          phone: string;
+          hostName?: string;
+          guestIndex?: number;
+          paymentStatus: string;
+          status: string;
+          gcashReferenceNumber?: string;
+          receiptImageUrl?: string;
+          createdAt?: string;
+          regObj: OpenPlayRegistration;
+        }
+
+        const allAttendees: RosterAttendee[] = [];
+        eventRegs.forEach(reg => {
+          const primaryName = reg.playerName || reg.userName || 'Player';
+          const primaryEmail = reg.playerEmail || reg.userEmail || '';
+          const primaryPhone = reg.playerPhone || reg.userPhone || '';
+          const gcashRef = reg.gcashReferenceNumber || '';
+          const paymentStatus = reg.paymentStatus || 'pending';
+          const status = reg.status || 'pending';
+
+          const isAddGuestOnly = reg.isAddGuestOnly === true || (reg as any).isAddGuestOnly === true;
+
+          // Primary Player (Only if NOT an add-guest-only entry)
+          if (!isAddGuestOnly) {
+            allAttendees.push({
+              id: `${reg.id}-primary`,
+              registrationId: reg.id,
+              type: 'primary',
+              name: primaryName,
+              email: primaryEmail,
+              phone: primaryPhone,
+              paymentStatus,
+              status,
+              gcashReferenceNumber: gcashRef,
+              receiptImageUrl: reg.receiptImageUrl,
+              createdAt: reg.createdAt,
+              regObj: reg
+            });
+          }
+
+          // Guests
+          const spots = reg.playerCount || 1;
+          const numGuests = isAddGuestOnly
+            ? Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots || 1)
+            : Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots > 1 ? spots - 1 : 0);
+          const hostName = reg.primaryPlayerName || (reg as any).primaryPlayerName || primaryName;
+
+          for (let gIdx = 0; gIdx < numGuests; gIdx++) {
+            const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
+            const gEmail = reg.guests?.[gIdx]?.email || reg.guestEmails?.[gIdx] || `Shared (${reg.primaryPlayerEmail || primaryEmail})`;
+            allAttendees.push({
+              id: `${reg.id}-guest-${gIdx}`,
+              registrationId: reg.id,
+              type: 'guest',
+              name: gName,
+              email: gEmail,
+              phone: primaryPhone,
+              hostName: hostName,
+              guestIndex: gIdx + 1,
+              paymentStatus,
+              status,
+              gcashReferenceNumber: gcashRef,
+              receiptImageUrl: reg.receiptImageUrl,
+              createdAt: reg.createdAt,
+              regObj: reg
+            });
+          }
+        });
+
+        const filteredAttendees = allAttendees.filter(att => {
+          if (rosterFilterRole === 'primary' && att.type !== 'primary') return false;
+          if (rosterFilterRole === 'guest' && att.type !== 'guest') return false;
+          if (!rosterSearchQuery.trim()) return true;
+          const q = rosterSearchQuery.toLowerCase();
+          return (
+            att.name.toLowerCase().includes(q) ||
+            att.email.toLowerCase().includes(q) ||
+            att.phone.toLowerCase().includes(q) ||
+            (att.hostName && att.hostName.toLowerCase().includes(q)) ||
+            (att.gcashReferenceNumber && att.gcashReferenceNumber.toLowerCase().includes(q))
+          );
+        });
+
+        const totalHeadcount = allAttendees.length;
+        const primaryCount = allAttendees.filter(a => a.type === 'primary').length;
+        const guestCount = allAttendees.filter(a => a.type === 'guest').length;
+        const approvedHeadcount = allAttendees.filter(a => a.status === 'approved' || a.paymentStatus === 'paid').length;
+        const pendingHeadcount = allAttendees.filter(a => a.paymentStatus === 'pending_verification' || a.status === 'pending').length;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6 md:p-8 pt-8 sm:pt-12 pb-12 bg-black/85 backdrop-blur-md overflow-y-auto animate-fade-in">
+            <div className="glass-panel border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-5xl w-full text-left relative shadow-2xl bg-dark-bg my-auto sm:my-4 max-h-[90vh] flex flex-col animate-scale-up">
+              
+              {/* Modal Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-dark-border mb-5 gap-3 flex-shrink-0">
+                <div>
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <Users className="w-5 h-5 text-brand-lime" /> {selectedEventForRegs.title} — Player & Guest Roster
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Full headcount breakdown: review registered primary players, guests, verify GCash payments, and track session attendance.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => handleExportOpenPlayRoster(selectedEventForRegs)}
+                    className="py-1.5 px-3 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    title="Export complete player & guest CSV"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Export CSV
+                  </button>
+
+                  <button
+                    onClick={() => setRegistrationsModalOpen(false)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
-              <button
-                onClick={() => setRegistrationsModalOpen(false)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer flex-shrink-0"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+              {/* Headcount Stat Badges */}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-5 p-3 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-xs flex-shrink-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-3 py-1 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-extrabold flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" /> Total Headcount: {totalHeadcount} / {selectedEventForRegs.maxParticipants}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold">
+                    👤 {primaryCount} Primary Players
+                  </span>
+                  <span className="px-2.5 py-1 rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 font-bold">
+                    👥 {guestCount} Guests
+                  </span>
+                </div>
 
-            {/* Registrations Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-dark-border/60 bg-slate-900/40 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                    <th className="py-3.5 px-4">Player</th>
-                    <th className="py-3.5 px-4">Contact</th>
-                    <th className="py-3.5 px-4">GCash Reference</th>
-                    <th className="py-3.5 px-4">Receipt</th>
-                    <th className="py-3.5 px-4 text-center">Status</th>
-                    <th className="py-3.5 px-4 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-dark-border/40 text-xs">
-                  {openPlayRegistrations.filter(r => r.eventId === selectedEventForRegs.id).length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-500 italic">
-                        No players have registered for this Open Play session yet.
-                      </td>
-                    </tr>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald font-bold">
+                    ✓ {approvedHeadcount} Approved
+                  </span>
+                  {pendingHeadcount > 0 && (
+                    <span className="px-2.5 py-1 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 font-bold">
+                      ⏳ {pendingHeadcount} Pending Review
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* View Switcher & Search Bar Controls */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-5 flex-shrink-0">
+                {/* View Mode Toggle Buttons */}
+                <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800">
+                  <button
+                    onClick={() => setRosterModalViewMode('cards')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      rosterModalViewMode === 'cards'
+                        ? 'bg-brand-lime text-dark-bg shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" /> Cards View
+                  </button>
+                  <button
+                    onClick={() => setRosterModalViewMode('list')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      rosterModalViewMode === 'list'
+                        ? 'bg-brand-lime text-dark-bg shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" /> Attendance List
+                  </button>
+                  <button
+                    onClick={() => setRosterModalViewMode('table')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      rosterModalViewMode === 'table'
+                        ? 'bg-brand-lime text-dark-bg shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" /> Bookings Table
+                  </button>
+                </div>
+
+                {/* Search Input & Role Filters */}
+                <div className="flex items-center gap-2 flex-1 max-w-md">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search player, guest, email, GCash ref..."
+                      value={rosterSearchQuery}
+                      onChange={(e) => setRosterSearchQuery(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime transition-all"
+                    />
+                  </div>
+
+                  <select
+                    value={rosterFilterRole}
+                    onChange={(e) => setRosterFilterRole(e.target.value as any)}
+                    className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-brand-lime cursor-pointer"
+                  >
+                    <option value="all">All Roles</option>
+                    <option value="primary">Primary Only</option>
+                    <option value="guest">Guests Only</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Content Views */}
+              <div className="overflow-y-auto flex-1 pr-1 space-y-4">
+                
+                {/* VIEW 1: CARDS GRID VIEW */}
+                {rosterModalViewMode === 'cards' && (
+                  filteredAttendees.length === 0 ? (
+                    <div className="py-12 text-center text-slate-500 italic bg-slate-900/30 rounded-2xl border border-slate-800/50">
+                      No players or guests match the current search filter.
+                    </div>
                   ) : (
-                    openPlayRegistrations
-                      .filter(r => r.eventId === selectedEventForRegs.id)
-                      .map((reg) => (
-                        <tr key={reg.id} className="hover:bg-slate-900/20 transition-colors">
-                          <td className="py-3.5 px-4 font-bold text-white">
-                            <div>{reg.playerName || reg.userName || 'Player'}</div>
-                            {((reg.guestCount && reg.guestCount > 0) || (reg.guests && reg.guests.length > 0)) && (
-                              <div className="text-[11px] font-semibold text-brand-lime mt-1 flex flex-col gap-0.5">
-                                <span>
-                                  +{reg.guestCount || reg.guests?.length} {reg.guestCount === 1 ? 'Guest' : 'Guests'}:
-                                </span>
-                                <span className="text-slate-300 font-normal">
-                                  {reg.guests && reg.guests.length > 0
-                                    ? reg.guests.map(g => g.name || g.email).filter(Boolean).join(', ')
-                                    : reg.guestNames && reg.guestNames.length > 0
-                                    ? reg.guestNames.join(', ')
-                                    : 'Guest names on file'}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
+                      {filteredAttendees.map((att, idx) => {
+                        const isApproved = att.status === 'approved' || att.paymentStatus === 'paid';
+                        const isPending = att.paymentStatus === 'pending_verification';
+
+                        return (
+                          <div
+                            key={att.id}
+                            className={`glass-panel border rounded-2xl p-4 flex flex-col justify-between transition-all relative overflow-hidden shadow-md ${
+                              att.type === 'guest'
+                                ? 'bg-purple-950/20 border-purple-900/40 hover:border-purple-800/60'
+                                : 'bg-slate-900/60 border-slate-800/90 hover:border-slate-700'
+                            }`}
+                          >
+                            <div>
+                              {/* Attendee Header (Number + Role Badge) */}
+                              <div className="flex items-center justify-between gap-2 mb-3">
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-7 h-7 rounded-full border flex items-center justify-center font-black text-[11px] ${
+                                    att.type === 'guest'
+                                      ? 'bg-purple-950 border-purple-700 text-purple-300'
+                                      : 'bg-slate-800 border-slate-700 text-white'
+                                  }`}>
+                                    {idx + 1}
+                                  </div>
+
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${
+                                    att.type === 'guest'
+                                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                                      : 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
+                                  }`}>
+                                    {att.type === 'guest' ? `Guest #${att.guestIndex}` : 'Primary Player'}
+                                  </span>
+                                </div>
+
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${
+                                  isApproved
+                                    ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
+                                    : isPending
+                                    ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                    : 'bg-red-500/10 border-red-500/30 text-red-400'
+                                }`}>
+                                  {isApproved ? '✓ Paid' : isPending ? '⏳ Pending' : '✗ Rejected'}
                                 </span>
                               </div>
-                            )}
-                            <div className="text-[10px] text-slate-500 font-normal mt-0.5">
-                              Total Spots: {reg.playerCount || 1}
+
+                              {/* Name & Contact */}
+                              <h4 className="text-sm font-extrabold text-white leading-snug truncate mb-1">
+                                {att.name}
+                              </h4>
+
+                              {att.type === 'guest' && att.hostName && (
+                                <div className="text-[11px] font-semibold text-purple-300 mb-2 flex items-center gap-1">
+                                  <span>Host:</span>
+                                  <span className="text-white underline">{att.hostName}</span>
+                                </div>
+                              )}
+
+                              <div className="space-y-1 text-xs text-slate-400 mb-3">
+                                {att.email && (
+                                  <div className="flex items-center gap-1.5 text-[11px] text-slate-300 truncate">
+                                    <Mail className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                                    <span className="truncate">{att.email}</span>
+                                  </div>
+                                )}
+                                {att.phone && (
+                                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                                    <User className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                                    <span>{att.phone}</span>
+                                  </div>
+                                )}
+                                {att.gcashReferenceNumber && (
+                                  <div className="flex items-center gap-1.5 text-[11px] font-mono text-brand-lime">
+                                    <CreditCard className="w-3 h-3 text-brand-lime flex-shrink-0" />
+                                    <span>Ref: {att.gcashReferenceNumber}</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </td>
 
-                          <td className="py-3.5 px-4 text-slate-300">
-                            <div>{reg.playerEmail || reg.userEmail}</div>
-                            {(reg.playerPhone || reg.userPhone) && <div className="text-[11px] text-slate-500">{reg.playerPhone || reg.userPhone}</div>}
-                          </td>
+                            {/* Card Footer: Receipt & Verification Action */}
+                            <div className="pt-2.5 border-t border-dark-border/40 flex items-center justify-between gap-2 mt-auto text-[11px]">
+                              {att.receiptImageUrl ? (
+                                <button
+                                  onClick={() => setReceiptLightboxImage(att.receiptImageUrl || null)}
+                                  className="text-brand-lime hover:underline font-bold text-[10px] uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                                >
+                                  Receipt <ExternalLink className="w-2.5 h-2.5" />
+                                </button>
+                              ) : (
+                                <span className="text-slate-600 text-[10px] italic">No receipt</span>
+                              )}
 
-                          <td className="py-3.5 px-4 font-mono font-bold text-brand-lime">
-                            {reg.gcashReferenceNumber}
-                          </td>
-
-                          <td className="py-3.5 px-4">
-                            {reg.receiptImageUrl ? (
-                              <button
-                                onClick={() => setReceiptLightboxImage(reg.receiptImageUrl || null)}
-                                className="text-brand-lime hover:underline font-bold text-[11px] uppercase tracking-wider flex items-center gap-1 cursor-pointer"
-                              >
-                                View Receipt <ExternalLink className="w-2.5 h-2.5" />
-                              </button>
-                            ) : (
-                              <span className="text-slate-500 italic">No receipt file</span>
-                            )}
-                          </td>
-
-                          <td className="py-3.5 px-4 text-center">
-                            <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
-                              reg.status === 'approved' || reg.paymentStatus === 'paid'
-                                ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
-                                : reg.status === 'cancelled' || reg.paymentStatus === 'failed'
-                                ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                                : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                            }`}>
-                              {reg.status === 'approved' || reg.paymentStatus === 'paid'
-                                ? '✓ Approved'
-                                : reg.status === 'cancelled' || reg.paymentStatus === 'failed'
-                                ? '✗ Rejected'
-                                : '⏳ Pending Review'}
-                            </span>
-                          </td>
-
-                          <td className="py-3.5 px-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {reg.paymentStatus === 'pending_verification' && (
-                                <>
+                              {isPending && (
+                                <div className="flex items-center gap-1">
                                   <button
                                     onClick={async () => {
-                                      setActionLoading(reg.id);
+                                      setActionLoading(att.registrationId);
                                       try {
                                         if (isFirebaseConfigured && db) {
-                                          await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'paid', status: 'approved' });
+                                          await updateDoc(doc(db, 'openplay_registrations', att.registrationId), { paymentStatus: 'paid', status: 'approved' });
                                         }
                                         const updateLocal = (str: string | null) => {
                                           if (!str) return;
                                           try {
-                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r);
+                                            const updated = JSON.parse(str).map((r: any) => r.id === att.registrationId ? { ...r, paymentStatus: 'paid', status: 'approved' } : r);
                                             return JSON.stringify(updated);
                                           } catch { return null; }
                                         };
@@ -13769,29 +14983,29 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                         const updatedSs = updateLocal(ssStr);
                                         if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
                                         if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
-                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r));
+                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === att.registrationId ? { ...r, paymentStatus: 'paid', status: 'approved' } : r));
                                       } catch (err) {
                                         console.error('Failed to approve registration:', err);
                                       } finally {
                                         setActionLoading(null);
                                       }
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer"
+                                    className="px-2 py-0.5 rounded-lg bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase hover:bg-[#a6e224] transition-all cursor-pointer"
                                   >
                                     Approve
                                   </button>
                                   <button
                                     onClick={async () => {
-                                      if (!confirm('Are you sure you want to reject this registration payment?')) return;
-                                      setActionLoading(reg.id);
+                                      if (!confirm('Are you sure you want to reject this payment?')) return;
+                                      setActionLoading(att.registrationId);
                                       try {
                                         if (isFirebaseConfigured && db) {
-                                          await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'failed', status: 'cancelled' });
+                                          await updateDoc(doc(db, 'openplay_registrations', att.registrationId), { paymentStatus: 'failed', status: 'cancelled' });
                                         }
                                         const updateLocal = (str: string | null) => {
                                           if (!str) return;
                                           try {
-                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r);
+                                            const updated = JSON.parse(str).map((r: any) => r.id === att.registrationId ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r);
                                             return JSON.stringify(updated);
                                           } catch { return null; }
                                         };
@@ -13801,45 +15015,285 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                         const updatedSs = updateLocal(ssStr);
                                         if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
                                         if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
-                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r));
+                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === att.registrationId ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r));
                                       } catch (err) {
                                         console.error('Failed to reject registration:', err);
                                       } finally {
                                         setActionLoading(null);
                                       }
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-red-950/20 border border-red-900/30 text-red-400 font-extrabold text-[10px] uppercase tracking-wider hover:bg-red-900 hover:text-white transition-all cursor-pointer"
+                                    className="px-2 py-0.5 rounded-lg bg-red-950/40 border border-red-900/50 text-red-400 font-extrabold text-[10px] uppercase hover:bg-red-900 hover:text-white transition-all cursor-pointer"
                                   >
                                     Reject
                                   </button>
-                                </>
+                                </div>
                               )}
-                              {reg.paymentStatus !== 'pending_verification' && (
-                                <span className={`text-[11px] font-bold uppercase tracking-wider ${
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                )}
+
+                {/* VIEW 2: ATTENDANCE LIST VIEW */}
+                {rosterModalViewMode === 'list' && (
+                  filteredAttendees.length === 0 ? (
+                    <div className="py-12 text-center text-slate-500 italic bg-slate-900/30 rounded-2xl border border-slate-800/50">
+                      No players or guests match the current search filter.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredAttendees.map((att, idx) => {
+                        const isApproved = att.status === 'approved' || att.paymentStatus === 'paid';
+                        const isPending = att.paymentStatus === 'pending_verification';
+
+                        return (
+                          <div
+                            key={att.id}
+                            className="p-3 sm:p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:border-slate-700 transition-all"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-extrabold text-white text-xs flex-shrink-0">
+                                {idx + 1}
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-extrabold text-white text-sm truncate">
+                                    {att.name}
+                                  </span>
+
+                                  <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${
+                                    att.type === 'guest'
+                                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                                      : 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
+                                  }`}>
+                                    {att.type === 'guest' ? `Guest of ${att.hostName}` : 'Primary Player'}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-0.5 flex-wrap">
+                                  {att.email && <span>{att.email}</span>}
+                                  {att.phone && <span>• {att.phone}</span>}
+                                  {att.gcashReferenceNumber && (
+                                    <span className="font-mono text-brand-lime font-bold">• Ref: {att.gcashReferenceNumber}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-3 flex-shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
+                              {att.receiptImageUrl ? (
+                                <button
+                                  onClick={() => setReceiptLightboxImage(att.receiptImageUrl || null)}
+                                  className="text-brand-lime hover:underline font-bold text-[10px] uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                                >
+                                  View Receipt <ExternalLink className="w-2.5 h-2.5" />
+                                </button>
+                              ) : (
+                                <span className="text-slate-600 text-[10px] italic">No receipt</span>
+                              )}
+
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
+                                isApproved
+                                  ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
+                                  : isPending
+                                  ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                  : 'bg-red-500/10 border-red-500/30 text-red-400'
+                              }`}>
+                                {isApproved ? '✓ Confirmed' : isPending ? '⏳ Pending' : '✗ Rejected'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                )}
+
+                {/* VIEW 3: BOOKINGS TABLE VIEW */}
+                {rosterModalViewMode === 'table' && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-dark-border/60 bg-slate-900/40 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
+                          <th className="py-3.5 px-4">Primary Player & Guests</th>
+                          <th className="py-3.5 px-4">Contact</th>
+                          <th className="py-3.5 px-4">GCash Reference</th>
+                          <th className="py-3.5 px-4">Receipt</th>
+                          <th className="py-3.5 px-4 text-center">Status</th>
+                          <th className="py-3.5 px-4 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-dark-border/40 text-xs">
+                        {eventRegs.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-12 text-center text-slate-500 italic">
+                              No players have registered for this Open Play session yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          eventRegs.map((reg) => (
+                            <tr key={reg.id} className="hover:bg-slate-900/20 transition-colors">
+                              <td className="py-3.5 px-4 font-bold text-white">
+                                <div>{reg.playerName || reg.userName || 'Player'}</div>
+                                {((reg.guestCount && reg.guestCount > 0) || (reg.guests && reg.guests.length > 0)) && (
+                                  <div className="text-[11px] font-semibold text-brand-lime mt-1 flex flex-col gap-0.5">
+                                    <span>
+                                      +{reg.guestCount || reg.guests?.length} {reg.guestCount === 1 ? 'Guest' : 'Guests'}:
+                                    </span>
+                                    <span className="text-slate-300 font-normal">
+                                      {reg.guests && reg.guests.length > 0
+                                        ? reg.guests.map(g => g.name || g.email).filter(Boolean).join(', ')
+                                        : reg.guestNames && reg.guestNames.length > 0
+                                        ? reg.guestNames.join(', ')
+                                        : 'Guest names on file'}
+                                    </span>
+                                  </div>
+                                )}
+                                <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                                  Total Spots: {reg.playerCount || 1}
+                                </div>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-slate-300">
+                                <div>{reg.playerEmail || reg.userEmail}</div>
+                                {(reg.playerPhone || reg.userPhone) && <div className="text-[11px] text-slate-500">{reg.playerPhone || reg.userPhone}</div>}
+                              </td>
+
+                              <td className="py-3.5 px-4 font-mono font-bold text-brand-lime">
+                                {reg.gcashReferenceNumber}
+                              </td>
+
+                              <td className="py-3.5 px-4">
+                                {reg.receiptImageUrl ? (
+                                  <button
+                                    onClick={() => setReceiptLightboxImage(reg.receiptImageUrl || null)}
+                                    className="text-brand-lime hover:underline font-bold text-[11px] uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                                  >
+                                    View Receipt <ExternalLink className="w-2.5 h-2.5" />
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-500 italic">No receipt file</span>
+                                )}
+                              </td>
+
+                              <td className="py-3.5 px-4 text-center">
+                                <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
                                   reg.status === 'approved' || reg.paymentStatus === 'paid'
-                                    ? 'text-brand-emerald'
-                                    : reg.status === 'cancelled'
-                                    ? 'text-red-400'
-                                    : 'text-slate-500'
+                                    ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
+                                    : reg.status === 'cancelled' || reg.paymentStatus === 'failed'
+                                    ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                                    : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
                                 }`}>
                                   {reg.status === 'approved' || reg.paymentStatus === 'paid'
                                     ? '✓ Approved'
-                                    : reg.status === 'cancelled'
+                                    : reg.status === 'cancelled' || reg.paymentStatus === 'failed'
                                     ? '✗ Rejected'
-                                    : 'Done'}
+                                    : '⏳ Pending Review'}
                                 </span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                  )}
-                </tbody>
-              </table>
+                              </td>
+
+                              <td className="py-3.5 px-4 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  {reg.paymentStatus === 'pending_verification' && (
+                                    <>
+                                      <button
+                                        onClick={async () => {
+                                          setActionLoading(reg.id);
+                                          try {
+                                            if (isFirebaseConfigured && db) {
+                                              await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'paid', status: 'approved' });
+                                            }
+                                            const updateLocal = (str: string | null) => {
+                                              if (!str) return;
+                                              try {
+                                                const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r);
+                                                return JSON.stringify(updated);
+                                              } catch { return null; }
+                                            };
+                                            const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+                                            const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+                                            const updatedLs = updateLocal(lsStr);
+                                            const updatedSs = updateLocal(ssStr);
+                                            if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+                                            if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+                                            setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r));
+                                          } catch (err) {
+                                            console.error('Failed to approve registration:', err);
+                                          } finally {
+                                            setActionLoading(null);
+                                          }
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase hover:bg-[#a6e224] transition-all cursor-pointer"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        onClick={async () => {
+                                          if (!confirm('Are you sure you want to reject this registration payment?')) return;
+                                          setActionLoading(reg.id);
+                                          try {
+                                            if (isFirebaseConfigured && db) {
+                                              await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'failed', status: 'cancelled' });
+                                            }
+                                            const updateLocal = (str: string | null) => {
+                                              if (!str) return;
+                                              try {
+                                                const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r);
+                                                return JSON.stringify(updated);
+                                              } catch { return null; }
+                                            };
+                                            const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+                                            const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+                                            const updatedLs = updateLocal(lsStr);
+                                            const updatedSs = updateLocal(ssStr);
+                                            if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+                                            if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+                                            setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r));
+                                          } catch (err) {
+                                            console.error('Failed to reject registration:', err);
+                                          } finally {
+                                            setActionLoading(null);
+                                          }
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-red-950/20 border border-red-900/30 text-red-400 font-extrabold text-[10px] uppercase hover:bg-red-900 hover:text-white transition-all cursor-pointer"
+                                      >
+                                        Reject
+                                      </button>
+                                    </>
+                                  )}
+                                  {reg.paymentStatus !== 'pending_verification' && (
+                                    <span className={`text-[11px] font-bold uppercase tracking-wider ${
+                                      reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                        ? 'text-brand-emerald'
+                                        : reg.status === 'cancelled'
+                                        ? 'text-red-400'
+                                        : 'text-slate-500'
+                                    }`}>
+                                      {reg.status === 'approved' || reg.paymentStatus === 'paid'
+                                        ? '✓ Approved'
+                                        : reg.status === 'cancelled'
+                                        ? '✗ Rejected'
+                                        : 'Done'}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {/* DAILY CALENDAR HOURLY SLOT BREAKDOWN MODAL */}
       {selectedCalendarDate && (
         <div

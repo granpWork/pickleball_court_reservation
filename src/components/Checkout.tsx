@@ -3,7 +3,7 @@ import {
   ArrowLeft, CheckCircle, Calendar, Clock, 
   MapPin, User, Mail, Phone, ShieldCheck, 
   Download, ChevronRight, Lock, Check, Shield, X,
-  Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users
+  Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap
 } from 'lucide-react';
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -14,7 +14,7 @@ interface CheckoutProps {
   setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'openplay') => void;
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
   checkoutDetails: {
-    type?: 'court' | 'openplay';
+    type?: 'court' | 'open_play' | 'openplay' | 'tournament' | 'bootcamp' | 'coaching';
     openPlayEventId?: string;
     openPlayTitle?: string;
     openPlayCategory?: string;
@@ -55,9 +55,10 @@ export default function Checkout({
   setSelectedCourtId 
 }: CheckoutProps) {
   // Billing details
+  const userPhoneVal = (user as any)?.phone || (user as any)?.mobileNumber || (user as any)?.gcashNumber || (user as any)?.gcashPhone || (user as any)?.contactNumber || '';
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(userPhoneVal);
   
   // Copy state for micro-interactions
   const [copiedField, setCopiedField] = useState<'number' | 'name' | null>(null);
@@ -92,9 +93,103 @@ export default function Checkout({
   const [isProcessing, setIsProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [bookingRef, setBookingRef] = useState('');
+  const [isRefCopied, setIsRefCopied] = useState(false);
   const [error, setError] = useState('');
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [receiptLightboxImage, setReceiptLightboxImage] = useState<string | null>(null);
+  const [liveBookingStatus, setLiveBookingStatus] = useState<'pending_verification' | 'approved' | 'paid' | 'cancelled' | 'rejected' | 'pending'>('pending_verification');
+
+  const checkLiveBookingStatus = async (targetRef: string) => {
+    if (!targetRef) return;
+    try {
+      const localBookingsStr = localStorage.getItem('picklepoint_bookings');
+      if (localBookingsStr) {
+        const localBookings = JSON.parse(localBookingsStr);
+        const match = localBookings.find((b: any) => b.id === targetRef || b.bookingId === targetRef || b.bookingReference === targetRef);
+        if (match) {
+          if (match.status === 'approved' || match.paymentStatus === 'paid') {
+            setLiveBookingStatus('approved');
+            return;
+          } else if (match.status === 'cancelled' || match.paymentStatus === 'cancelled') {
+            setLiveBookingStatus('cancelled');
+            return;
+          }
+        }
+      }
+
+      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
+      if (localRegsStr) {
+        const localRegs = JSON.parse(localRegsStr);
+        const match = localRegs.find((r: any) => r.id === targetRef || r.registrationId === targetRef || r.bookingId === targetRef);
+        if (match) {
+          if (match.status === 'approved' || match.paymentStatus === 'paid') {
+            setLiveBookingStatus('approved');
+            return;
+          } else if (match.status === 'cancelled' || match.paymentStatus === 'cancelled') {
+            setLiveBookingStatus('cancelled');
+            return;
+          }
+        }
+      }
+
+      if (isFirebaseConfigured && db) {
+        try {
+          const { doc, getDoc } = await import('firebase/firestore');
+          const bookingDoc = await getDoc(doc(db, 'bookings', targetRef));
+          if (bookingDoc.exists()) {
+            const data = bookingDoc.data();
+            if (data.status === 'approved' || data.paymentStatus === 'paid') {
+              setLiveBookingStatus('approved');
+              return;
+            } else if (data.status === 'cancelled' || data.paymentStatus === 'cancelled') {
+              setLiveBookingStatus('cancelled');
+              return;
+            }
+          }
+
+          const openPlayRegDoc = await getDoc(doc(db, 'openplay_registrations', targetRef));
+          if (openPlayRegDoc.exists()) {
+            const data = openPlayRegDoc.data();
+            if (data.status === 'approved' || data.paymentStatus === 'paid') {
+              setLiveBookingStatus('approved');
+              return;
+            } else if (data.status === 'cancelled' || data.paymentStatus === 'cancelled') {
+              setLiveBookingStatus('cancelled');
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn('Firestore live status fetch error:', e);
+        }
+      }
+    } catch (err) {
+      console.warn('Live status check error:', err);
+    }
+  };
+
+  // Restore saved submission state on refresh
+  useEffect(() => {
+    try {
+      const savedStr = sessionStorage.getItem('picklepoint_last_submitted_booking') || localStorage.getItem('picklepoint_last_submitted_booking');
+      if (savedStr) {
+        const savedData = JSON.parse(savedStr);
+        if (savedData.bookingRef) {
+          setBookingRef(savedData.bookingRef);
+          if (savedData.checkoutDetails) {
+            setCheckoutDetails((prev: any) => ({ ...prev, ...savedData.checkoutDetails }));
+          }
+          setSuccess(true);
+          checkLiveBookingStatus(savedData.bookingRef);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    if (success && bookingRef) {
+      checkLiveBookingStatus(bookingRef);
+    }
+  }, [success, bookingRef]);
 
   // Court Facility Owner Company Info
   const [courtOwnerId, setCourtOwnerId] = useState('');
@@ -115,9 +210,15 @@ export default function Checkout({
   const [isValidatingVoucher, setIsValidatingVoucher] = useState(false);
 
   // Open Play Guest (+1 / +2) States
-  const isOpenPlay = checkoutDetails?.type === 'openplay';
-  const [playerCount, setPlayerCount] = useState<number>(1);
-  const [guests, setGuests] = useState<{ name: string; email: string }[]>([]);
+  const isOpenPlay = checkoutDetails?.type === 'open_play' || checkoutDetails?.type === 'openplay' || !!checkoutDetails?.openPlayEventId;
+  const isAddGuestOnly = checkoutDetails?.isAddGuestOnly === true;
+  const [playerCount, setPlayerCount] = useState<number>(checkoutDetails?.initialGuestCount || 1);
+  const [guests, setGuests] = useState<{ name: string; email: string }[]>(() => {
+    if (checkoutDetails?.isAddGuestOnly) {
+      return Array.from({ length: checkoutDetails?.initialGuestCount || 1 }, () => ({ name: '', email: '' }));
+    }
+    return [];
+  });
   const [guestEmailErrors, setGuestEmailErrors] = useState<{ [key: number]: string }>({});
 
   const handlePlayerCountChange = (newCount: number) => {
@@ -126,7 +227,7 @@ export default function Checkout({
     const clamped = Math.max(minCount, Math.min(maxCount, newCount));
     setPlayerCount(clamped);
 
-    const neededGuests = clamped - 1;
+    const neededGuests = isAddGuestOnly ? clamped : (clamped - 1);
     setGuests(prev => {
       if (prev.length === neededGuests) return prev;
       if (prev.length < neededGuests) {
@@ -519,6 +620,10 @@ export default function Checkout({
     if (user) {
       if (!name) setName(user.name);
       if (!email) setEmail(user.email);
+      if (!phone) {
+        const uPhone = (user as any).phone || (user as any).mobileNumber || (user as any).gcashNumber || (user as any).gcashPhone || (user as any).contactNumber || '';
+        if (uPhone) setPhone(uPhone);
+      }
     }
   }, [user]);
 
@@ -613,8 +718,10 @@ export default function Checkout({
             const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
             const bUid = data.userId || data.user?.uid;
             const isSamePlayer = (playerEmail && bEmail === playerEmail) || (playerUid && bUid === playerUid);
+            const isSameEvent = (data.openPlayEventId && checkoutDetails.openPlayEventId && data.openPlayEventId === checkoutDetails.openPlayEventId) ||
+                                (data.courtId && checkoutDetails.courtId && data.courtId === checkoutDetails.courtId && data.type === 'open_play');
 
-            if (isSamePlayer) {
+            if (isSamePlayer && !isSameEvent && !isAddGuestOnly) {
               const overlap = requestedSlots.find((st: string) => data.slots.includes(st));
               if (overlap) {
                 conflictingSlot = overlap;
@@ -635,8 +742,10 @@ export default function Checkout({
             const bEmail = b.userEmail?.toLowerCase() || b.user?.email?.toLowerCase();
             const bUid = b.userId || b.user?.uid;
             const isSamePlayer = (playerEmail && bEmail === playerEmail) || (playerUid && bUid === playerUid);
+            const isSameEvent = (b.openPlayEventId && checkoutDetails.openPlayEventId && b.openPlayEventId === checkoutDetails.openPlayEventId) ||
+                                (b.courtId && checkoutDetails.courtId && b.courtId === checkoutDetails.courtId && b.type === 'open_play');
 
-            if (isSamePlayer) {
+            if (isSamePlayer && !isSameEvent && !isAddGuestOnly) {
               const overlap = requestedSlots.find((st: string) => b.slots.includes(st));
               if (overlap) {
                 conflictingSlot = overlap;
@@ -686,12 +795,15 @@ export default function Checkout({
     const resolvedPaymentStatus = isVoucherPayment ? 'paid' : 'pending_verification';
     const resolvedBookingStatus = isVoucherPayment ? 'approved' : 'pending';
 
+    const validGuests = guests.map(g => ({ name: g.name.trim(), email: g.email.trim() }));
+
     const docPayload = {
+      type: (checkoutDetails as any).type || (isOpenPlay ? 'open_play' : 'court'),
       courtId: checkoutDetails.courtId,
       courtName: checkoutDetails.courtName,
       courtType: checkoutDetails.courtType || '',
       courtOwnerId: courtOwnerId || checkoutDetails.courtOwnerId || '',
-      companyId: companyId || '',
+      companyId: companyId || checkoutDetails.companyId || '',
       ownerCompanyName: resolvedOwnerCompanyName,
       ownerCompanyAddress: resolvedOwnerCompanyAddress,
       ownerEmail: resolvedOwnerEmail,
@@ -712,6 +824,19 @@ export default function Checkout({
       gcashReferenceNumber: isVoucherPayment ? (appliedVoucher?.code || 'VOUCHER') : gcashReferenceNumber,
       receiptImageUrl: isVoucherPayment ? '' : receiptImageBase64,
       ...(appliedVoucher ? { voucherCode: appliedVoucher.code, discountAmount } : { discountAmount: 0 }),
+      ...(isOpenPlay && checkoutDetails.openPlayEventId ? {
+        openPlayEventId: checkoutDetails.openPlayEventId,
+        openPlayTitle: checkoutDetails.openPlayTitle || checkoutDetails.courtName,
+        openPlayCategory: checkoutDetails.openPlayCategory || 'Open Play',
+        isAddGuestOnly,
+        primaryPlayerName: name,
+        primaryPlayerEmail: email,
+        playerCount: isAddGuestOnly ? playerCount : playerCount,
+        guestCount: isAddGuestOnly ? playerCount : guests.length,
+        guests: validGuests,
+        guestNames: validGuests.map(g => g.name).filter(Boolean),
+        guestEmails: validGuests.map(g => g.email).filter(Boolean),
+      } : {}),
       user: {
         name,
         email,
@@ -753,65 +878,57 @@ export default function Checkout({
       try {
         await setDoc(doc(db, 'bookings', refNum), cleanPayload);
         
-        // Save Open Play Registration record if this is an open play checkout
-        if (isOpenPlay && checkoutDetails.openPlayEventId) {
-          const regId = 'opreg-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
-          const validGuests = guests.map(g => ({ name: g.name.trim(), email: g.email.trim() }));
-          const regPayload = {
-            id: regId,
-            eventId: checkoutDetails.openPlayEventId,
-            eventTitle: checkoutDetails.openPlayTitle || checkoutDetails.courtName,
-            eventDate: checkoutDetails.date,
-            registrationFee: finalTotal,
-            playerUid: user?.uid || '',
-            playerName: name,
-            playerEmail: email,
-            playerPhone: phone,
-            playerCount: playerCount,
-            guestCount: guests.length,
-            guests: validGuests,
-            guestNames: validGuests.map(g => g.name).filter(Boolean),
-            guestEmails: validGuests.map(g => g.email).filter(Boolean),
-            gcashReferenceNumber: isVoucherPayment ? (appliedVoucher?.code || 'VOUCHER') : gcashReferenceNumber,
-            receiptImageUrl: isVoucherPayment ? '' : receiptImageBase64,
-            paymentStatus: finalTotal === 0 ? ('paid' as const) : ('pending_verification' as const),
-            status: finalTotal === 0 ? ('approved' as const) : ('pending' as const),
-            createdAt: new Date().toISOString(),
+        // Sync to LocalStorage for offline and multi-tab instant availability
+        try {
+          const bookingsStr = localStorage.getItem('picklepoint_bookings');
+          const bookings = bookingsStr ? JSON.parse(bookingsStr) : [];
+          const localPayload = {
+            ...cleanPayload,
+            id: refNum,
+            bookingId: refNum,
           };
-
-          const cleanRegPayload = JSON.parse(JSON.stringify(regPayload));
-          await setDoc(doc(db, 'openplay_registrations', regId), cleanRegPayload);
-
-          try {
-            const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations');
-            const localRegs = localRegsStr ? JSON.parse(localRegsStr) : [];
-            localRegs.push(cleanRegPayload);
-            localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(localRegs));
-          } catch (e) {}
-
-          // If free or voucher waiver, send guest email invitations immediately
-          if (finalTotal === 0 && validGuests.length > 0) {
-            validGuests.forEach(g => {
-              if (g.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) {
-                sendOpenPlayInvitationEmail({
-                  guestEmail: g.email,
-                  guestName: g.name || 'Guest',
-                  primaryPlayerName: name,
-                  eventTitle: checkoutDetails.openPlayTitle || checkoutDetails.courtName,
-                  eventCategory: checkoutDetails.openPlayCategory || 'Open Play',
-                  eventDate: checkoutDetails.date,
-                  timeSlot: checkoutDetails.slots[0] || '',
-                  location: checkoutDetails.courtLocation,
-                  companyName: checkoutDetails.companyName,
-                  registrationReference: regId,
-                }).catch(err => console.warn('Guest email invitation failed:', err));
-              }
-            });
+          const existingIdx = bookings.findIndex((b: any) => b.id === refNum || b.bookingReference === refNum);
+          if (existingIdx >= 0) {
+            bookings[existingIdx] = localPayload;
+          } else {
+            bookings.push(localPayload);
           }
+          localStorage.setItem('picklepoint_bookings', JSON.stringify(bookings));
+        } catch (e) {
+          console.warn('Local storage booking sync error:', e);
+        }
+        
+        // If free or voucher waiver for Open Play, send guest email invitations immediately
+        if (isOpenPlay && checkoutDetails.openPlayEventId && finalTotal === 0 && validGuests.length > 0) {
+          validGuests.forEach(g => {
+            if (g.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(g.email)) {
+              sendOpenPlayInvitationEmail({
+                guestEmail: g.email,
+                guestName: g.name || 'Guest',
+                primaryPlayerName: name,
+                eventTitle: checkoutDetails.openPlayTitle || checkoutDetails.courtName,
+                eventCategory: checkoutDetails.openPlayCategory || 'Open Play',
+                eventDate: checkoutDetails.date,
+                timeSlot: checkoutDetails.slots[0] || '',
+                location: checkoutDetails.courtLocation,
+                companyName: checkoutDetails.companyName,
+                registrationReference: refNum,
+              }).catch(err => console.warn('Guest email invitation failed:', err));
+            }
+          });
         }
 
         setBookingRef(refNum);
         setSuccess(true);
+        try {
+          const savedBookingInfo = {
+            bookingRef: refNum,
+            checkoutDetails,
+            submittedAt: new Date().toISOString()
+          };
+          sessionStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
+          localStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
+        } catch (e) {}
         sendBookingConfirmationEmail({
           bookingId: refNum,
           courtName: checkoutDetails.courtName,
@@ -854,6 +971,15 @@ export default function Checkout({
           localStorage.setItem('picklepoint_bookings', JSON.stringify(bookings));
           setBookingRef(refNum);
           setSuccess(true);
+          try {
+            const savedBookingInfo = {
+              bookingRef: refNum,
+              checkoutDetails,
+              submittedAt: new Date().toISOString()
+            };
+            sessionStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
+            localStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
+          } catch (e) {}
           sendBookingConfirmationEmail({
             bookingId: refNum,
             courtName: checkoutDetails.courtName,
@@ -882,6 +1008,11 @@ export default function Checkout({
   // Handle Form Submission
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isOpenPlay && checkoutDetails?.maxAvailableSlots !== undefined && checkoutDetails.maxAvailableSlots <= 0) {
+      setError('This Open Play session is fully booked. Registration capacity has been reached.');
+      setIsErrorModalOpen(true);
+      return;
+    }
     if (!name.trim() || !email.trim() || !phone.trim()) {
       setError('Please fill in your contact information.');
       setIsErrorModalOpen(true);
@@ -913,6 +1044,10 @@ export default function Checkout({
   };
 
   const handleResetToHome = () => {
+    try {
+      sessionStorage.removeItem('picklepoint_last_submitted_booking');
+      localStorage.removeItem('picklepoint_last_submitted_booking');
+    } catch (e) {}
     setCheckoutDetails(null);
     setSelectedCourtId('');
     setView('landing');
@@ -922,44 +1057,122 @@ export default function Checkout({
   // RENDER SUCCESS STATE (Digital Receipt / Ticket)
   // ----------------------------------------------------
   if (success) {
+    const displayHostName = ownerCompanyName || checkoutDetails.companyName || checkoutDetails.ownerCompanyName || checkoutDetails.courtName || 'PicklePoint Venue Host';
+    const displayCompanyLogo = checkoutDetails.companyLogoUrl || checkoutDetails.courtImage || '';
+    const displayHostAddress = ownerCompanyAddress || checkoutDetails.companyAddress || checkoutDetails.courtLocation || 'Pickleball Court Facility';
+    const mapDirectionsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayHostAddress || checkoutDetails.courtName)}`;
+
+    const computeSlotRangeAndHours = () => {
+      const slots = checkoutDetails.slots || [];
+      if (!slots.length) return { range: 'N/A', totalHours: '0 Hours Game Play' };
+
+      if (slots.length === 1) {
+        const s = slots[0];
+        if (s.includes('(')) {
+          const parts = s.split('(');
+          const range = parts[0].trim();
+          const hrs = parts[1].replace(')', '').trim();
+          const formattedHrs = hrs.toLowerCase().includes('hr')
+            ? hrs.replace(/hrs?/i, 'Hours') + ' Game Play'
+            : hrs + ' Game Play';
+          return { range, totalHours: formattedHrs };
+        }
+        return { range: s, totalHours: '1 Hour Game Play' };
+      }
+
+      const firstStart = slots[0].split(' - ')[0].trim();
+      const lastEnd = slots[slots.length - 1].split(' - ')[1]?.split('(')[0]?.trim() || slots[slots.length - 1].trim();
+      return {
+        range: `${firstStart} - ${lastEnd}`,
+        totalHours: `${slots.length} Hours Game Play`
+      };
+    };
+
+    const slotRangeInfo = computeSlotRangeAndHours();
+
+    const isApproved = liveBookingStatus === 'approved' || liveBookingStatus === 'paid';
+    const isCancelled = liveBookingStatus === 'cancelled' || liveBookingStatus === 'rejected';
+
     return (
       <div className="max-w-xl mx-auto px-4 py-8 animate-fade-in font-sans">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime mb-4 shadow-[0_0_20px_rgba(181,245,41,0.2)] animate-scale-in">
-            <CheckCircle className="w-8 h-8" />
+          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full border mb-4 animate-scale-in ${
+            isApproved
+              ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+              : isCancelled
+              ? 'bg-red-500/10 border-red-500/30 text-red-400'
+              : 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime shadow-[0_0_20px_rgba(181,245,41,0.2)]'
+          }`}>
+            {isCancelled ? <X className="w-8 h-8" /> : <CheckCircle className="w-8 h-8" />}
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">
-            Receipt Submitted!
+            {isApproved ? '✓ Booking Approved & Confirmed!' : isCancelled ? 'Reservation Cancelled' : 'Receipt Submitted!'}
           </h2>
           <p className="text-slate-400 text-xs mt-1.5 px-4 leading-relaxed">
-            Your GCash payment is pending administrator review. Your ticket voucher will activate once approved.
+            {isApproved
+              ? 'Your GCash payment has been verified and approved by the facility host. Your court pass is active!'
+              : isCancelled
+              ? 'This reservation request was cancelled or declined by the venue administrator.'
+              : 'Your GCash payment is pending administrator review. Your ticket voucher will activate once approved.'}
           </p>
         </div>
 
         {/* Perforated Printable Ticket */}
         <div className="bg-[#0e1424] border border-slate-800 rounded-3xl overflow-hidden relative shadow-2xl print:border-none print:shadow-none">
           {/* Top colored indicator */}
-          <div className="h-2 bg-gradient-to-r from-blue-500 to-brand-lime"></div>
+          <div className={`h-2 bg-gradient-to-r ${
+            isApproved
+              ? 'from-emerald-500 via-teal-400 to-brand-lime'
+              : isCancelled
+              ? 'from-red-500 via-rose-500 to-amber-500'
+              : 'from-blue-500 via-purple-500 to-brand-lime'
+          }`}></div>
 
-          {/* Ticket Header */}
+          {/* Ticket Header with Large Reference No. */}
           <div className="p-6 pb-5 border-b border-dashed border-slate-800 relative">
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider bg-blue-500/10 border border-blue-500/25 text-blue-400">
-                  Pending Verification
+                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider inline-block mb-1.5 ${
+                  isApproved
+                    ? 'bg-brand-emerald/20 border border-brand-emerald/40 text-brand-emerald'
+                    : isCancelled
+                    ? 'bg-red-500/20 border border-red-500/40 text-red-400'
+                    : 'bg-blue-500/10 border border-blue-500/25 text-blue-400'
+                }`}>
+                  {isApproved ? '✓ Approved & Confirmed' : isCancelled ? '✗ Cancelled / Rejected' : '⏳ Pending Verification'}
                 </span>
-                <h3 className="text-lg font-semibold text-white mt-2 leading-tight">
+                <h3 className="text-xl font-extrabold text-white leading-tight">
                   {checkoutDetails.courtName}
                 </h3>
-                <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
-                  <MapPin className="w-3 h-3 text-slate-500" /> {checkoutDetails.courtLocation}
-                </p>
               </div>
-              <div className="text-right">
-                <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block">Reference No</span>
-                <span className="text-xs font-black text-brand-lime font-sans tracking-wide block mt-0.5">
-                  {bookingRef}
-                </span>
+
+              {/* Enlarged Booking Reference No with Copy Clip Icon */}
+              <div className="text-left sm:text-right bg-slate-900/90 border border-brand-lime/30 px-3.5 py-2 rounded-2xl shadow-inner flex flex-col sm:items-end">
+                <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Booking Reference No</span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xl md:text-2xl font-black text-brand-lime font-mono tracking-wider">
+                    {bookingRef}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(bookingRef);
+                      setIsRefCopied(true);
+                      setTimeout(() => setIsRefCopied(false), 2000);
+                    }}
+                    title="Copy Reference Number"
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-brand-lime transition-all cursor-pointer border border-slate-700 flex items-center justify-center flex-shrink-0"
+                  >
+                    {isRefCopied ? (
+                      <Check className="w-4 h-4 text-green-400" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+                {isRefCopied && (
+                  <span className="text-[9px] text-green-400 font-bold block mt-0.5">Copied to clipboard!</span>
+                )}
               </div>
             </div>
             
@@ -968,47 +1181,77 @@ export default function Checkout({
             <div className="absolute -bottom-3 -right-3 w-6 h-6 rounded-full bg-dark-bg border-l border-slate-800 z-10"></div>
           </div>
 
-          {/* Ticket Details */}
+          {/* Company Owner & Venue Details Section + Logo + View Map */}
+          <div className="px-6 py-4 bg-slate-950/70 border-b border-dashed border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {displayCompanyLogo ? (
+                <img src={displayCompanyLogo} alt={displayHostName} className="w-10 h-10 rounded-full object-cover border border-brand-lime/40 flex-shrink-0" />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center flex-shrink-0">
+                  <Building2 className="w-5 h-5" />
+                </div>
+              )}
+              <div className="text-left">
+                <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider block">Venue Host / Facility Owner</span>
+                <span className="text-xs font-black text-white block">{displayHostName}</span>
+                <span className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                  <MapPin className="w-3 h-3 text-slate-500 flex-shrink-0" /> {displayHostAddress}
+                </span>
+              </div>
+            </div>
+
+            {/* View Map Button */}
+            <a
+              href={mapDirectionsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto text-center inline-flex items-center justify-center gap-1.5 text-xs font-extrabold text-brand-lime hover:text-white bg-brand-lime/10 hover:bg-brand-lime/20 border border-brand-lime/30 px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow-sm flex-shrink-0"
+            >
+              <MapPin className="w-3.5 h-3.5" /> View Map <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+
+          {/* Ticket Details (Date, Time Slot Range, Hours Gameplay) */}
           <div className="p-6 py-5 space-y-4 border-b border-dashed border-slate-800 relative">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <span className="text-xs text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-brand-lime" /> Date
+                  <Calendar className="w-3.5 h-3.5 text-brand-lime" /> Scheduled Date
                 </span>
-                <span className="text-xs font-semibold text-slate-200">
+                <span className="text-xs font-bold text-slate-200 block">
                   {formatDate(checkoutDetails.date)}
                 </span>
               </div>
+
+              {/* Time Slot Range & Hours Gameplay */}
               <div className="space-y-1">
                 <span className="text-xs text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-brand-lime" /> Time Slots
+                  <Clock className="w-3.5 h-3.5 text-brand-lime" /> Reserved Time Window
                 </span>
-                <div className="text-xs font-semibold text-slate-200 flex flex-col gap-0.5 max-h-[80px] overflow-y-auto pr-1">
-                  {checkoutDetails.slots.map((slot, idx) => (
-                    <span key={idx}>{slot.split(' - ')[0]} ({slot.includes('PM') && parseInt(slot.split(':')[0]) >= 6 ? 'Night' : 'Day'})</span>
-                  ))}
+                <div className="space-y-1">
+                  <span className="text-sm font-black text-brand-lime block font-mono">
+                    {slotRangeInfo.range}
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-purple-500/10 border border-purple-500/30 text-purple-300 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                    <Zap className="w-3 h-3 text-purple-400" /> {slotRangeInfo.totalHours}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 pt-2">
+            <div className="pt-2 border-t border-slate-900/80">
               <div className="space-y-1">
                 <span className="text-xs text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <User className="w-3 h-3 text-brand-lime" /> Player
+                  <ShieldCheck className="w-3.5 h-3.5 text-brand-lime" /> Payment Information
                 </span>
-                <span className="text-xs font-semibold text-slate-200 block truncate">{name}</span>
-                <span className="text-xs text-slate-400 block truncate leading-none">{email}</span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-xs text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-brand-lime" /> Payment Info
-                </span>
-                <span className="text-xs font-semibold text-slate-200 block capitalize font-sans flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> GCash QR
-                </span>
-                <span className="text-xs text-slate-400 block leading-none">
-                  Ref: {gcashReferenceNumber.slice(0, 4)}...{gcashReferenceNumber.slice(-4)}
-                </span>
+                <div className="flex items-center justify-between text-xs text-slate-300 pt-0.5">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> GCash Reference Code
+                  </span>
+                  <span className="font-bold text-slate-200 font-mono">
+                    {gcashReferenceNumber}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -1081,19 +1324,19 @@ export default function Checkout({
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="mt-8 flex gap-3.5 print:hidden">
+        {/* Action Buttons - Clean Print Voucher Button & Return Home */}
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 print:hidden">
           <button
             onClick={handlePrint}
-            className="flex-1 py-3 rounded-xl border border-slate-800 text-slate-300 hover:bg-slate-900 transition-all font-sans font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full py-3.5 rounded-2xl bg-brand-lime text-dark-bg hover:bg-[#a6e224] transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-brand-lime/10 hover:scale-[1.01]"
           >
-            <Download className="w-4 h-4 text-brand-lime" /> Print Voucher
+            <Download className="w-4 h-4 text-dark-bg" /> Print Voucher Ticket
           </button>
           <button
             onClick={handleResetToHome}
-            className="flex-1 py-3 rounded-xl bg-brand-lime text-dark-bg hover:bg-[#a6e224] transition-all font-sans font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-brand-lime/10"
+            className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-white transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-md hover:scale-[1.01]"
           >
-            Book Another Court <ChevronRight className="w-4 h-4" />
+            <CheckCircle className="w-4 h-4 text-brand-lime" /> Return to Home
           </button>
         </div>
       </div>
@@ -1223,11 +1466,16 @@ export default function Checkout({
 
                         <div className="text-center min-w-[65px]">
                           <span className="text-xs font-black text-white block">
-                            {playerCount} {playerCount === 1 ? 'Spot' : 'Spots'}
+                            {isAddGuestOnly ? `+${playerCount} ${playerCount === 1 ? 'Guest' : 'Guests'}` : `${playerCount} ${playerCount === 1 ? 'Spot' : 'Spots'}`}
                           </span>
-                          {playerCount > 1 && (
+                          {!isAddGuestOnly && playerCount > 1 && (
                             <span className="text-[9px] font-bold text-brand-lime block uppercase">
                               (+{playerCount - 1} {playerCount - 1 === 1 ? 'Guest' : 'Guests'})
+                            </span>
+                          )}
+                          {isAddGuestOnly && (
+                            <span className="text-[9px] font-bold text-purple-300 block uppercase">
+                              Adding Guest(s)
                             </span>
                           )}
                         </div>
@@ -1771,22 +2019,26 @@ export default function Checkout({
                     <div className="flex justify-between text-xs text-slate-300">
                       <span className="flex items-center gap-1.5">
                         <span className="w-1.5 h-1.5 rounded-full bg-brand-lime"></span>
-                        Primary Player (1x)
+                        Primary Player ({name || 'You'})
                       </span>
                       <span className="font-bold text-slate-200">
-                        {baseCostPerSpot > 0 ? `₱${baseCostPerSpot.toLocaleString()}` : 'FREE'}
+                        {isAddGuestOnly ? (
+                          <span className="text-purple-300 font-sans font-bold">₱0 (Already Registered)</span>
+                        ) : (
+                          baseCostPerSpot > 0 ? `₱${baseCostPerSpot.toLocaleString()}` : 'FREE'
+                        )}
                       </span>
                     </div>
 
                     {/* Guest Line (+1, +2, +3...) */}
-                    {playerCount > 1 && (
+                    {((isAddGuestOnly && playerCount >= 1) || (!isAddGuestOnly && playerCount > 1)) && (
                       <div className="flex justify-between text-xs text-slate-300">
                         <span className="flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-                          Additional Guests (+{playerCount - 1} {playerCount - 1 === 1 ? 'Guest' : 'Guests'})
+                          Guest Spot(s) (+{isAddGuestOnly ? playerCount : playerCount - 1} {isAddGuestOnly ? (playerCount === 1 ? 'Guest' : 'Guests') : (playerCount - 1 === 1 ? 'Guest' : 'Guests')})
                         </span>
                         <span className="font-bold text-slate-200">
-                          ₱{((playerCount - 1) * baseCostPerSpot).toLocaleString()}
+                          ₱{((isAddGuestOnly ? playerCount : playerCount - 1) * baseCostPerSpot).toLocaleString()}
                         </span>
                       </div>
                     )}
@@ -1794,7 +2046,9 @@ export default function Checkout({
                     {/* Session Subtotal */}
                     <div className="flex justify-between text-xs font-bold text-slate-300 pt-1 text-left">
                       <span className="text-slate-400 text-[11px]">
-                        Subtotal ({playerCount} {playerCount === 1 ? 'Player' : 'Players'} total @ {baseCostPerSpot > 0 ? `₱${baseCostPerSpot.toLocaleString()}` : 'Free'} / player)
+                        {isAddGuestOnly
+                          ? `Guest Subtotal (${playerCount} ${playerCount === 1 ? 'Guest' : 'Guests'} @ ₱${baseCostPerSpot} / guest)`
+                          : `Subtotal (${playerCount} ${playerCount === 1 ? 'Player' : 'Players'} total @ ${baseCostPerSpot > 0 ? `₱${baseCostPerSpot.toLocaleString()}` : 'Free'} / player)`}
                       </span>
                       <span className="text-brand-lime">
                         ₱{(playerCount * baseCostPerSpot).toLocaleString()}

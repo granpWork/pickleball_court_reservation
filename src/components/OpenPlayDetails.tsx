@@ -23,6 +23,7 @@ import {
   ExternalLink,
   Sparkles,
   Repeat,
+  UserPlus,
 } from 'lucide-react';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -361,6 +362,9 @@ export interface OpenPlayRegistration {
   paymentStatus: 'pending_verification' | 'paid' | 'failed';
   status: 'pending' | 'approved' | 'cancelled';
   createdAt: string;
+  isAddGuestOnly?: boolean;
+  primaryPlayerName?: string;
+  primaryPlayerEmail?: string;
 }
 
 interface OpenPlayDetailsProps {
@@ -505,27 +509,99 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
         setAssociatedCourt(matchedCourt);
       }
 
-      // Fetch registrations for this event directly using Firestore query
+      // Fetch registrations / bookings for this event (unified bookings + fallback)
+      const regMap = new Map<string, OpenPlayRegistration>();
+
+      // 1. Check LocalStorage
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings');
+        if (bookingsStr) {
+          const allBookings = JSON.parse(bookingsStr);
+          allBookings.forEach((b: any) => {
+            if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId === eventId && b.status !== 'cancelled') {
+              const regId = b.id || b.bookingReference;
+              regMap.set(regId, {
+                id: regId,
+                eventId: b.openPlayEventId,
+                eventTitle: b.openPlayTitle || b.courtName,
+                playerUid: b.userId || b.user?.uid || '',
+                playerName: b.user?.name || b.userName || 'Player',
+                playerEmail: b.user?.email || b.userEmail || '',
+                playerPhone: b.userPhone,
+                playerCount: b.playerCount || 1,
+                guestCount: b.guestCount || (b.guests?.length || 0),
+                guests: b.guests || [],
+                guestNames: b.guestNames || [],
+                guestEmails: b.guestEmails || [],
+                gcashReferenceNumber: b.gcashReferenceNumber,
+                paymentStatus: b.paymentStatus || 'paid',
+                status: b.status || 'approved',
+                createdAt: b.createdAt || new Date().toISOString(),
+                isAddGuestOnly: b.isAddGuestOnly === true,
+                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+              });
+            }
+          });
+        }
+        const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        if (localRegsStr) {
+          const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
+          allRegs.forEach((r) => {
+            if (r.eventId === eventId && !regMap.has(r.id)) regMap.set(r.id, r);
+          });
+        }
+      } catch (e) {}
+
+      // 2. Fetch from Firestore
       if (isFirebaseConfigured && db) {
         try {
+          // Query bookings collection
+          const bQuery = query(collection(db, 'bookings'), where('openPlayEventId', '==', eventId));
+          const bSnap = await getDocs(bQuery);
+          bSnap.forEach(dSnap => {
+            const b = dSnap.data();
+            if (b.status !== 'cancelled') {
+              const regId = dSnap.id;
+              regMap.set(regId, {
+                id: regId,
+                eventId: b.openPlayEventId,
+                eventTitle: b.openPlayTitle || b.courtName,
+                playerUid: b.userId || b.user?.uid || '',
+                playerName: b.user?.name || b.userName || 'Player',
+                playerEmail: b.user?.email || b.userEmail || '',
+                playerPhone: b.userPhone,
+                playerCount: b.playerCount || 1,
+                guestCount: b.guestCount || (b.guests?.length || 0),
+                guests: b.guests || [],
+                guestNames: b.guestNames || [],
+                guestEmails: b.guestEmails || [],
+                gcashReferenceNumber: b.gcashReferenceNumber,
+                paymentStatus: b.paymentStatus || 'paid',
+                status: b.status || 'approved',
+                createdAt: b.createdAt || new Date().toISOString(),
+                isAddGuestOnly: b.isAddGuestOnly === true,
+                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+              });
+            }
+          });
+
+          // Query legacy openplay_registrations collection
           const q = query(collection(db, 'openplay_registrations'), where('eventId', '==', eventId));
           const regsSnap = await getDocs(q);
           regsSnap.forEach(dSnap => {
             const regData = dSnap.data() as OpenPlayRegistration;
-            foundRegs.push({ ...regData, id: dSnap.id });
+            if (!regMap.has(dSnap.id)) {
+              regMap.set(dSnap.id, { ...regData, id: dSnap.id });
+            }
           });
         } catch (e) {
           console.warn('Firestore fetch registrations error:', e);
         }
       }
 
-      if (foundRegs.length === 0) {
-        const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations');
-        if (localRegsStr) {
-          const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
-          foundRegs = allRegs.filter(r => r.eventId === eventId);
-        }
-      }
+      foundRegs = Array.from(regMap.values());
 
       setEvent(foundEvent);
       setRegistrations(foundRegs);
@@ -639,7 +715,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   const displayCompanyName = event?.companyName || companyInfo.name || 'PicklePoint Venue Host';
   const displayCompanyLogo = companyInfo.logoUrl || event?.companyLogoUrl || '';
 
-  const handleProceedToCheckout = () => {
+  const handleProceedToCheckout = (isAddGuestMode: boolean = false) => {
     if (!event) return;
     if (isExpired) {
       alert('This Open Play session has already concluded.');
@@ -658,7 +734,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     const slotString = `${formatTime12h(event.startTime)} - ${formatTime12h(event.endTime)}${durationText ? ` (${durationText})` : ''}`;
 
     const checkoutPayload = {
-      type: 'openplay',
+      type: 'open_play',
       openPlayEventId: event.id,
       openPlayTitle: event.title,
       openPlayCategory: event.category,
@@ -681,6 +757,8 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       gcashName: event.gcashName,
       gcashNumber: event.gcashNumber,
       gcashQrCode: event.gcashQrCode,
+      isAddGuestOnly: isAddGuestMode,
+      initialGuestCount: isAddGuestMode ? 1 : 0,
     };
 
     if (setCheckoutDetails) {
@@ -916,16 +994,36 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                     <h1 className="text-2xl md:text-4xl font-extrabold text-white leading-tight">{event.title}</h1>
                   </div>
 
-                  {/* Book Now Button Opposite Title */}
-                  <button
-                    type="button"
-                    onClick={handleProceedToCheckout}
-                    disabled={isExpired || isFull}
-                    className="px-7 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs md:text-sm uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-xl shadow-brand-lime/10 flex items-center gap-2.5 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 my-auto"
-                  >
-                    <Sparkles className="w-4.5 h-4.5 text-dark-bg" />
-                    <span>{isExpired ? 'Session Concluded' : isFull ? 'Session Full' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
-                  </button>
+                  {/* Action Button Opposite Title (Book Now or Add Guest) */}
+                  {isAlreadyRegistered ? (
+                    <button
+                      type="button"
+                      onClick={() => handleProceedToCheckout(true)}
+                      disabled={isExpired || isFull}
+                      className={`px-7 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center gap-2.5 flex-shrink-0 my-auto border ${
+                        isExpired || isFull
+                          ? 'bg-red-500/10 border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
+                          : 'bg-gradient-to-r from-brand-lime via-[#a6e224] to-emerald-400 text-dark-bg border-brand-lime/40 hover:opacity-95 shadow-xl shadow-brand-lime/20 hover:scale-[1.02] cursor-pointer'
+                      }`}
+                    >
+                      <UserPlus className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
+                      <span>{isExpired ? 'Session Concluded' : isFull ? 'Full — No Guest Slots' : `+ Add Guest (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleProceedToCheckout(false)}
+                      disabled={isExpired || isFull}
+                      className={`px-7 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center gap-2.5 flex-shrink-0 my-auto ${
+                        isExpired || isFull
+                          ? 'bg-red-500/10 border border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
+                          : 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] shadow-xl shadow-brand-lime/10 hover:scale-[1.02] cursor-pointer'
+                      }`}
+                    >
+                      <Sparkles className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
+                      <span>{isExpired ? 'Session Concluded' : isFull ? 'FULL — SESSION BOOKED OUT' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Host Company Card under Title */}
@@ -1142,16 +1240,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
               </div>
             )}
 
-            {/* CASE 2: User Already Registered */}
-            {!isExpired && event.status === 'active' && isAlreadyRegistered && (
-              <div className="p-6 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald text-center animate-fade-in">
-                <UserCheck className="w-8 h-8 mx-auto mb-2 text-brand-emerald" />
-                <h3 className="text-sm font-black uppercase tracking-wider">You are Registered for this Open Play!</h3>
-                <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto">
-                  Your registration entry has been received. The organizer will review your payment confirmation and send updates.
-                </p>
-              </div>
-            )}
+
 
             {/* CASE 3: Not Registered & User NOT Authenticated */}
             {!isExpired && event.status === 'active' && !isAlreadyRegistered && !user && (
@@ -1195,73 +1284,163 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
           </div>
 
-          {/* Book Now Action Button */}
+          {/* Action Button (Book Now or Add Guest) */}
           <div className="mt-8 flex justify-end">
-            <button
-              type="button"
-              onClick={handleProceedToCheckout}
-              disabled={isExpired || isFull}
-              className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs md:text-sm uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-xl shadow-brand-lime/10 flex items-center justify-center gap-2.5 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Sparkles className="w-4.5 h-4.5 text-dark-bg" />
-              <span>{isExpired ? 'Session Concluded' : isFull ? 'Session Full' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
-            </button>
+            {isAlreadyRegistered ? (
+              <button
+                type="button"
+                onClick={() => handleProceedToCheckout(true)}
+                disabled={isExpired || isFull}
+                className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 border ${
+                  isExpired || isFull
+                    ? 'bg-red-500/10 border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
+                    : 'bg-gradient-to-r from-brand-lime via-[#a6e224] to-emerald-400 text-dark-bg border-brand-lime/40 hover:opacity-95 shadow-xl shadow-brand-lime/20 hover:scale-[1.02] cursor-pointer'
+                }`}
+              >
+                <UserPlus className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
+                <span>{isExpired ? 'Session Concluded' : isFull ? 'Full — No Guest Slots' : `+ Add Guest (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleProceedToCheckout(false)}
+                disabled={isExpired || isFull}
+                className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 ${
+                  isExpired || isFull
+                    ? 'bg-red-500/10 border border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
+                    : 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] shadow-xl shadow-brand-lime/10 hover:scale-[1.02] cursor-pointer'
+                }`}
+              >
+                <Sparkles className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
+                <span>{isExpired ? 'Session Concluded' : isFull ? 'FULL — SESSION BOOKED OUT' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+              </button>
+            )}
           </div>
 
           {/* SESSION PARTICIPANT ROSTER CARD */}
-          {activeRegistrations.length > 0 && (
-            <div className="mt-8 pt-8 border-t border-dark-border/60 text-left animate-fade-in">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-brand-lime" />
-                  <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">
-                    Session Player Roster ({activeRegistrations.length})
-                  </h3>
+          {activeRegistrations.length > 0 && (() => {
+            interface ParticipantCard {
+              id: string;
+              name: string;
+              type: 'primary' | 'guest';
+              photoUrl?: string;
+              hostName?: string;
+              guestIndex?: number;
+              isApproved: boolean;
+              dateStr: string;
+            }
+
+            const participants: ParticipantCard[] = [];
+            activeRegistrations.forEach(reg => {
+              const isApproved = reg.status === 'approved' || reg.paymentStatus === 'paid';
+              const primaryName = reg.playerName || 'Player';
+              const primaryPhoto = (reg as any).photoUrl || (reg as any).playerPhotoUrl || (reg as any).avatarUrl || (reg as any).userPhotoUrl;
+              const dateStr = reg.createdAt ? reg.createdAt.split('T')[0] : 'Registered';
+
+              // Primary Player (Only if not an add-guest-only entry)
+              const isAddGuestOnly = (reg as any).isAddGuestOnly === true;
+              if (!isAddGuestOnly) {
+                participants.push({
+                  id: `${reg.id}-primary`,
+                  name: primaryName,
+                  type: 'primary',
+                  photoUrl: primaryPhoto,
+                  isApproved,
+                  dateStr
+                });
+              }
+
+              // Guests
+              const spots = reg.playerCount || 1;
+              const numGuests = isAddGuestOnly
+                ? Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots || 1)
+                : Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots > 1 ? spots - 1 : 0);
+              const hostName = (reg as any).primaryPlayerName || primaryName;
+
+              for (let gIdx = 0; gIdx < numGuests; gIdx++) {
+                const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
+                const gPhoto = reg.guests?.[gIdx]?.photoUrl;
+                participants.push({
+                  id: `${reg.id}-guest-${gIdx}`,
+                  name: gName,
+                  type: 'guest',
+                  photoUrl: gPhoto,
+                  hostName: hostName,
+                  guestIndex: gIdx + 1,
+                  isApproved,
+                  dateStr
+                });
+              }
+            });
+
+            const totalHeadcount = participants.length;
+            const confirmedHeadcount = participants.filter(p => p.isApproved).length;
+            const pendingHeadcount = participants.filter(p => !p.isApproved).length;
+
+            return (
+              <div className="mt-8 pt-8 border-t border-dark-border/60 text-left animate-fade-in">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-brand-lime" />
+                    <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">
+                      Session Player & Guest Roster ({totalHeadcount} Attendees)
+                    </h3>
+                  </div>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    {confirmedHeadcount} Confirmed • {pendingHeadcount} Pending Review
+                  </span>
                 </div>
-                <span className="text-[11px] text-slate-400 font-medium">
-                  {approvedCount} Confirmed • {pendingCount} Pending Review
-                </span>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                {activeRegistrations.map((reg, idx) => {
-                  const isApproved = reg.status === 'approved' || reg.paymentStatus === 'paid';
-                  const spots = reg.playerCount || 1;
-                  const guestBadge = reg.guestNames && reg.guestNames.length > 0 ? ` (+${reg.guestNames.length} ${reg.guestNames.length === 1 ? 'Guest' : 'Guests'})` : (spots > 1 ? ` (+${spots - 1} Guests)` : '');
-
-                  return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                  {participants.map((p, idx) => (
                     <div
-                      key={reg.id}
-                      className="p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 flex items-center justify-between gap-3 text-xs"
+                      key={p.id}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs transition-all ${
+                        p.type === 'guest'
+                          ? 'bg-purple-950/20 border-purple-900/40 hover:border-purple-800/60'
+                          : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'
+                      }`}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-300 text-[11px] flex-shrink-0">
-                          {idx + 1}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-11 h-11 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60">
+                          <img
+                            src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=b5f529&color=0f172a&bold=true`;
+                            }}
+                          />
                         </div>
-                        <div className="truncate">
-                          <span className="font-bold text-white block truncate">
-                            {reg.playerName || 'Player'}
-                            {guestBadge && <span className="text-brand-lime text-[11px] font-extrabold ml-1">{guestBadge}</span>}
-                          </span>
-                          <span className="text-[10px] text-slate-500 block truncate font-mono">
-                            {reg.createdAt ? reg.createdAt.split('T')[0] : 'Registered'} • {spots} {spots === 1 ? 'spot' : 'spots'}
-                          </span>
+                        <div className="truncate min-w-0">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="font-bold text-white truncate">
+                              {p.name}
+                            </span>
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase flex-shrink-0 ${
+                              p.type === 'guest'
+                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                : 'bg-brand-lime/10 text-brand-lime border border-brand-lime/30'
+                            }`}>
+                              {p.type === 'guest' ? 'Guest' : 'Player'}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex-shrink-0 ${
-                        isApproved
+                        p.isApproved
                           ? 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime'
                           : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
                       }`}>
-                        {isApproved ? 'Confirmed' : 'Pending'}
+                        {p.isApproved ? 'Confirmed' : 'Pending'}
                       </span>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       </div>
       {/* LOCATION MAP MODAL */}

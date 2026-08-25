@@ -47,7 +47,11 @@ function App() {
     }
     return 'landing';
   });
-  const [openPlayEventId, setOpenPlayEventId] = useState<string | null>(null);
+
+  const [openPlayEventId, setOpenPlayEventId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('eventId') || params.get('openplay') || null;
+  });
   const [selectedCourtId, setSelectedCourtIdState] = useState<string>(() => {
     return sessionStorage.getItem('picklepoint_active_court_id') || localStorage.getItem('picklepoint_pending_court_id') || '';
   });
@@ -120,33 +124,36 @@ function App() {
   }, [checkoutDetails]);
 
   const restoreSessionView = () => {
-    // If user is explicitly visiting the root URL "/" with no view search params, remain on landing view
-    if (window.location.pathname === '/' && !window.location.search) {
-      setView('landing');
-      return;
+    // 1. Admin path & Admin role check FIRST to prevent landing view flashes
+    const activeSessionStr = localStorage.getItem('picklepoint_session');
+    let sessionUser: any = null;
+    if (activeSessionStr) {
+      try { sessionUser = JSON.parse(activeSessionStr); } catch (e) {}
     }
+    const isSessionAdmin = user?.isAdmin || sessionUser?.isAdmin || sessionUser?.role === 'super_admin' || sessionUser?.role === 'client_admin';
 
-    const activeCourtId = sessionStorage.getItem('picklepoint_active_court_id') || localStorage.getItem('picklepoint_pending_court_id');
-    const savedCheckoutStr = sessionStorage.getItem('picklepoint_checkout_details');
-
-    // Restore checkout session ONLY if explicitly on /checkout route
-    if (window.location.pathname === '/checkout') {
-      if (savedCheckoutStr) {
-        try {
-          const parsed = JSON.parse(savedCheckoutStr);
-          setCheckoutDetails(parsed);
-          setView('checkout');
-          return;
-        } catch (e) {}
-      }
-    }
-
-    // 3. Admin path check
-    if (window.location.pathname === '/pickle-admin') {
+    if (window.location.pathname === '/pickle-admin' || isSessionAdmin) {
       sessionStorage.removeItem('picklepoint_checkout_details');
       setCheckoutDetails(null);
       window.history.pushState({}, '', '/pickle-admin');
       setView('admin');
+      return;
+    }
+
+    // 2. Restore checkout session ONLY if explicitly on /checkout route
+    const savedCheckoutStr = sessionStorage.getItem('picklepoint_checkout_details');
+    if (window.location.pathname === '/checkout' && savedCheckoutStr) {
+      try {
+        const parsed = JSON.parse(savedCheckoutStr);
+        setCheckoutDetails(parsed);
+        setView('checkout');
+        return;
+      } catch (e) {}
+    }
+
+    // 3. If user is explicitly visiting root URL "/" with no view search params, remain on landing view
+    if (window.location.pathname === '/' && !window.location.search) {
+      setView('landing');
       return;
     }
 
@@ -220,7 +227,7 @@ function App() {
     } else if (params.get('view') === 'profile' || window.location.pathname === '/profile') {
       setView('profile');
     }
-    const openPlayParam = params.get('openplay');
+    const openPlayParam = params.get('eventId') || params.get('openplay');
     if (openPlayParam) {
       setOpenPlayEventId(openPlayParam);
     }
@@ -336,7 +343,12 @@ function App() {
             setUser(loadedUser);
             localStorage.setItem('picklepoint_session', JSON.stringify(loadedUser));
 
-            restoreSessionView();
+            if (isAdmin) {
+              window.history.pushState({}, '', '/pickle-admin');
+              setView('admin');
+            } else {
+              restoreSessionView();
+            }
           } catch (err) {
             console.error('Error fetching user role from Firestore:', err);
             const isDefaultAdmin = firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
@@ -672,6 +684,31 @@ function App() {
   }
 
   if (currentView === 'openplay') {
+    if (openPlayEventId) {
+      return (
+        <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
+          {/* Header Navigation */}
+          <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
+
+          {/* Main Content Area */}
+          <main className="flex-grow pt-20">
+            <OpenPlayDetails
+              eventId={openPlayEventId}
+              onBack={() => setOpenPlayEventId(null)}
+              user={user}
+              setView={handleSetView}
+              setCheckoutDetails={setCheckoutDetails}
+              onNavigateToAuth={(mode) => setView(mode)}
+            />
+          </main>
+
+          {/* Footer Branding & Newsletter */}
+          <Footer />
+          {renderDeactivatedModal()}
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         {/* Header Navigation */}

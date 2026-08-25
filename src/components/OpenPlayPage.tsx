@@ -10,7 +10,9 @@ import {
   ArrowRight,
   Repeat,
   Clock,
-  DollarSign
+  DollarSign,
+  Share2,
+  Check
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -25,6 +27,29 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
   const [events, setEvents] = useState<OpenPlayEvent[]>([]);
   const [registrations, setRegistrations] = useState<OpenPlayRegistration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [copiedEventId, setCopiedEventId] = useState<string | null>(null);
+
+  const handleShareEvent = async (e: React.MouseEvent, event: OpenPlayEvent) => {
+    e.stopPropagation();
+    const shareUrl = `${window.location.origin}/?view=openplay&eventId=${event.id}`;
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedEventId(event.id);
+      setTimeout(() => setCopiedEventId(null), 2500);
+    } catch (err) {
+      console.warn('Share copy error:', err);
+    }
+  };
 
   // Tab & Filter states
   const [publicTab, setPublicTab] = useState<'all' | 'upcoming' | 'past'>('all');
@@ -64,6 +89,37 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
         rSnap.forEach((dSnap) => {
           regsList.push({ id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
         });
+
+        // Merge unified bookings collection
+        try {
+          const bSnap = await getDocs(collection(db, 'bookings'));
+          bSnap.forEach((dSnap) => {
+            const b = dSnap.data();
+            if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.status !== 'cancelled') {
+              const regId = dSnap.id;
+              if (!regsList.some(r => r.id === regId)) {
+                regsList.push({
+                  id: regId,
+                  eventId: b.openPlayEventId,
+                  eventTitle: b.openPlayTitle || b.courtName,
+                  playerUid: b.userId || b.user?.uid || '',
+                  playerName: b.user?.name || b.userName || 'Player',
+                  playerEmail: b.user?.email || b.userEmail || '',
+                  playerPhone: b.userPhone,
+                  playerCount: b.playerCount || 1,
+                  guestCount: b.guestCount || (b.guests?.length || 0),
+                  guests: b.guests || [],
+                  guestNames: b.guestNames || [],
+                  guestEmails: b.guestEmails || [],
+                  gcashReferenceNumber: b.gcashReferenceNumber,
+                  paymentStatus: b.paymentStatus || 'paid',
+                  status: b.status || 'approved',
+                  createdAt: b.createdAt || new Date().toISOString(),
+                });
+              }
+            }
+          });
+        } catch (e) {}
       } catch (err) {
         console.warn('Error fetching Open Play data from Firestore:', err);
       }
@@ -97,6 +153,39 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
       const localRStr = localStorage.getItem('picklepoint_openplay_registrations');
       regsList = localRStr ? JSON.parse(localRStr) : [];
     }
+
+    // Merge LocalStorage bookings into regsList as well
+    try {
+      const localBookingsStr = localStorage.getItem('picklepoint_bookings');
+      if (localBookingsStr) {
+        const localBookings = JSON.parse(localBookingsStr);
+        localBookings.forEach((b: any) => {
+          if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.status !== 'cancelled') {
+            const regId = b.id || b.bookingReference;
+            if (!regsList.some(r => r.id === regId)) {
+              regsList.push({
+                id: regId,
+                eventId: b.openPlayEventId,
+                eventTitle: b.openPlayTitle || b.courtName,
+                playerUid: b.userId || b.user?.uid || '',
+                playerName: b.user?.name || b.userName || 'Player',
+                playerEmail: b.user?.email || b.userEmail || '',
+                playerPhone: b.userPhone,
+                playerCount: b.playerCount || 1,
+                guestCount: b.guestCount || (b.guests?.length || 0),
+                guests: b.guests || [],
+                guestNames: b.guestNames || [],
+                guestEmails: b.guestEmails || [],
+                gcashReferenceNumber: b.gcashReferenceNumber,
+                paymentStatus: b.paymentStatus || 'paid',
+                status: b.status || 'approved',
+                createdAt: b.createdAt || new Date().toISOString(),
+              });
+            }
+          }
+        });
+      }
+    } catch (e) {}
 
     setEvents(Array.from(eventsMap.values()).filter((e) => e.status !== 'cancelled'));
     setRegistrations(regsList);
@@ -414,6 +503,20 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
                         </div>
                       )}
 
+                      {/* Top-Right Share Button Overlay */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleShareEvent(e, event)}
+                        title="Share Open Play Event"
+                        className="absolute top-3 right-3 p-2 rounded-full bg-slate-950/85 hover:bg-slate-900 border border-slate-700/80 text-slate-300 hover:text-brand-lime backdrop-blur-md shadow-lg transition-all cursor-pointer hover:scale-110 z-10 flex items-center justify-center"
+                      >
+                        {copiedEventId === event.id ? (
+                          <Check className="w-3.5 h-3.5 text-brand-lime" />
+                        ) : (
+                          <Share2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+
                       {/* Overlay Logo Avatar Badge when poster image is present */}
                       {event.posterImageUrl && companyLogo && (
                         <div className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-xl bg-slate-950/90 border border-slate-700/80 p-1 backdrop-blur-md shadow-lg flex items-center justify-center overflow-hidden">
@@ -429,6 +532,12 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
                         ) : (
                           <div className="px-3 py-1 rounded-full bg-slate-950/85 backdrop-blur-md border border-brand-lime/30 text-brand-lime text-[10px] font-black uppercase tracking-wider shadow">
                             {event.category}
+                          </div>
+                        )}
+
+                        {isFull && !isExpired && (
+                          <div className="px-3 py-1 rounded-full bg-red-600/90 backdrop-blur-md border border-red-400/50 text-white text-[10px] font-black uppercase tracking-wider shadow animate-pulse">
+                            🚫 FULL
                           </div>
                         )}
 
@@ -520,8 +629,8 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
 
                         <div className="flex items-center gap-2">
                           <Users className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                          <span className={isFull ? 'text-red-400 font-bold' : 'text-slate-300 font-medium'}>
-                            {eventRegCount} / {event.maxParticipants} Registered ({availableSlots} slots left)
+                          <span className={isFull ? 'text-red-400 font-extrabold flex items-center gap-1' : 'text-slate-300 font-medium'}>
+                            {eventRegCount} / {event.maxParticipants} Registered {isFull ? '• FULLY BOOKED' : `(${availableSlots} slots left)`}
                           </span>
                         </div>
                         {!isExpired && (approvedCount > 0 || pendingCount > 0) && (
@@ -544,21 +653,41 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
 
                   {/* Action Footer */}
                   <div className="p-5 pt-0 mt-auto">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectEvent(event.id);
-                      }}
-                      className={`w-full py-3 text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all cursor-pointer text-center shadow-lg flex items-center justify-center gap-2 ${
-                        isExpired
-                          ? 'bg-slate-900 text-slate-400 border border-slate-800 hover:bg-slate-850 hover:text-white'
-                          : 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] shadow-brand-lime/10 hover:scale-[1.01]'
-                      }`}
-                    >
-                      <span>{isExpired ? 'View Concluded Session' : 'View Details'}</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isFull && !isExpired}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectEvent(event.id);
+                        }}
+                        className={`flex-grow py-3 text-xs font-extrabold uppercase tracking-wider rounded-xl transition-all text-center shadow-lg flex items-center justify-center gap-2 ${
+                          isExpired
+                            ? 'bg-slate-900 text-slate-400 border border-slate-800 hover:bg-slate-850 hover:text-white cursor-pointer'
+                            : isFull
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-400 cursor-not-allowed select-none opacity-80'
+                            : 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] shadow-brand-lime/10 hover:scale-[1.01] cursor-pointer'
+                        }`}
+                      >
+                        <span>{isExpired ? 'View Concluded Session' : isFull ? 'FULL — SESSION BOOKED OUT' : 'View Details'}</span>
+                        {!isFull && !isExpired && <ArrowRight className="w-4 h-4" />}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => handleShareEvent(e, event)}
+                        title="Share Event"
+                        className="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-brand-lime/50 text-slate-300 hover:text-brand-lime transition-all cursor-pointer hover:scale-105 shadow-md flex items-center justify-center flex-shrink-0 group/share"
+                      >
+                        {copiedEventId === event.id ? (
+                          <span className="text-[10px] font-extrabold text-brand-lime flex items-center gap-1">
+                            <Check className="w-4 h-4 text-brand-lime" /> Copied
+                          </span>
+                        ) : (
+                          <Share2 className="w-4 h-4 group-hover/share:scale-110 transition-transform" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -566,6 +695,14 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
           </div>
         )}
       </div>
+
+      {/* Toast Notification when link is copied */}
+      {copiedEventId && (
+        <div className="fixed bottom-6 right-6 z-50 bg-brand-lime text-dark-bg px-4.5 py-3 rounded-2xl font-sans font-black text-xs shadow-2xl flex items-center gap-2.5 border border-white/20">
+          <Check className="w-4 h-4 text-dark-bg" />
+          <span>Event link copied to clipboard!</span>
+        </div>
+      )}
     </div>
   );
 }
