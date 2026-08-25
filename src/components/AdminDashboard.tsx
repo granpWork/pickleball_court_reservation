@@ -2715,6 +2715,76 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     fetchRegions();
   }, []);
 
+  // Real-time Firestore onSnapshot & cross-tab storage listener for Bookings / Checkouts
+  useEffect(() => {
+    let unsubscribeBookings: (() => void) | null = null;
+
+    if (isFirebaseConfigured && db) {
+      import('firebase/firestore').then(({ collection, onSnapshot }) => {
+        try {
+          unsubscribeBookings = onSnapshot(collection(db, 'bookings'), (snapshot) => {
+            const bookingMap = new Map<string, Booking>();
+
+            // 1. Include local storage base
+            try {
+              const localBookingsStr = localStorage.getItem('picklepoint_bookings');
+              if (localBookingsStr) {
+                const localBookings = JSON.parse(localBookingsStr) as Booking[];
+                localBookings.forEach((b) => {
+                  const key = b.bookingReference || b.bookingId || b.id;
+                  if (key) bookingMap.set(key, { ...b, id: key });
+                });
+              }
+            } catch (e) {}
+
+            // 2. Real-time updates from Firestore
+            snapshot.forEach((docSnap) => {
+              const data = docSnap.data() as Booking;
+              const key = data.bookingReference || docSnap.id;
+              bookingMap.set(key, { ...data, id: key });
+            });
+
+            let loadedBookings: Booking[] = Array.from(bookingMap.values());
+
+            // 3. Filter for active venue host
+            if (!isSuperAdmin) {
+              const ownedCourtIds = courts.map((c) => c.id);
+              loadedBookings = loadedBookings.filter((b) => {
+                const isOwnedCourt = ownedCourtIds.includes(b.courtId);
+                const isOwnedByUid = b.courtOwnerId && b.courtOwnerId === currentUserUid;
+                const isOwnedByEmail = b.ownerEmail && currentUserEmail && b.ownerEmail.toLowerCase() === currentUserEmail.toLowerCase();
+                const isOwnedByCompanyName = myCompany?.name && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === myCompany.name.toLowerCase();
+                const isOwnedByCompanyId = myCompany?.id && (b as any).companyId && (b as any).companyId === myCompany.id;
+                const isUserCompanyMatch = (user as any)?.companyName && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === (user as any).companyName.toLowerCase();
+                return isOwnedCourt || isOwnedByUid || isOwnedByEmail || isOwnedByCompanyName || isOwnedByCompanyId || isUserCompanyMatch;
+              });
+            }
+
+            loadedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setBookings(loadedBookings);
+          }, (err) => {
+            console.warn('Real-time bookings subscription error:', err);
+          });
+        } catch (err) {
+          console.warn('Failed to initialize real-time bookings listener:', err);
+        }
+      });
+    }
+
+    // Cross-tab storage listener
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'picklepoint_bookings' || e.key === 'picklepoint_openplay_registrations') {
+        fetchData();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      if (unsubscribeBookings) unsubscribeBookings();
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [courts, isSuperAdmin, currentUserUid, currentUserEmail, myCompany]);
+
 
 
   const handleSaveCheckoutSettings = async () => {
