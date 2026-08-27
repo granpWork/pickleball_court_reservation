@@ -4537,7 +4537,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
 
       setUsers((prev) => prev.filter((u) => u.email.toLowerCase() !== targetEmailLower));
-      showModalAlert('Manager Removed', `Facility manager ${managerToDelete.name || managerToDelete.email} has been removed from your team.`, 'success');
     } catch (err) {
       console.error('Failed to remove manager:', err);
       showModalAlert('Deletion Failed', 'Failed to remove manager: ' + (err as Error).message, 'error');
