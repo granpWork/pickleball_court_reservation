@@ -29,7 +29,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
   const [inviteTokenValidating, setInviteTokenValidating] = useState(!!inviteTokenParam);
   const [isVerifiedInvite, setIsVerifiedInvite] = useState(false);
   const [invalidInviteReason, setInvalidInviteReason] = useState<string | null>(null);
-  const [invitedRole, setInvitedRole] = useState<'super_admin' | 'client_admin' | 'player' | null>(null);
+  const [invitedRole, setInvitedRole] = useState<'super_admin' | 'client_admin' | 'manager' | 'player' | null>(null);
 
   useEffect(() => {
     const validateInviteToken = async () => {
@@ -187,7 +187,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
               email: fbUser.email || '',
               role: finalRole,
               status: 'active',
-              needsOnboarding: isClientAdminInvite,
+              needsOnboarding: finalRole === 'client_admin',
               createdAt: new Date().toISOString()
             });
           } catch (e) {

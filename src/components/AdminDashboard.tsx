@@ -616,7 +616,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // User Invitation Modal States
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
-  const [inviteRoleInput, setInviteRoleInput] = useState<'client_admin' | 'super_admin' | 'player'>('client_admin');
+  const [inviteRoleInput, setInviteRoleInput] = useState<'client_admin' | 'super_admin' | 'player' | 'manager'>('client_admin');
   const [inviteEmailInput, setInviteEmailInput] = useState('');
   const [inviteNameInput, setInviteNameInput] = useState('');
   const [inviteCompanyNameInput, setInviteCompanyNameInput] = useState('');
@@ -4456,19 +4456,26 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       return;
     }
 
+    const assignedRole = inviteRoleInput || (isSuperAdmin ? 'client_admin' : 'manager');
+    const assignedCompany = effectiveOrgName || myCompany?.name || userObj?.companyName || 'Facility';
+    const assignedCompanyId = myCompany?.id || (user as any)?.companyId || '';
+
     setInviteLoading(true);
     try {
       const token = generateSecureInviteToken();
       const expiresAt = new Date(Date.now() + inviteExpiryHours * 60 * 60 * 1000).toISOString();
       const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
-      const inviteUrl = `${origin}/?view=register&inviteToken=${token}&email=${encodeURIComponent(targetEmail)}`;
+      const companyParam = encodeURIComponent(assignedCompany);
+      const inviteUrl = `${origin}/?view=register&inviteToken=${token}&email=${encodeURIComponent(targetEmail)}&company=${companyParam}&role=${assignedRole}`;
 
       const inviteRecord: Record<string, any> = {
         token,
         email: targetEmail,
-        role: 'client_admin',
+        role: assignedRole,
+        company: assignedCompany,
+        companyId: assignedCompanyId,
         status: 'pending',
-        invitedBy: currentUserEmail || 'admin@picklepoint.com',
+        invitedBy: currentUserEmail || user?.email || 'admin@picklepoint.com',
         createdAt: new Date().toISOString(),
         expiresAt,
       };
@@ -4500,7 +4507,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         toName: inviteNameInput.trim() || undefined,
         inviteUrl,
         expiresAt,
-        invitedBy: currentUserEmail || 'Super Administrator',
+        invitedBy: currentUserEmail || user?.email || 'Administrator',
         customMessage: inviteCustomMessage.trim() || undefined,
       });
 
@@ -4509,6 +4516,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         token,
         link: inviteUrl,
         expiresAt,
+        role: assignedRole,
       });
 
       // Refresh users list immediately so the pending invitation appears
@@ -6298,13 +6306,26 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onSaveServiceFee={async (fee, enabled) => {
                 await handleSaveServiceFee(fee, enabled);
               }}
+              onOpenInviteManagerModal={() => {
+                setInviteRoleInput('manager');
+                setInviteCompanyNameInput(effectiveOrgName || myCompany?.name || '');
+                setInviteEmailInput('');
+                setInviteNameInput('');
+                setInviteCustomMessage('');
+                setInviteSuccessInfo(null);
+                setInviteModalOpen(true);
+              }}
+              teamMembers={users.filter(u =>
+                (u.role === 'manager' || u.role === 'client_admin') &&
+                (!isSuperAdmin || (myCompany?.id && u.companyId === myCompany.id))
+              )}
               policies={{
                 cancellationPolicy: policyCancellation,
                 rulesPolicy: policyRules,
                 weatherPolicy: policyWeather,
                 equipmentPolicy: policyEquipment,
               }}
-              onSavePolicies={async (newP) => {
+              onSavePolicies={async (newP: CourtPolicies) => {
                 setPolicyCancellation(newP.cancellationPolicy || '');
                 setPolicyRules(newP.rulesPolicy || '');
                 setPolicyWeather(newP.weatherPolicy || '');
@@ -8812,7 +8833,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <MailPlus className="w-5 h-5 text-brand-lime" />
-                Invite New Client Admin
+                {inviteRoleInput === 'manager' ? 'Invite Facility Manager' : inviteRoleInput === 'client_admin' ? 'Invite New Client Admin' : 'Invite User'}
               </h3>
               <button
                 onClick={() => {

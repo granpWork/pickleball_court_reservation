@@ -22,12 +22,15 @@ import {
   MapPin,
   Sparkles,
   QrCode,
-  ChevronDown
+  ChevronDown,
+  UserPlus,
+  Users
 } from 'lucide-react';
 import { AdminPoliciesTab } from './AdminPoliciesTab';
 import { GcashAmountQrModal } from '../modals/GcashAmountQrModal';
 import {
   type AdminUser,
+  type UserAccount,
   type AdminSettingsSubTab,
   type Company,
   type DailyOperatingHoursMap,
@@ -151,9 +154,13 @@ interface AdminSettingsTabProps {
   onSaveLeadTime: (minutes: number) => Promise<void>;
 
   // Service Fee Props
-  globalServiceFee: number;
-  globalServiceFeeEnabled: boolean;
+  globalServiceFee?: number;
+  globalServiceFeeEnabled?: boolean;
   onSaveServiceFee?: (fee: number, enabled: boolean) => Promise<void>;
+
+  // Team / Manager Invite Props
+  onOpenInviteManagerModal?: () => void;
+  teamMembers?: UserAccount[];
 
   // Policies Props
   policies?: CourtPolicies;
@@ -166,6 +173,8 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   user,
   settingsSubTab,
   setSettingsSubTab: _setSettingsSubTab,
+  onOpenInviteManagerModal,
+  teamMembers = [],
   policies,
   onSavePolicies,
   adminDisplayName = '',
@@ -259,16 +268,13 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   const [activeTimePicker, setActiveTimePicker] = useState<string | null>(null);
 
   const [leadTimeInput, setLeadTimeInput] = useState(bookingLeadTimeMinutes);
-  const [feeAmount, setFeeAmount] = useState(globalServiceFee);
-  const [feeEnabled, setFeeEnabled] = useState(globalServiceFeeEnabled);
+  const [feeAmount, setFeeAmount] = useState(globalServiceFee || 0);
+  const [feeEnabled, setFeeEnabled] = useState(!!globalServiceFeeEnabled);
 
   useEffect(() => {
-    setFeeAmount(globalServiceFee);
-  }, [globalServiceFee]);
-
-  useEffect(() => {
-    setFeeEnabled(globalServiceFeeEnabled);
-  }, [globalServiceFeeEnabled]);
+    setFeeAmount(globalServiceFee || 0);
+    setFeeEnabled(!!globalServiceFeeEnabled);
+  }, [globalServiceFee, globalServiceFeeEnabled]);
 
   // Subdomain slug calculation with dynamic base URL
   const baseAppUrl = import.meta.env.VITE_APP_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://bookpicklecourt.com');
@@ -367,6 +373,92 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
           policies={policies || { cancellationPolicy: '', rulesPolicy: '', weatherPolicy: '', equipmentPolicy: '' }}
           onSavePolicies={onSavePolicies || (async () => {})}
         />
+      )}
+
+      {/* ========================================================================= */}
+      {/* FACILITY TEAM & MANAGERS SUB-TAB                                         */}
+      {/* ========================================================================= */}
+      {settingsSubTab === 'team' && (
+        <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-bold">
+                <Users className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-base">Facility Team & Managers</h4>
+                <p className="text-xs text-slate-400">Invite and manage assigned facility managers for your organization.</p>
+              </div>
+            </div>
+
+            {onOpenInviteManagerModal && (
+              <button
+                type="button"
+                onClick={onOpenInviteManagerModal}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Invite Manager</span>
+              </button>
+            )}
+          </div>
+
+          {/* Managers Table */}
+          <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-slate-900/40">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider">
+                    <th className="py-3 px-4">Manager Name</th>
+                    <th className="py-3 px-4">Email Address</th>
+                    <th className="py-3 px-4">Role</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Invited / Joined</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {teamMembers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-500">
+                        <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                        <p className="font-semibold text-slate-400">No facility managers found.</p>
+                        <p className="text-[11px] text-slate-500 mt-1">Click <strong>Invite Manager</strong> above to generate a secure registration link.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    teamMembers.map((m, idx) => (
+                      <tr key={m.uid || m.email || idx} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4 font-extrabold text-white">
+                          {m.name || 'Pending Invitee'}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">
+                          {m.email}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
+                            {m.role || 'manager'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                            m.status === 'active'
+                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                              : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                          }`}>
+                            {m.status || 'pending'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-slate-400 text-[11px]">
+                          {m.createdAt ? new Date(m.createdAt).toLocaleDateString() : 'Recently'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ========================================================================= */}

@@ -323,6 +323,19 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
 
                   <button
                     type="button"
+                    onClick={() => { setSettingsSubTab('team'); setMobileMenuOpen(false); }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
+                      settingsSubTab === 'team'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Team & Managers</span>
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => { setSettingsSubTab('policies'); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
                       settingsSubTab === 'policies'
