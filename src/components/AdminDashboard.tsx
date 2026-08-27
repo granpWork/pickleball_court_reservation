@@ -630,12 +630,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const handleSendInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isSuperAdmin) {
-      showModalAlert('Access Denied', 'Only Super Administrators can send invitations.', 'warning');
+    const isClientAdmin = user?.role === 'client_admin';
+    if (!isSuperAdmin && !isClientAdmin) {
+      showModalAlert('Access Denied', 'Only Administrators can send invitations.', 'warning');
+      return;
+    }
+    if (!isSuperAdmin && isClientAdmin && inviteRoleInput !== 'manager') {
+      showModalAlert('Access Denied', 'Client Administrators can only send invitations for Manager roles.', 'warning');
       return;
     }
     if (!inviteEmailInput) return;
-    if (inviteRoleInput === 'client_admin' && !inviteCompanyNameInput.trim()) {
+    if (isSuperAdmin && inviteRoleInput === 'client_admin' && !inviteCompanyNameInput.trim()) {
       showModalAlert('Missing Field', 'Assigned Facility / Company Name is required when inviting a Client Admin.', 'warning');
       return;
     }
@@ -648,14 +653,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const inviteToken = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       const expiresAt = new Date(Date.now() + (inviteExpiryHours || 48) * 60 * 60 * 1000).toISOString();
       const baseUrl = import.meta.env.VITE_APP_BASE_URL || window.location.origin;
-      const companyParam = inviteRoleInput === 'client_admin' ? encodeURIComponent(inviteCompanyNameInput.trim()) : '';
-      const inviteUrl = `${baseUrl}/register?inviteToken=${inviteToken}&email=${encodeURIComponent(inviteEmailInput.trim())}${companyParam ? `&company=${companyParam}` : ''}`;
+
+      const assignedCompany = isClientAdmin
+        ? (effectiveOrgName || myCompany?.name || 'Facility')
+        : inviteRoleInput === 'client_admin'
+        ? inviteCompanyNameInput.trim()
+        : (inviteCompanyNameInput.trim() || 'Global Platform');
+
+      const companyParam = encodeURIComponent(assignedCompany);
+      const inviteUrl = `${baseUrl}/register?inviteToken=${inviteToken}&email=${encodeURIComponent(inviteEmailInput.trim())}&company=${companyParam}&role=${inviteRoleInput}`;
 
       const inviteData = {
         token: inviteToken,
         email: inviteEmailInput.toLowerCase().trim(),
         name: inviteNameInput.trim(),
-        company: inviteRoleInput === 'client_admin' ? inviteCompanyNameInput.trim() : (inviteCompanyNameInput.trim() || 'Global Platform'),
+        company: assignedCompany,
+        companyId: myCompany?.id || (user as any)?.companyId || '',
         department: inviteRoleInput === 'super_admin' ? inviteDepartmentInput.trim() : '',
         role: inviteRoleInput,
         status: 'pending',
@@ -11182,61 +11195,92 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 <UserPlus className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">Invite Platform User</h3>
-                <p className="text-xs text-slate-400">Issue an authorized invitation link to register a new user on Book Picklecourt.</p>
+                <h3 className="text-lg font-bold text-white">
+                  {isSuperAdmin ? 'Invite Platform User' : `Invite Facility Manager`}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {isSuperAdmin
+                    ? 'Issue an authorized invitation link to register a new user on Book Picklecourt.'
+                    : `Issue a single-use registration link for a new manager at ${effectiveOrgName || 'your facility'}.`}
+                </p>
               </div>
             </div>
 
             {/* Role Selection Selector */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">Select Account Role *</label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setInviteRoleInput('client_admin')}
-                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    inviteRoleInput === 'client_admin'
-                      ? 'bg-brand-lime/10 border-brand-lime text-brand-lime shadow-md shadow-brand-lime/10'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <span className="text-xs font-extrabold flex items-center gap-1">
-                    🎾 Client Admin
-                  </span>
-                  <span className="text-[10px] opacity-80 mt-1">Court & Facility Host</span>
-                </button>
+            {isSuperAdmin ? (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">Select Account Role *</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInviteRoleInput('client_admin')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      inviteRoleInput === 'client_admin'
+                        ? 'bg-brand-lime/10 border-brand-lime text-brand-lime shadow-md shadow-brand-lime/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="text-xs font-extrabold flex items-center gap-1">
+                      🎾 Client Admin
+                    </span>
+                    <span className="text-[10px] opacity-80 mt-1">Facility Host</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setInviteRoleInput('super_admin')}
-                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    inviteRoleInput === 'super_admin'
-                      ? 'bg-amber-500/10 border-amber-500 text-amber-400 shadow-md shadow-amber-500/10'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <span className="text-xs font-extrabold flex items-center gap-1">
-                    🛡️ Super Admin
-                  </span>
-                  <span className="text-[10px] opacity-80 mt-1">Global Platform</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setInviteRoleInput('manager')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      inviteRoleInput === 'manager'
+                        ? 'bg-brand-lime/10 border-brand-lime text-brand-lime shadow-md shadow-brand-lime/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="text-xs font-extrabold flex items-center gap-1">
+                      📋 Manager
+                    </span>
+                    <span className="text-[10px] opacity-80 mt-1">Facility Staff</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setInviteRoleInput('player')}
-                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    inviteRoleInput === 'player'
-                      ? 'bg-sky-500/10 border-sky-500 text-sky-400 shadow-md shadow-sky-500/10'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <span className="text-xs font-extrabold flex items-center gap-1">
-                    ⚡ Player
-                  </span>
-                  <span className="text-[10px] opacity-80 mt-1">Standard Member</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setInviteRoleInput('super_admin')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      inviteRoleInput === 'super_admin'
+                        ? 'bg-amber-500/10 border-amber-500 text-amber-400 shadow-md shadow-amber-500/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="text-xs font-extrabold flex items-center gap-1">
+                      🛡️ Super Admin
+                    </span>
+                    <span className="text-[10px] opacity-80 mt-1">Global Platform</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInviteRoleInput('player')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      inviteRoleInput === 'player'
+                        ? 'bg-sky-500/10 border-sky-500 text-sky-400 shadow-md shadow-sky-500/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="text-xs font-extrabold flex items-center gap-1">
+                      ⚡ Player
+                    </span>
+                    <span className="text-[10px] opacity-80 mt-1">Member</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-brand-lime uppercase tracking-wider text-[11px]">Assigned Role:</span>
+                  <span className="font-extrabold text-white">📋 Facility Manager</span>
+                </div>
+                <span className="text-[11px] text-slate-400 font-mono">Facility: {effectiveOrgName || 'My Court'}</span>
+              </div>
+            )}
 
             {/* Super Admin Security Alert */}
             {inviteRoleInput === 'super_admin' && (
@@ -11376,7 +11420,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   className="px-5 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] transition-all shadow-lg shadow-brand-lime/20 flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <Mail className="w-4 h-4" />
-                  <span>{inviteLoading ? 'Sending Invite...' : `Send ${inviteRoleInput === 'super_admin' ? 'Super Admin' : inviteRoleInput === 'player' ? 'Player' : 'Client Admin'} Invite`}</span>
+                  <span>
+                    {inviteLoading
+                      ? 'Sending Invite...'
+                      : !isSuperAdmin
+                      ? 'Send Manager Invitation'
+                      : inviteRoleInput === 'super_admin'
+                      ? 'Send Super Admin Invite'
+                      : inviteRoleInput === 'player'
+                      ? 'Send Player Invite'
+                      : inviteRoleInput === 'manager'
+                      ? 'Send Manager Invite'
+                      : 'Send Client Admin Invite'}
+                  </span>
                 </button>
               </div>
             </form>
