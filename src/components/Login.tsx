@@ -74,7 +74,7 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
           email: fbUser.email || '',
           role: role,
           status: status,
-          isAdmin: role === 'super_admin' || role === 'client_admin',
+          isAdmin: role === 'super_admin' || role === 'client_admin' || role === 'manager',
           needsOnboarding,
         });
         setLoading(false);
@@ -107,7 +107,7 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
             email: matchedUser.email,
             role: role,
             status: status,
-            isAdmin: role === 'super_admin' || role === 'client_admin',
+            isAdmin: role === 'super_admin' || role === 'client_admin' || role === 'manager',
             needsOnboarding,
           });
           setLoading(false);
@@ -188,7 +188,7 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
           email: fbUser.email || '',
           role: role,
           status: status,
-          isAdmin: role === 'super_admin' || role === 'client_admin',
+          isAdmin: role === 'super_admin' || role === 'client_admin' || role === 'manager',
         });
         setLoading(false);
       } catch (err) {

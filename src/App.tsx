@@ -262,8 +262,12 @@ function App() {
       return;
     }
 
-    // 3. If on root path "/" without explicit view query params, stay on landing page
+    // 3. If on root path "/" without explicit view query params, direct admins/managers to admin dashboard, players to landing page
     if (window.location.pathname === '/' && !params.get('view') && !params.get('openplay') && !params.get('eventId') && !params.get('court') && !params.get('ref')) {
+      if (user && (user.isAdmin || user.role === 'super_admin' || user.role === 'client_admin' || user.role === 'manager')) {
+        setView('admin');
+        return;
+      }
       setView('landing');
       return;
     }
@@ -508,7 +512,7 @@ function App() {
               }
             }
             
-            const isAdmin = role === 'super_admin' || role === 'client_admin' || firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
+            const isAdmin = role === 'super_admin' || role === 'client_admin' || role === 'manager' || firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
             const needsOnboarding = role === 'client_admin' && !companyId;
 
             const loadedUser = {
@@ -708,7 +712,7 @@ function App() {
       ...loggedInUser,
       role: finalRole,
       status: userStatus,
-      isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin',
+      isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
     };
 
     setUser(updatedUser);

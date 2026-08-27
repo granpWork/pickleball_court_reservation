@@ -214,7 +214,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: name,
           email: fbUser.email || '',
           role: finalRole,
-          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin',
+          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
           needsOnboarding: isClientAdminInvite,
         });
         setLoading(false);
@@ -263,7 +263,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: name,
           email: email,
           role: finalRole,
-          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin',
+          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
           needsOnboarding: isClientAdminInvite,
         });
         setLoading(false);
@@ -342,7 +342,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: displayName,
           email: fbUser.email || '',
           role: finalRole,
-          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin',
+          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
           needsOnboarding: finalRole === 'client_admin',
         });
         setLoading(false);
@@ -379,7 +379,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: displayName,
           email: email || 'google.admin@picklepoint.com',
           role: finalRole,
-          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin',
+          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
           needsOnboarding: isClientAdminInvite,
         });
         setLoading(false);
@@ -424,7 +424,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: fbUser.displayName || 'Facebook Player',
           email: fbUser.email || '',
           role: role,
-          isAdmin: role === 'super_admin' || role === 'client_admin',
+          isAdmin: role === 'super_admin' || role === 'client_admin' || role === 'manager',
         });
         setLoading(false);
       } catch (err) {
