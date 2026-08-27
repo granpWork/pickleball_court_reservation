@@ -24,7 +24,8 @@ import {
   QrCode,
   ChevronDown,
   UserPlus,
-  Users
+  Users,
+  X
 } from 'lucide-react';
 import { AdminPoliciesTab } from './AdminPoliciesTab';
 import { GcashAmountQrModal } from '../modals/GcashAmountQrModal';
@@ -161,6 +162,8 @@ interface AdminSettingsTabProps {
   // Team / Manager Invite Props
   onOpenInviteManagerModal?: () => void;
   teamMembers?: UserAccount[];
+  onSaveManager?: (updatedManager: UserAccount) => Promise<void>;
+  onDeleteManager?: (managerToDelete: UserAccount) => Promise<void>;
 
   // Policies Props
   policies?: CourtPolicies;
@@ -175,6 +178,8 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   setSettingsSubTab: _setSettingsSubTab,
   onOpenInviteManagerModal,
   teamMembers = [],
+  onSaveManager,
+  onDeleteManager,
   policies,
   onSavePolicies,
   adminDisplayName = '',
@@ -266,6 +271,50 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   const [isOrgCityOpen, setIsOrgCityOpen] = useState(false);
   const [isOrgBarangayOpen, setIsOrgBarangayOpen] = useState(false);
   const [activeTimePicker, setActiveTimePicker] = useState<string | null>(null);
+
+  // Manager Edit & Delete Modal States
+  const [editingManager, setEditingManager] = useState<UserAccount | null>(null);
+  const [deletingManager, setDeletingManager] = useState<UserAccount | null>(null);
+  const [editManagerName, setEditManagerName] = useState('');
+  const [editManagerStatus, setEditManagerStatus] = useState<'active' | 'pending' | 'inactive'>('active');
+  const [managerActionLoading, setManagerActionLoading] = useState(false);
+
+  const handleStartEditManager = (m: UserAccount) => {
+    setEditingManager(m);
+    setEditManagerName(m.name || '');
+    setEditManagerStatus((m.status as any) || 'active');
+  };
+
+  const handleSaveEditManagerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingManager || !onSaveManager) return;
+    setManagerActionLoading(true);
+    try {
+      await onSaveManager({
+        ...editingManager,
+        name: editManagerName.trim() || editingManager.name,
+        status: editManagerStatus,
+      });
+      setEditingManager(null);
+    } catch (err) {
+      console.error('Error saving manager edit:', err);
+    } finally {
+      setManagerActionLoading(false);
+    }
+  };
+
+  const handleConfirmDeleteManager = async () => {
+    if (!deletingManager || !onDeleteManager) return;
+    setManagerActionLoading(true);
+    try {
+      await onDeleteManager(deletingManager);
+      setDeletingManager(null);
+    } catch (err) {
+      console.error('Error deleting manager:', err);
+    } finally {
+      setManagerActionLoading(false);
+    }
+  };
 
   const [leadTimeInput, setLeadTimeInput] = useState(bookingLeadTimeMinutes);
   const [feeAmount, setFeeAmount] = useState(globalServiceFee || 0);
@@ -414,12 +463,13 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     <th className="py-3 px-4">Role</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4 text-right">Invited / Joined</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {teamMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-500">
+                      <td colSpan={6} className="py-8 text-center text-slate-500">
                         <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                         <p className="font-semibold text-slate-400">No facility managers found.</p>
                         <p className="text-[11px] text-slate-500 mt-1">Click <strong>Invite Manager</strong> above to generate a secure registration link.</p>
@@ -451,6 +501,28 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                         <td className="py-3.5 px-4 text-right font-mono text-slate-400 text-[11px]">
                           {m.createdAt ? new Date(m.createdAt).toLocaleDateString() : 'Recently'}
                         </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditManager(m)}
+                              title="Edit Manager"
+                              className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-brand-lime" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingManager(m)}
+                              title="Delete Manager"
+                              className="p-1.5 rounded-lg bg-red-950/30 border border-red-900/40 text-red-400 hover:bg-red-900/80 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -458,6 +530,135 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
               </table>
             </div>
           </div>
+
+          {/* EDIT MANAGER MODAL */}
+          {editingManager && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in text-left">
+              <div className="glass-panel w-full max-w-md p-6 sm:p-8 rounded-3xl border border-brand-lime/30 shadow-2xl space-y-5 relative bg-slate-900/95">
+                <button
+                  onClick={() => setEditingManager(null)}
+                  className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center space-x-3 border-b border-slate-800 pb-4">
+                  <div className="w-10 h-10 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-bold">
+                    <Edit2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white">Edit Facility Manager</h3>
+                    <p className="text-xs text-slate-400">Update manager profile details and access status.</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveEditManagerSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Manager Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editManagerName}
+                      onChange={(e) => setEditManagerName(e.target.value)}
+                      placeholder="e.g. John Doe"
+                      className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      disabled
+                      value={editingManager.email}
+                      className="w-full bg-[#050711]/60 border border-slate-800/80 rounded-xl p-3 text-xs font-mono text-slate-400 cursor-not-allowed"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Account Status</label>
+                    <select
+                      value={editManagerStatus}
+                      onChange={(e) => setEditManagerStatus(e.target.value as any)}
+                      className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime cursor-pointer"
+                    >
+                      <option value="active">Active (Full Manager Access)</option>
+                      <option value="pending">Pending Invitation</option>
+                      <option value="inactive">Inactive / Suspended</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setEditingManager(null)}
+                      className="px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white font-bold text-xs transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={managerActionLoading}
+                      className="px-5 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] transition-all shadow-lg shadow-brand-lime/20 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>{managerActionLoading ? 'Saving...' : 'Save Changes'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* DELETE MANAGER CONFIRMATION MODAL ALERT */}
+          {deletingManager && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in text-left">
+              <div className="glass-panel w-full max-w-md p-6 sm:p-8 rounded-3xl border border-red-500/30 shadow-2xl space-y-5 relative bg-slate-900/95">
+                <button
+                  onClick={() => setDeletingManager(null)}
+                  className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 mx-auto">
+                  <Trash2 className="w-7 h-7" />
+                </div>
+
+                <div className="text-center space-y-2">
+                  <h3 className="text-lg font-bold text-white">Delete Facility Manager?</h3>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Are you sure you want to remove manager <strong className="text-white">{deletingManager.name || deletingManager.email}</strong> from your facility? They will immediately lose access.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeletingManager(null)}
+                    className="flex-1 py-3 px-4 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white font-bold text-xs transition-all cursor-pointer text-center"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={managerActionLoading}
+                    onClick={handleConfirmDeleteManager}
+                    className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-all cursor-pointer shadow-lg shadow-red-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {managerActionLoading ? (
+                      <span>Deleting...</span>
+                    ) : (
+                      <>
+                        <Trash2 className="w-4 h-4" />
+                        <span>Confirm Delete</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

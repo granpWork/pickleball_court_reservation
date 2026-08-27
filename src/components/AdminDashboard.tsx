@@ -4441,6 +4441,82 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
+  const handleSaveManager = async (updatedManager: UserAccount) => {
+    try {
+      const targetEmailLower = updatedManager.email.toLowerCase();
+      if (isFirebaseConfigured && db) {
+        const currentDb = db;
+        const querySnapshot = await getDocs(collection(currentDb, 'users'));
+        let foundDocId: string | null = null;
+        querySnapshot.forEach((docSnap) => {
+          const dEmail = docSnap.data().email?.toLowerCase();
+          if (dEmail === targetEmailLower || docSnap.id === updatedManager.uid) {
+            foundDocId = docSnap.id;
+          }
+        });
+
+        if (foundDocId) {
+          await updateDoc(doc(currentDb, 'users', foundDocId), {
+            name: updatedManager.name,
+            status: updatedManager.status || 'active',
+          });
+        }
+
+        if (updatedManager.inviteToken || updatedManager.isInvitedPending) {
+          const invToken = updatedManager.inviteToken || updatedManager.uid?.replace('invite-', '');
+          if (invToken) {
+            await updateDoc(doc(currentDb, 'invitations', invToken), {
+              name: updatedManager.name,
+              status: updatedManager.status || 'pending',
+            }).catch(() => {});
+          }
+        }
+      }
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.email.toLowerCase() === targetEmailLower
+            ? { ...u, name: updatedManager.name, status: updatedManager.status || u.status }
+            : u
+        )
+      );
+
+      showModalAlert('Manager Updated', `Facility manager ${updatedManager.name || updatedManager.email} profile has been updated.`, 'success');
+    } catch (err) {
+      console.error('Failed to update manager:', err);
+      showModalAlert('Update Failed', 'Failed to update manager: ' + (err as Error).message, 'error');
+    }
+  };
+
+  const handleDeleteManager = async (managerToDelete: UserAccount) => {
+    try {
+      const targetEmailLower = managerToDelete.email.toLowerCase();
+      if (isFirebaseConfigured && db) {
+        const currentDb = db;
+        const querySnapshot = await getDocs(collection(currentDb, 'users'));
+        querySnapshot.forEach((docSnap) => {
+          const dEmail = docSnap.data().email?.toLowerCase();
+          if (dEmail === targetEmailLower || docSnap.id === managerToDelete.uid) {
+            deleteDoc(doc(currentDb, 'users', docSnap.id)).catch(() => {});
+          }
+        });
+
+        if (managerToDelete.inviteToken || managerToDelete.isInvitedPending) {
+          const invToken = managerToDelete.inviteToken || managerToDelete.uid?.replace('invite-', '');
+          if (invToken) {
+            deleteDoc(doc(currentDb, 'invitations', invToken)).catch(() => {});
+          }
+        }
+      }
+
+      setUsers((prev) => prev.filter((u) => u.email.toLowerCase() !== targetEmailLower));
+      showModalAlert('Manager Removed', `Facility manager ${managerToDelete.name || managerToDelete.email} has been removed from your team.`, 'success');
+    } catch (err) {
+      console.error('Failed to remove manager:', err);
+      showModalAlert('Deletion Failed', 'Failed to remove manager: ' + (err as Error).message, 'error');
+    }
+  };
+
   // Client Admin Secure Invitation Handlers
   const generateSecureInviteToken = (): string => {
     if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
@@ -6332,6 +6408,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 (u.role === 'manager' || u.role === 'client_admin') &&
                 (!isSuperAdmin || (myCompany?.id && u.companyId === myCompany.id))
               )}
+              onSaveManager={handleSaveManager}
+              onDeleteManager={handleDeleteManager}
               policies={{
                 cancellationPolicy: policyCancellation,
                 rulesPolicy: policyRules,
