@@ -1179,13 +1179,13 @@ export interface ClientAdminInvitationEmailParams {
   invitedBy?: string;
   customMessage?: string;
   companyName?: string;
-  role?: 'super_admin' | 'client_admin' | 'manager' | 'player';
+  role?: 'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player';
 }
 
 export interface UserInvitationEmailParams {
   toEmail: string;
   toName?: string;
-  role: 'super_admin' | 'client_admin' | 'manager' | 'player';
+  role: 'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player';
   inviteUrl: string;
   expiresAt: string;
   invitedBy?: string;
@@ -1197,7 +1197,8 @@ export const sendUserInvitationEmail = async (params: UserInvitationEmailParams)
   const roleLabels: Record<string, { title: string; badge: string; color: string }> = {
     super_admin: { title: 'Super Administrator (Global Platform Access)', badge: '🛡️ SUPER ADMIN', color: '#f59e0b' },
     client_admin: { title: 'Client Admin (Venue & Facility Host)', badge: '🎾 FACILITY HOST', color: '#a6e224' },
-    manager: { title: 'Facility Manager (Venue Staff & Management)', badge: '📋 FACILITY MANAGER', color: '#ccff00' },
+    manager: { title: 'Facility Manager (Venue Operations & Management)', badge: '📋 FACILITY MANAGER', color: '#ccff00' },
+    editor: { title: 'Court Staff / Scorekeeper (Front-Desk & Check-in Staff)', badge: '✏️ STAFF EDITOR', color: '#38bdf8' },
     player: { title: 'Standard Player / Court Member', badge: '⚡ PLAYER ACCOUNT', color: '#38bdf8' },
   };
 

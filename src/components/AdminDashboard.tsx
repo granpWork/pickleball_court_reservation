@@ -12,7 +12,7 @@ import { AdminUsersTab } from './admin/tabs/AdminUsersTab';
 import { AdminSettingsTab } from './admin/tabs/AdminSettingsTab';
 import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
 import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
-import { type AdminTab, type AdminSettingsSubTab, type ShortLink } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type ShortLink, type UserPermissions } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { InteractiveMapPicker } from './InteractiveMapPicker';
@@ -201,6 +201,7 @@ interface UserAccount {
   status?: 'active' | 'inactive' | 'pending' | 'deleted';
   companyId?: string;
   companyName?: string;
+  permissions?: UserPermissions;
   isInvitedPending?: boolean;
   isInvitation?: boolean;
   inviteToken?: string;
@@ -643,7 +644,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // User Invitation Modal States
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
-  const [inviteRoleInput, setInviteRoleInput] = useState<'client_admin' | 'super_admin' | 'player' | 'manager'>('client_admin');
+  const [inviteRoleInput, setInviteRoleInput] = useState<'client_admin' | 'super_admin' | 'player' | 'manager' | 'editor'>('client_admin');
   const [inviteEmailInput, setInviteEmailInput] = useState('');
   const [inviteNameInput, setInviteNameInput] = useState('');
   const [inviteCompanyNameInput, setInviteCompanyNameInput] = useState('');
@@ -662,8 +663,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       showModalAlert('Access Denied', 'Only Administrators can send invitations.', 'warning');
       return;
     }
-    if (!isSuperAdmin && isClientAdmin && inviteRoleInput !== 'manager') {
-      showModalAlert('Access Denied', 'Client Administrators can only send invitations for Manager roles.', 'warning');
+    if (!isSuperAdmin && isClientAdmin && inviteRoleInput !== 'manager' && inviteRoleInput !== 'editor') {
+      showModalAlert('Access Denied', 'Client Administrators can only send invitations for Manager or Editor roles.', 'warning');
       return;
     }
     if (!inviteEmailInput) return;
@@ -4485,7 +4486,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         if (foundDocId) {
           await updateDoc(doc(currentDb, 'users', foundDocId), {
             name: updatedManager.name,
+            role: updatedManager.role || 'manager',
             status: updatedManager.status || 'active',
+            permissions: updatedManager.permissions || {},
           });
         }
 
@@ -4494,7 +4497,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           if (invToken) {
             await updateDoc(doc(currentDb, 'invitations', invToken), {
               name: updatedManager.name,
+              role: updatedManager.role || 'manager',
               status: updatedManager.status || 'pending',
+              permissions: updatedManager.permissions || {},
             }).catch(() => {});
           }
         }
@@ -4503,12 +4508,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       setUsers((prev) =>
         prev.map((u) =>
           u.email.toLowerCase() === targetEmailLower
-            ? { ...u, name: updatedManager.name, status: updatedManager.status || u.status }
+            ? {
+                ...u,
+                name: updatedManager.name,
+                role: updatedManager.role || u.role,
+                status: updatedManager.status || u.status,
+                permissions: updatedManager.permissions || u.permissions,
+              }
             : u
         )
       );
 
-      showModalAlert('Manager Updated', `Facility manager ${updatedManager.name || updatedManager.email} profile has been updated.`, 'success');
+      showModalAlert('Staff Member Updated', `Staff member ${updatedManager.name || updatedManager.email} profile and permissions have been updated.`, 'success');
     } catch (err) {
       console.error('Failed to update manager:', err);
       showModalAlert('Update Failed', 'Failed to update manager: ' + (err as Error).message, 'error');
@@ -6432,7 +6443,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 setInviteModalOpen(true);
               }}
               teamMembers={users.filter(u =>
-                (u.role === 'manager' || u.role === 'client_admin') &&
+                (u.role === 'manager' || u.role === 'editor' || u.role === 'client_admin') &&
                 (!isSuperAdmin || (myCompany?.id && u.companyId === myCompany.id))
               )}
               onSaveManager={handleSaveManager}
@@ -11379,12 +11390,39 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 </div>
               </div>
             ) : (
-              <div className="p-3.5 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="font-extrabold text-brand-lime uppercase tracking-wider text-[11px]">Assigned Role:</span>
-                  <span className="font-extrabold text-white">📋 Facility Manager</span>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">Select Staff Role *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInviteRoleInput('manager')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      inviteRoleInput === 'manager'
+                        ? 'bg-brand-lime/10 border-brand-lime text-brand-lime shadow-md shadow-brand-lime/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="text-xs font-extrabold flex items-center gap-1">
+                      📋 Facility Manager
+                    </span>
+                    <span className="text-[10px] opacity-80 mt-1">Full Operations</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setInviteRoleInput('editor')}
+                    className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      inviteRoleInput === 'editor'
+                        ? 'bg-amber-500/10 border-amber-500 text-amber-400 shadow-md shadow-amber-500/10'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span className="text-xs font-extrabold flex items-center gap-1">
+                      ✏️ Staff Editor
+                    </span>
+                    <span className="text-[10px] opacity-80 mt-1">Check-in Staff</span>
+                  </button>
                 </div>
-                <span className="text-[11px] text-slate-400 font-mono">Facility: {effectiveOrgName || 'My Court'}</span>
               </div>
             )}
 
@@ -11539,14 +11577,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <span>
                     {inviteLoading
                       ? 'Sending Invite...'
-                      : !isSuperAdmin
-                      ? 'Send Manager Invitation'
+                      : inviteRoleInput === 'editor'
+                      ? 'Send Staff Editor Invite'
+                      : inviteRoleInput === 'manager'
+                      ? 'Send Manager Invite'
                       : inviteRoleInput === 'super_admin'
                       ? 'Send Super Admin Invite'
                       : inviteRoleInput === 'player'
                       ? 'Send Player Invite'
-                      : inviteRoleInput === 'manager'
-                      ? 'Send Manager Invite'
                       : 'Send Client Admin Invite'}
                   </span>
                 </button>

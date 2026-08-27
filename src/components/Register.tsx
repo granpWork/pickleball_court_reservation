@@ -29,7 +29,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
   const [inviteTokenValidating, setInviteTokenValidating] = useState(!!inviteTokenParam);
   const [isVerifiedInvite, setIsVerifiedInvite] = useState(false);
   const [invalidInviteReason, setInvalidInviteReason] = useState<string | null>(null);
-  const [invitedRole, setInvitedRole] = useState<'super_admin' | 'client_admin' | 'manager' | 'player' | null>(null);
+  const [invitedRole, setInvitedRole] = useState<'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player' | null>(null);
 
   useEffect(() => {
     const validateInviteToken = async () => {

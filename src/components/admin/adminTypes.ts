@@ -75,14 +75,26 @@ export interface Voucher {
   createdAt: string;
 }
 
+export type UserRole = 'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player';
+
+export interface UserPermissions {
+  canManageBookings?: boolean;
+  canManageCourts?: boolean;
+  canManageOpenPlay?: boolean;
+  canManageVouchers?: boolean;
+  canViewFinancials?: boolean;
+  canManageTeam?: boolean;
+}
+
 export interface UserAccount {
   uid?: string;
   name: string;
   email: string;
-  role?: string;
+  role?: UserRole | string;
   status?: 'active' | 'inactive' | 'pending' | 'deleted';
   companyId?: string;
   companyName?: string;
+  permissions?: UserPermissions;
   isInvitedPending?: boolean;
   isInvitation?: boolean;
   inviteToken?: string;

@@ -65,6 +65,15 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   personalAccountsCount: _personalAccountsCount = 0,
   bookingLeadTimeMinutes: _bookingLeadTimeMinutes = 30,
 }) => {
+  const isClientAdminRole = user?.role === 'client_admin';
+  const isManagerRole = user?.role === 'manager';
+
+  const userPerms = (user as any)?.permissions || {};
+
+  const canManageVouchers = isSuperAdmin || isClientAdminRole || (isManagerRole && userPerms.canManageVouchers !== false) || userPerms.canManageVouchers === true;
+  const canViewFinancials = isSuperAdmin || isClientAdminRole || userPerms.canViewFinancials === true;
+  const canManageTeam = isSuperAdmin || isClientAdminRole || userPerms.canManageTeam === true;
+
   const handleTabClick = (tab: AdminTab) => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
@@ -208,19 +217,21 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
               </div>
             </button>
 
-            <button
-              onClick={() => handleTabClick('vouchers')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                activeTab === 'vouchers'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Tag className="w-4 h-4" />
-                <span>Vouchers</span>
-              </div>
-            </button>
+            {canManageVouchers && (
+              <button
+                onClick={() => handleTabClick('vouchers')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
+                  activeTab === 'vouchers'
+                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Tag className="w-4 h-4" />
+                  <span>Vouchers</span>
+                </div>
+              </button>
+            )}
 
             <button
               onClick={() => handleTabClick('shortener')}
@@ -321,18 +332,20 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     <span>Facility</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => { setSettingsSubTab('team'); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'team'
-                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>Team & Managers</span>
-                  </button>
+                  {canManageTeam && (
+                    <button
+                      type="button"
+                      onClick={() => { setSettingsSubTab('team'); setMobileMenuOpen(false); }}
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
+                        settingsSubTab === 'team'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      <span>Team & Access</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -347,20 +360,22 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     <span>Venue Rules</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => { setSettingsSubTab('gcash'); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'gcash'
-                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>GCash Accounts</span>
-                    </div>
-                  </button>
+                  {canViewFinancials && (
+                    <button
+                      type="button"
+                      onClick={() => { setSettingsSubTab('gcash'); setMobileMenuOpen(false); }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
+                        settingsSubTab === 'gcash'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>GCash Accounts</span>
+                      </div>
+                    </button>
+                  )}
 
                   <button
                     type="button"

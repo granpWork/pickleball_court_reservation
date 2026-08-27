@@ -32,6 +32,8 @@ import { GcashAmountQrModal } from '../modals/GcashAmountQrModal';
 import {
   type AdminUser,
   type UserAccount,
+  type UserRole,
+  type UserPermissions,
   type AdminSettingsSubTab,
   type Company,
   type DailyOperatingHoursMap,
@@ -272,17 +274,46 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   const [isOrgBarangayOpen, setIsOrgBarangayOpen] = useState(false);
   const [activeTimePicker, setActiveTimePicker] = useState<string | null>(null);
 
-  // Manager Edit & Delete Modal States
+  // Manager / Staff Edit & Delete Modal States
   const [editingManager, setEditingManager] = useState<UserAccount | null>(null);
   const [deletingManager, setDeletingManager] = useState<UserAccount | null>(null);
   const [editManagerName, setEditManagerName] = useState('');
+  const [editManagerRole, setEditManagerRole] = useState<UserRole>('manager');
   const [editManagerStatus, setEditManagerStatus] = useState<'active' | 'pending' | 'inactive'>('active');
+  const [editManagerPermissions, setEditManagerPermissions] = useState<UserPermissions>({
+    canManageBookings: true,
+    canManageCourts: true,
+    canManageOpenPlay: true,
+    canManageVouchers: true,
+    canViewFinancials: false,
+    canManageTeam: false,
+  });
   const [managerActionLoading, setManagerActionLoading] = useState(false);
 
   const handleStartEditManager = (m: UserAccount) => {
     setEditingManager(m);
     setEditManagerName(m.name || '');
+    const currentRole = (m.role as UserRole) || 'manager';
+    setEditManagerRole(currentRole);
     setEditManagerStatus((m.status as any) || 'active');
+
+    const defaultPerms: UserPermissions = currentRole === 'editor' ? {
+      canManageBookings: true,
+      canManageCourts: false,
+      canManageOpenPlay: true,
+      canManageVouchers: false,
+      canViewFinancials: false,
+      canManageTeam: false,
+    } : {
+      canManageBookings: true,
+      canManageCourts: true,
+      canManageOpenPlay: true,
+      canManageVouchers: true,
+      canViewFinancials: false,
+      canManageTeam: false,
+    };
+
+    setEditManagerPermissions(m.permissions ? { ...defaultPerms, ...m.permissions } : defaultPerms);
   };
 
   const handleSaveEditManagerSubmit = async (e: React.FormEvent) => {
@@ -293,7 +324,9 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
       await onSaveManager({
         ...editingManager,
         name: editManagerName.trim() || editingManager.name,
+        role: editManagerRole,
         status: editManagerStatus,
+        permissions: editManagerPermissions,
       });
       setEditingManager(null);
     } catch (err) {
@@ -425,18 +458,18 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* FACILITY TEAM & MANAGERS SUB-TAB                                         */}
+      {/* FACILITY TEAM & USER ACCESS CONTROL SUB-TAB                              */}
       {/* ========================================================================= */}
       {settingsSubTab === 'team' && (
         <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-bold">
-                <Users className="w-5 h-5" />
+                <Shield className="w-5 h-5" />
               </div>
               <div>
-                <h4 className="font-bold text-white text-base">Facility Team & Managers</h4>
-                <p className="text-xs text-slate-400">Invite and manage assigned facility managers for your organization.</p>
+                <h4 className="font-bold text-white text-base">Facility Team & User Access Control</h4>
+                <p className="text-xs text-slate-400">Manage facility team roles, managers, staff editors, and fine-grained feature permissions.</p>
               </div>
             </div>
 
@@ -447,22 +480,53 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                 className="px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
               >
                 <UserPlus className="w-4 h-4" />
-                <span>Invite Manager</span>
+                <span>Invite Staff Member</span>
               </button>
             )}
           </div>
 
-          {/* Managers Table */}
+          {/* Role Summary Badges */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3.5 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Primary Owner</span>
+                <span className="text-xs font-extrabold text-white flex items-center gap-1">🎾 Client Admin</span>
+              </div>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-brand-lime/20 text-brand-lime">1 Owner</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Operational Staff</span>
+                <span className="text-xs font-extrabold text-white flex items-center gap-1">📋 Facility Managers</span>
+              </div>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-sky-500/20 text-sky-400">
+                {teamMembers.filter(m => m.role === 'manager').length} Assigned
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Front-Desk / Check-in</span>
+                <span className="text-xs font-extrabold text-white flex items-center gap-1">✏️ Staff Editors</span>
+              </div>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-400">
+                {teamMembers.filter(m => m.role === 'editor').length} Assigned
+              </span>
+            </div>
+          </div>
+
+          {/* Managers & Staff Roster Table */}
           <div className="border border-slate-800/80 rounded-xl overflow-hidden bg-slate-900/40">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider">
-                    <th className="py-3 px-4">Manager Name</th>
+                    <th className="py-3 px-4">Staff Name</th>
                     <th className="py-3 px-4">Email Address</th>
-                    <th className="py-3 px-4">Role</th>
+                    <th className="py-3 px-4">Assigned Role</th>
+                    <th className="py-3 px-4">Access Permissions</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-right">Invited / Joined</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -471,70 +535,102 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     <tr>
                       <td colSpan={6} className="py-8 text-center text-slate-500">
                         <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                        <p className="font-semibold text-slate-400">No facility managers found.</p>
-                        <p className="text-[11px] text-slate-500 mt-1">Click <strong>Invite Manager</strong> above to generate a secure registration link.</p>
+                        <p className="font-semibold text-slate-400">No facility team members found.</p>
+                        <p className="text-[11px] text-slate-500 mt-1">Click <strong>Invite Staff Member</strong> above to issue a registration link.</p>
                       </td>
                     </tr>
                   ) : (
-                    teamMembers.map((m, idx) => (
-                      <tr key={m.uid || m.email || idx} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3.5 px-4 font-extrabold text-white">
-                          {m.name || 'Pending Invitee'}
-                        </td>
-                        <td className="py-3.5 px-4 font-mono text-slate-300">
-                          {m.email}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
-                            {m.role || 'manager'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
-                            m.status === 'active'
-                              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                              : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                          }`}>
-                            {m.status || 'pending'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono text-slate-400 text-[11px]">
-                          {m.createdAt ? new Date(m.createdAt).toLocaleDateString() : 'Recently'}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleStartEditManager(m)}
-                              title="Edit Manager"
-                              className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
-                            >
-                              <Edit2 className="w-3.5 h-3.5 text-brand-lime" />
-                              <span>Edit</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeletingManager(m)}
-                              title="Delete Manager"
-                              className="p-1.5 rounded-lg bg-red-950/30 border border-red-900/40 text-red-400 hover:bg-red-900/80 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Delete</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    teamMembers.map((m, idx) => {
+                      const isOwner = m.role === 'client_admin';
+                      const isEditorRole = m.role === 'editor';
+                      const perms = m.permissions || (isEditorRole ? { canManageBookings: true, canManageOpenPlay: true } : { canManageBookings: true, canManageCourts: true, canManageOpenPlay: true, canManageVouchers: true });
+
+                      return (
+                        <tr key={m.uid || m.email || idx} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4 font-extrabold text-white">
+                            {m.name || 'Pending Invitee'}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-slate-300">
+                            {m.email}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                              isOwner
+                                ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
+                                : isEditorRole
+                                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                                : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                            }`}>
+                              {isOwner ? '🎾 Client Admin' : isEditorRole ? '✏️ Editor' : '📋 Facility Manager'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex flex-wrap gap-1">
+                              {perms.canManageBookings && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-800 text-slate-300">Bookings</span>
+                              )}
+                              {perms.canManageCourts && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-800 text-slate-300">Courts</span>
+                              )}
+                              {perms.canManageOpenPlay && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-800 text-slate-300">Open Play</span>
+                              )}
+                              {perms.canManageVouchers && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-800 text-slate-300">Vouchers</span>
+                              )}
+                              {perms.canViewFinancials && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300">Financials</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                              m.status === 'active'
+                                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                            }`}>
+                              {m.status || 'pending'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            {!isOwner ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditManager(m)}
+                                  title="Edit Staff Access"
+                                  className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5 text-brand-lime" />
+                                  <span>Manage Access</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingManager(m)}
+                                  title="Delete Staff Account"
+                                  className="p-1.5 rounded-lg bg-red-950/30 border border-red-900/40 text-red-400 hover:bg-red-900/80 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Primary Host</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* EDIT MANAGER MODAL */}
+          {/* EDIT STAFF MEMBER MODAL WITH CHECKBOX PERMISSIONS */}
           {editingManager && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in text-left">
-              <div className="glass-panel w-full max-w-md p-6 sm:p-8 rounded-3xl border border-brand-lime/30 shadow-2xl space-y-5 relative bg-slate-900/95">
+              <div className="glass-panel w-full max-w-lg p-6 sm:p-8 rounded-3xl border border-brand-lime/30 shadow-2xl space-y-5 relative bg-slate-900/95 max-h-[90vh] overflow-y-auto">
                 <button
                   onClick={() => setEditingManager(null)}
                   className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
@@ -547,14 +643,14 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     <Edit2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white">Edit Facility Manager</h3>
-                    <p className="text-xs text-slate-400">Update manager profile details and access status.</p>
+                    <h3 className="text-lg font-bold text-white">Manage Staff Access & Permissions</h3>
+                    <p className="text-xs text-slate-400">Configure role and custom checkbox permissions for {editingManager.name || editingManager.email}.</p>
                   </div>
                 </div>
 
                 <form onSubmit={handleSaveEditManagerSubmit} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Manager Full Name *</label>
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Staff Member Name *</label>
                     <input
                       type="text"
                       required
@@ -575,17 +671,122 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Account Status</label>
-                    <select
-                      value={editManagerStatus}
-                      onChange={(e) => setEditManagerStatus(e.target.value as any)}
-                      className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime cursor-pointer"
-                    >
-                      <option value="active">Active (Full Manager Access)</option>
-                      <option value="pending">Pending Invitation</option>
-                      <option value="inactive">Inactive / Suspended</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Assigned Staff Role</label>
+                      <select
+                        value={editManagerRole}
+                        onChange={(e) => {
+                          const newRole = e.target.value as UserRole;
+                          setEditManagerRole(newRole);
+                          if (newRole === 'editor') {
+                            setEditManagerPermissions({
+                              canManageBookings: true,
+                              canManageCourts: false,
+                              canManageOpenPlay: true,
+                              canManageVouchers: false,
+                              canViewFinancials: false,
+                              canManageTeam: false,
+                            });
+                          } else {
+                            setEditManagerPermissions({
+                              canManageBookings: true,
+                              canManageCourts: true,
+                              canManageOpenPlay: true,
+                              canManageVouchers: true,
+                              canViewFinancials: false,
+                              canManageTeam: false,
+                            });
+                          }
+                        }}
+                        className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime cursor-pointer"
+                      >
+                        <option value="manager">📋 Facility Manager</option>
+                        <option value="editor">✏️ Staff Editor</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Account Status</label>
+                      <select
+                        value={editManagerStatus}
+                        onChange={(e) => setEditManagerStatus(e.target.value as any)}
+                        className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime cursor-pointer"
+                      >
+                        <option value="active">Active Access</option>
+                        <option value="pending">Pending Invitation</option>
+                        <option value="inactive">Inactive / Suspended</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* CHECKBOX PERMISSION MATRIX */}
+                  <div className="space-y-2 border-t border-b border-slate-800 py-3">
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Feature Checkbox Permissions *
+                    </label>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={!!editManagerPermissions.canManageBookings}
+                          onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageBookings: e.target.checked }))}
+                          className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
+                        />
+                        <span className="text-slate-200 font-semibold">Bookings & Reservations</span>
+                      </label>
+
+                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={!!editManagerPermissions.canManageCourts}
+                          onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageCourts: e.target.checked }))}
+                          className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
+                        />
+                        <span className="text-slate-200 font-semibold">Courts & Operating Hours</span>
+                      </label>
+
+                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={!!editManagerPermissions.canManageOpenPlay}
+                          onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageOpenPlay: e.target.checked }))}
+                          className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
+                        />
+                        <span className="text-slate-200 font-semibold">Open Play Sessions</span>
+                      </label>
+
+                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={!!editManagerPermissions.canManageVouchers}
+                          onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageVouchers: e.target.checked }))}
+                          className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
+                        />
+                        <span className="text-slate-200 font-semibold">Vouchers & Promos</span>
+                      </label>
+
+                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={!!editManagerPermissions.canViewFinancials}
+                          onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canViewFinancials: e.target.checked }))}
+                          className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
+                        />
+                        <span className="text-slate-200 font-semibold">Financials & GCash</span>
+                      </label>
+
+                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={!!editManagerPermissions.canManageTeam}
+                          onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageTeam: e.target.checked }))}
+                          className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
+                        />
+                        <span className="text-slate-200 font-semibold">Staff & User Access</span>
+                      </label>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
@@ -602,7 +803,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                       className="px-5 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] transition-all shadow-lg shadow-brand-lime/20 flex items-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       <Save className="w-4 h-4" />
-                      <span>{managerActionLoading ? 'Saving...' : 'Save Changes'}</span>
+                      <span>{managerActionLoading ? 'Saving...' : 'Save Permissions'}</span>
                     </button>
                   </div>
                 </form>
