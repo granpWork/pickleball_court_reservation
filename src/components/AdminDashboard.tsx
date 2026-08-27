@@ -1024,18 +1024,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     );
   };
 
-  const userObj = user as { companyId?: string; companyName?: string } | null;
+  const userObj = user as { companyId?: string; companyName?: string; invitedBy?: string; role?: string } | null;
   const currentCompany = companies.find((c) => 
     (c.clientAdminEmail && currentUserEmail && c.clientAdminEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
     (userObj?.companyId && c.id === userObj.companyId) ||
     (c.id && currentUserUid && c.id === currentUserUid) ||
-    (userObj?.companyName && c.name && c.name.toLowerCase() === userObj.companyName.toLowerCase())
+    (userObj?.companyName && c.name && c.name.toLowerCase() === userObj.companyName.toLowerCase()) ||
+    (c.clientAdminEmail && userObj?.invitedBy && c.clientAdminEmail.toLowerCase() === userObj.invitedBy.toLowerCase())
   );
 
   const availableAdminCourts = (() => {
     const hostEmail = currentUserEmail.trim().toLowerCase();
-    const hostCompanyId = currentCompany?.id;
+    const hostCompanyId = currentCompany?.id || userObj?.companyId;
     const hostCompName = (currentCompany?.name || userObj?.companyName || '').trim().toLowerCase();
+    const inviterEmail = (currentCompany?.clientAdminEmail || userObj?.invitedBy || '').trim().toLowerCase();
     const isGenericPlaceholder = !hostCompName || hostCompName === 'picklepoint venue' || hostCompName === 'book picklecourt venue';
 
     const matched = courts.filter((c) => {
@@ -1048,10 +1050,16 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === hostEmail) return true;
       }
 
-      // 3. Company ID match
+      // 3. Inviter (Client Admin) email match for staff
+      if (inviterEmail) {
+        if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === inviterEmail) return true;
+        if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === inviterEmail) return true;
+      }
+
+      // 4. Company ID match
       if (hostCompanyId && c.companyId && c.companyId === hostCompanyId) return true;
 
-      // 4. Company Name match (avoid matching generic default placeholders)
+      // 5. Company Name match
       if (!isGenericPlaceholder) {
         if (c.ownerCompanyName && c.ownerCompanyName.trim().toLowerCase() === hostCompName) return true;
         if (c.companyName && c.companyName.trim().toLowerCase() === hostCompName) return true;
@@ -1061,6 +1069,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     });
 
     if (matched.length > 0) return matched;
+    if (!isSuperAdmin) return courts;
     if (isSuperAdmin && !currentCompany) return courts;
     return [];
   })();
@@ -2601,8 +2610,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       const scopedAdminCourts = (() => {
         const hostEmail = currentUserEmail.trim().toLowerCase();
-        const hostCompanyId = myActiveCompany?.id;
+        const hostCompanyId = myActiveCompany?.id || (user as any)?.companyId;
         const hostCompName = (myActiveCompany?.name || (user as any)?.companyName || '').trim().toLowerCase();
+        const inviterEmail = ((user as any)?.invitedBy || myActiveCompany?.clientAdminEmail || '').trim().toLowerCase();
         const isGenericPlaceholder = !hostCompName || hostCompName === 'picklepoint venue' || hostCompName === 'book picklecourt venue';
 
         const matched = loadedCourts.filter((c) => {
@@ -2610,6 +2620,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           if (hostEmail) {
             if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === hostEmail) return true;
             if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === hostEmail) return true;
+          }
+          if (inviterEmail) {
+            if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === inviterEmail) return true;
+            if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === inviterEmail) return true;
           }
           if (hostCompanyId && c.companyId && c.companyId === hostCompanyId) return true;
           if (!isGenericPlaceholder) {
@@ -2620,6 +2634,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         });
 
         if (matched.length > 0) return matched;
+        if (!isSuperAdmin) return loadedCourts;
         if (isSuperAdmin && !myActiveCompany) return loadedCourts;
         return [];
       })();
@@ -2655,15 +2670,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       // Filter bookings: each admin sees bookings/checkouts for courts or organization they own.
       if (!isSuperAdmin) {
-        loadedBookings = loadedBookings.filter(b => {
-          const isOwnedCourt = ownedCourtIds.includes(b.courtId);
-          const isOwnedByUid = b.courtOwnerId && b.courtOwnerId === currentUserUid;
-          const isOwnedByEmail = b.ownerEmail && currentUserEmail && b.ownerEmail.toLowerCase() === currentUserEmail.toLowerCase();
-          const isOwnedByCompanyName = myActiveCompany?.name && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === myActiveCompany.name.toLowerCase();
-          const isOwnedByCompanyId = myActiveCompany?.id && (b as any).companyId && (b as any).companyId === myActiveCompany.id;
-          const isUserCompanyMatch = (user as any)?.companyName && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === (user as any).companyName.toLowerCase();
-          return isOwnedCourt || isOwnedByUid || isOwnedByEmail || isOwnedByCompanyName || isOwnedByCompanyId || isUserCompanyMatch;
-        });
+        if (ownedCourtIds.length > 0) {
+          loadedBookings = loadedBookings.filter(b => {
+            const isOwnedCourt = ownedCourtIds.includes(b.courtId);
+            const isOwnedByUid = b.courtOwnerId && b.courtOwnerId === currentUserUid;
+            const isOwnedByEmail = b.ownerEmail && currentUserEmail && b.ownerEmail.toLowerCase() === currentUserEmail.toLowerCase();
+            const isOwnedByInviter = (user as any)?.invitedBy && b.ownerEmail && b.ownerEmail.toLowerCase() === (user as any).invitedBy.toLowerCase();
+            const isOwnedByCompanyName = myActiveCompany?.name && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === myActiveCompany.name.toLowerCase();
+            const isOwnedByCompanyId = myActiveCompany?.id && (b as any).companyId && (b as any).companyId === myActiveCompany.id;
+            const isUserCompanyMatch = (user as any)?.companyName && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === (user as any).companyName.toLowerCase();
+            return isOwnedCourt || isOwnedByUid || isOwnedByEmail || isOwnedByInviter || isOwnedByCompanyName || isOwnedByCompanyId || isUserCompanyMatch;
+          });
+        }
       }
       loadedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setBookings(loadedBookings);

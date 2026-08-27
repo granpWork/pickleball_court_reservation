@@ -512,17 +512,20 @@ function App() {
               }
             }
             
-            const isAdmin = role === 'super_admin' || role === 'client_admin' || role === 'manager' || firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
+            const isAdmin = role === 'super_admin' || role === 'client_admin' || role === 'manager' || role === 'editor' || firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
             const needsOnboarding = role === 'client_admin' && !companyId;
 
+            const uData = userDocSnap.exists() ? userDocSnap.data() : {};
             const loadedUser = {
               uid: firebaseUser.uid,
-              name: firebaseUser.displayName || 'Player',
+              name: uData.name || firebaseUser.displayName || 'Player',
               email: firebaseUser.email || '',
               role: role,
               status: status,
-              companyId: companyId,
-              companyName: companyName,
+              companyId: companyId || uData.companyId || (matchedInvite as any)?.companyId || '',
+              companyName: companyName || uData.companyName || matchedInvite?.company || '',
+              invitedBy: uData.invitedBy || (matchedInvite as any)?.invitedBy || '',
+              permissions: uData.permissions || (matchedInvite as any)?.permissions,
               isAdmin: isAdmin,
               needsOnboarding: needsOnboarding,
             };
