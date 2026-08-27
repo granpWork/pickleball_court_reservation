@@ -459,7 +459,34 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     } catch (e) {}
   }, [activeTab]);
 
-  const [settingsSubTab, setSettingsSubTab] = useState<AdminSettingsSubTab>('profile');
+  const [settingsSubTab, setSettingsSubTab] = useState<AdminSettingsSubTab>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const urlSubTab = params.get('subtab') || params.get('settingsSubTab');
+        if (urlSubTab && ['profile', 'organization', 'team', 'policies', 'reminders', 'gcash', 'lead_time', 'service_fee'].includes(urlSubTab)) {
+          return urlSubTab as AdminSettingsSubTab;
+        }
+        const saved = sessionStorage.getItem('picklepoint_admin_settings_subtab') || localStorage.getItem('picklepoint_admin_settings_subtab');
+        if (saved && ['profile', 'organization', 'team', 'policies', 'reminders', 'gcash', 'lead_time', 'service_fee'].includes(saved)) {
+          return saved as AdminSettingsSubTab;
+        }
+      }
+    } catch (e) {}
+    return 'profile';
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('picklepoint_admin_settings_subtab', settingsSubTab);
+      localStorage.setItem('picklepoint_admin_settings_subtab', settingsSubTab);
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        url.searchParams.set('subtab', settingsSubTab);
+        window.history.replaceState({}, '', url.toString());
+      }
+    } catch (e) {}
+  }, [settingsSubTab]);
   const [settingsSubMenuOpen, setSettingsSubMenuOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [bookingLeadTimeMinutes, setBookingLeadTimeMinutes] = useState<number>(30);

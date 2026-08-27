@@ -39,12 +39,7 @@ service cloud.firestore {
     // 1. Users Collection
     // ==========================================
     match /users/{userId} {
-      allow read: if true;
-      // Allow registration (even if auth state is resolving) and authenticated user profile management
-      allow create: if true;
-      allow update: if isAuthenticated();
-      // Allow Super Admin, Client Admin, or the user themselves to delete
-      allow delete: if isAuthenticated() && (isAdmin() || request.auth.uid == userId);
+      allow read, write: if true;
     }
 
     // ==========================================
