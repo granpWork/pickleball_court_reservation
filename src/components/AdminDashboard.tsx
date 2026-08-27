@@ -1594,7 +1594,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // Sync selected court policies when selectedPolicyCourtId changes
   useEffect(() => {
-    const availableCourts = courts.filter((c) => c.ownerId === currentUserUid);
+    const availableCourts = isSuperAdmin ? courts : availableAdminCourts;
     if (availableCourts.length > 0 && (!selectedPolicyCourtId || !availableCourts.some(c => c.id === selectedPolicyCourtId))) {
       setSelectedPolicyCourtId(availableCourts[0].id);
       return;
@@ -6074,7 +6074,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         setView={setView}
         user={user}
         onLogout={onLogout}
-        courtsCount={(isSuperAdmin ? courts : courts.filter((c) => c.ownerId === currentUserUid)).length}
+        courtsCount={(isSuperAdmin ? courts : availableAdminCourts).length}
         bookingsCount={bookings.length}
         pendingBookingsCount={pendingBookings.length}
         companiesCount={companies.length}
@@ -6188,7 +6188,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'courts' && (
             <AdminCourtsTab
-              courts={isSuperAdmin ? courts : courts.filter((c) => c.ownerId === currentUserUid)}
+              courts={isSuperAdmin ? courts : availableAdminCourts}
               myCompany={currentCompany}
               onOpenCreateCourtModal={() => { setEditingCourt(null); setCourtModalOpen(true); }}
               onOpenEditCourtModal={handleOpenEditCourt}
