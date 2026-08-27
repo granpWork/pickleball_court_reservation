@@ -4651,6 +4651,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     navigator.clipboard.writeText(inviteUrl);
     setCopiedInviteUserToken(u.inviteToken);
     setTimeout(() => setCopiedInviteUserToken(null), 2500);
+    showModalAlert('Link Copied', 'Invite link copied to clipboard!', 'success');
   };
 
   const handleResendUserInviteEmail = async (u: UserAccount) => {
@@ -8990,6 +8991,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         navigator.clipboard.writeText(inviteSuccessInfo.link);
                         setCopiedInviteLink(true);
                         setTimeout(() => setCopiedInviteLink(false), 3000);
+                        showModalAlert('Link Copied', 'Invite link copied to clipboard!', 'success');
                       }}
                       className="inline-flex items-center gap-1 text-xs font-bold text-brand-lime hover:underline cursor-pointer"
                     >
@@ -11413,12 +11415,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         onClick={() => {
                           navigator.clipboard.writeText(inviteSuccessInfo.link);
                           setCopiedInviteLink(true);
-                          alert('Invite link copied to clipboard!');
+                          setTimeout(() => setCopiedInviteLink(false), 3000);
+                          showModalAlert('Link Copied', 'Invite link copied to clipboard!', 'success');
                         }}
                         className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans font-bold transition-all flex items-center gap-1 cursor-pointer flex-shrink-0"
                       >
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>{copiedInviteLink ? 'Copied!' : 'Copy'}</span>
+                        {copiedInviteLink ? (
+                          <>
+                            <CheckCheck className="w-3.5 h-3.5 text-brand-emerald" />
+                            <span className="text-brand-emerald font-bold">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copy</span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
