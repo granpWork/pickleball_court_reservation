@@ -430,10 +430,20 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   </div>
                   <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-full uppercase flex-shrink-0 ${
                     isSuperAdmin
-                      ? 'bg-brand-emerald/15 text-brand-emerald border border-brand-emerald/30'
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                      : user?.role === 'manager'
+                      ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                      : user?.role === 'editor'
+                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                       : 'bg-brand-lime/15 text-brand-lime border border-brand-lime/30'
                   }`}>
-                    {isSuperAdmin ? 'Super' : 'Client'}
+                    {isSuperAdmin
+                      ? 'Super'
+                      : user?.role === 'manager'
+                      ? 'Manager'
+                      : user?.role === 'editor'
+                      ? 'Editor'
+                      : 'Owner'}
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400 truncate mt-0.5 font-medium" title={user?.email || ''}>

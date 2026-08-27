@@ -285,9 +285,8 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
     canManageCourts: true,
     canManageOpenPlay: true,
     canManageVouchers: true,
-    canViewFinancials: false,
-    canManageTeam: false,
   });
+  const [isEditStatusDropdownOpen, setIsEditStatusDropdownOpen] = useState(false);
   const [managerActionLoading, setManagerActionLoading] = useState(false);
 
   const handleStartEditManager = (m: UserAccount) => {
@@ -671,24 +670,17 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  {/* ROLE & STATUS SELECTION */}
+                  <div className="space-y-3">
                     <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Assigned Staff Role</label>
-                      <select
-                        value={editManagerRole}
-                        onChange={(e) => {
-                          const newRole = e.target.value as UserRole;
-                          setEditManagerRole(newRole);
-                          if (newRole === 'editor') {
-                            setEditManagerPermissions({
-                              canManageBookings: true,
-                              canManageCourts: false,
-                              canManageOpenPlay: true,
-                              canManageVouchers: false,
-                              canViewFinancials: false,
-                              canManageTeam: false,
-                            });
-                          } else {
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Assigned Staff Role *
+                      </label>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditManagerRole('manager');
                             setEditManagerPermissions({
                               canManageBookings: true,
                               canManageCourts: true,
@@ -697,26 +689,98 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                               canViewFinancials: false,
                               canManageTeam: false,
                             });
-                          }
-                        }}
-                        className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime cursor-pointer"
-                      >
-                        <option value="manager">📋 Facility Manager</option>
-                        <option value="editor">✏️ Staff Editor</option>
-                      </select>
+                          }}
+                          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                            editManagerRole === 'manager'
+                              ? 'bg-sky-500/10 border-sky-400 text-sky-300 shadow-md shadow-sky-500/10 font-bold ring-1 ring-sky-400/30'
+                              : 'bg-[#050711] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                          }`}
+                        >
+                          <span className="text-xs font-extrabold flex items-center gap-1.5">
+                            📋 Facility Manager
+                          </span>
+                          <span className="text-[10px] opacity-75 mt-1">Full Operations Staff</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditManagerRole('editor');
+                            setEditManagerPermissions({
+                              canManageBookings: true,
+                              canManageCourts: false,
+                              canManageOpenPlay: true,
+                              canManageVouchers: false,
+                              canViewFinancials: false,
+                              canManageTeam: false,
+                            });
+                          }}
+                          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                            editManagerRole === 'editor'
+                              ? 'bg-amber-500/10 border-amber-400 text-amber-300 shadow-md shadow-amber-500/10 font-bold ring-1 ring-amber-400/30'
+                              : 'bg-[#050711] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                          }`}
+                        >
+                          <span className="text-xs font-extrabold flex items-center gap-1.5">
+                            ✏️ Staff Editor
+                          </span>
+                          <span className="text-[10px] opacity-75 mt-1">Front-Desk & Check-in</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Account Status</label>
-                      <select
-                        value={editManagerStatus}
-                        onChange={(e) => setEditManagerStatus(e.target.value as any)}
-                        className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime cursor-pointer"
-                      >
-                        <option value="active">Active Access</option>
-                        <option value="pending">Pending Invitation</option>
-                        <option value="inactive">Inactive / Suspended</option>
-                      </select>
+                    <div className="relative">
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                        Account Status *
+                      </label>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditStatusDropdownOpen(!isEditStatusDropdownOpen)}
+                          className="w-full flex items-center justify-between gap-2 px-3.5 py-3 bg-[#050711] border border-slate-800 hover:border-brand-lime/50 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${
+                              editManagerStatus === 'active' ? 'bg-emerald-400' : editManagerStatus === 'pending' ? 'bg-amber-400' : 'bg-red-400'
+                            }`} />
+                            <span>
+                              {editManagerStatus === 'active' ? 'Active Access' : editManagerStatus === 'pending' ? 'Pending Invitation' : 'Inactive / Suspended'}
+                            </span>
+                          </div>
+                          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isEditStatusDropdownOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                        </button>
+
+                        {isEditStatusDropdownOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsEditStatusDropdownOpen(false)} />
+                            <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 space-y-1">
+                              {[
+                                { id: 'active', label: 'Active Access', desc: 'Full operational access according to permissions', color: 'text-emerald-400' },
+                                { id: 'pending', label: 'Pending Invitation', desc: 'Registration link sent, pending user signup', color: 'text-amber-400' },
+                                { id: 'inactive', label: 'Inactive / Suspended', desc: 'Account access disabled temporarily', color: 'text-red-400' },
+                              ].map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setEditManagerStatus(item.id as any);
+                                    setIsEditStatusDropdownOpen(false);
+                                  }}
+                                  className={`w-full text-left px-3 py-2.5 rounded-xl text-xs flex items-center justify-between cursor-pointer transition-all ${
+                                    editManagerStatus === item.id ? 'bg-slate-800 font-bold text-white ring-1 ring-slate-700' : 'text-slate-300 hover:bg-slate-800/60'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className={`font-bold ${item.color}`}>{item.label}</div>
+                                    <div className="text-[10px] text-slate-400 font-normal">{item.desc}</div>
+                                  </div>
+                                  {editManagerStatus === item.id && <Check className="w-4 h-4 text-brand-lime" />}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
 
