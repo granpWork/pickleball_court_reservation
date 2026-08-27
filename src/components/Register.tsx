@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, ShieldCheck, Loader2 } from 'lucide-react';
 import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
-import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut, deleteUser } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
 interface RegisterProps {
@@ -29,6 +29,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
   const [inviteTokenValidating, setInviteTokenValidating] = useState(!!inviteTokenParam);
   const [isVerifiedInvite, setIsVerifiedInvite] = useState(false);
   const [invalidInviteReason, setInvalidInviteReason] = useState<string | null>(null);
+  const [invitedRole, setInvitedRole] = useState<'super_admin' | 'client_admin' | 'player' | null>(null);
 
   useEffect(() => {
     const validateInviteToken = async () => {
@@ -38,7 +39,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       }
 
       try {
-        let inviteData: any = null;
+        let inviteData: { email?: string; name?: string; status?: string; expiresAt?: string; token?: string; role?: 'super_admin' | 'client_admin' | 'player' } | null = null;
 
         if (isFirebaseConfigured && db) {
           try {
@@ -55,7 +56,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           const localInvsStr = localStorage.getItem('picklepoint_invitations');
           if (localInvsStr) {
             const localInvs = JSON.parse(localInvsStr);
-            inviteData = localInvs.find((inv: any) => inv.token === inviteTokenParam);
+            inviteData = localInvs.find((inv: { token?: string }) => inv.token === inviteTokenParam) || null;
           }
         }
 
@@ -92,9 +93,12 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
         // Valid invite
         setIsVerifiedInvite(true);
-        setEmail(inviteData.email);
-        if (inviteData.name && !name) {
-          setName(inviteData.name);
+        if (inviteData.role) {
+          setInvitedRole(inviteData.role);
+        }
+        setEmail(inviteData.email || '');
+        if (inviteData.name) {
+          setName((prevName) => prevName || inviteData?.name || '');
         }
       } catch (err) {
         console.error('Error validating invite token:', err);
@@ -123,11 +127,13 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
     if (localInvsStr) {
       try {
         const localInvs = JSON.parse(localInvsStr);
-        const updated = localInvs.map((inv: any) =>
+        const updated = localInvs.map((inv: { token?: string; [key: string]: unknown }) =>
           inv.token === token ? { ...inv, status: 'used', usedAt: new Date().toISOString() } : inv
         );
         localStorage.setItem('picklepoint_invitations', JSON.stringify(updated));
-      } catch (e) {}
+      } catch {
+        /* ignore localStorage parsing error */
+      }
     }
   };
 
@@ -158,7 +164,9 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
     setLoading(true);
 
     const isClientAdminInvite = isVerifiedInvite || !!inviteTokenParam;
-    const finalRole = isClientAdminInvite
+    const finalRole = invitedRole
+      ? invitedRole
+      : isClientAdminInvite
       ? 'client_admin'
       : email.toLowerCase() === 'admin@picklepoint.com'
       ? 'super_admin'
@@ -276,33 +284,17 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
         const googleEmail = (fbUser.email || '').trim().toLowerCase();
         const expectedEmail = (email || urlEmail).trim().toLowerCase();
 
-        // If this is a Client Admin invitation, ensure the Google account matches the authorized invited email
+        // If this invitation was sent to a specific email, check match or handle gracefully
         if (isClientAdminInvite && expectedEmail && googleEmail !== expectedEmail) {
-          // 1. Delete any Firestore record created for this unauthorized user (by UID and by email)
-          if (db) {
-            try {
-              const { collection, query, where, getDocs } = await import('firebase/firestore');
-              await deleteDoc(doc(db, 'users', fbUser.uid));
-              const uq = query(collection(db, 'users'), where('email', '==', googleEmail));
-              const usnap = await getDocs(uq);
-              usnap.forEach((d) => deleteDoc(d.ref).catch(() => {}));
-            } catch (e) {}
-          }
-
-          // 2. Delete the account from Firebase Auth so no orphan account remains
-          try {
-            await deleteUser(fbUser);
-          } catch (delErr) {
-            console.warn('Could not auto-delete rejected auth user:', delErr);
-            await signOut(auth);
-          }
-
-          setError(`Security check failed: You selected Google account "${fbUser.email}", but this invitation is bound to "${expectedEmail}". Please choose the matching Google account or set your password below.`);
+          await signOut(auth).catch(() => {});
+          setError(`Security Notice: You logged in as "${googleEmail}", but this invitation was sent to "${expectedEmail}". Please log in with "${expectedEmail}" or use a matching Google account.`);
           setLoading(false);
           return;
         }
 
-        const finalRole = isClientAdminInvite
+        const finalRole = invitedRole
+          ? invitedRole
+          : isClientAdminInvite
           ? 'client_admin'
           : googleEmail === 'admin@picklepoint.com'
           ? 'super_admin'
@@ -351,7 +343,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           email: fbUser.email || '',
           role: finalRole,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin',
-          needsOnboarding: isClientAdminInvite,
+          needsOnboarding: finalRole === 'client_admin',
         });
         setLoading(false);
       } catch (err) {

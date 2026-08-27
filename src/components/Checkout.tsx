@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
-  ArrowLeft, CheckCircle, Calendar, Clock, 
+  ArrowLeft, ArrowRight, CheckCircle, Calendar, Clock, 
   MapPin, User, Mail, Phone, ShieldCheck, 
   Download, Lock, Check, Shield, X,
   Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap
@@ -60,12 +60,25 @@ export default function Checkout({
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(userPhoneVal);
   
+  // 3-Step Stepper Wizard State & Scroll Ref
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1);
+  const stepperRef = useRef<HTMLDivElement>(null);
+
+  const scrollToStepper = () => {
+    if (stepperRef.current) {
+      stepperRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      window.scrollTo({ top: 100, behavior: 'smooth' });
+    }
+  };
+
   // Copy state for micro-interactions
   const [copiedField, setCopiedField] = useState<'number' | 'name' | null>(null);
 
   // Centralized GCash parameters
   interface GcashAccount {
     id: string;
+    paymentName?: string;
     gcashName: string;
     gcashNumber: string;
     gcashQrCode: string;
@@ -677,7 +690,61 @@ export default function Checkout({
   const handleCopy = (text: string, field: 'name' | 'number') => {
     navigator.clipboard.writeText(text);
     setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 1500);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const handleDownloadQrCode = () => {
+    if (!globalGcashQr) {
+      alert("No GCash QR code image is available for download.");
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = globalGcashQr;
+    link.download = `gcash_qr_${(globalGcashName || 'merchant').toLowerCase().replace(/\s+/g, '_')}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const validateStep1 = () => {
+    if (!name.trim()) {
+      setError('Please enter your full name.');
+      return false;
+    }
+    if (!email.trim() || !email.includes('@')) {
+      setError('Please enter a valid email address.');
+      return false;
+    }
+    if (!phone.trim()) {
+      setError('Please enter your mobile contact number.');
+      return false;
+    }
+    setError('');
+    return true;
+  };
+
+  const handleNextFromStep1 = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (validateStep1()) {
+      setCheckoutStep(2);
+      scrollToStepper();
+    }
+  };
+
+  const handleNextFromStep2 = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setCheckoutStep(3);
+    scrollToStepper();
+  };
+
+  const handleBackToStep1 = () => {
+    setCheckoutStep(1);
+    scrollToStepper();
+  };
+
+  const handleBackToStep2 = () => {
+    setCheckoutStep(2);
+    scrollToStepper();
   };
 
   const formatGcashReference = (val: string) => {
@@ -1360,11 +1427,71 @@ export default function Checkout({
         <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Scheduling
       </button>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className="flex flex-col lg:grid lg:grid-cols-12 gap-8 items-stretch lg:items-start w-full">
         
         {/* Left Column - Billing and GCash Payment Forms (Lg spans 7) */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="glass-panel rounded-3xl p-6 border border-slate-800 shadow-2xl relative overflow-hidden">
+        <div className="lg:col-span-7 order-2 lg:order-1 space-y-6 w-full">
+          
+          {/* STEP PROGRESS TRACKER BAR */}
+          <div ref={stepperRef} className="glass-panel border border-slate-800 rounded-3xl p-4 shadow-xl w-full scroll-mt-24">
+            <div className="flex items-center justify-between relative px-2">
+              {/* Background Connecting Line Container */}
+              <div className="absolute top-1/2 left-8 right-8 sm:left-12 sm:right-12 -translate-y-1/2 h-1 bg-slate-800/80 rounded-full overflow-hidden -z-0">
+                <div
+                  className="h-full bg-brand-lime transition-all duration-500 rounded-full shadow-[0_0_10px_rgba(181,245,41,0.5)]"
+                  style={{ width: checkoutStep === 1 ? '0%' : checkoutStep === 2 ? '50%' : '100%' }}
+                ></div>
+              </div>
+
+              {/* Step 1 Badge */}
+              <button
+                type="button"
+                onClick={() => { setCheckoutStep(1); scrollToStepper(); }}
+                className={`relative z-10 flex items-center gap-2 px-3.5 py-2 rounded-2xl border text-xs font-black transition-all cursor-pointer ${
+                  checkoutStep === 1
+                    ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg shadow-brand-lime/30 scale-105'
+                    : checkoutStep > 1
+                    ? 'bg-slate-900 text-brand-lime border-brand-lime/40'
+                    : 'bg-slate-950 text-slate-500 border-slate-800'
+                }`}
+              >
+                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border border-current">1</span>
+                <span className="hidden sm:inline">1. Your Info</span>
+              </button>
+
+              {/* Step 2 Badge */}
+              <button
+                type="button"
+                onClick={() => { if (validateStep1()) { setCheckoutStep(2); scrollToStepper(); } }}
+                className={`relative z-10 flex items-center gap-2 px-3.5 py-2 rounded-2xl border text-xs font-black transition-all cursor-pointer ${
+                  checkoutStep === 2
+                    ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg shadow-brand-lime/30 scale-105'
+                    : checkoutStep > 2
+                    ? 'bg-slate-900 text-brand-lime border-brand-lime/40'
+                    : 'bg-slate-950 text-slate-500 border-slate-800'
+                }`}
+              >
+                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border border-current">2</span>
+                <span className="hidden sm:inline">2. Payment</span>
+              </button>
+
+              {/* Step 3 Badge */}
+              <button
+                type="button"
+                onClick={() => { if (validateStep1()) { setCheckoutStep(3); scrollToStepper(); } }}
+                className={`relative z-10 flex items-center gap-2 px-3.5 py-2 rounded-2xl border text-xs font-black transition-all cursor-pointer ${
+                  checkoutStep === 3
+                    ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg shadow-brand-lime/30 scale-105'
+                    : 'bg-slate-950 text-slate-500 border-slate-800'
+                }`}
+              >
+                <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border border-current">3</span>
+                <span className="hidden sm:inline">3. Verification</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="glass-panel rounded-3xl p-6 border border-slate-800 shadow-2xl relative overflow-hidden w-full">
             {/* Ambient subtle light overlay */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -1372,7 +1499,9 @@ export default function Checkout({
               <ShieldCheck className="w-5 h-5 text-brand-lime" /> Complete Reservation
             </h2>
             <p className="text-xs text-slate-400 mt-1 pb-4 border-b border-slate-800/80">
-              Provide your details and complete the GCash QR transfer below to secure your booking.
+              {checkoutStep === 1 && 'Step 1: Provide your contact details and guest options to proceed.'}
+              {checkoutStep === 2 && 'Step 2: Transfer payment to the official GCash merchant account below.'}
+              {checkoutStep === 3 && 'Step 3: Enter your 13-digit GCash reference code and upload receipt proof.'}
             </p>
 
             {/* Error Message banner */}
@@ -1383,362 +1512,418 @@ export default function Checkout({
               </div>
             )}
 
-            <form onSubmit={handlePaymentSubmit} className="space-y-6 pt-5">
+            <form id="checkout-form" onSubmit={handlePaymentSubmit} className="space-y-6 pt-5">
               
-              {/* Section 1: Contact Details */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-3">
-                    <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-sm text-brand-lime font-black shadow-[0_0_15px_rgba(181,245,41,0.15)] flex-shrink-0">1</span>
-                    Contact Information
-                  </h3>
-                  {user && (
-                    <span className="text-[10px] bg-brand-lime/10 text-brand-lime px-2 py-0.5 rounded-full border border-brand-lime/20 font-bold uppercase">
-                      Signed In
-                    </span>
-                  )}
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
-                      <User className="w-3.5 h-3.5 text-brand-lime" /> Full Name
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="John Doe"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
-                    />
-                  </div>
-                  
-                  <div className="space-y-1.5">
-                    <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
-                      <Mail className="w-3.5 h-3.5 text-brand-lime" /> Email Address
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="john@example.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
-                    <Phone className="w-3.5 h-3.5 text-brand-lime" /> GCash Mobile Number
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="09171234567"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                    className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
-                  />
-                  <span className="text-[10px] text-slate-500 block leading-normal">
-                    Enter the phone number associated with the payment for tracking.
-                  </span>
-                </div>
-
-                {/* OPEN PLAY GUEST (+1 / +2) QUANTITY & EMAIL SELECTOR */}
-                {isOpenPlay && (
-                  <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 animate-fade-in text-left mt-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-                      <div>
-                        <h4 className="text-xs md:text-sm font-bold text-white flex items-center gap-2">
-                          <Users className="w-4 h-4 text-brand-lime" /> Reserve Spots / Bring Guests (+1)
-                        </h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Select total spots to reserve for yourself and your guests.</p>
+              {/* STEP 1: Contact Details & Guest Options */}
+              {checkoutStep === 1 && (
+                <div className="space-y-6 animate-fade-in">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-3">
+                        <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-sm text-brand-lime font-black shadow-[0_0_15px_rgba(181,245,41,0.15)] flex-shrink-0">1</span>
+                        Contact Information
+                      </h3>
+                      {user && (
+                        <span className="text-[10px] bg-brand-lime/10 text-brand-lime px-2 py-0.5 rounded-full border border-brand-lime/20 font-bold uppercase">
+                          Signed In
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
+                          <User className="w-3.5 h-3.5 text-brand-lime" /> Full Name
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="John Doe"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
+                        />
                       </div>
-
-                      {/* Stepper Quantity Control */}
-                      <div className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 shadow-inner">
-                        <button
-                          type="button"
-                          onClick={() => handlePlayerCountChange(playerCount - 1)}
-                          disabled={playerCount <= 1}
-                          className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                        >
-                          -
-                        </button>
-
-                        <div className="text-center min-w-[65px]">
-                          <span className="text-xs font-black text-white block">
-                            {isAddGuestOnly ? `+${playerCount} ${playerCount === 1 ? 'Guest' : 'Guests'}` : `${playerCount} ${playerCount === 1 ? 'Spot' : 'Spots'}`}
-                          </span>
-                          {!isAddGuestOnly && playerCount > 1 && (
-                            <span className="text-[9px] font-bold text-brand-lime block uppercase">
-                              (+{playerCount - 1} {playerCount - 1 === 1 ? 'Guest' : 'Guests'})
-                            </span>
-                          )}
-                          {isAddGuestOnly && (
-                            <span className="text-[9px] font-bold text-purple-300 block uppercase">
-                              Adding Guest(s)
-                            </span>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handlePlayerCountChange(playerCount + 1)}
-                          disabled={playerCount >= (checkoutDetails?.maxAvailableSlots || 16)}
-                          className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-brand-lime font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-                        >
-                          +
-                        </button>
+                      
+                      <div className="space-y-1.5">
+                        <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
+                          <Mail className="w-3.5 h-3.5 text-brand-lime" /> Email Address
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="john@example.com"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
+                        />
                       </div>
                     </div>
 
-                    {/* Guest Input List */}
-                    {guests.length > 0 && (
-                      <div className="space-y-3 pt-1">
-                        <div className="text-[10.5px] font-bold text-brand-lime uppercase tracking-wider flex items-center justify-between">
-                          <span>Guest Information ({guests.length})</span>
-                          <span className="text-slate-500 font-normal text-[10px]">Guest email receives event invitation</span>
-                        </div>
-
-                        {guests.map((guest, idx) => (
-                          <div key={idx} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
-                            <div className="text-[11px] font-bold text-slate-300">
-                              Guest #{idx + 1}
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-400 block mb-1">Guest Name</label>
-                                <input
-                                  type="text"
-                                  placeholder={`e.g. Guest ${idx + 1} Name`}
-                                  value={guest.name}
-                                  onChange={(e) => handleGuestChange(idx, 'name', e.target.value)}
-                                  className="w-full bg-slate-900 border border-slate-800 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-brand-lime"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="text-[10px] font-bold text-slate-400 block mb-1">
-                                  Guest Email <span className="text-slate-500 font-normal">(Optional)</span>
-                                </label>
-                                <input
-                                  type="email"
-                                  placeholder="guest@example.com"
-                                  value={guest.email}
-                                  onChange={(e) => handleGuestChange(idx, 'email', e.target.value)}
-                                  className={`w-full bg-slate-900 border text-white rounded-lg px-3 py-2 text-xs focus:outline-none ${
-                                    guestEmailErrors[idx] ? 'border-red-500 focus:border-red-500' : 'border-slate-800 focus:border-brand-lime'
-                                  }`}
-                                />
-                                {guestEmailErrors[idx] && (
-                                  <span className="text-[10px] text-red-400 mt-1 block font-semibold">
-                                    {guestEmailErrors[idx]}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {isFullyCoveredByVoucher ? (
-                /* Section 2: 100% Voucher Waiver Card */
-                <div className="space-y-4 pt-2">
-                  <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-3">
-                    <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-sm text-brand-lime font-black shadow-[0_0_15px_rgba(181,245,41,0.15)] flex-shrink-0">2</span>
-                    Voucher Confirmation & Waiver
-                  </h3>
-
-                  <div className="relative overflow-hidden bg-gradient-to-br from-brand-lime/15 via-emerald-950/20 to-slate-900/60 border border-brand-lime/30 rounded-3xl p-5 md:p-6 shadow-xl space-y-4 text-left">
-                    <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-brand-lime/10 blur-2xl pointer-events-none"></div>
-                    
-                    <div className="flex items-center justify-between pb-3 border-b border-brand-lime/20">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-brand-lime/20 border border-brand-lime/40 flex items-center justify-center text-brand-lime">
-                          <Tag className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-xs md:text-sm font-extrabold text-white">100% Covered by Rebooking Voucher</h4>
-                          <p className="text-[11px] text-brand-lime font-mono font-bold">{appliedVoucher?.code}</p>
-                        </div>
-                      </div>
-                      <span className="text-[10px] font-black bg-brand-lime/20 border border-brand-lime/40 text-brand-lime px-3 py-1 rounded-full uppercase tracking-wider">
-                        ₱0 Due
+                    <div className="space-y-1.5">
+                      <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
+                        <Phone className="w-3.5 h-3.5 text-brand-lime" /> GCash Mobile Number
+                      </label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="09171234567"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                        className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
+                      />
+                      <span className="text-[10px] text-slate-500 block leading-normal">
+                        Enter the phone number associated with the payment for tracking.
                       </span>
                     </div>
 
-                    <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-850 space-y-2 text-left">
-                      <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
-                        <CheckCircle className="w-4 h-4 text-brand-lime" />
-                        <span>No cash transfer or GCash receipt required.</span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 leading-relaxed pl-6">
-                        Your credit voucher covers 100% of this reservation. Your court booking will be automatically approved and ticket generated immediately upon clicking confirm below.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {/* Section 2: GCash QR Portal */}
-                  <div className="space-y-4 pt-2">
-                    <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-3">
-                      <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-sm text-brand-lime font-black shadow-[0_0_15px_rgba(181,245,41,0.15)] flex-shrink-0">2</span>
-                      GCash Secure Portal {appliedVoucher ? `(Remaining ₱${finalTotal})` : ''}
-                    </h3>
-
-                    {/* Main Premium GCash Gradient Box */}
-                    <div className="relative overflow-hidden bg-gradient-to-br from-blue-950/40 via-blue-950/20 to-slate-900/40 border border-blue-500/20 rounded-3xl p-5 md:p-6 shadow-xl space-y-6">
-                      {/* Glowing blue accent in background */}
-                      <div className="absolute -top-16 -left-16 w-36 h-36 rounded-full bg-blue-600/10 blur-3xl pointer-events-none"></div>
-                      
-                      {/* Portal Header */}
-                      <div className="flex items-center justify-between pb-3 border-b border-blue-900/30">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white shadow-lg">G</div>
+                    {/* OPEN PLAY GUEST (+1 / +2) QUANTITY & EMAIL SELECTOR */}
+                    {isOpenPlay && (
+                      <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 animate-fade-in text-left mt-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
                           <div>
-                            <h4 className="text-xs font-bold text-white uppercase tracking-wider">GCash Instant QR Checkout</h4>
-                            <p className="text-[10px] text-blue-400">Scan QR Code or send manually to the numbers below</p>
+                            <h4 className="text-xs md:text-sm font-bold text-white flex items-center gap-2">
+                              <Users className="w-4 h-4 text-brand-lime" /> Reserve Spots / Bring Guests (+1)
+                            </h4>
+                            <p className="text-[11px] text-slate-400 mt-0.5">Select total spots to reserve for yourself and your guests.</p>
                           </div>
-                        </div>
-                        <span className="text-[10px] font-extrabold bg-blue-600/10 border border-blue-500/20 text-blue-400 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                          Official Payment
-                        </span>
-                      </div>
 
-                      {/* Merchant Details copy panel */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="bg-slate-950/50 border border-blue-900/20 rounded-2xl p-4 flex flex-col justify-between relative transition-colors">
-                          <div>
-                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">GCash Account Name</span>
-                            <h5 className="text-sm font-bold text-white truncate">{globalGcashName || 'PicklePoint Merchant'}</h5>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(globalGcashName || 'PicklePoint Merchant', 'name')}
-                            className="self-end mt-2 flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-white transition-colors cursor-pointer bg-blue-950/50 hover:bg-blue-900/40 px-2.5 py-1 rounded-lg border border-blue-900/30"
-                          >
-                            {copiedField === 'name' ? (
-                              <>
-                                <Check className="w-3 h-3 text-green-400" /> Copied!
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3" /> Copy Name
-                              </>
-                            )}
-                          </button>
-                        </div>
-
-                        <div className="bg-slate-950/50 border border-blue-900/20 rounded-2xl p-4 flex flex-col justify-between relative transition-colors">
-                          <div>
-                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">GCash Account Number</span>
-                            <h5 className="text-sm font-mono font-bold text-brand-lime tracking-wider">{globalGcashNumber || '0917-XXX-XXXX'}</h5>
-                          </div>
-                          <div className="flex gap-2 justify-end mt-2">
-                            {availableAccounts.length > 1 && !checkoutDetails.gcashAccountId && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTempSelectedAccountId(selectedAccountId);
-                                  setIsGcashAccountModalOpen(true);
-                                }}
-                                className="flex items-center gap-1 text-[10px] font-bold text-slate-400 hover:text-white transition-colors cursor-pointer bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg"
-                              >
-                                Switch Account
-                              </button>
-                            )}
+                          {/* Stepper Quantity Control */}
+                          <div className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 shadow-inner">
                             <button
                               type="button"
-                              onClick={() => handleCopy(globalGcashNumber || '', 'number')}
-                              className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-white transition-colors cursor-pointer bg-blue-950/50 hover:bg-blue-900/40 px-2.5 py-1 rounded-lg border border-blue-900/30"
+                              onClick={() => handlePlayerCountChange(playerCount - 1)}
+                              disabled={playerCount <= 1}
+                              className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                             >
-                              {copiedField === 'number' ? (
+                              -
+                            </button>
+
+                            <div className="text-center min-w-[65px]">
+                              <span className="text-xs font-black text-white block">
+                                {isAddGuestOnly ? `+${playerCount} ${playerCount === 1 ? 'Guest' : 'Guests'}` : `${playerCount} ${playerCount === 1 ? 'Spot' : 'Spots'}`}
+                              </span>
+                              {!isAddGuestOnly && playerCount > 1 && (
+                                <span className="text-[9px] font-bold text-brand-lime block uppercase">
+                                  (+{playerCount - 1} {playerCount - 1 === 1 ? 'Guest' : 'Guests'})
+                                </span>
+                              )}
+                              {isAddGuestOnly && (
+                                <span className="text-[9px] font-bold text-purple-300 block uppercase">
+                                  Adding Guest(s)
+                                </span>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handlePlayerCountChange(playerCount + 1)}
+                              disabled={playerCount >= (checkoutDetails?.maxAvailableSlots || 16)}
+                              className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-brand-lime font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Guest Input List */}
+                        {guests.length > 0 && (
+                          <div className="space-y-3 pt-1">
+                            <div className="text-[10.5px] font-bold text-brand-lime uppercase tracking-wider flex items-center justify-between">
+                              <span>Guest Information ({guests.length})</span>
+                              <span className="text-slate-500 font-normal text-[10px]">Guest email receives event invitation</span>
+                            </div>
+
+                            {guests.map((guest, idx) => (
+                              <div key={idx} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+                                <div className="text-[11px] font-bold text-slate-300">
+                                  Guest #{idx + 1}
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Guest Name</label>
+                                    <input
+                                      type="text"
+                                      placeholder={`e.g. Guest ${idx + 1} Name`}
+                                      value={guest.name}
+                                      onChange={(e) => handleGuestChange(idx, 'name', e.target.value)}
+                                      className="w-full bg-slate-900 border border-slate-800 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-brand-lime"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                                      Guest Email <span className="text-slate-500 font-normal">(Optional)</span>
+                                    </label>
+                                    <input
+                                      type="email"
+                                      placeholder="guest@example.com"
+                                      value={guest.email}
+                                      onChange={(e) => handleGuestChange(idx, 'email', e.target.value)}
+                                      className={`w-full bg-slate-900 border text-white rounded-lg px-3 py-2 text-xs focus:outline-none ${
+                                        guestEmailErrors[idx] ? 'border-red-500 focus:border-red-500' : 'border-slate-800 focus:border-brand-lime'
+                                      }`}
+                                    />
+                                    {guestEmailErrors[idx] && (
+                                      <span className="text-[10px] text-red-400 mt-1 block font-semibold">
+                                        {guestEmailErrors[idx]}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-6 border-t border-slate-800 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleNextFromStep1}
+                      className="w-full sm:w-auto px-7 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10 hover:scale-[1.02]"
+                    >
+                      <span>Continue to GCash Payment</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 2: GCash Payment Details */}
+              {checkoutStep === 2 && (
+                <div className="space-y-6 animate-fade-in">
+                  {isFullyCoveredByVoucher ? (
+                    /* Section 2: 100% Voucher Waiver Card */
+                    <div className="space-y-4 pt-2">
+                      <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-3">
+                        <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-sm text-brand-lime font-black shadow-[0_0_15px_rgba(181,245,41,0.15)] flex-shrink-0">2</span>
+                        Voucher Confirmation & Waiver
+                      </h3>
+
+                      <div className="relative overflow-hidden bg-gradient-to-br from-brand-lime/15 via-emerald-950/20 to-slate-900/60 border border-brand-lime/30 rounded-3xl p-5 md:p-6 shadow-xl space-y-4 text-left">
+                        <div className="absolute -top-12 -right-12 w-32 h-32 rounded-full bg-brand-lime/10 blur-2xl pointer-events-none"></div>
+                        
+                        <div className="flex items-center justify-between pb-3 border-b border-brand-lime/20">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-brand-lime/20 border border-brand-lime/40 flex items-center justify-center text-brand-lime">
+                              <Tag className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs md:text-sm font-extrabold text-white">100% Covered by Rebooking Voucher</h4>
+                              <p className="text-[11px] text-brand-lime font-mono font-bold">{appliedVoucher?.code}</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-black bg-brand-lime/20 border border-brand-lime/40 text-brand-lime px-3 py-1 rounded-full uppercase tracking-wider">
+                            ₱0 Due
+                          </span>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-850 space-y-2 text-left">
+                          <div className="flex items-center gap-2 text-xs font-bold text-slate-200">
+                            <CheckCircle className="w-4 h-4 text-brand-lime" />
+                            <span>No cash transfer or GCash receipt required.</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 pl-6 leading-relaxed">
+                            Your reservation is completely covered by credit voucher <span className="font-mono font-bold text-brand-lime">{appliedVoucher?.code}</span>. Simply click Continue below to complete your booking.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Section 2: Standard GCash Manual QR Transfer */
+                    <div className="space-y-4 pt-2">
+                      <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-3">
+                        <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-sm text-brand-lime font-black shadow-[0_0_15px_rgba(181,245,41,0.15)] flex-shrink-0">2</span>
+                        GCash QR Payment Transfer
+                      </h3>
+
+                      <div className="relative overflow-hidden bg-gradient-to-br from-blue-950/40 via-blue-950/20 to-slate-900/40 border border-blue-500/20 rounded-3xl p-5 md:p-6 shadow-xl space-y-6">
+                        {/* Glowing blue accent in background */}
+                        <div className="absolute -top-16 -left-16 w-36 h-36 rounded-full bg-blue-600/10 blur-3xl pointer-events-none"></div>
+                        
+                        {/* Portal Header */}
+                        <div className="flex items-center justify-between pb-3 border-b border-blue-900/30">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white shadow-lg">G</div>
+                            <div>
+                              <h4 className="text-xs font-bold text-white uppercase tracking-wider">GCash Instant QR Checkout</h4>
+                              <p className="text-[10px] text-blue-400">Scan QR Code or send manually to the numbers below</p>
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-extrabold bg-blue-600/10 border border-blue-500/20 text-blue-400 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                            Official Payment
+                          </span>
+                        </div>
+
+                        {/* Merchant Details copy panel */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="bg-slate-950/50 border border-blue-900/20 rounded-2xl p-4 flex flex-col justify-between relative transition-colors">
+                            <div>
+                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">GCash Account Name</span>
+                              <h5 className="text-sm font-bold text-white truncate">{globalGcashName || 'PicklePoint Merchant'}</h5>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(globalGcashName || 'PicklePoint Merchant', 'name')}
+                              className="self-end mt-2 flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-white transition-colors cursor-pointer bg-blue-955/50 hover:bg-blue-900/40 px-2.5 py-1 rounded-lg border border-blue-900/30"
+                            >
+                              {copiedField === 'name' ? (
                                 <>
                                   <Check className="w-3 h-3 text-green-400" /> Copied!
                                 </>
                               ) : (
                                 <>
-                                  <Copy className="w-3 h-3" /> Copy Number
+                                  <Copy className="w-3 h-3" /> Copy Name
                                 </>
                               )}
                             </button>
                           </div>
-                        </div>
-                      </div>
 
-                      {/* QR code and scanning visual instructions */}
-                      <div className="flex flex-col md:flex-row items-center gap-6 bg-slate-950/40 border border-blue-955/60 rounded-2xl p-5">
-                        {/* Scanner Mockup Screen */}
-                        <div className="relative group flex-shrink-0">
-                          <div className="absolute -inset-1 rounded-2xl bg-gradient-to-tr from-blue-600 to-brand-lime opacity-30 blur group-hover:opacity-60 transition duration-500"></div>
-                          <div 
-                            onClick={() => setReceiptLightboxImage(globalGcashQr || '/placeholder-qr.png')}
-                            className="relative w-36 h-36 bg-white rounded-xl p-2.5 flex items-center justify-center overflow-hidden shadow-inner select-none cursor-pointer"
-                          >
-                            {globalGcashQr ? (
-                              <img 
-                                src={globalGcashQr} 
-                                alt="Merchant GCash QR Code" 
-                                className="w-full h-full object-contain" 
-                              />
-                            ) : (
-                              <div className="text-slate-850 font-extrabold flex flex-col items-center justify-center p-1 w-full h-full">
-                                <svg className="w-full h-full text-blue-955" viewBox="0 0 100 100" fill="currentColor">
-                                  <rect width="100" height="100" fill="white" />
-                                  <rect x="8" y="8" width="26" height="26" fill="black" />
-                                  <rect x="13" y="13" width="16" height="16" fill="white" />
-                                  <rect x="16" y="16" width="10" height="10" fill="black" />
-                                  <rect x="66" y="8" width="26" height="26" fill="black" />
-                                  <rect x="71" y="13" width="16" height="16" fill="white" />
-                                  <rect x="74" y="16" width="10" height="10" fill="black" />
-                                  <rect x="8" y="66" width="26" height="26" fill="black" />
-                                  <rect x="13" y="71" width="16" height="16" fill="white" />
-                                  <rect x="16" y="74" width="10" height="10" fill="black" />
-                                  <rect x="44" y="44" width="12" height="12" fill="black" />
-                                  <rect x="66" y="66" width="12" height="12" fill="black" />
-                                  <rect x="78" y="78" width="14" height="14" fill="black" />
-                                  <rect x="56" y="78" width="12" height="12" fill="black" />
-                                  <rect x="78" y="56" width="12" height="12" fill="black" />
-                                </svg>
-                              </div>
-                            )}
-                            {/* Hover scan overlay */}
-                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <span className="text-[10px] font-bold text-white flex items-center gap-1">
-                                <ExternalLink className="w-3.5 h-3.5 text-brand-lime" /> Zoom QR
-                              </span>
+                          <div className="bg-slate-950/50 border border-blue-900/20 rounded-2xl p-4 flex flex-col justify-between relative transition-colors">
+                            <div>
+                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">GCash Account Number</span>
+                              <h5 className="text-sm font-mono font-bold text-brand-lime tracking-wider">{globalGcashNumber || '0917-XXX-XXXX'}</h5>
+                            </div>
+                            <div className="flex gap-2 justify-end mt-2">
+                              {availableAccounts.length > 1 && !checkoutDetails.gcashAccountId && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTempSelectedAccountId(selectedAccountId);
+                                    setIsGcashAccountModalOpen(true);
+                                  }}
+                                  className="flex items-center gap-1 text-[10px] font-bold text-slate-400 hover:text-white transition-colors cursor-pointer bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg"
+                                >
+                                  Switch Account
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(globalGcashNumber || '', 'number')}
+                                className="flex items-center gap-1 text-[10px] font-bold text-blue-400 hover:text-white transition-colors cursor-pointer bg-blue-955/50 hover:bg-blue-900/40 px-2.5 py-1 rounded-lg border border-blue-900/30"
+                              >
+                                {copiedField === 'number' ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-green-400" /> Copied!
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" /> Copy Number
+                                  </>
+                                )}
+                              </button>
                             </div>
                           </div>
                         </div>
 
-                        <div className="text-left space-y-3.5">
-                          <div className="space-y-1">
-                            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block">Instructions</span>
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                              1. Scan the QR code or copy the payment details above.<br />
-                              2. Open your GCash app, select **Send Money** &gt; **Express Send** (or scan QR).<br />
-                              3. Send exactly <span className="text-brand-lime font-bold">₱{finalTotal}</span> to the merchant.
-                            </p>
+                        {/* QR code and scanning visual instructions */}
+                        <div className="flex flex-col sm:flex-row items-center gap-6 bg-slate-950/40 border border-blue-955/60 rounded-2xl p-6">
+                          {/* Scanner Mockup Screen */}
+                          <div className="relative group flex-shrink-0 mx-auto sm:mx-0">
+                            <div className="absolute -inset-1 rounded-3xl bg-gradient-to-tr from-blue-600 to-brand-lime opacity-35 blur group-hover:opacity-75 transition duration-500"></div>
+                            <div 
+                              onClick={() => setReceiptLightboxImage(globalGcashQr || '/placeholder-qr.png')}
+                              className="relative w-56 h-56 sm:w-64 sm:h-64 bg-white rounded-2xl p-3 flex flex-col items-center justify-center overflow-hidden shadow-2xl select-none cursor-pointer group-hover:scale-[1.02] transition-transform duration-300"
+                            >
+                              {globalGcashQr ? (
+                                <img 
+                                  src={globalGcashQr} 
+                                  alt="Merchant GCash QR Code" 
+                                  className="w-full h-full object-contain rounded-lg" 
+                                />
+                              ) : (
+                                <div className="text-slate-850 font-extrabold flex flex-col items-center justify-center p-1 w-full h-full">
+                                  <svg className="w-full h-full text-blue-955" viewBox="0 0 100 100" fill="currentColor">
+                                    <rect width="100" height="100" fill="white" />
+                                    <rect x="8" y="8" width="26" height="26" fill="black" />
+                                    <rect x="13" y="13" width="16" height="16" fill="white" />
+                                    <rect x="16" y="16" width="10" height="10" fill="black" />
+                                    <rect x="66" y="8" width="26" height="26" fill="black" />
+                                    <rect x="71" y="13" width="16" height="16" fill="white" />
+                                    <rect x="74" y="16" width="10" height="10" fill="black" />
+                                    <rect x="8" y="66" width="26" height="26" fill="black" />
+                                    <rect x="13" y="71" width="16" height="16" fill="white" />
+                                    <rect x="16" y="74" width="10" height="10" fill="black" />
+                                    <rect x="44" y="44" width="12" height="12" fill="black" />
+                                    <rect x="66" y="66" width="12" height="12" fill="black" />
+                                    <rect x="78" y="78" width="14" height="14" fill="black" />
+                                    <rect x="56" y="78" width="12" height="12" fill="black" />
+                                    <rect x="78" y="56" width="12" height="12" fill="black" />
+                                  </svg>
+                                </div>
+                              )}
+                              {/* Hover scan overlay */}
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <span className="text-xs font-extrabold text-white flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-brand-lime/40 shadow-lg">
+                                  <ExternalLink className="w-4 h-4 text-brand-lime" /> Tap to Zoom
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                                <ExternalLink className="w-3 h-3 text-brand-lime" /> Tap to Enlarge
+                              </span>
+                              {globalGcashQr && (
+                                <button
+                                  type="button"
+                                  onClick={handleDownloadQrCode}
+                                  title="Download GCash QR Code Image"
+                                  className="px-2.5 py-1 rounded-xl bg-blue-955/80 hover:bg-blue-900 border border-blue-800/60 text-blue-300 hover:text-white transition-all text-[10px] font-bold flex items-center gap-1 cursor-pointer shadow-md"
+                                >
+                                  <Download className="w-3 h-3 text-brand-lime" />
+                                  <span>Save QR</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <div className="inline-flex items-center gap-2 bg-blue-955/50 border border-blue-900/40 rounded-xl px-3 py-1.5 text-xs text-blue-300">
-                            <Lock className="w-3.5 h-3.5 text-brand-lime" /> Official Merchant Account Secured
+
+                          <div className="text-left space-y-3.5">
+                            <div className="space-y-1">
+                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block">Instructions</span>
+                              <p className="text-xs text-slate-300 leading-relaxed">
+                                1. Scan the QR code or copy the payment details above.<br />
+                                2. Open your GCash app, select **Send Money** &gt; **Express Send** (or scan QR).<br />
+                                3. Send exactly <span className="text-brand-lime font-bold">₱{finalTotal}</span> to the merchant.
+                              </p>
+                            </div>
+                            <div className="inline-flex items-center gap-2 bg-blue-955/50 border border-blue-900/40 rounded-xl px-3 py-1.5 text-xs text-blue-300">
+                              <Lock className="w-3.5 h-3.5 text-brand-lime" /> Official Merchant Account Secured
+                            </div>
                           </div>
                         </div>
+
                       </div>
-
                     </div>
-                  </div>
+                  )}
 
-                  {/* Section 3: Reference Number and Screenshot */}
+                  <div className="pt-6 border-t border-slate-800 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={handleBackToStep1}
+                      className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer hover:bg-slate-850 whitespace-nowrap"
+                    >
+                      <ArrowLeft className="w-4 h-4 text-brand-lime" />
+                      <span>Back to Info</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleNextFromStep2}
+                      className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10 hover:scale-[1.02] whitespace-nowrap"
+                    >
+                      <span>Continue to Verification</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 3: Reference Code & Verification Upload */}
+              {checkoutStep === 3 && (
+                <div className="space-y-6 animate-fade-in">
                   <div className="space-y-4 pt-2">
                     <h3 className="text-sm md:text-base font-bold text-white flex items-center gap-3">
                       <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-sm text-brand-lime font-black shadow-[0_0_15px_rgba(181,245,41,0.15)] flex-shrink-0">3</span>
@@ -1805,7 +1990,7 @@ export default function Checkout({
                                     setReceiptImageBase64('');
                                     setReceiptImageName('');
                                   }}
-                                  className="w-full sm:w-auto px-4 py-2 bg-red-950/40 hover:bg-red-900/50 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                                  className="w-full sm:w-auto px-4 py-2 bg-red-955/40 hover:bg-red-900/50 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
                                 >
                                   <X className="w-3.5 h-3.5" /> Remove Screenshot
                                 </button>
@@ -1814,7 +1999,7 @@ export default function Checkout({
                           </div>
                         ) : (
                           /* Redesigned Premium File Selection Dropzone */
-                          <div className="relative group rounded-2xl border border-dashed border-slate-800 hover:border-blue-500/40 bg-slate-900/10 hover:bg-blue-950/[0.02] p-8 text-center cursor-pointer transition-all duration-300 flex flex-col items-center justify-center min-h-[140px]">
+                          <div className="relative group rounded-2xl border border-dashed border-slate-800 hover:border-blue-500/40 bg-slate-900/10 hover:bg-blue-955/[0.02] p-8 text-center cursor-pointer transition-all duration-300 flex flex-col items-center justify-center min-h-[140px]">
                             <input
                               type="file"
                               required
@@ -1834,31 +2019,39 @@ export default function Checkout({
                       </div>
                     </div>
                   </div>
-                </>
+
+                  <div className="pt-6 border-t border-slate-800 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={handleBackToStep2}
+                      className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer hover:bg-slate-850 whitespace-nowrap"
+                    >
+                      <ArrowLeft className="w-4 h-4 text-brand-lime" />
+                      <span>Back to Payment</span>
+                    </button>
+
+                    <button
+                      type="submit"
+                      form="checkout-form"
+                      disabled={isProcessing}
+                      className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider flex items-center justify-center gap-1.5 hover:scale-[1.01] hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/10 cursor-pointer uppercase border-none outline-none whitespace-nowrap"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-slate-650 border-t-dark-bg rounded-full animate-spin"></span>
+                          <span>Saving Reservation...</span>
+                        </>
+                      ) : isFullyCoveredByVoucher ? (
+                        <>
+                          <Sparkles className="w-4 h-4" /> <span>Confirm Free Rebooking (₱0)</span>
+                        </>
+                      ) : (
+                        <span>Confirm GCash & Book (₱{finalTotal})</span>
+                      )}
+                    </button>
+                  </div>
+                </div>
               )}
-
-              {/* Submit button */}
-              <div className="pt-4">
-                <button
-                  type="submit"
-                  disabled={isProcessing}
-                  className="w-full py-4 rounded-xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider flex items-center justify-center gap-1.5 hover:scale-[1.01] hover:bg-[#a6e224] transition-all shadow-lg shadow-brand-lime/10 cursor-pointer uppercase border-none outline-none"
-                >
-                  {isProcessing ? (
-                    <>
-                      <span className="w-3.5 h-3.5 border-2 border-slate-650 border-t-dark-bg rounded-full animate-spin"></span>
-                      Saving Reservation...
-                    </>
-                  ) : isFullyCoveredByVoucher ? (
-                    <>
-                      <Sparkles className="w-4 h-4" /> Confirm Free Rebooking (₱0)
-                    </>
-                  ) : (
-                    `Confirm GCash & Book (₱${finalTotal})`
-                  )}
-                </button>
-              </div>
-
             </form>
 
             {/* Simulated Payment Security Badge */}
@@ -1869,57 +2062,36 @@ export default function Checkout({
         </div>
 
         {/* Right Column - Booking Summary Card (Lg spans 5) */}
-        <div className="lg:col-span-5 lg:sticky lg:top-[96px] space-y-6">
-          <div className="glass-panel rounded-3xl p-6 border border-slate-800 shadow-2xl space-y-5">
-            <div className="pb-3.5 border-b border-slate-800">
+        <div className="lg:col-span-5 lg:sticky lg:top-[96px] order-1 lg:order-2 space-y-6 w-full">
+          <div className="glass-panel rounded-3xl p-6 border border-slate-800 shadow-2xl space-y-5 w-full">
+            <div className="pb-3.5 border-b border-slate-800/40 -mx-6 px-6">
               <h3 className="text-base font-semibold text-white">Booking Summary</h3>
               <p className="text-xs text-slate-400 mt-1">Verify details before proceeding to payment.</p>
             </div>
 
             {/* Venue Card header */}
-            <div className="flex gap-4">
-              {checkoutDetails.courtImage ? (
-                <div className="w-20 h-20 rounded-xl overflow-hidden border border-slate-800 bg-slate-950 flex-shrink-0">
-                  <img src={checkoutDetails.courtImage} alt={checkoutDetails.courtName} className="w-full h-full object-cover" />
-                </div>
-              ) : (
-                <div className="w-20 h-20 rounded-xl bg-slate-900 border border-slate-800 text-2xl flex items-center justify-center flex-shrink-0">
-                  🏓
-                </div>
-              )}
-              <div className="text-left space-y-1">
-                <span className="text-[8px] font-extrabold bg-brand-lime/10 border border-brand-lime/25 text-brand-lime px-2 py-0.5 rounded-full uppercase tracking-wider font-sans">
-                  {checkoutDetails.courtType}
-                </span>
-                <h4 className="text-sm font-extrabold text-white mt-1 leading-snug">{checkoutDetails.courtName}</h4>
-                <p className="text-xs text-slate-400 flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-slate-500" /> {checkoutDetails.courtLocation}
-                </p>
-              </div>
+            <div className="text-left space-y-1">
+              <span className="text-[8px] font-extrabold bg-brand-lime/10 border border-brand-lime/25 text-brand-lime px-2 py-0.5 rounded-full uppercase tracking-wider font-sans">
+                {checkoutDetails.courtType}
+              </span>
+              <h4 className="text-base font-extrabold text-white mt-1 leading-snug">{checkoutDetails.courtName}</h4>
             </div>
 
             {/* Divider */}
-            <div className="border-t border-slate-850"></div>
+            <div className="border-t border-slate-800/40 -mx-6"></div>
 
-            {/* Date & Time slots Summary */}
-            <div className="space-y-3">
-              <div className="flex items-start gap-2.5">
-                <Calendar className="w-4 h-4 text-brand-lime mt-0.5" />
-                <div className="text-left">
-                  <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wide block">Scheduled Date</span>
-                  <span className="text-xs font-semibold text-slate-200 mt-0.5 block">{formatDate(checkoutDetails.date)}</span>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2.5">
-                <Clock className="w-4 h-4 text-brand-lime mt-0.5" />
-                <div className="text-left w-full">
-                  <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wide block">Time Slots Reserved</span>
-                  <div className="mt-1 flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto pr-1">
+            {/* Combined Date & Time Row */}
+            <div className="flex items-start gap-2.5">
+              <Calendar className="w-4 h-4 text-brand-lime mt-0.5 flex-shrink-0" />
+              <div className="text-left w-full">
+                <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wide block">Date & Time</span>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <span className="text-xs font-semibold text-slate-200">{formatDate(checkoutDetails.date)}</span>
+                  <div className="flex flex-wrap gap-1.5">
                     {checkoutDetails.slots.map((slot, idx) => (
                       <span 
                         key={idx} 
-                        className="text-xs font-bold bg-slate-900 text-slate-300 border border-slate-850 px-2 py-1 rounded-md"
+                        className="text-xs font-bold bg-slate-900 text-brand-lime border border-slate-850 px-2 py-0.5 rounded-md font-mono"
                       >
                         {slot.split(' - ')[0]}
                       </span>
@@ -1932,7 +2104,7 @@ export default function Checkout({
             {/* Add-ons list if present */}
             {checkoutDetails.rentals.length > 0 && (
               <>
-                <div className="border-t border-slate-850"></div>
+                <div className="border-t border-slate-800/40 -mx-6"></div>
                 <div className="space-y-2">
                   <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wide block">Equipment Add-ons</span>
                   <div className="space-y-1.5">
@@ -1951,7 +2123,7 @@ export default function Checkout({
             )}
 
             {/* VOUCHER / PROMO CODE PANEL */}
-            <div className="border-t border-slate-850 pt-4 space-y-3 text-left">
+            <div className="border-t border-slate-800/40 -mx-6 px-6 pt-4 space-y-3 text-left">
               <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Tag className="w-3.5 h-3.5 text-brand-lime" /> Credit Voucher or Promo Code
               </label>
@@ -2010,7 +2182,7 @@ export default function Checkout({
             </div>
 
             {/* Pricing Cost breakdown */}
-            <div className="border-t border-slate-850 pt-4 space-y-2.5">
+            <div className="border-t border-slate-800/40 -mx-6 px-6 pt-4 space-y-2.5">
               {isOpenPlay ? (
                 <>
                   {/* Itemized Open Play Breakdown */}
@@ -2092,9 +2264,32 @@ export default function Checkout({
                 </span>
               </div>
 
-              <div className="border-t border-slate-800 pt-3 flex justify-between items-baseline font-bold">
+              <div className="border-t border-slate-800/40 -mx-6 px-6 pt-3 flex justify-between items-baseline font-bold">
                 <span className="text-slate-300 text-xs font-bold uppercase tracking-wider">Total payment due</span>
                 <span className="text-brand-lime font-sans text-xl">₱{finalTotal}</span>
+              </div>
+
+              {/* Primary Submit Button under Total Payment Due */}
+              <div className="pt-4 border-t border-slate-800/40">
+                <button
+                  type="submit"
+                  form="checkout-form"
+                  disabled={isProcessing}
+                  className="w-full py-4 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider flex items-center justify-center gap-1.5 hover:scale-[1.01] hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/10 cursor-pointer uppercase border-none outline-none"
+                >
+                  {isProcessing ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-slate-650 border-t-dark-bg rounded-full animate-spin"></span>
+                      Saving Reservation...
+                    </>
+                  ) : isFullyCoveredByVoucher ? (
+                    <>
+                      <Sparkles className="w-4 h-4" /> Confirm Free Rebooking (₱0)
+                    </>
+                  ) : (
+                    `Confirm GCash & Book (₱${finalTotal})`
+                  )}
+                </button>
               </div>
             </div>
           </div>
@@ -2130,13 +2325,13 @@ export default function Checkout({
             {/* Content (Card List) */}
             <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 mb-6">
               {availableAccounts.length === 0 ? (
-                <div className="text-center py-12 border border-dashed border-slate-850 rounded-2xl bg-slate-950/20">
+                <div className="text-center py-12 border border-dashed border-slate-855 rounded-2xl bg-slate-950/20">
                   <div className="w-12 h-12 rounded-full bg-slate-950 border border-slate-855 flex items-center justify-center text-slate-500 text-lg mx-auto mb-4 select-none">📲</div>
                   <h4 className="text-xs font-black text-white">No GCash accounts are available.</h4>
                   <p className="text-xs text-slate-550 mt-1.5">Please contact admin support.</p>
                 </div>
               ) : (
-                availableAccounts.slice(0, 3).map((acc) => {
+                availableAccounts.map((acc) => {
                   const isSelected = tempSelectedAccountId === acc.id;
                   return (
                     <div
@@ -2163,8 +2358,13 @@ export default function Checkout({
                           📲
                         </div>
                         <div>
+                          {acc.paymentName && (
+                            <span className="text-[10px] font-extrabold text-brand-lime uppercase tracking-wider block mb-0.5">
+                              {acc.paymentName}
+                            </span>
+                          )}
                           <h4 className="text-sm font-black text-white">{acc.gcashName || 'Unnamed Account'}</h4>
-                          <p className="text-xs font-mono text-slate-400 mt-1 font-bold">{acc.gcashNumber || 'No Number'}</p>
+                          <p className="text-xs font-mono text-slate-400 mt-0.5 font-bold">{acc.gcashNumber || 'No Number'}</p>
                         </div>
                       </div>
 

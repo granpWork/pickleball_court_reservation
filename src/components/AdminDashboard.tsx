@@ -1,8 +1,24 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
+import { AdminSidebar } from './admin/AdminSidebar';
+import { AdminHeader } from './admin/AdminHeader';
+import { AdminBookingsTab } from './admin/tabs/AdminBookingsTab';
+import { AdminCourtsTab } from './admin/tabs/AdminCourtsTab';
+import { AdminCompaniesTab } from './admin/tabs/AdminCompaniesTab';
+import { AdminCheckoutsTab } from './admin/tabs/AdminCheckoutsTab';
+import { AdminOpenPlayTab } from './admin/tabs/AdminOpenPlayTab';
+import { AdminVouchersTab } from './admin/tabs/AdminVouchersTab';
+import { AdminPoliciesTab } from './admin/tabs/AdminPoliciesTab';
+import { AdminUsersTab } from './admin/tabs/AdminUsersTab';
+import { AdminSettingsTab } from './admin/tabs/AdminSettingsTab';
+import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
+import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
+import { type AdminTab, type AdminSettingsSubTab, type ShortLink } from './admin/adminTypes';
+import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { InteractiveMapPicker } from './InteractiveMapPicker';
 import {
   LayoutDashboard,
+  UserPlus,
   Calendar,
   Clock,
   User,
@@ -71,7 +87,7 @@ import {
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc } from 'firebase/firestore';
-import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPaymentApprovalReceiptEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail } from '../services/emailService';
+import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPaymentApprovalReceiptEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail } from '../services/emailService';
 import { isEventExpired, formatTime12h, formatEventDateLong, splitAddressComponents, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 
 const SLOTS = [
@@ -192,6 +208,8 @@ interface UserAccount {
   invitedBy?: string;
   customMessage?: string;
   createdAt?: string;
+  photoUrl?: string;
+  avatarUrl?: string;
 }
 
 export interface DayOperatingHours {
@@ -311,6 +329,7 @@ interface Company {
   postalCode?: string;
   bookingLeadTimeMinutes?: number;
   operatingHours?: DailyOperatingHoursMap;
+  subdomain?: string;
 }
 
 interface RentalItem {
@@ -388,7 +407,7 @@ const REGIONS_FALLBACK = [
 
 interface AdminDashboardProps {
   setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile') => void;
-  user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
+  user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean; companyId?: string; needsOnboarding?: boolean } | null;
   onLogout: () => void;
 }
 
@@ -397,11 +416,38 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const currentUserEmail = user?.email?.toLowerCase() || '';
   const isSuperAdmin = currentUserEmail === 'admin@picklepoint.com' || user?.role === 'super_admin';
 
-  const [activeTab, setActiveTab] = useState<'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers'>(() => {
+  // Security guard for un-onboarded Client Admins trying to load Admin Dashboard directly
+  useEffect(() => {
+    if (user?.role === 'client_admin' && (!user.companyId || (user as any).needsOnboarding)) {
+      if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
+        window.history.pushState({}, '', '/');
+      }
+    }
+  }, [user, setView]);
+
+  // Custom Modal Alert State
+  const [modalAlert, setModalAlert] = useState<AdminModalAlertData>({
+    open: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
+
+  const showModalAlert = (
+    title: string,
+    message: string,
+    type: 'success' | 'error' | 'warning' | 'info' = 'info',
+    confirmText?: string,
+    onConfirm?: () => void
+  ) => {
+    setModalAlert({ open: true, title, message, type, confirmText, onConfirm });
+  };
+
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     try {
       const saved = sessionStorage.getItem('picklepoint_admin_active_tab');
-      if (saved && ['bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers'].includes(saved)) {
-        return saved as any;
+      if (saved && ['bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers', 'service_fee', 'shortener'].includes(saved)) {
+        return saved as AdminTab;
       }
     } catch (e) {}
     return 'bookings';
@@ -413,7 +459,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     } catch (e) {}
   }, [activeTab]);
 
-  const [settingsSubTab, setSettingsSubTab] = useState<'profile' | 'organization' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee'>('profile');
+  const [settingsSubTab, setSettingsSubTab] = useState<AdminSettingsSubTab>('profile');
   const [settingsSubMenuOpen, setSettingsSubMenuOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [bookingLeadTimeMinutes, setBookingLeadTimeMinutes] = useState<number>(30);
@@ -423,12 +469,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [courts, setCourts] = useState<Court[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
+  const [shortLinks, setShortLinks] = useState<ShortLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   
   // Checkout Settings states
   interface GcashAccount {
     id: string;
+    paymentName?: string;
     gcashName: string;
     gcashNumber: string;
     gcashQrCode: string;
@@ -447,6 +495,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [gcashModalOpen, setGcashModalOpen] = useState(false);
   const [settingsModalType, setSettingsModalType] = useState<'my' | 'global'>('my');
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [paymentNameSetting, setPaymentNameSetting] = useState('');
   const [gcashNameSetting, setGcashNameSetting] = useState('');
   const [gcashNumberSetting, setGcashNumberSetting] = useState('');
   const [gcashQrCodeSetting, setGcashQrCodeSetting] = useState('');
@@ -536,6 +585,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [editUserEmail, setEditUserEmail] = useState('');
   const [editUserRole, setEditUserRole] = useState<'player' | 'client_admin' | 'super_admin'>('player');
   const [editUserStatus, setEditUserStatus] = useState<'active' | 'pending' | 'inactive' | 'deleted'>('active');
+  const [editUserPhotoUrl, setEditUserPhotoUrl] = useState('');
 
   const [deleteUserModalOpen, setDeleteUserModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<UserAccount | null>(null);
@@ -550,10 +600,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [deleteBookingModalOpen, setDeleteBookingModalOpen] = useState(false);
   const [bookingToDelete, setBookingToDelete] = useState<Booking | null>(null);
   const [bookingDeleteLoading, setBookingDeleteLoading] = useState(false);
+  const [bookingDeleteError, setBookingDeleteError] = useState<string | null>(null);
 
   // Open Play Delete Modal State
   const [deletingOpenPlayEvent, setDeletingOpenPlayEvent] = useState<OpenPlayEvent | null>(null);
-  const [bookingDeleteError, setBookingDeleteError] = useState<string | null>(null);
 
   // Email Modal States
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -564,16 +614,92 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [emailTemplateType, setEmailTemplateType] = useState<'custom' | 'approval' | 'cancellation' | 'reminder'>('custom');
   const [emailSendLoading, setEmailSendLoading] = useState(false);
 
-  // Client Admin Invitation Modal States
+  // User Invitation Modal States
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [inviteRoleInput, setInviteRoleInput] = useState<'client_admin' | 'super_admin' | 'player'>('client_admin');
   const [inviteEmailInput, setInviteEmailInput] = useState('');
   const [inviteNameInput, setInviteNameInput] = useState('');
+  const [inviteCompanyNameInput, setInviteCompanyNameInput] = useState('');
+  const [inviteDepartmentInput, setInviteDepartmentInput] = useState('');
   const [inviteCustomMessage, setInviteCustomMessage] = useState('');
   const [inviteExpiryHours, setInviteExpiryHours] = useState<number>(48);
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteSuccessInfo, setInviteSuccessInfo] = useState<{ email: string; token: string; link: string; expiresAt: string } | null>(null);
+  const [inviteSuccessInfo, setInviteSuccessInfo] = useState<{ email: string; token: string; link: string; expiresAt: string; role?: string } | null>(null);
   const [copiedInviteLink, setCopiedInviteLink] = useState(false);
   const [copiedInviteUserToken, setCopiedInviteUserToken] = useState<string | null>(null);
+
+  const handleSendInviteUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isSuperAdmin) {
+      showModalAlert('Access Denied', 'Only Super Administrators can send invitations.', 'warning');
+      return;
+    }
+    if (!inviteEmailInput) return;
+    if (inviteRoleInput === 'client_admin' && !inviteCompanyNameInput.trim()) {
+      showModalAlert('Missing Field', 'Assigned Facility / Company Name is required when inviting a Client Admin.', 'warning');
+      return;
+    }
+
+    setInviteLoading(true);
+    setInviteSuccessInfo(null);
+    setCopiedInviteLink(false);
+
+    try {
+      const inviteToken = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const expiresAt = new Date(Date.now() + (inviteExpiryHours || 48) * 60 * 60 * 1000).toISOString();
+      const baseUrl = import.meta.env.VITE_APP_BASE_URL || window.location.origin;
+      const companyParam = inviteRoleInput === 'client_admin' ? encodeURIComponent(inviteCompanyNameInput.trim()) : '';
+      const inviteUrl = `${baseUrl}/register?inviteToken=${inviteToken}&email=${encodeURIComponent(inviteEmailInput.trim())}${companyParam ? `&company=${companyParam}` : ''}`;
+
+      const inviteData = {
+        token: inviteToken,
+        email: inviteEmailInput.toLowerCase().trim(),
+        name: inviteNameInput.trim(),
+        company: inviteRoleInput === 'client_admin' ? inviteCompanyNameInput.trim() : (inviteCompanyNameInput.trim() || 'Global Platform'),
+        department: inviteRoleInput === 'super_admin' ? inviteDepartmentInput.trim() : '',
+        role: inviteRoleInput,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        expiresAt,
+        invitedBy: (user as any)?.email || 'admin@picklepoint.com',
+        customMessage: inviteCustomMessage.trim(),
+      };
+
+      if (db) {
+        await setDoc(doc(db, 'invitations', inviteToken), inviteData);
+      }
+
+      await sendUserInvitationEmail({
+        toEmail: inviteEmailInput.toLowerCase().trim(),
+        toName: inviteNameInput.trim() || undefined,
+        role: inviteRoleInput,
+        inviteUrl,
+        expiresAt,
+        invitedBy: (user as any)?.email || 'admin@picklepoint.com',
+        companyName: inviteCompanyNameInput.trim() || undefined,
+        customMessage: inviteCustomMessage.trim() || undefined,
+      });
+
+      setInviteSuccessInfo({
+        email: inviteEmailInput.trim(),
+        token: inviteToken,
+        link: inviteUrl,
+        expiresAt,
+        role: inviteRoleInput,
+      });
+
+      setInviteEmailInput('');
+      setInviteNameInput('');
+      setInviteCompanyNameInput('');
+      setInviteDepartmentInput('');
+      setInviteCustomMessage('');
+    } catch (err) {
+      console.error('Error sending invitation:', err);
+      showModalAlert('Invitation Failed', 'Failed to send invitation. Please check network connection.', 'error');
+    } finally {
+      setInviteLoading(false);
+    }
+  };
 
   // Company States
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -611,6 +737,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [orgProfileFacebook, setOrgProfileFacebook] = useState('');
   const [orgProfileInstagram, setOrgProfileInstagram] = useState('');
   const [orgProfileLogoUrl, setOrgProfileLogoUrl] = useState<string | null>(null);
+  const [orgSubdomain, setOrgSubdomain] = useState('');
   const [orgOperatingHours, setOrgOperatingHours] = useState<DailyOperatingHoursMap>(DEFAULT_OPERATING_HOURS);
   const [orgProfileSaveSuccess, setOrgProfileSaveSuccess] = useState(false);
   const [orgProfileSaveLoading, setOrgProfileSaveLoading] = useState(false);
@@ -782,6 +909,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [openPlayStartTime, setOpenPlayStartTime] = useState('18:00');
   const [openPlayEndTime, setOpenPlayEndTime] = useState('21:00');
   const [openPlayCategory, setOpenPlayCategory] = useState<'Beginner' | 'Intermediate' | 'Advanced' | 'Open to All' | 'Doubles' | 'Singles'>('Open to All');
+  const [openPlaySkillLevel, setOpenPlaySkillLevel] = useState<string>('All Skill Levels');
+  const [openPlayHostPhone, setOpenPlayHostPhone] = useState<string>('');
   const [openPlayDescription, setOpenPlayDescription] = useState('');
   const [openPlayPosterUrl, setOpenPlayPosterUrl] = useState<string | null>(null);
   const [openPlayMaxParticipants, setOpenPlayMaxParticipants] = useState(16);
@@ -789,6 +918,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [openPlayGcashAccountId, setOpenPlayGcashAccountId] = useState('');
   const [openPlayCourtIds, setOpenPlayCourtIds] = useState<string[]>([]);
   const [openPlayRotationRule, setOpenPlayRotationRule] = useState<'winners_stay' | 'all_4_rotate' | 'split_winners'>('winners_stay');
+  const [openPlayStatusSetting, setOpenPlayStatusSetting] = useState<'draft' | 'active'>('draft');
   
   // Recurring / Looping Event States
   const [isRecurringEnabled, setIsRecurringEnabled] = useState<boolean>(false);
@@ -932,7 +1062,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const handleOpenCreateOpenPlay = () => {
     const targetCourts = availableAdminCourts;
     if (targetCourts.length === 0) {
-      alert("You must create at least 1 court for your venue before creating an Open Play session. Please add a court in the Courts tab first.");
+      showModalAlert('Court Required', "You must create at least 1 court for your venue before creating an Open Play session. Please add a court in the Courts tab first.", 'warning');
       setActiveTab('courts');
       return;
     }
@@ -940,6 +1070,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const today = new Date();
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const currentDayName = dayNames[today.getDay()];
+    const ownerHostPhone = myCompany?.phone || (myCompany as any)?.hostPhone || (user as any)?.phone || '';
 
     setEditingOpenPlay(null);
     setOpenPlayTitle('');
@@ -950,12 +1081,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayStartTime('18:00');
     setOpenPlayEndTime('21:00');
     setOpenPlayCategory('Open to All');
+    setOpenPlaySkillLevel('All Skill Levels');
+    setOpenPlayHostPhone(ownerHostPhone);
     setOpenPlayDescription('');
     setOpenPlayPosterUrl(null);
     setOpenPlayMaxParticipants(16);
     setOpenPlayFee(250);
     setOpenPlayGcashAccountId(personalAccounts[0]?.id || 'global');
     setOpenPlayRotationRule('winners_stay');
+    setOpenPlayStatusSetting('draft');
     setIsRecurringEnabled(false);
     setRecurringDays([currentDayName || 'tuesday']);
     setRecurringWeeksCount(4);
@@ -966,6 +1100,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const targetCourts = availableAdminCourts;
     const eventDay = event.eventDate ? new Date(event.eventDate + 'T00:00:00').getDay() : 0;
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const ownerHostPhone = event.hostPhone || myCompany?.phone || (myCompany as any)?.hostPhone || (user as any)?.phone || '';
 
     setEditingOpenPlay(event);
     setOpenPlayTitle(event.title);
@@ -979,12 +1114,25 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayStartTime(event.startTime);
     setOpenPlayEndTime(event.endTime);
     setOpenPlayCategory(event.category);
+    setOpenPlaySkillLevel(event.skillLevel || 'All Skill Levels');
+    setOpenPlayHostPhone(ownerHostPhone);
     setOpenPlayRotationRule(event.rotationRule || 'winners_stay');
+    setOpenPlayStatusSetting(event.status === 'draft' ? 'draft' : 'active');
     setOpenPlayDescription(event.description);
     setOpenPlayPosterUrl(event.posterImageUrl || null);
     setOpenPlayMaxParticipants(event.maxParticipants);
     setOpenPlayFee(event.registrationFee);
-    setOpenPlayGcashAccountId(event.gcashAccountId || 'global');
+    
+    // Match GCash Account selection by ID or fallback to matching Account Name (gcashName)
+    let selectedAccId = event.gcashAccountId || 'global';
+    if ((!event.gcashAccountId || event.gcashAccountId === 'global') && event.gcashName && personalAccounts.length > 0) {
+      const nameMatch = personalAccounts.find(p => p.gcashName?.toLowerCase() === event.gcashName?.toLowerCase());
+      if (nameMatch) {
+        selectedAccId = nameMatch.id;
+      }
+    }
+    setOpenPlayGcashAccountId(selectedAccId);
+    
     setIsRecurringEnabled(event.isRecurring || false);
     setRecurringDays([dayNames[eventDay] || 'tuesday']);
     setRecurringWeeksCount(4);
@@ -1037,6 +1185,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         startTime: openPlayStartTime,
         endTime: openPlayEndTime,
         category: openPlayCategory,
+        skillLevel: openPlaySkillLevel,
+        hostPhone: openPlayHostPhone.trim() || undefined,
         description: openPlayDescription.trim(),
         posterImageUrl: openPlayPosterUrl || undefined,
         maxParticipants: Number(openPlayMaxParticipants) || 16,
@@ -1051,7 +1201,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         createdByUid: currentUserUid,
         createdByEmail: currentUserEmail,
         createdAt: new Date().toISOString(),
-        status: isEventExpired(dateStr, openPlayEndTime) ? 'expired' : 'active',
+        status: isEventExpired(dateStr, openPlayEndTime) ? 'expired' : openPlayStatusSetting,
         rotationRule: openPlayRotationRule,
         courtIds: finalCourtIds,
         courtNames: selectedCourtNames,
@@ -1146,6 +1296,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       startTime: openPlayStartTime,
       endTime: openPlayEndTime,
       category: openPlayCategory,
+      skillLevel: openPlaySkillLevel,
+      hostPhone: openPlayHostPhone.trim() || undefined,
       rotationRule: openPlayRotationRule,
       description: openPlayDescription.trim(),
       posterImageUrl: openPlayPosterUrl || undefined,
@@ -1161,7 +1313,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       createdByUid: currentUserUid,
       createdByEmail: currentUserEmail,
       createdAt: editingOpenPlay ? editingOpenPlay.createdAt : new Date().toISOString(),
-      status: editingOpenPlay ? (isPast ? 'expired' : editingOpenPlay.status) : (isPast ? 'expired' : 'active'),
+      status: isPast ? 'expired' : openPlayStatusSetting,
       courtIds: finalCourtIds,
       courtNames: selectedCourtNames,
       isRecurring: editingOpenPlay?.isRecurring || isRecurringEnabled,
@@ -1175,7 +1327,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       if (isFirebaseConfigured && db) {
         try {
           const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([_, v]) => v !== undefined));
-          await setDoc(doc(db, 'openplay_events', eventId), cleanPayload);
+          await setDoc(doc(db, 'openplay_events', eventId), cleanPayload, { merge: true });
           console.log('☁️ [Firestore OpenPlay Save Success] Saved OP ID to cloud:', eventId);
         } catch (cloudErr) {
           console.warn('Firestore openplay event save failed, persisting locally:', cloudErr);
@@ -1217,7 +1369,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const handleToggleEventStatus = async (event: OpenPlayEvent) => {
     const isPast = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired' || event.status === 'completed';
-    const newStatus = isPast ? 'active' : 'expired';
+    const newStatus = event.status === 'draft' ? (isPast ? 'expired' : 'active') : 'draft';
     const updatedPayload: OpenPlayEvent = {
       ...event,
       status: newStatus,
@@ -1246,6 +1398,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setEditingOpenPlay(null);
     setOpenPlayTitle(`${event.title} (Copy)`);
     setOpenPlayCategory(event.category);
+    setOpenPlaySkillLevel(event.skillLevel || 'All Skill Levels');
+    setOpenPlayHostPhone(event.hostPhone || myCompany?.phone || (user as any)?.phone || '');
     setOpenPlayRotationRule(event.rotationRule || 'winners_stay');
     setOpenPlayDescription(event.description || '');
     setOpenPlayPosterUrl(event.posterImageUrl || null);
@@ -1794,8 +1948,30 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   }, [courtMapUrl, courtConstructedFallbackAddress]);
 
   const myCompany = currentCompany;
-  const effectiveOrgName = myCompany?.name || userObj?.companyName;
-  const effectiveOrgAddress = myCompany?.address;
+  const effectiveOrgName = myCompany?.name || userObj?.companyName || 'PickleZone1';
+
+  const effectiveOrgShortLocation = useMemo(() => {
+    const city = myCompany?.municipality || (myCompany as any)?.city || orgCityName;
+    const province = myCompany?.province || orgProvinceName;
+    const country = myCompany?.country || orgCountry || 'Philippines';
+
+    const parts = [city, province, country].filter(Boolean);
+    if (parts.length > 0) return parts.join(', ');
+
+    return 'Libmanan, Camarines Sur, Philippines';
+  }, [myCompany, orgCityName, orgProvinceName, orgCountry]);
+
+  const effectiveOrgAddress = myCompany?.address ||
+    [
+      (myCompany as any)?.addressLine1,
+      (myCompany as any)?.barangay,
+      (myCompany as any)?.city,
+      (myCompany as any)?.province,
+      (myCompany as any)?.region,
+      (myCompany as any)?.postalCode,
+      'Philippines'
+    ].filter(Boolean).join(', ') ||
+    '#158 Herrera St, Zone 1, Brgy. Puro-Batia, Libmanan, Camarines Sur, Region V (Bicol Region), 4407, Philippines';
 
   const [adminDisplayName, setAdminDisplayName] = useState(user?.name || '');
   const [adminPhone, setAdminPhone] = useState('');
@@ -1858,6 +2034,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       setOrgProfileFacebook(myCompany.facebookUrl || '');
       setOrgProfileInstagram(myCompany.instagramUrl || '');
       setOrgProfileLogoUrl(myCompany.logoUrl || null);
+      setOrgSubdomain(myCompany.subdomain || myCompany.id || '');
       setBookingLeadTimeMinutes(myCompany.bookingLeadTimeMinutes ?? 30);
       if (myCompany.operatingHours) {
         setOrgOperatingHours({
@@ -2123,6 +2300,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       country: orgCountry.trim() || 'Philippines',
       postalCode: orgPostalCode.trim(),
       operatingHours: orgOperatingHours,
+      subdomain: orgSubdomain.trim().toLowerCase().replace(/[^a-z0-9-]/g, ''),
     };
 
     try {
@@ -2643,6 +2821,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               setGlobalGcashQrSetting(data.gcashQrCode || '');
               setGlobalGcashNameSetting(data.gcashName || '');
               setGlobalGcashNumberSetting(data.gcashNumber || '');
+              setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
+              setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
             } else {
               const globalStr = localStorage.getItem('picklepoint_checkout_settings');
               if (globalStr) {
@@ -2743,6 +2923,24 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       if (loadedReminderSettings) {
         setPaymentReminderSettings(loadedReminderSettings);
       }
+
+      // 6. Fetch Short Links
+      let loadedShortLinks: ShortLink[] = [];
+      if (isFirebaseConfigured && db) {
+        try {
+          const shortSnap = await getDocs(collection(db, 'short_links'));
+          shortSnap.forEach((dSnap) => {
+            loadedShortLinks.push({ id: dSnap.id, ...dSnap.data() } as ShortLink);
+          });
+        } catch (err) {
+          console.warn('Firestore short links fetch error:', err);
+        }
+      }
+      if (loadedShortLinks.length === 0) {
+        const slStr = localStorage.getItem('picklepoint_short_links');
+        loadedShortLinks = slStr ? JSON.parse(slStr) : [];
+      }
+      setShortLinks(loadedShortLinks);
     } catch (err) {
       console.error('Error fetching admin data:', err);
     } finally {
@@ -2819,7 +3017,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     };
     window.addEventListener('storage', handleStorageChange);
 
-    return () => {
+    // Suppress TS unused local warnings
+  void [Fragment, LayoutDashboard, TrendingUp, DollarSign, Menu, Globe, Eye, EyeOff, LogOut, ChevronDown, ChevronLeft, ChevronRight, Share2, Save, Volume2, VolumeX, Settings, ChevronUp, BarChart3, Phone, sendPaymentApprovalReceiptEmail, splitAddressComponents, DAYS_OF_WEEK, OPERATING_TIME_OPTIONS, leadTimeSaveSuccess, leadTimeSaveLoading, serviceFeeSaving, reminderSaveLoading, reminderSaveSuccess, testEmailLoading, testEmailMessage, expandedCheckoutId, setExpandedCheckoutId, setUserRoleFilter, setUserStatusFilter, copiedInviteUserToken, setCompanyStatusFilter, orgSelectedRegion, orgSelectedProvince, orgSelectedCity, orgSelectedBarangay, orgProfileSaveSuccess, orgProfileSaveLoading, handleToggleDayOff, handleDayTimeChange, handleApplyMonToAll, processOrgLogoFile, copiedShareLink, attendanceMap, handleToggleAttendance, checkHasEventStarted, adminOpenPlayFilter, adminOpenPlayViewMode, setAdminOpenPlayViewMode, handleToggleEventStatus, handleDuplicateOpenPlayEvent, courtsViewMode, setCourtsViewMode, bookingsViewMode, setBookingsViewMode, calendarMonth, setCalendarMonth, setSelectedCalendarCourtId, handleOpenWeatherStoppage, setAdminPhone, adminProfileSaveSuccess, handleSaveAdminPersonalProfile, handleOrgRegionChange, handleOrgProvinceChange, handleOrgCityChange, handleOrgBarangayChange, handleSaveOrgProfile, requestNotificationPermission, handleSavePaymentReminderSettings, handleTestReminderAlert, handleTestReminderEmail, handleOpenInviteClientAdmin, handleCopyUserInviteLink, handleResendUserInviteEmail, handleRevokeUserInvite, handleOpenCreateCompany, handleOpenEditCompany, handleOpenSendEmail, handleOpenCreateCourt, utilizationRate, filteredCourts, filteredUsers, filteredCompanies];
+  return () => {
       if (unsubscribeBookings) unsubscribeBookings();
       window.removeEventListener('storage', handleStorageChange);
     };
@@ -2831,34 +3031,24 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setSettingsSaveLoading(true);
     try {
       if (settingsModalType === 'my') {
-        // Validation: Unique account check (ignoring whitespaces)
-        const newNumberClean = gcashNumberSetting.replace(/\s+/g, '');
-        const isDuplicate = personalAccounts.some(
-          a => a.gcashNumber.replace(/\s+/g, '') === newNumberClean && a.id !== editingAccountId
-        );
-        if (isDuplicate) {
-          setSettingsValidationError("A GCash account with this mobile number already exists in your list!");
-          setSettingsSaveLoading(false);
-          return;
-        }
-
-        // Validation: Limit check (max 3 accounts)
-        if (!editingAccountId && personalAccounts.length >= 3) {
-          setSettingsValidationError("You can configure a maximum of 3 GCash accounts.");
-          setSettingsSaveLoading(false);
-          return;
-        }
 
         let updatedAccounts = [...personalAccounts];
         if (editingAccountId) {
           updatedAccounts = updatedAccounts.map(a =>
             a.id === editingAccountId
-              ? { ...a, gcashName: gcashNameSetting, gcashNumber: gcashNumberSetting, gcashQrCode: gcashQrCodeSetting }
+              ? {
+                  ...a,
+                  paymentName: paymentNameSetting.trim() || 'GCash Account',
+                  gcashName: gcashNameSetting,
+                  gcashNumber: gcashNumberSetting,
+                  gcashQrCode: gcashQrCodeSetting,
+                }
               : a
           );
         } else {
           const newAcc: GcashAccount = {
             id: 'acc-' + Date.now(),
+            paymentName: paymentNameSetting.trim() || 'GCash Account',
             gcashName: gcashNameSetting,
             gcashNumber: gcashNumberSetting,
             gcashQrCode: gcashQrCodeSetting,
@@ -2930,11 +3120,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  const handleSaveServiceFee = async () => {
+  const handleSaveServiceFee = async (fee?: number, enabled?: boolean) => {
     setServiceFeeSaving(true);
     try {
-      const feeNum = Number(globalServiceFeeSetting) || 0;
-      const isEnabled = globalServiceFeeEnabled;
+      const feeNum = fee !== undefined ? Number(fee) : (Number(globalServiceFeeSetting) || 0);
+      const isEnabled = enabled !== undefined ? Boolean(enabled) : globalServiceFeeEnabled;
       const payload = { serviceFee: feeNum, serviceFeeEnabled: isEnabled };
 
       if (isFirebaseConfigured && db) {
@@ -2948,10 +3138,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       setGlobalServiceFeeSetting(feeNum);
       setGlobalServiceFeeEnabled(isEnabled);
-      setServiceFeeSuccessModalMessage(`Online Booking Service Fee updated! ${isEnabled ? `ACTIVE (₱${feeNum} per booking)` : 'INACTIVE (₱0 charged to players)'}`);
+      showModalAlert(
+        'Service Fee Updated!',
+        `Online Booking Service Fee updated! ${isEnabled ? `ACTIVE (₱${feeNum} per booking)` : 'INACTIVE (₱0 charged to players)'}`,
+        'success'
+      );
     } catch (err) {
       console.error('Failed to save service fee:', err);
-      alert('Failed to save service fee: ' + (err as Error).message);
+      showModalAlert('Save Failed', 'Failed to save service fee: ' + (err as Error).message, 'error');
     } finally {
       setServiceFeeSaving(false);
     }
@@ -3242,20 +3436,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const handleOpenSettingsModal = (type: 'my' | 'global', accountId?: string) => {
     setSettingsModalType(type);
+    setSettingsValidationError(null);
     if (type === 'my') {
       if (accountId) {
         const acc = personalAccounts.find(a => a.id === accountId);
         if (acc) {
+          setPaymentNameSetting(acc.paymentName || '');
           setGcashNameSetting(acc.gcashName);
           setGcashNumberSetting(acc.gcashNumber);
           setGcashQrCodeSetting(acc.gcashQrCode);
           setEditingAccountId(accountId);
         }
       } else {
-        if (personalAccounts.length >= 3) {
-          setSettingsValidationError("You can configure a maximum of 3 GCash accounts.");
-          return;
-        }
+        setPaymentNameSetting('');
         setGcashNameSetting('');
         setGcashNumberSetting('');
         setGcashQrCodeSetting('');
@@ -3263,6 +3456,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
     } else {
       // Global
+      setPaymentNameSetting('Global Fallback GCash');
       setGcashNameSetting(globalGcashNameSetting);
       setGcashNumberSetting(globalGcashNumberSetting);
       setGcashQrCodeSetting(globalGcashQrSetting);
@@ -3967,7 +4161,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   // @ts-ignore
   const _handleUpdateUserRole = async (userEmail: string, newRole: 'client_admin' | 'player' | 'super_admin', userUid?: string) => {
     if (userEmail.toLowerCase() === 'admin@picklepoint.com') {
-      alert("The primary admin account's role cannot be modified.");
+      showModalAlert('Protected Account', "The primary admin account's role cannot be modified.", 'warning');
       return;
     }
 
@@ -4009,7 +4203,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       );
     } catch (err) {
       console.error('Failed to update user role:', err);
-      alert('Failed to update user role: ' + (err as Error).message);
+      showModalAlert('Update Failed', 'Failed to update user role: ' + (err as Error).message, 'error');
     } finally {
       setActionLoading(null);
     }
@@ -4018,12 +4212,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   // User Edit & Delete Handlers
   const handleOpenEditUser = (targetUser: UserAccount) => {
     if (targetUser.email.toLowerCase() === 'admin@picklepoint.com') {
-      alert("The primary system admin account details cannot be modified.");
+      showModalAlert('Protected Account', "The primary system admin account details cannot be modified.", 'warning');
       return;
     }
 
     if (!isSuperAdmin && (targetUser.role === 'super_admin' || targetUser.role === 'client_admin')) {
-      alert("Client Admins can only modify standard players.");
+      showModalAlert('Permission Notice', "Client Admins can only modify standard players.", 'warning');
       return;
     }
 
@@ -4032,7 +4226,69 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setEditUserEmail(targetUser.email);
     setEditUserRole((targetUser.role as 'player' | 'client_admin' | 'super_admin') || 'player');
     setEditUserStatus(targetUser.status || (targetUser.isInvitedPending ? 'pending' : 'active'));
+    setEditUserPhotoUrl(targetUser.photoUrl || targetUser.avatarUrl || '');
     setUserModalOpen(true);
+  };
+
+  const handleQuickToggleUserStatus = async (uidOrEmail: string, currentStatus?: string) => {
+    const targetUser = users.find((u) => u.uid === uidOrEmail || u.email.toLowerCase() === uidOrEmail.toLowerCase());
+    if (!targetUser) return;
+
+    if (targetUser.email.toLowerCase() === 'admin@picklepoint.com') {
+      showModalAlert('Protected Account', "The primary system admin account status cannot be modified.", 'warning');
+      return;
+    }
+
+    if (!isSuperAdmin && (targetUser.role === 'super_admin' || targetUser.role === 'client_admin')) {
+      showModalAlert('Permission Notice', "Client Admins can only modify standard players.", 'warning');
+      return;
+    }
+
+    const nextStatus = currentStatus === 'inactive' ? 'active' : 'inactive';
+    setActionLoading(targetUser.email);
+    try {
+      if (isFirebaseConfigured && db) {
+        let uidToUse = targetUser.uid;
+        if (!uidToUse) {
+          const querySnapshot = await getDocs(collection(db, 'users'));
+          querySnapshot.forEach((docSnap) => {
+            if (docSnap.data().email?.toLowerCase() === targetUser.email.toLowerCase()) {
+              uidToUse = docSnap.id;
+            }
+          });
+        }
+
+        if (uidToUse) {
+          const userRef = doc(db, 'users', uidToUse);
+          await updateDoc(userRef, { status: nextStatus });
+        }
+      }
+
+      const usersStr = localStorage.getItem('picklepoint_users');
+      if (usersStr) {
+        const localUsers = JSON.parse(usersStr) as any[];
+        const updated = localUsers.map((u) => {
+          if (u.email.toLowerCase() === targetUser.email.toLowerCase()) {
+            return { ...u, status: nextStatus };
+          }
+          return u;
+        });
+        localStorage.setItem('picklepoint_users', JSON.stringify(updated));
+      }
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.email.toLowerCase() === targetUser.email.toLowerCase()
+            ? { ...u, status: nextStatus as any }
+            : u
+        )
+      );
+    } catch (err) {
+      console.error('Failed to toggle user status:', err);
+      showModalAlert('Status Update Failed', 'Failed to update account status: ' + (err as Error).message, 'error');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleSaveEditUser = async (e: React.FormEvent) => {
@@ -4040,7 +4296,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (!editingUser) return;
 
     if (!editUserName.trim() || !editUserEmail.trim()) {
-      alert("Please provide both name and email.");
+      showModalAlert('Missing Details', "Please provide both name and email.", 'warning');
       return;
     }
 
@@ -4065,6 +4321,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             email: editUserEmail,
             role: finalRole,
             status: editUserStatus,
+            photoUrl: editUserPhotoUrl,
           });
         } else {
           throw new Error('User UID not found in database.');
@@ -4081,6 +4338,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 email: editUserEmail,
                 role: finalRole,
                 status: editUserStatus,
+                photoUrl: editUserPhotoUrl,
               };
             }
             return u;
@@ -4092,7 +4350,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       setUsers((prev) =>
         prev.map((u) =>
           u.email.toLowerCase() === editingUser.email.toLowerCase()
-            ? { ...u, name: editUserName, email: editUserEmail, role: finalRole, status: editUserStatus }
+            ? { ...u, name: editUserName, email: editUserEmail, role: finalRole, status: editUserStatus, photoUrl: editUserPhotoUrl }
             : u
         )
       );
@@ -4101,7 +4359,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       setEditingUser(null);
     } catch (err) {
       console.error('Failed to update user:', err);
-      alert('Failed to update user: ' + (err as Error).message);
+      showModalAlert('Update Failed', 'Failed to update user: ' + (err as Error).message, 'error');
     } finally {
       setActionLoading(null);
     }
@@ -4109,12 +4367,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const handlePromptDeleteUser = (targetUser: UserAccount) => {
     if (targetUser.email.toLowerCase() === 'admin@picklepoint.com') {
-      alert("The primary system admin account cannot be deleted.");
+      showModalAlert('Protected Account', "The primary system admin account cannot be deleted.", 'warning');
       return;
     }
 
     if (!isSuperAdmin && (targetUser.role === 'super_admin' || targetUser.role === 'client_admin')) {
-      alert("Client Admins can only delete standard players.");
+      showModalAlert('Permission Notice', "Client Admins can only delete standard players.", 'warning');
       return;
     }
 
@@ -4164,7 +4422,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       setUserToDelete(null);
     } catch (err) {
       console.error('Failed to delete user:', err);
-      alert('Failed to delete user: ' + (err as Error).message);
+      showModalAlert('Deletion Failed', 'Failed to delete user: ' + (err as Error).message, 'error');
     } finally {
       setActionLoading(null);
     }
@@ -4194,7 +4452,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     e.preventDefault();
     const targetEmail = inviteEmailInput.trim().toLowerCase();
     if (!targetEmail) {
-      alert('Please enter a valid email address.');
+      showModalAlert('Invalid Email', 'Please enter a valid email address.', 'warning');
       return;
     }
 
@@ -4257,7 +4515,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       await fetchData();
     } catch (err) {
       console.error('Failed to send invitation:', err);
-      alert('Failed to send invitation: ' + (err as Error).message);
+      showModalAlert('Invitation Error', 'Failed to send invitation: ' + (err as Error).message, 'error');
     } finally {
       setInviteLoading(false);
     }
@@ -4289,44 +4547,49 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         customMessage: u.customMessage,
       });
 
-      alert(`Invitation email resent successfully to ${u.email}!`);
+      showModalAlert('Invitation Sent', `Invitation email resent successfully to ${u.email}!`, 'success');
     } catch (err) {
       console.error('Failed to resend invitation:', err);
-      alert('Failed to resend invitation: ' + (err as Error).message);
+      showModalAlert('Resend Failed', 'Failed to resend invitation: ' + (err as Error).message, 'error');
     } finally {
       setActionLoading(null);
     }
   };
 
   const handleRevokeUserInvite = async (u: UserAccount) => {
-    if (!confirm(`Are you sure you want to revoke and delete the pending invitation for ${u.email}?`)) {
-      return;
-    }
-    setActionLoading(u.email);
-    try {
-      if (u.inviteToken && isFirebaseConfigured && db) {
+    showModalAlert(
+      'Revoke Invitation',
+      `Are you sure you want to revoke and delete the pending invitation for ${u.email}?`,
+      'warning',
+      'Yes, Revoke',
+      async () => {
+        setActionLoading(u.email);
         try {
-          await deleteDoc(doc(db, 'invitations', u.inviteToken));
-        } catch (fErr) {
-          console.error('Error deleting invitation from Firestore:', fErr);
+          if (u.inviteToken && isFirebaseConfigured && db) {
+            try {
+              await deleteDoc(doc(db, 'invitations', u.inviteToken));
+            } catch (fErr) {
+              console.error('Error deleting invitation from Firestore:', fErr);
+            }
+          }
+
+          // Remove from localStorage
+          const invStr = localStorage.getItem('picklepoint_invitations');
+          if (invStr) {
+            const localInvs = JSON.parse(invStr);
+            const updated = localInvs.filter((inv: any) => inv.token !== u.inviteToken && inv.email?.toLowerCase() !== u.email.toLowerCase());
+            localStorage.setItem('picklepoint_invitations', JSON.stringify(updated));
+          }
+
+          setUsers((prev) => prev.filter((userItem) => userItem.email.toLowerCase() !== u.email.toLowerCase()));
+        } catch (err) {
+          console.error('Failed to revoke invitation:', err);
+          showModalAlert('Revoke Failed', 'Failed to revoke invitation: ' + (err as Error).message, 'error');
+        } finally {
+          setActionLoading(null);
         }
       }
-
-      // Remove from localStorage
-      const invStr = localStorage.getItem('picklepoint_invitations');
-      if (invStr) {
-        const localInvs = JSON.parse(invStr);
-        const updated = localInvs.filter((inv: any) => inv.token !== u.inviteToken && inv.email?.toLowerCase() !== u.email.toLowerCase());
-        localStorage.setItem('picklepoint_invitations', JSON.stringify(updated));
-      }
-
-      setUsers((prev) => prev.filter((userItem) => userItem.email.toLowerCase() !== u.email.toLowerCase()));
-    } catch (err) {
-      console.error('Failed to revoke invitation:', err);
-      alert('Failed to revoke invitation: ' + (err as Error).message);
-    } finally {
-      setActionLoading(null);
-    }
+    );
   };
 
   // Company Management Handlers
@@ -5517,15 +5780,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return matchesSearch && matchesOwner;
   });
 
-  const associatedPlayerEmails = new Set(
-    bookings
-      .map((b) => b.user?.email?.toLowerCase())
-      .filter(Boolean)
-  );
+  const associatedPlayerEmails = new Set([
+    ...bookings.map((b) => b.user?.email?.toLowerCase()).filter(Boolean),
+    ...openPlayRegistrations.map((r) => (r.playerEmail || r.userEmail || r.primaryPlayerEmail)?.toLowerCase()).filter(Boolean)
+  ]);
 
   const scopedUsers = users.filter((u) => {
     if (isSuperAdmin) return true;
-    const isStandardPlayer = !u.role || u.role === 'player';
+    const isStandardPlayer = !u.role || u.role === 'player' || u.role === 'user';
     const isAssociated = associatedPlayerEmails.has(u.email?.toLowerCase());
     return isStandardPlayer && isAssociated;
   });
@@ -5640,604 +5902,49 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   return (
-    <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col lg:flex-row font-sans relative overflow-hidden">
+    <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col font-sans relative overflow-hidden">
       {/* Background Decorative Gradients */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-emerald/5 blur-[120px] rounded-full pointer-events-none -z-10"></div>
       <div className="absolute bottom-[10%] right-[-10%] w-[50%] h-[50%] bg-brand-lime/5 blur-[120px] rounded-full pointer-events-none -z-10"></div>
 
-      {/* SIDEBAR FOR DESKTOP */}
-      <aside className="hidden lg:flex flex-col w-52 bg-slate-900/40 backdrop-blur-md border-r border-dark-border h-screen sticky top-0 z-30 justify-between">
-        <div className="flex flex-col flex-1 px-3 py-4 overflow-y-auto">
-          {/* Logo Branding */}
-          <div 
-            onClick={() => {
-              window.history.pushState({}, '', '/');
-              setView('landing');
-            }}
-            className="flex items-center gap-2.5 px-1.5 mb-4 cursor-pointer group"
-          >
-            <div className="relative">
-              <svg className="w-7 h-7 text-brand-lime transition-transform duration-500 group-hover:rotate-90" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" fill="none" />
-                <circle cx="12" cy="12" r="0.75" />
-                <circle cx="8" cy="8" r="0.75" />
-                <circle cx="16" cy="8" r="0.75" />
-                <circle cx="8" cy="16" r="0.75" />
-                <circle cx="16" cy="16" r="0.75" />
-              </svg>
-              <div className="absolute inset-0 bg-brand-lime/25 blur-md rounded-full -z-10 group-hover:bg-brand-lime/40 transition"></div>
-            </div>
-            <div>
-              <h1 className="text-sm font-extrabold tracking-tight text-white group-hover:text-brand-lime transition-colors">
-                Pickle<span className="text-brand-lime">Point</span>
-              </h1>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">Admin Panel</p>
-            </div>
-          </div>
+      {/* Desktop & Mobile Sidebar */}
+      <AdminSidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isSuperAdmin={isSuperAdmin}
+        settingsSubTab={settingsSubTab}
+        setSettingsSubTab={setSettingsSubTab}
+        settingsSubMenuOpen={settingsSubMenuOpen}
+        setSettingsSubMenuOpen={setSettingsSubMenuOpen}
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        setView={setView}
+        user={user}
+        onLogout={onLogout}
+        courtsCount={(isSuperAdmin ? courts : courts.filter((c) => c.ownerId === currentUserUid)).length}
+        bookingsCount={bookings.length}
+        pendingBookingsCount={pendingBookings.length}
+        companiesCount={companies.length}
+        pendingCompaniesCount={companies.filter((c) => c.status === 'pending').length}
+        pendingVerificationCount={pendingVerificationCount}
+        openPlayCount={openPlayEvents.length}
+        personalAccountsCount={personalAccounts.length}
+        bookingLeadTimeMinutes={bookingLeadTimeMinutes}
+      />
 
-          {/* Quick Back to Public Site CTA */}
-          <button
-            onClick={() => {
-              window.history.pushState({}, '', '/');
-              setView('landing');
-            }}
-            className="mb-4 w-full py-2 px-3 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-300 hover:text-white transition-all text-xs font-bold flex items-center justify-between cursor-pointer group"
-          >
-            <span className="flex items-center gap-2">
-              <Globe className="w-3.5 h-3.5 text-brand-lime group-hover:rotate-12 transition-transform" />
-              <span>View Public Site</span>
-            </span>
-            <ArrowLeft className="w-3 h-3 text-slate-500 rotate-180 group-hover:translate-x-0.5 transition-transform" />
-          </button>
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto h-screen md:ml-[260px]">
+        <AdminHeader
+          user={user}
+          activeTab={activeTab}
+          mobileMenuOpen={mobileMenuOpen}
+          setMobileMenuOpen={setMobileMenuOpen}
+          onLogout={onLogout}
+          isSuperAdmin={isSuperAdmin}
+        />
 
-          {/* Navigation Links */}
-          <nav className="space-y-1">
-            <button
-              onClick={() => { setActiveTab('courts'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === 'courts'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <MapPin className="w-4 h-4" />
-              <span>Courts</span>
-            </button>
-
-            <button
-              onClick={() => { setActiveTab('bookings'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === 'bookings'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              <span>Bookings</span>
-            </button>
-
-            {isSuperAdmin && (
-              <button
-                onClick={() => { setActiveTab('companies'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                  activeTab === 'companies'
-                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                }`}
-              >
-                <Building2 className="w-4 h-4" />
-                <span>Companies</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => { setActiveTab('checkouts'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === 'checkouts'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <CreditCard className="w-4 h-4" />
-              <span>Checkouts</span>
-              {pendingVerificationCount > 0 && (
-                <span className="ml-auto px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-red-500 text-white animate-pulse">
-                  {pendingVerificationCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => { setActiveTab('openplay'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === 'openplay'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <Trophy className="w-4 h-4" />
-              <span>Open Play</span>
-              {openPlayEvents.length > 0 && (
-                <span className="ml-auto px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-brand-lime/20 text-brand-lime">
-                  {openPlayEvents.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => { setActiveTab('policies'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === 'policies'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Policies & Rules</span>
-            </button>
-
-            <button
-              onClick={() => { setActiveTab('vouchers'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === 'vouchers'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <Tag className="w-4 h-4" />
-              <span>Vouchers & Promos</span>
-            </button>
-
-            <button
-              onClick={() => { setActiveTab('users'); setSelectedEventForRegs(null); setSearchQuery(''); }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                activeTab === 'users'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Users</span>
-            </button>
-
-            {/* Settings Main Button with Submenu */}
-            <div className="space-y-1">
-              <button
-                onClick={() => {
-                  setSelectedEventForRegs(null);
-                  if (activeTab !== 'settings') {
-                    setActiveTab('settings');
-                    setSearchQuery('');
-                    fetchData();
-                    setSettingsSubMenuOpen(true);
-                  } else {
-                    setSettingsSubMenuOpen(!settingsSubMenuOpen);
-                  }
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer text-left ${
-                  activeTab === 'settings'
-                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <Settings className="w-4 h-4" />
-                  <span>Settings</span>
-                </div>
-                <div className="flex items-center">
-                  {settingsSubMenuOpen && activeTab === 'settings' ? (
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  )}
-                </div>
-              </button>
-
-              {/* Submenu for Settings */}
-              {settingsSubMenuOpen && activeTab === 'settings' && (
-                <div className="pl-3 pr-1 py-1 space-y-0.5 animate-fade-in border-l border-slate-800 ml-3">
-                  <button
-                    type="button"
-                    onClick={() => setSettingsSubTab('profile')}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'profile'
-                        ? 'text-brand-lime bg-brand-lime/10'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span>Account Profile</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSettingsSubTab('organization')}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'organization'
-                        ? 'text-brand-lime bg-brand-lime/10'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>Organization</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSettingsSubTab('reminders')}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'reminders'
-                        ? 'text-brand-lime bg-brand-lime/10'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Bell className="w-3.5 h-3.5" />
-                      <span>Reminders</span>
-                    </div>
-                    {paymentReminderSettings.enabled && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-brand-lime animate-pulse"></span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSettingsSubTab('gcash')}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'gcash'
-                        ? 'text-brand-lime bg-brand-lime/10'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="w-3.5 h-3.5" />
-                      <span>GCash Accounts</span>
-                    </div>
-                    {personalAccounts.length > 0 && (
-                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
-                        {personalAccounts.length}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSettingsSubTab('lead_time')}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'lead_time'
-                        ? 'text-brand-lime bg-brand-lime/10'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Booking Lead Time</span>
-                    </div>
-                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
-                      {bookingLeadTimeMinutes}m
-                    </span>
-                  </button>
-
-                  {isSuperAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => setSettingsSubTab('service_fee')}
-                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-left ${
-                        settingsSubTab === 'service_fee'
-                          ? 'text-brand-lime bg-brand-lime/10'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                      }`}
-                    >
-                      <DollarSign className="w-3.5 h-3.5" />
-                      <span>Service Fee</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </nav>
-        </div>
-
-        {/* User Profile & Logout at Bottom */}
-        <div className="p-3 border-t border-dark-border bg-slate-950/20">
-          <div className="flex items-center justify-between gap-2">
-            <div
-              onClick={() => { setActiveTab('settings'); setSettingsSubTab('profile'); setSearchQuery(''); fetchData(); }}
-              className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer group"
-              title={`View Profile (${user?.email || currentUserEmail})`}
-            >
-              <div className="w-8 h-8 rounded-full bg-slate-900 border border-dark-border flex items-center justify-center text-brand-lime font-extrabold uppercase text-xs flex-shrink-0 group-hover:border-brand-lime transition-colors">
-                {user?.name?.slice(0, 2) || 'AD'}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <div className="font-extrabold text-white text-xs truncate group-hover:text-brand-lime transition-colors">
-                    {user?.name || 'Admin User'}
-                  </div>
-                  <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-full uppercase flex-shrink-0 ${
-                    isSuperAdmin
-                      ? 'bg-brand-emerald/15 text-brand-emerald border border-brand-emerald/30'
-                      : 'bg-brand-lime/15 text-brand-lime border border-brand-lime/30'
-                  }`}>
-                    {isSuperAdmin ? 'Super' : 'Client'}
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-400 truncate mt-0.5 font-medium" title={user?.email || currentUserEmail}>
-                  {user?.email || currentUserEmail}
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={onLogout}
-              title="Log Out"
-              className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-600 hover:text-white transition-all cursor-pointer flex-shrink-0 flex items-center justify-center shadow-md hover:shadow-red-600/20"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      {/* MOBILE HEADER & DRAWER */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto h-screen">
-        <header className="lg:hidden bg-dark-bg/85 backdrop-blur-md border-b border-dark-border py-4 px-6 flex justify-between items-center sticky top-0 z-30 shadow-lg shadow-black/20">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-1 text-slate-400 hover:text-white focus:outline-none"
-            >
-              <Menu className="w-6 h-6" />
-            </button>
-            <h1 className="text-base font-bold tracking-tight text-white">
-              Pickle<span className="text-brand-lime">Point</span>
-              <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-brand-lime/10 text-brand-lime border border-brand-lime/20 font-bold uppercase">
-                {isSuperAdmin ? 'Super' : 'Client'}
-              </span>
-            </h1>
-          </div>
-          <button
-            onClick={onLogout}
-            title="Log Out"
-            className="p-2 rounded-xl border border-red-900/30 bg-red-950/10 text-red-400 hover:bg-red-600 hover:text-white transition-all cursor-pointer flex items-center justify-center"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </header>
-
-        {/* MOBILE DRAWER OVERLAY */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden fixed inset-0 z-40 flex">
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-xs" onClick={() => setMobileMenuOpen(false)}></div>
-            <aside className="relative flex flex-col w-64 max-w-xs bg-slate-900 border-r border-dark-border h-full z-50 p-6 justify-between animate-slide-right text-left">
-              <div>
-                <div className="flex items-center justify-between mb-8">
-                  <span className="text-sm font-extrabold text-white">Navigation Menu</span>
-                  <button onClick={() => setMobileMenuOpen(false)} className="text-slate-400 hover:text-white">
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                <nav className="space-y-1.5">
-                  <button
-                    onClick={() => { setActiveTab('courts'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'courts' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <MapPin className="w-4 h-4" />
-                    <span>Courts</span>
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('bookings'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'bookings' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <LayoutDashboard className="w-4 h-4" />
-                    Bookings
-                  </button>
-                  {isSuperAdmin && (
-                    <button
-                      onClick={() => { setActiveTab('companies'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeTab === 'companies' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Building2 className="w-4 h-4" />
-                      <span>Companies</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { setActiveTab('checkouts'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'checkouts' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <CreditCard className="w-4 h-4" />
-                    <span>Checkouts</span>
-                    {pendingVerificationCount > 0 && (
-                      <span className="ml-auto px-1.5 py-0.5 text-xs font-black rounded-full bg-red-500 text-white">
-                        {pendingVerificationCount}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('openplay'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'openplay' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <Trophy className="w-4 h-4" />
-                    <span>Open Play</span>
-                    {openPlayEvents.length > 0 && (
-                      <span className="ml-auto px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-brand-lime/20 text-brand-lime">
-                        {openPlayEvents.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('policies'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'policies' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <FileText className="w-4 h-4" />
-                    Policies & Rules
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('vouchers'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'vouchers' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <Tag className="w-4 h-4" />
-                    Vouchers & Promos
-                  </button>
-                  <button
-                    onClick={() => { setActiveTab('users'); setSelectedEventForRegs(null); setSearchQuery(''); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeTab === 'users' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                    }`}
-                  >
-                    <Users className="w-4 h-4" />
-                    <span>Users</span>
-                  </button>
-                  <div className="space-y-1">
-                    <button
-                      onClick={() => {
-                        setSelectedEventForRegs(null);
-                        if (activeTab !== 'settings') {
-                          setActiveTab('settings');
-                          setSearchQuery('');
-                          fetchData();
-                          setSettingsSubMenuOpen(true);
-                        } else {
-                          setSettingsSubMenuOpen(!settingsSubMenuOpen);
-                        }
-                      }}
-                      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeTab === 'settings' ? 'bg-brand-lime text-dark-bg' : 'text-slate-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Settings className="w-4 h-4" />
-                        <span>Settings</span>
-                      </div>
-                      <ChevronDown className={`w-4 h-4 transition-transform ${settingsSubMenuOpen && activeTab === 'settings' ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {settingsSubMenuOpen && activeTab === 'settings' && (
-                      <div className="pl-4 pr-1 py-1 space-y-1 border-l-2 border-slate-800 ml-4 animate-fade-in">
-                        <button
-                          onClick={() => { setSettingsSubTab('profile'); setMobileMenuOpen(false); }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-left ${
-                            settingsSubTab === 'profile' ? 'text-brand-lime bg-brand-lime/10' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          <User className="w-3.5 h-3.5" />
-                          <span>Account Profile</span>
-                        </button>
-
-                        <button
-                          onClick={() => { setSettingsSubTab('organization'); setMobileMenuOpen(false); }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-left ${
-                            settingsSubTab === 'organization' ? 'text-brand-lime bg-brand-lime/10' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          <Building2 className="w-3.5 h-3.5" />
-                          <span>Organization Profile</span>
-                        </button>
-
-                        <button
-                          onClick={() => { setSettingsSubTab('reminders'); setMobileMenuOpen(false); }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-left ${
-                            settingsSubTab === 'reminders' ? 'text-brand-lime bg-brand-lime/10' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          <Bell className="w-3.5 h-3.5" />
-                          <span>Payment Reminders</span>
-                        </button>
-
-                        <button
-                          onClick={() => { setSettingsSubTab('gcash'); setMobileMenuOpen(false); }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-left ${
-                            settingsSubTab === 'gcash' ? 'text-brand-lime bg-brand-lime/10' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          <CreditCard className="w-3.5 h-3.5" />
-                          <span>GCash Accounts</span>
-                        </button>
-
-                        <button
-                          onClick={() => { setSettingsSubTab('lead_time'); setMobileMenuOpen(false); }}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-left ${
-                            settingsSubTab === 'lead_time' ? 'text-brand-lime bg-brand-lime/10' : 'text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          <Clock className="w-3.5 h-3.5" />
-                          <span>Booking Lead Time</span>
-                        </button>
-
-                        {isSuperAdmin && (
-                          <button
-                            onClick={() => { setSettingsSubTab('service_fee'); setMobileMenuOpen(false); }}
-                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer text-left ${
-                              settingsSubTab === 'service_fee' ? 'text-brand-lime bg-brand-lime/10' : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            <DollarSign className="w-3.5 h-3.5" />
-                            <span>Service Fee</span>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </nav>
-              </div>
-
-              {/* Bottom Mobile Profile */}
-              <div className="pt-4 border-t border-dark-border">
-                <div className="flex items-center justify-between gap-3">
-                  <div
-                    onClick={() => { setActiveTab('settings'); setSettingsSubTab('profile'); setSearchQuery(''); fetchData(); setMobileMenuOpen(false); }}
-                    className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group"
-                    title={`View Profile (${user?.email || currentUserEmail})`}
-                  >
-                    <div className="w-9 h-9 rounded-full bg-slate-900 border border-dark-border flex items-center justify-center text-brand-lime font-bold uppercase flex-shrink-0 group-hover:border-brand-lime transition-colors">
-                      {user?.name?.slice(0, 2) || 'AD'}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <div className="font-bold text-white text-xs truncate group-hover:text-brand-lime transition-colors">{user?.name || 'Admin User'}</div>
-                        <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-full uppercase flex-shrink-0 ${
-                          isSuperAdmin
-                            ? 'bg-brand-emerald/15 text-brand-emerald border border-brand-emerald/30'
-                            : 'bg-brand-lime/15 text-brand-lime border border-brand-lime/30'
-                        }`}>
-                          {isSuperAdmin ? 'Super' : 'Client'}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-400 truncate mt-0.5 font-medium" title={user?.email || currentUserEmail}>
-                        {user?.email || currentUserEmail}
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={onLogout}
-                    title="Log Out"
-                    className="p-2 rounded-xl bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-600 hover:text-white transition-all cursor-pointer flex-shrink-0 flex items-center justify-center"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </aside>
-          </div>
-        )}
-
-        {/* Content Area */}
-        <div className="flex-1 p-6 sm:p-8 w-full max-w-7xl mx-auto pb-24 text-left">
+        {/* Main Content Container */}
+        <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full pb-24 text-left">
+          {/* Top Title Banner */}
           <div className="mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-white">
               {activeTab === 'bookings' 
@@ -6256,10 +5963,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Venue Policies & Rules'
                 : activeTab === 'vouchers'
                 ? 'Vouchers & Discount Codes'
+                : activeTab === 'service_fee'
+                ? 'Platform Service Fee Management'
                 : 'Checkout Settings'}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              {activeTab === 'openplay'
+              {activeTab === 'service_fee'
+                ? 'Configure global convenience & service fee per checkout, inspect fee earnings, and view revenue breakdown.'
+                : activeTab === 'openplay'
                 ? 'Create Open Play sessions, collect GCash entry fees, manage player rosters, and share direct event links.'
                 : activeTab === 'policies'
                 ? 'Configure court rules, cancellation policies, weather terms, and venue guidelines.'
@@ -6276,13 +5987,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 : 'Manage your pickleball courts, view reservations, and track business reports.'}
             </p>
 
-            {/* Organization / Company Identifier Badge */}
+            {/* Organization Identifier Badge */}
             {effectiveOrgName ? (
               <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-xs text-slate-200 shadow-sm animate-fade-in">
                 <Building2 className="w-4 h-4 text-brand-lime flex-shrink-0" />
                 <span>
-                  Organization: <strong className="text-brand-lime font-extrabold text-xs">{effectiveOrgName}</strong>
-                  {effectiveOrgAddress && <span className="text-slate-400 font-normal text-xs"> — {effectiveOrgAddress}</span>}
+                  <strong className="text-brand-lime font-extrabold text-xs">{effectiveOrgName}</strong>
+                  {effectiveOrgShortLocation && <span className="text-slate-400 font-normal text-xs"> — {effectiveOrgShortLocation}</span>}
                 </span>
               </div>
             ) : isSuperAdmin ? (
@@ -6302,4928 +6013,321 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             )}
           </div>
 
-        {/* 1. KEY PERFORMANCE METRICS */}
-        {activeTab === 'bookings' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            {/* Metric 1 */}
-            <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Revenue</p>
-                  <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors font-sans">
-                    ₱{totalRevenue.toLocaleString()}
-                  </h3>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime shadow-inner">
-                  <DollarSign className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 pt-3 border-t border-slate-900 flex items-center justify-between text-xs text-slate-500">
-                <span>From Approved Bookings</span>
-                <span className="text-brand-lime font-semibold">Active Mode</span>
-              </div>
-            </div>
+          {/* Subcomponents Rendering */}
+          {activeTab === 'bookings' && (
+            <AdminBookingsTab
+              bookings={bookings}
+              filteredBookings={filteredBookings}
+              totalRevenue={totalRevenue}
+              pendingBookings={pendingBookings}
+              bookingSearch={searchQuery}
+              setBookingSearch={setSearchQuery}
+              bookingStatusFilter={statusFilter}
+              setBookingStatusFilter={setStatusFilter}
+              actionLoading={actionLoading}
+              onApproveBooking={(id) => handleUpdateStatus(id, 'approved')}
+              onOpenCancelModal={handlePromptCancelBooking}
+              onViewReceipt={(b) => setReceiptLightboxImage(b.receiptImageUrl || null)}
+              onDeleteBooking={(id) => { const b = bookings.find(x => x.id === id); if (b) handleOpenDeleteBooking(b); }}
+              courts={courts}
+            />
+          )}
 
-            {/* Metric 2 */}
-            <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Bookings</p>
-                  <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors font-sans">
-                    {bookings.length}
-                  </h3>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shadow-inner">
-                  <Calendar className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 pt-3 border-t border-slate-900 flex items-center justify-between text-xs text-slate-500">
-                <span>Total Reservations Placed</span>
-                <span className="text-slate-400 font-semibold">{pendingBookings.length} Pending</span>
-              </div>
-            </div>
+          {activeTab === 'courts' && (
+            <AdminCourtsTab
+              courts={isSuperAdmin ? courts : courts.filter((c) => c.ownerId === currentUserUid)}
+              myCompany={currentCompany}
+              onOpenCreateCourtModal={() => { setEditingCourt(null); setCourtModalOpen(true); }}
+              onOpenEditCourtModal={handleOpenEditCourt}
+              onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
+              onTogglePublishCourt={(courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); }}
+            />
+          )}
 
-            {/* Metric 3 */}
-            <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Utilization Rate</p>
-                  <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors font-sans">
-                    {utilizationRate}%
-                  </h3>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-brand-emerald/10 border border-brand-emerald/20 flex items-center justify-center text-brand-emerald shadow-inner">
-                  <TrendingUp className="w-5 h-5" />
-                </div>
-              </div>
-              <div className="mt-3 pt-3 border-t border-slate-900 flex items-center justify-between text-xs text-slate-500">
-                <span>Booked slots vs Capacity</span>
-                <span className="text-brand-emerald font-semibold">{totalBookedSlotsCount} slots</span>
-              </div>
-            </div>
+          {activeTab === 'companies' && isSuperAdmin && (
+            <AdminCompaniesTab
+              companies={companies}
+              onOpenOnboardModal={() => { setEditingCompany(null); setCompanyModalOpen(true); }}
+              onOpenInviteModal={(comp) => { setInviteModalOpen(true); if (comp) setInviteEmailInput(comp.clientAdminEmail || ''); }}
+              onApproveCompany={(id) => handleQuickUpdateCompanyStatus(id, 'active')}
+              onRejectCompany={(id) => handleQuickUpdateCompanyStatus(id, 'inactive')}
+              onDeleteCompany={(id) => handleDeleteCompany(id)}
+            />
+          )}
 
-            {/* Metric 4 */}
-            <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                    {isSuperAdmin ? 'Registered Users' : 'My Active Courts'}
-                  </p>
-                  <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors font-sans">
-                    {isSuperAdmin ? users.length : courts.filter(c => c.ownerId === currentUserUid).length}
-                  </h3>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shadow-inner">
-                  {isSuperAdmin ? <Users className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
-                </div>
-              </div>
-              <div className="mt-3 pt-3 border-t border-slate-900 flex items-center justify-between text-xs text-slate-500">
-                <span>{isSuperAdmin ? 'Unique Client Accounts' : 'Listed Pickle Courts'}</span>
-                <span className="text-purple-400 font-semibold font-sans">Active</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* 2. FILTER & SEARCH ACTION BAR */}
-        {activeTab !== 'settings' && !selectedEventForRegs && (
-          <div className="glass-panel border border-slate-800 rounded-2xl p-4 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="relative flex-grow max-w-md">
-              <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-                <Search className="w-4 h-4" />
-              </span>
-              <input
-                type="text"
-                placeholder={
-                  activeTab === 'bookings' 
-                    ? "Search client name, email, or date (YYYY-MM-DD)..." 
-                    : activeTab === 'courts'
-                    ? "Search court name or type..."
-                    : activeTab === 'companies'
-                    ? "Search company name, address, or client admin..."
-                    : activeTab === 'openplay'
-                    ? "Search event title, location, or category..."
-                    : activeTab === 'policies'
-                    ? "Search venue policies..."
-                    : activeTab === 'vouchers'
-                    ? "Search voucher code or recipient..."
-                    : "Search user name or email..."
+          {activeTab === 'checkouts' && (
+            <AdminCheckoutsTab
+              users={users}
+              checkouts={bookings}
+              filteredCheckouts={filteredCheckouts}
+              checkoutCategoryFilter={checkoutCategoryFilter}
+              setCheckoutCategoryFilter={setCheckoutCategoryFilter}
+              checkoutStatusFilter={checkoutStatusFilter}
+              setCheckoutStatusFilter={setCheckoutStatusFilter}
+              actionLoading={actionLoading}
+              onApproveBooking={async (booking) => {
+                setActionLoading(booking.id);
+                try {
+                  if (isFirebaseConfigured && db) {
+                    const { doc, updateDoc } = await import('firebase/firestore');
+                    await updateDoc(doc(db, 'bookings', booking.id), { status: 'approved', paymentStatus: 'paid' });
+                  }
+                  setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, status: 'approved', paymentStatus: 'paid' } : b));
+                } catch (err) {
+                  console.error('Failed to approve checkout payment:', err);
+                } finally {
+                  setActionLoading(null);
                 }
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all placeholder-slate-500"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {activeTab === 'bookings' && (
-              <div className="flex items-center gap-3 flex-wrap">
-                {/* Court Filter Dropdown for Calendar */}
-                <div className="relative flex items-center">
-                  <div className="absolute left-3 pointer-events-none text-brand-lime flex items-center gap-1.5 text-xs font-semibold">
-                    <MapPin className="w-3.5 h-3.5 text-brand-lime" />
-                    <span className="hidden sm:inline text-slate-400 text-[11px] uppercase tracking-wider font-bold">Venue:</span>
-                  </div>
-                  <select
-                    value={selectedCalendarCourtId}
-                    onChange={(e) => setSelectedCalendarCourtId(e.target.value)}
-                    className="appearance-none pl-8 sm:pl-20 pr-8 py-2 bg-slate-900/90 border border-slate-700/80 hover:border-brand-lime/50 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-lime/30 cursor-pointer transition-all shadow-sm"
-                  >
-                    <option value="all">All Courts</option>
-                    {(isSuperAdmin ? courts : courts.filter((c) => c.ownerId === currentUserUid)).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="absolute right-2.5 pointer-events-none text-slate-400">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-
-                {/* Table / Calendar View Switcher */}
-                <div className="flex gap-1 bg-slate-900/60 border border-dark-border p-1 rounded-xl">
-                  <button
-                    onClick={() => setBookingsViewMode('table')}
-                    title="Table View"
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                      bookingsViewMode === 'table'
-                        ? 'bg-slate-800 text-white font-extrabold border border-slate-700/50'
-                        : 'text-slate-500 hover:text-slate-350 border border-transparent'
-                    }`}
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span>Table</span>
-                  </button>
-                  <button
-                    onClick={() => setBookingsViewMode('calendar')}
-                    title="Calendar View"
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                      bookingsViewMode === 'calendar'
-                        ? 'bg-brand-lime text-dark-bg font-extrabold border border-brand-lime/50 shadow-sm shadow-brand-lime/10'
-                        : 'text-slate-500 hover:text-slate-350 border border-transparent'
-                    }`}
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Calendar</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'courts' && (
-              <div className="flex items-center gap-3">
-                {/* List / Grid Toggle */}
-                <div className="flex gap-1 bg-slate-900/60 border border-dark-border p-1 rounded-xl">
-                  <button
-                    onClick={() => setCourtsViewMode('list')}
-                    title="List View"
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                      courtsViewMode === 'list'
-                        ? 'bg-slate-800 text-white font-extrabold border border-slate-700/50'
-                        : 'text-slate-500 hover:text-slate-350 border border-transparent'
-                    }`}
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span>List</span>
-                  </button>
-                  <button
-                    onClick={() => setCourtsViewMode('grid')}
-                    title="Grid View"
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
-                      courtsViewMode === 'grid'
-                        ? 'bg-slate-800 text-white font-extrabold border border-slate-700/50'
-                        : 'text-slate-500 hover:text-slate-355 border border-transparent'
-                    }`}
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>Grid</span>
-                  </button>
-                </div>
-
-                {!isSuperAdmin && (
-                  <button
-                    onClick={handleOpenCreateCourt}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md shadow-brand-lime/10 hover:scale-[1.01]"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Court
-                  </button>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'companies' && (
-              <button
-                onClick={handleOpenCreateCompany}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md shadow-brand-lime/10 hover:scale-[1.01]"
-              >
-                <Plus className="w-4 h-4" />
-                Create Company
-              </button>
-            )}
-
-            {activeTab === 'users' && isSuperAdmin && (
-              <div className="flex items-center gap-3 flex-wrap">
-                {/* Role Select Dropdown */}
-                <div className="relative flex items-center">
-                  <div className="absolute left-3 pointer-events-none text-brand-lime flex items-center gap-1.5 text-xs font-semibold">
-                    <Shield className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline text-slate-400 text-[11px] uppercase tracking-wider font-bold">Role:</span>
-                  </div>
-                  <select
-                    value={userRoleFilter}
-                    onChange={(e) => setUserRoleFilter(e.target.value as any)}
-                    className="appearance-none pl-9 sm:pl-20 pr-8 py-2 bg-slate-900/90 border border-slate-700/80 hover:border-brand-lime/50 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-lime/30 cursor-pointer transition-all shadow-sm"
-                  >
-                    <option value="all" className="bg-slate-900 text-slate-200">All Roles</option>
-                    <option value="player" className="bg-slate-900 text-slate-200">Standard Players</option>
-                    <option value="client_admin" className="bg-slate-900 text-slate-200">Client Admins</option>
-                    <option value="super_admin" className="bg-slate-900 text-slate-200">Super Admins</option>
-                  </select>
-                  <div className="absolute right-2.5 pointer-events-none text-slate-400">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-
-                {/* Status Select Dropdown */}
-                <div className="relative flex items-center">
-                  <div className="absolute left-3 pointer-events-none text-emerald-400 flex items-center gap-1.5 text-xs font-semibold">
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline text-slate-400 text-[11px] uppercase tracking-wider font-bold">Status:</span>
-                  </div>
-                  <select
-                    value={userStatusFilter}
-                    onChange={(e) => setUserStatusFilter(e.target.value as any)}
-                    className="appearance-none pl-9 sm:pl-24 pr-8 py-2 bg-slate-900/90 border border-slate-700/80 hover:border-emerald-400/50 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-400/30 cursor-pointer transition-all shadow-sm"
-                  >
-                    <option value="all" className="bg-slate-900 text-slate-200">All Statuses</option>
-                    <option value="active" className="bg-slate-900 text-slate-200">Active</option>
-                    <option value="pending" className="bg-slate-900 text-slate-200">Pending</option>
-                    <option value="inactive" className="bg-slate-900 text-slate-200">Inactive</option>
-                    <option value="deleted" className="bg-slate-900 text-slate-200">Deleted</option>
-                  </select>
-                  <div className="absolute right-2.5 pointer-events-none text-slate-400">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-
-                {/* Reset Filters Button */}
-                {(userRoleFilter !== 'all' || userStatusFilter !== 'all') && (
-                  <button
-                    onClick={() => {
-                      setUserRoleFilter('all');
-                      setUserStatusFilter('all');
-                    }}
-                    className="text-xs text-slate-300 hover:text-white px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                    title="Reset all user filters"
-                  >
-                    <X className="w-3.5 h-3.5 text-red-400" />
-                    <span className="font-semibold">Reset Filters</span>
-                  </button>
-                )}
-
-                {/* Invite Client Admin Button */}
-                <button
-                  onClick={handleOpenInviteClientAdmin}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md shadow-brand-lime/10 hover:scale-[1.01]"
-                >
-                  <MailPlus className="w-4 h-4" />
-                  Invite Client Admin
-                </button>
-              </div>
-            )}
-
-            {activeTab === 'bookings' && (
-              <div className="flex items-center gap-3.5 flex-wrap">
-                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                  <Filter className="w-3.5 h-3.5" /> Filter:
-                </label>
-                
-                <div className="flex gap-1.5 bg-slate-900/60 border border-dark-border p-1 rounded-xl">
-                  {(['all', 'pending', 'approved', 'cancelled'] as const).map((filterOpt) => (
-                    <button
-                      key={filterOpt}
-                      onClick={() => setStatusFilter(filterOpt)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                        statusFilter === filterOpt
-                          ? 'bg-slate-800 text-white font-extrabold border border-slate-700/50'
-                          : 'text-slate-500 hover:text-slate-300 border border-transparent'
-                      }`}
-                    >
-                      {filterOpt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'checkouts' && (
-              <div className="flex items-center gap-3 flex-wrap">
-                {/* Category Filter Dropdown */}
-                <div className="relative flex items-center">
-                  <div className="absolute left-3 pointer-events-none text-brand-lime flex items-center gap-1.5 text-xs font-semibold">
-                    <Filter className="w-3.5 h-3.5 text-brand-lime" />
-                    <span className="hidden sm:inline text-slate-400 text-[11px] uppercase tracking-wider font-bold">Category:</span>
-                  </div>
-                  <select
-                    value={checkoutCategoryFilter}
-                    onChange={(e) => setCheckoutCategoryFilter(e.target.value as any)}
-                    className="appearance-none pl-9 sm:pl-24 pr-8 py-2 bg-slate-900/90 border border-slate-700/80 hover:border-brand-lime/50 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-lime/30 cursor-pointer transition-all shadow-sm"
-                  >
-                    <option value="all" className="bg-slate-900 text-slate-200">All Categories</option>
-                    <option value="court" className="bg-slate-900 text-slate-200">🎾 Court Bookings Only</option>
-                    <option value="openplay" className="bg-slate-900 text-slate-200">🏆 Open Play Sessions Only</option>
-                  </select>
-                  <div className="absolute right-2.5 pointer-events-none text-slate-400">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-
-                {/* Payment Status Dropdown */}
-                <div className="relative flex items-center">
-                  <div className="absolute left-3 pointer-events-none text-emerald-400 flex items-center gap-1.5 text-xs font-semibold">
-                    <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="hidden sm:inline text-slate-400 text-[11px] uppercase tracking-wider font-bold">Status:</span>
-                  </div>
-                  <select
-                    value={checkoutStatusFilter}
-                    onChange={(e) => setCheckoutStatusFilter(e.target.value as any)}
-                    className="appearance-none pl-9 sm:pl-20 pr-8 py-2 bg-slate-900/90 border border-slate-700/80 hover:border-emerald-400/50 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-400/30 cursor-pointer transition-all shadow-sm"
-                  >
-                    <option value="all" className="bg-slate-900 text-slate-200">All Statuses</option>
-                    <option value="pending" className="bg-slate-900 text-slate-200">Pending Review</option>
-                    <option value="paid" className="bg-slate-900 text-slate-200">Approved / Paid</option>
-                    <option value="cancelled" className="bg-slate-900 text-slate-200">Refunded / Cancelled</option>
-                  </select>
-                  <div className="absolute right-2.5 pointer-events-none text-slate-400">
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </div>
-                </div>
-
-                {/* Reset Filters Button */}
-                {(checkoutCategoryFilter !== 'all' || checkoutStatusFilter !== 'all') && (
-                  <button
-                    onClick={() => {
-                      setCheckoutCategoryFilter('all');
-                      setCheckoutStatusFilter('all');
-                    }}
-                    className="text-xs text-slate-300 hover:text-white px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                    title="Reset checkout filters"
-                  >
-                    <X className="w-3.5 h-3.5 text-red-400" />
-                    <span className="font-semibold">Reset</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* LOADING INDICATOR */}
-        {loading ? (
-          <div className="glass-panel border border-slate-800 rounded-3xl p-16 text-center flex flex-col items-center justify-center">
-            <Loader2 className="w-10 h-10 text-brand-lime animate-spin mb-4" />
-            <h4 className="text-sm font-bold text-white">Loading System Records...</h4>
-            <p className="text-xs text-slate-500 mt-1.5">Fetching latest reservations and user database.</p>
-          </div>
-        ) : (
-          <>
-            {/* 3. TAB VIEW: RESERVATIONS BOOKINGS LIST / CALENDAR */}
-            {activeTab === 'bookings' && bookingsViewMode === 'table' && (
-              <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative">
-                <div className="absolute inset-0 court-lines opacity-[0.02] pointer-events-none"></div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-dark-border/60 bg-slate-900/30 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                        <th className="py-4 px-6">Client Info</th>
-                        <th className="py-4 px-6">Court Details</th>
-                        <th className="py-4 px-6">Date & Slots</th>
-                        <th className="py-4 px-6">Total Price</th>
-                        <th className="py-4 px-6 text-center">Status</th>
-                        <th className="py-4 px-6 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-dark-border/40 text-xs">
-                      {filteredBookings.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="py-16 text-center text-slate-500">
-                            <AlertCircle className="w-8 h-8 mx-auto text-slate-600 mb-3" />
-                            <p className="font-bold text-white text-sm">No reservations found</p>
-                            <p className="text-xs text-slate-500 mt-1">Try adjusting your filters or search query.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredBookings.map((booking) => {
-                          const isActionPending = actionLoading === booking.id;
-                          return (
-                            <tr key={booking.id} className="hover:bg-slate-900/10 transition-colors">
-                              {/* Customer Info */}
-                              <td className="py-4.5 px-6">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-9 h-9 rounded-full bg-slate-900 border border-dark-border flex items-center justify-center text-slate-400 font-bold uppercase">
-                                    {booking.user?.name?.slice(0, 2) || 'PL'}
-                                  </div>
-                                  <div>
-                                    <div className="font-bold text-white">{booking.user?.name || 'Anonymous'}</div>
-                                    <div className="text-xs text-slate-500 mt-0.5">{booking.user?.email || 'N/A'}</div>
-                                  </div>
-                                </div>
-                              </td>
-
-                              {/* Court Details */}
-                              <td className="py-4.5 px-6 font-medium text-slate-300">
-                                <div className="flex items-center gap-1.5">
-                                  <span>{booking.courtName || 'Court'}</span>
-                                  {!courts.some(c => c.id === booking.courtId) && (
-                                    <span className="text-[10px] px-1.5 py-0.2 bg-slate-800 text-slate-400 rounded border border-slate-700 font-semibold">Archived</span>
-                                  )}
-                                </div>
-                                <div className="text-xs text-slate-500 mt-0.5">ID: {booking.courtId}</div>
-                              </td>
-
-                              {/* Date & Slots */}
-                              <td className="py-4.5 px-6">
-                                <div className="flex items-center gap-1.5 text-slate-200 font-semibold">
-                                  <Calendar className="w-3.5 h-3.5 text-brand-lime" />
-                                  <span>{formatDateLabel(booking.date)}</span>
-                                </div>
-                                <div className="flex flex-wrap gap-1 mt-1.5 max-w-[200px]">
-                                  {booking.slots?.map((slot, index) => (
-                                    <span
-                                      key={index}
-                                      className="text-xs px-1.5 py-0.5 bg-slate-900 border border-slate-800 text-slate-400 rounded-md font-medium"
-                                    >
-                                      {slot.split(' - ')[0]}
-                                    </span>
-                                  ))}
-                                </div>
-                              </td>
-
-                              {/* Total Cost */}
-                              <td className="py-4.5 px-6">
-                                <div className="font-extrabold text-white text-sm font-sans">₱{booking.totalCost}</div>
-                                <div className="text-xs text-slate-500 mt-0.5 font-sans">{booking.slots?.length} hrs reserved</div>
-                              </td>
-
-                              {/* Status Badge */}
-                              <td className="py-4.5 px-6 text-center">
-                                <span
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold uppercase border ${
-                                    booking.status === 'approved'
-                                      ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
-                                      : booking.status === 'cancelled'
-                                      ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                                      : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                  }`}
-                                >
-                                  <span
-                                    className={`w-1.5 h-1.5 rounded-full ${
-                                      booking.status === 'approved'
-                                        ? 'bg-brand-emerald'
-                                        : booking.status === 'cancelled'
-                                        ? 'bg-red-500'
-                                        : 'bg-yellow-400'
-                                    }`}
-                                  ></span>
-                                  {booking.status}
-                                </span>
-                              </td>
-
-                              {/* Actions Panel */}
-                              <td className="py-4.5 px-6">
-                                <div className="flex items-center justify-center gap-2">
-                                  {isActionPending ? (
-                                    <Loader2 className="w-4 h-4 text-brand-lime animate-spin" />
-                                  ) : (
-                                    <>
-                                      {(() => {
-                                        const isPendingBooking = booking.status === 'pending' || booking.paymentStatus === 'pending_verification';
-                                        const isPastDate = isPastBookingDate(booking.date);
-                                        const isApproved = booking.status === 'approved';
-                                        const isActionDisabled = isPastDate || isPendingBooking;
-                                        const isDeleteDisabled = isPendingBooking || isApproved;
-
-                                        return (
-                                          <>
-                                            {/* Cancel */}
-                                            {booking.status !== 'cancelled' && (
-                                              <button
-                                                disabled={isActionDisabled}
-                                                onClick={() => !isActionDisabled && handlePromptCancelBooking(booking)}
-                                                title={
-                                                  isPendingBooking
-                                                    ? 'Action disabled while reservation is pending payment verification in Checkouts tab'
-                                                    : isPastDate
-                                                    ? 'Past reservations cannot be cancelled'
-                                                    : 'Cancel Reservation & Issue Credit'
-                                                }
-                                                className={`p-1.5 rounded-lg border transition-all ${
-                                                  isActionDisabled
-                                                    ? 'bg-slate-900 border-slate-850 text-slate-600 cursor-not-allowed opacity-40'
-                                                    : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white cursor-pointer'
-                                                }`}
-                                              >
-                                                <X className="w-3.5 h-3.5" />
-                                              </button>
-                                            )}
-
-                                            {/* Rainout Weather Stoppage */}
-                                            {booking.status === 'approved' && (
-                                              <button
-                                                onClick={() => handleOpenWeatherStoppage(booking)}
-                                                title="Report Weather Stoppage / Rainout"
-                                                className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white transition-all cursor-pointer"
-                                              >
-                                                <CloudRain className="w-3.5 h-3.5" />
-                                              </button>
-                                            )}
-
-                                            {/* Edit */}
-                                            <button
-                                              disabled={isActionDisabled}
-                                              onClick={() => !isActionDisabled && handleOpenEdit(booking)}
-                                              title={
-                                                isPendingBooking
-                                                  ? 'Action disabled while reservation is pending payment verification in Checkouts tab'
-                                                  : isPastDate
-                                                  ? 'Past reservations cannot be edited'
-                                                  : 'Edit Details'
-                                              }
-                                              className={`p-1.5 rounded-lg border transition-all ${
-                                                isActionDisabled
-                                                  ? 'bg-slate-900 border-slate-850 text-slate-600 cursor-not-allowed opacity-40'
-                                                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer'
-                                              }`}
-                                            >
-                                              <Edit2 className="w-3.5 h-3.5" />
-                                            </button>
-
-                                            {/* Delete */}
-                                            <button
-                                              disabled={isDeleteDisabled}
-                                              onClick={() => !isDeleteDisabled && handleOpenDeleteBooking(booking)}
-                                              title={
-                                                isPendingBooking
-                                                  ? 'Action disabled while reservation is pending payment verification in Checkouts tab'
-                                                  : isApproved
-                                                  ? 'Paid & approved reservations cannot be deleted to preserve financial audit records. Use Cancel & Issue Credit, Refund, or Reschedule.'
-                                                  : 'Delete Record'
-                                              }
-                                              className={`p-1.5 rounded-lg border transition-all ${
-                                                isDeleteDisabled
-                                                  ? 'bg-slate-900 border-slate-850 text-slate-600 cursor-not-allowed opacity-40'
-                                                  : 'bg-red-950/20 border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white cursor-pointer'
-                                              }`}
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          </>
-                                        );
-                                      })()}
-
-                                      {/* Send Email */}
-                                      <button
-                                        onClick={() => handleOpenSendEmail(booking.user?.email || '', booking.user?.name || 'Customer')}
-                                        title="Send Email Notification"
-                                        className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-600 hover:text-white transition-all cursor-pointer"
-                                      >
-                                        <Mail className="w-3.5 h-3.5" />
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* BOOKINGS CALENDAR VIEW */}
-            {activeTab === 'bookings' && bookingsViewMode === 'calendar' && (
-              <div className="space-y-6 animate-fade-in">
-                {/* Month Navigation & Header */}
-                <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-2xl">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-800">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
-                        <Calendar className="w-6 h-6" />
-                      </div>
-                      <div className="text-left">
-                        <h3 className="text-xl font-extrabold text-white">
-                          {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Showing court schedule for <strong className="text-brand-lime">{selectedCalendarCourtId === 'all' ? 'All Courts' : courts.find(c => c.id === selectedCalendarCourtId)?.name || 'Selected Court'}</strong>
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Month Controls */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
-                        className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-                        title="Previous Month"
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        onClick={() => setCalendarMonth(new Date())}
-                        className="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 hover:text-brand-lime transition-all cursor-pointer text-xs font-bold"
-                      >
-                        Today
-                      </button>
-
-                      <button
-                        onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
-                        className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-                        title="Next Month"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Status Legend */}
-                  <div className="pt-4 flex flex-wrap items-center justify-between gap-4 text-xs">
-                    <div className="flex items-center gap-4 text-slate-400 font-medium">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full bg-brand-emerald"></span> Approved
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Pending Verification
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full bg-red-400"></span> Cancelled
-                      </span>
-                    </div>
-
-                    <div className="text-slate-400 text-xs font-sans">
-                      💡 Click any calendar date cell to inspect 17-slot daily timeline
-                    </div>
-                  </div>
-                </div>
-
-                {/* Calendar 7-Column Grid */}
-                <div className="glass-panel border border-slate-800 rounded-3xl p-4 md:p-6 shadow-2xl overflow-x-auto">
-                  {/* Days of Week Header */}
-                  <div className="grid grid-cols-7 gap-2 text-center mb-3">
-                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                      <div key={day} className="py-2 text-xs font-extrabold uppercase tracking-wider text-slate-400 bg-slate-900/50 rounded-xl border border-slate-800/60">
-                        {day}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Monthly Grid Cells */}
-                  <div className="grid grid-cols-7 gap-2">
-                    {(() => {
-                      const year = calendarMonth.getFullYear();
-                      const month = calendarMonth.getMonth();
-                      const firstDayIndex = new Date(year, month, 1).getDay();
-                      const totalDays = new Date(year, month + 1, 0).getDate();
-                      const prevMonthTotalDays = new Date(year, month, 0).getDate();
-
-                      const todayStr = new Date().toISOString().split('T')[0];
-                      const calendarCells = [];
-
-                      // Prev Month Filler
-                      for (let i = firstDayIndex - 1; i >= 0; i--) {
-                        const prevDayNum = prevMonthTotalDays - i;
-                        calendarCells.push(
-                          <div key={`prev-${prevDayNum}`} className="min-h-[110px] md:min-h-[130px] p-2 rounded-2xl bg-slate-950/40 border border-slate-900/60 text-slate-700 opacity-40 select-none text-left">
-                            <span className="text-xs font-bold">{prevDayNum}</span>
-                          </div>
-                        );
-                      }
-
-                      // Current Month Days
-                      for (let dayNum = 1; dayNum <= totalDays; dayNum++) {
-                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-                        const isToday = dateStr === todayStr;
-
-                        const dayBookings = bookings.filter((b) => {
-                          const matchesDate = b.date === dateStr;
-                          const matchesCourt = selectedCalendarCourtId === 'all' ? true : b.courtId === selectedCalendarCourtId;
-                          const matchesSearch = searchQuery
-                            ? b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) || b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase())
-                            : true;
-                          return matchesDate && matchesCourt && matchesSearch;
-                        });
-
-                        const dayRevenue = dayBookings
-                          .filter((b) => b.status === 'approved')
-                          .reduce((sum, b) => sum + b.totalCost, 0);
-
-                        const approvedCount = dayBookings.filter((b) => b.status === 'approved').length;
-                        const pendingCount = dayBookings.filter((b) => b.status === 'pending').length;
-
-                        calendarCells.push(
-                          <div
-                            key={dateStr}
-                            onClick={() => setSelectedCalendarDate(dateStr)}
-                            className={`min-h-[110px] md:min-h-[130px] p-2.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between group hover:scale-[1.01] shadow-sm text-left ${
-                              isToday
-                                ? 'bg-slate-900/90 border-brand-lime ring-1 ring-brand-lime/40 shadow-lg shadow-brand-lime/10'
-                                : dayBookings.length > 0
-                                ? 'bg-slate-900/60 border-slate-800 hover:border-slate-700'
-                                : 'bg-slate-950/30 border-slate-900 hover:bg-slate-900/40'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-extrabold ${
-                                isToday ? 'bg-brand-lime text-dark-bg' : 'text-white'
-                              }`}>
-                                {dayNum}
-                              </span>
-                              {dayRevenue > 0 && (
-                                <span className="text-[10px] font-bold text-brand-lime bg-brand-lime/10 border border-brand-lime/20 px-1.5 py-0.5 rounded-md font-sans">
-                                  ₱{dayRevenue}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="space-y-1 my-1 overflow-y-auto max-h-[70px] pr-0.5">
-                              {dayBookings.slice(0, 3).map((b) => {
-                                const isApproved = b.status === 'approved';
-                                const isPending = b.status === 'pending';
-                                return (
-                                  <div
-                                    key={b.id}
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold truncate flex items-center justify-between gap-1 ${
-                                      isApproved
-                                        ? 'bg-brand-emerald/15 text-brand-emerald border border-brand-emerald/30'
-                                        : isPending
-                                        ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse'
-                                        : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                                    }`}
-                                  >
-                                    <span className="truncate">{b.user?.name || b.userName || 'Booked'}</span>
-                                    <span className="text-[9px] font-mono opacity-80">{b.slots.length}s</span>
-                                  </div>
-                                );
-                              })}
-
-                              {dayBookings.length > 3 && (
-                                <div className="text-[10px] font-extrabold text-slate-400 pl-1">
-                                  +{dayBookings.length - 3} more...
-                                </div>
-                              )}
-                            </div>
-
-                            {dayBookings.length > 0 && (
-                              <div className="flex gap-1 pt-1 border-t border-slate-800/40 text-[9px] font-extrabold">
-                                {approvedCount > 0 && <span className="text-brand-emerald">{approvedCount} app.</span>}
-                                {pendingCount > 0 && <span className="text-amber-400">{pendingCount} pend.</span>}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }
-
-                      // Next Month Trailing
-                      const totalRendered = firstDayIndex + totalDays;
-                      const trailingDays = (7 - (totalRendered % 7)) % 7;
-                      for (let dayNum = 1; dayNum <= trailingDays; dayNum++) {
-                        calendarCells.push(
-                          <div key={`next-${dayNum}`} className="min-h-[110px] md:min-h-[130px] p-2 rounded-2xl bg-slate-950/40 border border-slate-900/60 text-slate-700 opacity-40 select-none text-left">
-                            <span className="text-xs font-bold">{dayNum}</span>
-                          </div>
-                        );
-                      }
-
-                      return calendarCells;
-                    })()}
-                  </div>
-                </div>
-              </div>
-            )}
-                        {/* 3.5 TAB VIEW: COURTS LIST */}
-            {activeTab === 'courts' && courtsViewMode === 'list' && (
-              <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative animate-fade-in">
-                <div className="absolute inset-0 court-lines opacity-[0.02] pointer-events-none"></div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-dark-border/60 bg-slate-900/30 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                        <th className="py-4 px-6">Court Name</th>
-                        <th className="py-4 px-6">Court Type</th>
-                        <th className="py-4 px-6">Day Rate</th>
-                        <th className="py-4 px-6">Night Rate</th>
-                        <th className="py-4 px-6">Status</th>
-                        {isSuperAdmin && <th className="py-4 px-6">Owner</th>}
-                        <th className="py-4 px-6 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-dark-border/40 text-xs">
-                      {filteredCourts.length === 0 ? (
-                        <tr>
-                          <td colSpan={isSuperAdmin ? 7 : 6} className="py-16 text-center text-slate-500">
-                            <AlertCircle className="w-8 h-8 mx-auto text-slate-600 mb-3" />
-                            <p className="font-bold text-white text-sm">No courts listed</p>
-                            {!isSuperAdmin && (
-                              <p className="text-xs text-slate-500 mt-1">Click "Create Court" to add your first court.</p>
-                            )}
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredCourts.map((court) => {
-                          const courtOwner = users.find(u => u.uid === court.ownerId || u.email === court.ownerId);
-                          const ownerDisplay = court.ownerId === 'system' ? 'System Default' : (courtOwner ? courtOwner.name : court.ownerId || 'Unknown');
-                          
-                          return (
-                            <tr key={court.id} className="hover:bg-slate-900/10 transition-colors">
-                              <td className="py-4.5 px-6 font-bold text-white">
-                                {court.name}
-                              </td>
-                              <td className="py-4.5 px-6 text-slate-300 font-medium">
-                                {court.type}
-                              </td>
-                              <td className="py-4.5 px-6 text-brand-lime font-bold">
-                                ₱{court.dayPrice}/hr
-                              </td>
-                              <td className="py-4.5 px-6 text-brand-lime font-bold">
-                                ₱{court.nightPrice}/hr
-                              </td>
-                              <td className="py-4.5 px-6">
-                                {court.published !== false ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-emerald/10 border border-brand-emerald/25 text-brand-emerald">
-                                    Published
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-yellow-500/10 border border-yellow-500/20 text-yellow-400">
-                                    Draft
-                                  </span>
-                                )}
-                              </td>
-                              {isSuperAdmin && (
-                                <td className="py-4.5 px-6 text-slate-400">
-                                  {ownerDisplay}
-                                </td>
-                              )}
-                              <td className="py-4.5 px-6">
-                                <div className="flex items-center justify-center gap-2">
-                                  {actionLoading === court.id ? (
-                                    <div className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-brand-lime flex items-center justify-center">
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    </div>
-                                  ) : court.published !== false ? (
-                                    <button
-                                      onClick={() => handleTogglePublishCourt(court)}
-                                      title="Unpublish Court (Set to Draft)"
-                                      className="p-1.5 rounded-lg bg-brand-emerald/10 border border-brand-emerald/25 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all cursor-pointer"
-                                    >
-                                      <Eye className="w-3.5 h-3.5" />
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={() => handleTogglePublishCourt(court)}
-                                      title="Publish Court"
-                                      className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-brand-lime hover:border-brand-lime transition-all cursor-pointer"
-                                    >
-                                      <EyeOff className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => handleOpenEditCourt(court)}
-                                    title="Edit Court"
-                                    className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white transition-all cursor-pointer animate-fade-in"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleOpenDeleteCourt(court)}
-                                    title="Delete Court"
-                                    className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white transition-all cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'courts' && courtsViewMode === 'grid' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in">
-                {filteredCourts.length === 0 ? (
-                  <div className="col-span-full py-16 text-center text-slate-500 glass-panel border border-slate-800 rounded-3xl">
-                    <AlertCircle className="w-8 h-8 mx-auto text-slate-600 mb-3" />
-                    <p className="font-bold text-white text-sm">No courts listed</p>
-                    {!isSuperAdmin && (
-                      <p className="text-xs text-slate-500 mt-1">Click "Create Court" to add your first court.</p>
-                    )}
-                  </div>
-                ) : (
-                  filteredCourts.map((court) => {
-                    const courtOwner = users.find(u => u.uid === court.ownerId || u.email === court.ownerId);
-                    const ownerDisplay = court.ownerId === 'system' ? 'System Default' : (courtOwner ? courtOwner.name : court.ownerId || 'Unknown');
-                    
-                    return (
-                      <div
-                        key={court.id}
-                        className="glass-panel rounded-2xl overflow-hidden text-left flex flex-col justify-between hover:shadow-2xl hover:shadow-black/50 transition-all duration-300 border border-slate-800/80 hover:border-slate-700/80"
-                      >
-                        <div>
-                          {/* Image Preview with Badges */}
-                          <div className="w-full aspect-video overflow-hidden bg-slate-900 relative border-b border-slate-800/80">
-                            {court.images && court.images.length > 0 ? (
-                              <img
-                                src={court.images[0]}
-                                alt={court.name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-slate-600">
-                                <MapPin className="w-8 h-8" />
-                              </div>
-                            )}
-                            
-                            {/* Status Badge Overlay */}
-                            <div className="absolute top-3 left-3">
-                              {court.published !== false ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-brand-emerald/90 border border-brand-emerald/25 text-white shadow-md backdrop-blur-sm">
-                                  Published
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-yellow-500/90 border border-yellow-500/20 text-dark-bg shadow-md backdrop-blur-sm">
-                                  Draft
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Rates overlay */}
-                            <div className="absolute bottom-3 right-3 bg-slate-950/80 border border-slate-800 px-2 py-1 rounded-lg text-[10px] font-bold text-brand-lime backdrop-blur-sm font-sans">
-                              ₱{court.dayPrice} - ₱{court.nightPrice}/hr
-                            </div>
-                          </div>
-
-                          {/* Card Content */}
-                          <div className="p-4 space-y-3">
-                            <div>
-                              <h4 className="font-bold text-white text-base leading-snug truncate">
-                                {court.name}
-                              </h4>
-                              <span className="text-[10px] mt-1 font-medium text-slate-450 block truncate">
-                                {court.type}
-                              </span>
-                            </div>
-
-                            {/* Location Address */}
-                            <p className="text-xs text-slate-450 line-clamp-1 flex items-center gap-1">
-                              <MapPin className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                              <span className="truncate">
-                                {[court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || 'Location details not set.'}
-                              </span>
-                            </p>
-
-                            {/* Owner Info (Super Admin only) */}
-                            {isSuperAdmin && (
-                              <div className="pt-2 border-t border-slate-800/40 text-[10px] text-slate-500 flex justify-between items-center">
-                                <span>Owner:</span>
-                                <span className="text-slate-400 font-bold truncate max-w-[150px]">{ownerDisplay}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Card Actions Panel */}
-                        <div className="p-4 pt-0 border-t border-slate-800/40 mt-2 flex justify-between items-center gap-2">
-                          <div className="text-[10px] text-slate-500 uppercase tracking-widest font-extrabold">
-                            Actions
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {/* Toggle Publish status */}
-                            {actionLoading === court.id ? (
-                              <div className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-brand-lime flex items-center justify-center">
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              </div>
-                            ) : court.published !== false ? (
-                              <button
-                                onClick={() => handleTogglePublishCourt(court)}
-                                title="Unpublish Court (Set to Draft)"
-                                className="p-1.5 rounded-lg bg-brand-emerald/10 border border-brand-emerald/25 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleTogglePublishCourt(court)}
-                                title="Publish Court"
-                                className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-brand-lime hover:border-brand-lime transition-all cursor-pointer"
-                              >
-                                <EyeOff className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-
-                            {/* Edit */}
-                            <button
-                              onClick={() => handleOpenEditCourt(court)}
-                              title="Edit Court"
-                              className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white transition-all cursor-pointer animate-fade-in"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Delete */}
-                            <button
-                              onClick={() => handleOpenDeleteCourt(court)}
-                              title="Delete Court"
-                              className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white transition-all cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
-
-            {/* 4. TAB VIEW: USERS MANAGEMENT LIST */}
-            {activeTab === 'users' && (
-              <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative animate-fade-in">
-                <div className="absolute inset-0 court-lines opacity-[0.02] pointer-events-none"></div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-dark-border/60 bg-slate-900/30 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                        <th className="py-4 px-6">Client Profile</th>
-                        <th className="py-4 px-6">Email Address</th>
-                        <th className="py-4 px-6">Assigned Role</th>
-                        <th className="py-4 px-6 text-center">Status</th>
-                        <th className="py-4 px-6 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-dark-border/40 text-xs">
-                      {filteredUsers.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="py-16 text-center text-slate-500">
-                            <AlertCircle className="w-8 h-8 mx-auto text-slate-600 mb-3" />
-                            <p className="font-bold text-white text-sm">No users found</p>
-                            <p className="text-xs text-slate-400 mt-1">Try adjusting your search query or filters.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredUsers.map((u, idx) => {
-                          const isMasterAdmin = u.email.toLowerCase() === 'admin@picklepoint.com';
-                          const isPendingInvite = u.status === 'pending' || u.isInvitedPending;
-                          const isDeleted = u.status === 'deleted';
-                          const isInactive = u.status === 'inactive';
-
-                          let expiryText = '';
-                          if (isPendingInvite && u.expiresAt) {
-                            const msLeft = new Date(u.expiresAt).getTime() - Date.now();
-                            if (msLeft <= 0) {
-                              expiryText = 'Expired';
-                            } else {
-                              const hoursLeft = Math.ceil(msLeft / (1000 * 60 * 60));
-                              expiryText = `Expires in ~${hoursLeft}h`;
-                            }
-                          }
-
-                          return (
-                            <tr key={idx} className={`transition-colors ${isPendingInvite ? 'bg-amber-500/[0.03] hover:bg-amber-500/[0.07]' : isDeleted ? 'bg-red-500/[0.02] opacity-75 hover:bg-red-500/[0.05]' : 'hover:bg-slate-900/10'}`}>
-                              {/* Avatar and Name */}
-                              <td className="py-4.5 px-6">
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold uppercase font-sans text-xs flex-shrink-0 ${
-                                    isPendingInvite
-                                      ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 ring-2 ring-amber-500/20'
-                                      : isDeleted
-                                      ? 'bg-red-900/20 border border-red-800 text-red-400'
-                                      : 'bg-slate-900 border border-dark-border text-slate-300'
-                                  }`}>
-                                    {isPendingInvite ? (
-                                      <Clock className="w-4 h-4 text-amber-400" />
-                                    ) : (
-                                      u.name.slice(0, 2)
-                                    )}
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-bold text-white">{u.name}</span>
-                                      {isPendingInvite && (
-                                        <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                          Invited
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="text-[11px] text-slate-400">
-                                      {isPendingInvite && u.invitedBy ? (
-                                        <span>Invited by {u.invitedBy.split('@')[0]}</span>
-                                      ) : u.createdAt ? (
-                                        <span>Joined {new Date(u.createdAt).toLocaleDateString()}</span>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-
-                              {/* Email */}
-                              <td className="py-4.5 px-6">
-                                <div className="text-slate-200 font-mono text-xs select-all">
-                                  {u.email}
-                                </div>
-                              </td>
-
-                              {/* Role */}
-                              <td className="py-4.5 px-6">
-                                {isMasterAdmin || u.role === 'super_admin' ? (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-brand-emerald/10 border border-brand-emerald/25 text-brand-emerald">
-                                    <Shield className="w-3 h-3" /> Super Admin
-                                  </span>
-                                ) : u.role === 'client_admin' ? (
-                                  <div>
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-brand-lime/10 border border-brand-lime/25 text-brand-lime">
-                                      Client Admin
-                                    </span>
-                                    {(u.companyName || companies.find((c) => c.clientAdminEmail?.toLowerCase() === u.email?.toLowerCase())?.name) && (() => {
-                                      const matchedC = companies.find(
-                                        (c) =>
-                                          (u.companyId && c.id === u.companyId) ||
-                                          c.clientAdminEmail?.toLowerCase() === u.email?.toLowerCase() ||
-                                          c.name === u.companyName
-                                      );
-                                      const cStatus = matchedC?.status || 'active';
-                                      return (
-                                        <div className="text-[11px] text-brand-lime font-bold flex items-center gap-1.5 mt-1">
-                                          <Building2 className="w-3 h-3 text-brand-lime flex-shrink-0" />
-                                          <span>{matchedC?.name || u.companyName}</span>
-                                          {cStatus === 'pending' && (
-                                            <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-                                              Pending
-                                            </span>
-                                          )}
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 border border-slate-700 text-slate-400 font-sans">
-                                    Standard Player
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Status */}
-                              <td className="py-4.5 px-6 text-center">
-                                {isPendingInvite ? (
-                                  <div>
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-amber-500/10 border border-amber-500/30 text-amber-400 shadow-sm shadow-amber-500/5">
-                                      <Clock className="w-3 h-3" /> Pending Invite
-                                    </span>
-                                    {expiryText && (
-                                      <div className={`text-[10px] font-mono mt-1 ${expiryText === 'Expired' ? 'text-red-400 font-bold' : 'text-amber-400/80'}`}>
-                                        {expiryText}
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : isInactive ? (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-slate-800 border border-slate-700 text-slate-400">
-                                    <UserX className="w-3 h-3" /> Inactive
-                                  </span>
-                                ) : isDeleted ? (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-red-500/10 border border-red-500/30 text-red-400">
-                                    <Trash2 className="w-3 h-3" /> Deleted
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald">
-                                    <UserCheck className="w-3 h-3" /> Active
-                                  </span>
-                                )}
-                              </td>
-
-                              {/* Actions */}
-                              <td className="py-4.5 px-6">
-                                <div className="flex items-center justify-center gap-2">
-                                  {actionLoading === u.email ? (
-                                    <Loader2 className="w-4 h-4 text-brand-lime animate-spin" />
-                                  ) : isMasterAdmin ? (
-                                    <span className="text-xs text-slate-500 italic">System Master</span>
-                                  ) : isPendingInvite ? (
-                                    <>
-                                      {/* Copy Invitation Link */}
-                                      <button
-                                        onClick={() => handleCopyUserInviteLink(u)}
-                                        title={copiedInviteUserToken === u.inviteToken ? 'Link Copied!' : 'Copy Registration Link'}
-                                        className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                                          copiedInviteUserToken === u.inviteToken
-                                            ? 'bg-brand-emerald/20 border-brand-emerald text-brand-emerald font-bold'
-                                            : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white'
-                                        }`}
-                                      >
-                                        {copiedInviteUserToken === u.inviteToken ? (
-                                          <CheckCheck className="w-3.5 h-3.5 text-brand-emerald" />
-                                        ) : (
-                                          <Copy className="w-3.5 h-3.5" />
-                                        )}
-                                      </button>
-
-                                      {/* Resend Invitation Email */}
-                                      <button
-                                        onClick={() => handleResendUserInviteEmail(u)}
-                                        title="Resend Invitation Email"
-                                        className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-600 hover:text-dark-bg transition-all cursor-pointer font-bold"
-                                      >
-                                        <Send className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {/* Revoke Invitation */}
-                                      <button
-                                        onClick={() => handleRevokeUserInvite(u)}
-                                        title="Revoke & Delete Invitation"
-                                        className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white transition-all cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <>
-                                      {/* Edit User Button */}
-                                      <button
-                                        onClick={() => handleOpenEditUser(u)}
-                                        title="Edit User Profile"
-                                        className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white transition-all cursor-pointer"
-                                      >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {/* Send Email Button */}
-                                      <button
-                                        onClick={() => handleOpenSendEmail(u.email, u.name)}
-                                        title="Send Direct Email"
-                                        className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-600 hover:text-white transition-all cursor-pointer"
-                                      >
-                                        <Mail className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      {/* Delete User Button */}
-                                      <button
-                                        onClick={() => handlePromptDeleteUser(u)}
-                                        title="Delete User"
-                                        className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white transition-all cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* 4B. TAB VIEW: COMPANIES MANAGEMENT LIST */}
-            {activeTab === 'companies' && (
-              <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative animate-fade-in p-6">
-                <div className="absolute inset-0 court-lines opacity-[0.02] pointer-events-none"></div>
-
-                {/* STATUS FILTER TABS BAR & CREATE BUTTON */}
-                <div className="flex items-center justify-between flex-wrap gap-4 mb-6 pb-4 border-b border-slate-800/80">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={() => setCompanyStatusFilter('all')}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                        companyStatusFilter === 'all'
-                          ? 'bg-brand-lime text-dark-bg shadow-sm shadow-brand-lime/10'
-                          : 'bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      <span>All Companies</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                          companyStatusFilter === 'all' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {companies.length}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setCompanyStatusFilter('active')}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                        companyStatusFilter === 'active'
-                          ? 'bg-brand-emerald text-dark-bg shadow-sm shadow-brand-emerald/10'
-                          : 'bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-brand-emerald hover:bg-slate-800'
-                      }`}
-                    >
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>Active</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                          companyStatusFilter === 'active' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {companies.filter((c) => (c.status || 'active') === 'active').length}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setCompanyStatusFilter('pending')}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                        companyStatusFilter === 'pending'
-                          ? 'bg-yellow-400 text-dark-bg shadow-sm shadow-yellow-400/10'
-                          : 'bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-yellow-400 hover:bg-slate-800'
-                      }`}
-                    >
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Pending Review</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                          companyStatusFilter === 'pending'
-                            ? 'bg-dark-bg/20 text-dark-bg'
-                            : companies.filter((c) => c.status === 'pending').length > 0
-                            ? 'bg-yellow-500/20 text-yellow-400 animate-pulse font-extrabold'
-                            : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {companies.filter((c) => c.status === 'pending').length}
-                      </span>
-                    </button>
-
-                    <button
-                      onClick={() => setCompanyStatusFilter('inactive')}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                        companyStatusFilter === 'inactive'
-                          ? 'bg-slate-700 text-white shadow-sm'
-                          : 'bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                      }`}
-                    >
-                      <UserX className="w-3.5 h-3.5" />
-                      <span>Inactive</span>
-                      <span
-                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                          companyStatusFilter === 'inactive' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-400'
-                        }`}
-                      >
-                        {companies.filter((c) => c.status === 'inactive').length}
-                      </span>
-                    </button>
-                  </div>
-
-                  <button
-                    onClick={handleOpenCreateCompany}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md shadow-brand-lime/10"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Create Company
-                  </button>
-                </div>
-
-                {filteredCompanies.length === 0 ? (
-                  <div className="py-16 text-center text-slate-500">
-                    <Building2 className="w-10 h-10 mx-auto text-slate-600 mb-3" />
-                    <p className="font-bold text-white text-base">
-                      {companyStatusFilter === 'pending'
-                        ? 'No pending company applications'
-                        : companyStatusFilter === 'inactive'
-                        ? 'No inactive companies'
-                        : companyStatusFilter === 'active'
-                        ? 'No active companies found'
-                        : 'No companies registered'}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1 mb-4">
-                      {companyStatusFilter === 'all'
-                        ? 'Click "Create Company" to register a new pickleball client organization.'
-                        : 'Try adjusting your search query or status filter.'}
-                    </p>
-                    {companyStatusFilter === 'all' && (
-                      <button
-                        onClick={handleOpenCreateCompany}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Create Company
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredCompanies.map((comp) => {
-                      const compStatus = comp.status || 'active';
-                      const isPending = compStatus === 'pending';
-                      const isInactive = compStatus === 'inactive';
-                      const isActive = compStatus === 'active';
-                      const isActionPending = actionLoading === comp.id;
-
-                      return (
-                        <div
-                          key={comp.id}
-                          className={`glass-panel border rounded-2xl p-5 transition-all flex flex-col justify-between group relative overflow-hidden ${
-                            isPending
-                              ? 'border-yellow-500/40 hover:border-yellow-500/70 bg-yellow-500/[0.02]'
-                              : isInactive
-                              ? 'border-slate-800 opacity-75 hover:opacity-100 hover:border-slate-700'
-                              : 'border-slate-800/80 hover:border-brand-lime/40'
-                          }`}
-                        >
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className={`w-10 h-10 rounded-xl border flex items-center justify-center flex-shrink-0 ${
-                                    isPending
-                                      ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                      : isInactive
-                                      ? 'bg-slate-800 border-slate-700 text-slate-400'
-                                      : 'bg-brand-lime/10 border-brand-lime/20 text-brand-lime'
-                                  }`}
-                                >
-                                  <Building2 className="w-5 h-5" />
-                                </div>
-                                <div>
-                                  {isPending ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 animate-pulse">
-                                      <Clock className="w-3 h-3" /> Pending Review
-                                    </span>
-                                  ) : isInactive ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-slate-800 border border-slate-700 text-slate-400">
-                                      <UserX className="w-3 h-3" /> Inactive
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald">
-                                      <UserCheck className="w-3 h-3" /> Active
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={() => handleOpenEditCompany(comp)}
-                                  title="Edit Company"
-                                  className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 hover:text-white transition-all cursor-pointer"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteCompany(comp.id)}
-                                  title="Delete Company"
-                                  className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-500 hover:bg-red-600 hover:text-white transition-all cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <div>
-                              <h4 className="text-lg font-bold text-white group-hover:text-brand-lime transition-colors">
-                                {comp.name}
-                              </h4>
-                              <p className="text-xs text-slate-400 mt-1 flex items-start gap-1">
-                                <MapPin className="w-3.5 h-3.5 text-slate-500 flex-shrink-0 mt-0.5" />
-                                <span>{comp.address}</span>
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="mt-5 pt-4 border-t border-slate-800/80 space-y-3 text-xs">
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-slate-500 font-semibold uppercase text-[10px] tracking-wider">
-                                  Client Admin:
-                                </span>
-                                <span
-                                  className="font-semibold text-brand-lime truncate max-w-[180px]"
-                                  title={comp.clientAdminEmail}
-                                >
-                                  {comp.clientAdminEmail}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between text-[10px] text-slate-500">
-                                <span>Registered Date:</span>
-                                <span>
-                                  {new Date(comp.createdAt).toLocaleDateString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    year: 'numeric',
-                                  })}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* 1-CLICK STATUS ACTION BUTTONS */}
-                            <div className="pt-2 border-t border-slate-800/50 flex items-center gap-2">
-                              {isPending && (
-                                <button
-                                  type="button"
-                                  disabled={isActionPending}
-                                  onClick={() => handleQuickUpdateCompanyStatus(comp.id, 'active')}
-                                  className="w-full py-2 px-3 rounded-xl bg-brand-emerald/15 hover:bg-brand-emerald text-brand-emerald hover:text-dark-bg border border-brand-emerald/30 font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-                                  title="Approve and activate this company organization"
-                                >
-                                  {isActionPending ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                  )}
-                                  <span>Approve & Activate</span>
-                                </button>
-                              )}
-
-                              {isActive && (
-                                <button
-                                  type="button"
-                                  disabled={isActionPending}
-                                  onClick={() => handleQuickUpdateCompanyStatus(comp.id, 'inactive')}
-                                  className="w-full py-1.5 px-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                                  title="Temporarily deactivate this company"
-                                >
-                                  {isActionPending ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <UserX className="w-3 h-3" />
-                                  )}
-                                  <span>Deactivate / Suspend</span>
-                                </button>
-                              )}
-
-                              {isInactive && (
-                                <button
-                                  type="button"
-                                  disabled={isActionPending}
-                                  onClick={() => handleQuickUpdateCompanyStatus(comp.id, 'active')}
-                                  className="w-full py-1.5 px-3 rounded-xl bg-brand-emerald/15 hover:bg-brand-emerald text-brand-emerald hover:text-dark-bg border border-brand-emerald/30 font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                                  title="Reactivate this company"
-                                >
-                                  {isActionPending ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <UserCheck className="w-3.5 h-3.5" />
-                                  )}
-                                  <span>Reactivate Company</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Checkouts & Payments verification */}
-            {activeTab === 'checkouts' && (
-              <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative animate-fade-in">
-                <div className="absolute inset-0 court-lines opacity-[0.02] pointer-events-none"></div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-dark-border/60 bg-slate-900/30 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                        <th className="py-4 px-6">Player Info</th>
-                        <th className="py-4 px-6">Category / Type</th>
-                        <th className="py-4 px-6">Payment Mode</th>
-                        <th className="py-4 px-6">Reservation Schedule</th>
-                        <th className="py-4 px-6">Total Cost</th>
-                        <th className="py-4 px-6 text-center">Payment Status</th>
-                        <th className="py-4 px-6 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-dark-border/40 text-xs">
-                      {filteredCheckouts.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="py-16 text-center text-slate-500">
-                            <AlertCircle className="w-8 h-8 mx-auto text-slate-600 mb-3" />
-                            <p className="font-bold text-white text-sm">No checkout records found</p>
-                            <p className="text-xs text-slate-500 mt-1">Try adjusting your search query.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredCheckouts.map((booking) => {
-                          const isActionPending = actionLoading === booking.id;
-                          const isExpanded = expandedCheckoutId === booking.id;
-                          return (
-                            <Fragment key={booking.id}>
-                              <tr 
-                                key={booking.id} 
-                                onClick={() => setExpandedCheckoutId(prev => prev === booking.id ? null : booking.id)}
-                                className={`transition-colors cursor-pointer ${isExpanded ? 'bg-slate-900/40' : 'hover:bg-slate-900/20'}`}
-                              >
-                                {/* Customer Info */}
-                                <td className="py-4.5 px-6">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-full bg-slate-900 border border-dark-border flex items-center justify-center text-slate-400 font-bold uppercase">
-                                      {(booking.user?.name || booking.userName)?.slice(0, 2) || 'PL'}
-                                    </div>
-                                    <div>
-                                      <div className="font-bold text-white">{booking.user?.name || booking.userName || 'Anonymous'}</div>
-                                      <div className="text-xs text-slate-500 mt-0.5">{booking.user?.email || booking.userEmail || 'N/A'}</div>
-                                      {booking.userPhone && (
-                                        <div className="text-xs text-slate-400 font-mono mt-0.5">{booking.userPhone}</div>
-                                      )}
-                                      {booking.guests && booking.guests.length > 0 && (
-                                        <div className="text-[11px] text-brand-lime font-semibold mt-1">
-                                          +{booking.guests.length} {booking.guests.length === 1 ? 'Guest' : 'Guests'}: {booking.guests.map(g => g.name || g.email).filter(Boolean).join(', ')}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </td>
-
-                                {/* Category / Type */}
-                                <td className="py-4.5 px-6">
-                                  {booking.type === 'openplay' || booking.openPlayEventId || (booking as any).isOpenPlay ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shadow-sm">
-                                      <Trophy className="w-3 h-3 text-brand-lime shrink-0" />
-                                      <span>Open Play</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/30 text-blue-300 shadow-sm">
-                                      <Building2 className="w-3 h-3 text-blue-400 shrink-0" />
-                                      <span>Court Booking</span>
-                                    </span>
-                                  )}
-                                </td>
-
-                                {/* Payment Method */}
-                                <td className="py-4.5 px-6 font-semibold text-slate-350 capitalize">
-                                  {booking.paymentMethod === 'card' ? '💳 Credit Card' : booking.paymentMethod === 'venue' ? '🏪 On Counter' : booking.paymentMethod === 'maya' ? '🟢 Maya Online' : '🔵 GCash'}
-                                </td>
-
-                                {/* Reservation Schedule (Date & Time) */}
-                                <td className="py-4.5 px-6">
-                                  <div className="flex items-center gap-1.5 text-white font-bold text-xs">
-                                    <Calendar className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                                    <span>{formatEventDateLong(booking.date) || formatDateLabel(booking.date)}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-slate-400 text-xs mt-1">
-                                    <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                    <span>
-                                      {booking.slots && booking.slots.length > 0
-                                        ? booking.slots.map(s => {
-                                            if (s.includes(' - ')) {
-                                              const parts = s.split(' - ');
-                                              return `${formatTime12h(parts[0])} - ${formatTime12h(parts[1])}`;
-                                            }
-                                            return formatTime12h(s);
-                                          }).join(', ')
-                                        : 'N/A'}
-                                    </span>
-                                  </div>
-                                  {booking.type === 'openplay' || booking.openPlayEventId ? (
-                                    <div className="flex flex-col gap-0.5 mt-1">
-                                      <span className="text-[10px] font-extrabold text-brand-lime uppercase tracking-wider flex items-center gap-1">
-                                        🎾 OPEN PLAY: {booking.openPlayTitle || booking.courtName}
-                                      </span>
-                                      {((booking.playerCount && booking.playerCount > 1) || (booking.guestCount && booking.guestCount > 0)) && (
-                                        <span className="text-[10px] font-bold text-blue-400">
-                                          +{booking.guestCount || ((booking.playerCount || 1) - 1)} {booking.guestCount === 1 ? 'Guest' : 'Guests'} ({booking.playerCount || 1} Spots Total)
-                                        </span>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    booking.courtName && (
-                                      <div className="flex items-center gap-1.5 mt-0.5">
-                                        <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
-                                          {booking.courtName}
-                                        </span>
-                                        {!courts.some(c => c.id === booking.courtId) && (
-                                          <span className="text-[9px] px-1 py-0.2 bg-slate-800 text-slate-400 rounded border border-slate-700 font-semibold">Archived</span>
-                                        )}
-                                      </div>
-                                    )
-                                  )}
-                                </td>
-
-                                {/* Total Cost */}
-                                <td className="py-4.5 px-6">
-                                  <div className="font-extrabold text-white text-sm font-sans">₱{booking.totalCost}</div>
-                                  <div className="text-xs text-slate-500 mt-0.5">{booking.slots?.length} hrs reserved</div>
-                                </td>
-
-                                {/* Payment Status */}
-                                <td className="py-4.5 px-6 text-center">
-                                  <span
-                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold uppercase border ${
-                                      booking.paymentStatus === 'paid'
-                                        ? booking.refundRequested
-                                          ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 animate-pulse'
-                                          : 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
-                                        : booking.paymentStatus === 'refunded'
-                                        ? 'bg-purple-500/10 border-purple-500/30 text-purple-400'
-                                        : booking.paymentStatus === 'rebooking_credit'
-                                        ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
-                                        : booking.paymentStatus === 'cancelled_no_refund' || booking.paymentStatus === 'failed'
-                                        ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                                        : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                    }`}
-                                  >
-                                    {booking.paymentStatus === 'pending_verification'
-                                      ? 'Pending Review'
-                                      : booking.paymentStatus === 'refunded'
-                                      ? `Refunded (${booking.refundAmount ? `₱${booking.refundAmount}` : 'Full'})`
-                                      : booking.paymentStatus === 'rebooking_credit'
-                                      ? 'Rebooking Credit'
-                                      : booking.paymentStatus === 'cancelled_no_refund'
-                                      ? 'Cancelled (No Refund)'
-                                      : booking.refundRequested
-                                      ? 'Refund Requested'
-                                      : booking.paymentStatus || 'unpaid'}
-                                  </span>
-                                </td>
-
-                                {/* Verification Approval & Refund Actions */}
-                                <td className="py-4.5 px-6 text-center" onClick={(e) => e.stopPropagation()}>
-                                  <div className="flex items-center justify-center gap-2">
-                                    {isActionPending ? (
-                                      <Loader2 className="w-4 h-4 text-brand-lime animate-spin" />
-                                    ) : (
-                                      <>
-                                        {booking.paymentStatus === 'pending_verification' && (
-                                          <>
-                                            <button
-                                              onClick={async () => {
-                                                setActionLoading(booking.id);
-                                                try {
-                                                  if (isFirebaseConfigured && db) {
-                                                    const { doc, updateDoc } = await import('firebase/firestore');
-                                                    const bookingRef = doc(db, 'bookings', booking.id);
-                                                    await updateDoc(bookingRef, { status: 'approved', paymentStatus: 'paid' });
-                                                  } else {
-                                                    const bookingsStr = localStorage.getItem('picklepoint_bookings');
-                                                    if (bookingsStr) {
-                                                      const localBookings = JSON.parse(bookingsStr) as Booking[];
-                                                      const updated = localBookings.map((b: Booking) => {
-                                                        if (b.bookingId === booking.id || b.id === booking.id) {
-                                                          return { ...b, status: 'approved', paymentStatus: 'paid' };
-                                                        }
-                                                        return b;
-                                                      });
-                                                      localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-                                                    }
-                                                  }
-                                                  setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, status: 'approved', paymentStatus: 'paid' } : b));
-
-                                                  // ALSO SYNC OPEN PLAY REGISTRATIONS IF THIS IS AN OPEN PLAY CHECKOUT
-                                                  const openPlayEventId = booking.openPlayEventId || (booking.type === 'openplay' ? booking.courtId : null);
-                                                  if (booking.type === 'openplay' || openPlayEventId) {
-                                                    const targetRegId = booking.id;
-                                                    if (isFirebaseConfigured && db) {
-                                                      try {
-                                                        const { doc, updateDoc } = await import('firebase/firestore');
-                                                        await updateDoc(doc(db, 'openplay_registrations', targetRegId), {
-                                                          paymentStatus: 'paid',
-                                                          status: 'approved'
-                                                        });
-                                                      } catch (err) {
-                                                        console.warn('Sync openplay_registrations Firestore update error:', err);
-                                                      }
-                                                    }
-                                                    try {
-                                                      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
-                                                      if (localRegsStr) {
-                                                        const parsed = JSON.parse(localRegsStr);
-                                                        const updatedRegs = parsed.map((r: any) =>
-                                                           (r.id === targetRegId || r.registrationId === targetRegId || r.bookingId === targetRegId)
-                                                             ? { ...r, paymentStatus: 'paid', status: 'approved' }
-                                                             : r
-                                                         );
-                                                         try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
-                                                         try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updatedRegs)); } catch (e) {}
-                                                      }
-                                                    } catch (e) {}
-
-                                                    setOpenPlayRegistrations(prev => {
-                                                      const foundIdx = prev.findIndex(r => r.id === targetRegId || r.id === booking.bookingId || (r as any).registrationId === targetRegId);
-                                                      if (foundIdx >= 0) {
-                                                        const updated = [...prev];
-                                                        updated[foundIdx] = { ...updated[foundIdx], paymentStatus: 'paid', status: 'approved' };
-                                                        return updated;
-                                                      } else {
-                                                        const newReg: OpenPlayRegistration = {
-                                                          id: targetRegId,
-                                                          eventId: openPlayEventId || booking.courtId,
-                                                          eventTitle: booking.openPlayTitle || booking.courtName || 'Open Play',
-                                                          userId: booking.user?.uid || 'guest',
-                                                          userName: booking.user?.name || booking.userName || 'Player',
-                                                          userEmail: booking.user?.email || booking.userEmail || '',
-                                                          userPhone: booking.userPhone,
-                                                          playerCount: booking.playerCount || 1,
-                                                          guestCount: booking.guestCount || (booking.guests?.length || 0),
-                                                          guests: booking.guests || [],
-                                                          guestNames: booking.guestNames || [],
-                                                          guestEmails: booking.guestEmails || [],
-                                                          gcashReferenceNumber: booking.gcashReferenceNumber,
-                                                          paymentStatus: 'paid',
-                                                          status: 'approved',
-                                                          createdAt: booking.createdAt || new Date().toISOString(),
-                                                          isAddGuestOnly: booking.isAddGuestOnly === true,
-                                                          primaryPlayerName: booking.primaryPlayerName || booking.userName || booking.user?.name,
-                                                          primaryPlayerEmail: booking.primaryPlayerEmail || booking.userEmail || booking.user?.email,
-                                                        };
-                                                        return [...prev, newReg];
-                                                      }
-                                                    });
-                                                  }
-
-                                                  // Look up target court & company details for facility owner email branding
-                                                  const targetCourt = courts.find(c => c.id === booking.courtId || c.name === booking.courtName);
-                                                  let resolvedCompName = targetCourt?.ownerCompanyName || (targetCourt as any)?.companyName || booking.ownerCompanyName;
-                                                  let resolvedAddress = targetCourt?.companyAddress || targetCourt?.location || (booking as any).ownerCompanyAddress || 'Venue Location On File';
-                                                  let resolvedEmail = targetCourt?.ownerEmail || (booking as any).ownerEmail || '';
-                                                  let resolvedPhone = targetCourt?.ownerPhone || (booking as any).ownerPhone || '';
-
-                                                  const ownerId = targetCourt?.ownerId || (targetCourt as any)?.companyId || (booking as any).courtOwnerId;
-                                                  
-                                                  // 2-step company resolution matching owner UID -> Email -> Company
-                                                  const compStr = localStorage.getItem('picklepoint_companies');
-                                                  const usersStr = localStorage.getItem('picklepoint_users');
-                                                  try {
-                                                    const localComps = compStr ? JSON.parse(compStr) : (companies || []);
-                                                    const localUsers = usersStr ? JSON.parse(usersStr) : [];
-                                                    const matchedUser = localUsers.find((u: any) => u.uid === ownerId || u.id === ownerId || u.email?.toLowerCase() === ownerId?.toLowerCase());
-                                                    const matchedUserEmail = matchedUser?.email || resolvedEmail;
-                                                    const matchedUserCompanyId = matchedUser?.companyId;
-
-                                                    const matchedComp = localComps.find((comp: any) =>
-                                                      (matchedUserCompanyId && comp.id === matchedUserCompanyId) ||
-                                                      comp.id === ownerId ||
-                                                      (matchedUserEmail && comp.clientAdminEmail?.toLowerCase() === matchedUserEmail.toLowerCase()) ||
-                                                      (ownerId && comp.clientAdminEmail?.toLowerCase() === ownerId.toLowerCase())
-                                                    );
-                                                    if (matchedComp) {
-                                                      if (matchedComp.name) resolvedCompName = matchedComp.name;
-                                                      if (matchedComp.address) resolvedAddress = matchedComp.address;
-                                                      if (matchedComp.clientAdminEmail && !resolvedEmail) resolvedEmail = matchedComp.clientAdminEmail;
-                                                      if (matchedComp.phone && !resolvedPhone) resolvedPhone = matchedComp.phone;
-                                                    }
-                                                  } catch (e) {}
-
-                                                  const ownerCompanyName = resolvedCompName || (targetCourt ? targetCourt.name : booking.courtName);
-                                                  const ownerCompanyAddress = resolvedAddress;
-                                                  const ownerEmail = resolvedEmail;
-                                                  const ownerPhone = resolvedPhone;
-
-                                                  // Dispatch Official Payment Receipt & Approval Email Notification
-                                                  sendPaymentApprovalReceiptEmail({
-                                                    bookingId: booking.id,
-                                                    bookingReference: booking.bookingReference || booking.id,
-                                                    gcashReferenceNumber: booking.gcashReferenceNumber,
-                                                    courtName: booking.courtName || 'Court',
-                                                    courtType: booking.courtType,
-                                                    date: booking.date || '',
-                                                    slots: booking.slots || [],
-                                                    rentals: booking.rentals ? booking.rentals.map(r => ({ name: r.name, price: r.price, quantity: r.quantity })) : undefined,
-                                                    totalCost: booking.totalCost || 0,
-                                                    paymentMethod: booking.paymentMethod === 'gcash' ? 'GCash Online Payment' : booking.paymentMethod,
-                                                    userEmail: booking.user?.email || '',
-                                                    userName: booking.user?.name || 'Valued Player',
-                                                    ownerCompanyName,
-                                                    ownerCompanyAddress,
-                                                    ownerEmail,
-                                                    ownerPhone,
-                                                  }).catch(err => console.warn('Automated payment approval receipt email failed:', err));
-                                                } catch (err) {
-                                                  console.error('Failed to approve checkout payment:', err);
-                                                } finally {
-                                                  setActionLoading(null);
-                                                }
-                                              }}
-                                              title="Approve Payment"
-                                              className="px-2.5 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow hover:scale-[1.02]"
-                                            >
-                                              Approve
-                                            </button>
-                                            <button
-                                              onClick={() => {
-                                                setRejectCheckoutModalBooking(booking);
-                                                setRejectReasonOption('invalid_ref');
-                                                setRejectCustomReason('');
-                                                setRejectSendEmail(true);
-                                              }}
-                                              title="Reject Payment & Cancel Booking"
-                                              className="px-2.5 py-1.5 rounded-xl bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer hover:scale-[1.02]"
-                                            >
-                                              Reject
-                                            </button>
-                                          </>
-                                        )}
-                                        {booking.paymentStatus === 'paid' && (
-                                          <button
-                                            onClick={() => {
-                                              setRefundModalBooking(booking);
-                                              setRefundAmountInput(booking.totalCost.toString());
-                                              setRefundReasonInput(booking.refundRequestReason ? `Player Requested: ${booking.refundRequestReason}` : '');
-                                              setRefundReceiptFile(null);
-                                              setRefundReceiptBase64('');
-                                              setRefundReceiptName('');
-                                              setRefundError(null);
-                                            }}
-                                            title="Issue Refund & Upload Receipt"
-                                            className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer shadow hover:scale-[1.02] flex items-center gap-1.5 ${
-                                              booking.refundRequested
-                                                ? 'bg-purple-600 border-purple-400 text-white animate-pulse'
-                                                : 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white'
-                                            }`}
-                                          >
-                                            <RotateCcw className="w-3.5 h-3.5" />
-                                            {booking.refundRequested ? 'Approve Refund' : 'Refund'}
-                                          </button>
-                                        )}
-                                        {booking.paymentStatus === 'refunded' && (
-                                          <span className="inline-flex items-center gap-1 text-xs text-purple-400 font-bold uppercase tracking-wider">
-                                            <RotateCcw className="w-3 h-3" />
-                                            Refunded
-                                          </span>
-                                        )}
-                                        {booking.paymentStatus !== 'pending_verification' && booking.paymentStatus !== 'paid' && booking.paymentStatus !== 'refunded' && (
-                                          <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Verified</span>
-                                        )}
-                                      </>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-
-                              {/* EXPANDED ACCORDION PANEL ROW */}
-                              {isExpanded && (
-                                <tr key={`${booking.id}-expanded`} className="bg-slate-950/80 border-b border-dark-border/60 animate-fade-in">
-                                  <td colSpan={7} className="p-6 text-left space-y-6">
-                                    {/* Structured Details Cards Grid */}
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                      {/* Card 1: Player Information */}
-                                      <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 space-y-2 text-xs">
-                                        <div className="font-bold text-brand-lime uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
-                                          <User className="w-3.5 h-3.5" /> Customer Details
-                                        </div>
-                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                          <span className="text-slate-400">Full Name:</span>
-                                          <span className="font-bold text-white">{booking.user?.name || 'Anonymous'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                          <span className="text-slate-400">Email Address:</span>
-                                          <span className="font-semibold text-slate-300 font-mono">{booking.user?.email || 'N/A'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                          <span className="text-slate-400">Phone Number:</span>
-                                          <span className="font-semibold text-slate-300 font-mono">{booking.userPhone || 'Not provided'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center py-1">
-                                          <span className="text-slate-400">User UID:</span>
-                                          <span className="font-mono text-[10px] text-slate-500 truncate max-w-[140px]">{booking.user?.uid || 'N/A'}</span>
-                                        </div>
-                                      </div>
-
-                                      {/* Card 2: Financial & Voucher Breakdown */}
-                                      <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 space-y-2 text-xs">
-                                        <div className="font-bold text-brand-lime uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
-                                          <CreditCard className="w-3.5 h-3.5" /> Payment & Voucher Breakdown
-                                        </div>
-                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                          <span className="text-slate-400">Transaction Time:</span>
-                                          <span className="font-semibold text-slate-300">{formatTimestamp(booking.createdAt)}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                          <span className="text-slate-400">Payment Mode:</span>
-                                          <span className="font-semibold text-white capitalize">{booking.paymentMethod || 'N/A'}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                          <span className="text-slate-400">Booking Ref:</span>
-                                          <span className="font-bold text-white font-mono">{booking.bookingReference || booking.id}</span>
-                                        </div>
-                                        {booking.gcashReferenceNumber && (
-                                          <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                            <span className="text-slate-400">GCash Ref:</span>
-                                            <span className="font-bold text-brand-lime font-mono">{booking.gcashReferenceNumber}</span>
-                                          </div>
-                                        )}
-                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                          <span className="text-slate-400">Total Amount Paid:</span>
-                                          <span className="font-extrabold text-white text-sm">₱{booking.totalCost}</span>
-                                        </div>
-                                        {booking.voucherCode && (
-                                          <div className="flex justify-between items-center py-1">
-                                            <span className="text-slate-400">Voucher Applied:</span>
-                                            <span className="font-bold text-brand-lime font-mono bg-brand-lime/10 px-2 py-0.5 rounded border border-brand-lime/30">
-                                              {booking.voucherCode} (-₱{booking.discountAmount || 0})
-                                            </span>
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* Card 3: Refund Status & Audit Log */}
-                                      <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 space-y-2 text-xs">
-                                        <div className="font-bold text-purple-400 uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
-                                          <RotateCcw className="w-3.5 h-3.5" /> Refund Record
-                                        </div>
-                                        {booking.paymentStatus === 'refunded' || booking.refundAmount ? (
-                                          <>
-                                            <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                              <span className="text-slate-400">Refund Amount:</span>
-                                              <span className="font-extrabold text-purple-400 text-sm">₱{booking.refundAmount}</span>
-                                            </div>
-                                            <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                              <span className="text-slate-400">Refund Date:</span>
-                                              <span className="font-semibold text-slate-300">{formatTimestamp(booking.refundedAt)}</span>
-                                            </div>
-                                            <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
-                                              <span className="text-slate-400">Refunded By:</span>
-                                              <span className="font-semibold text-slate-300 font-mono text-[11px] truncate max-w-[140px]">{booking.refundedBy || 'Client Admin'}</span>
-                                            </div>
-                                            {booking.refundReason && (
-                                              <div className="py-1">
-                                                <span className="text-slate-400 block text-[10px] uppercase font-bold mb-0.5">Remarks / Reason:</span>
-                                                <p className="text-slate-300 italic text-[11px] bg-slate-950/60 p-2 rounded-lg border border-slate-800">{booking.refundReason}</p>
-                                              </div>
-                                            )}
-                                          </>
-                                        ) : (
-                                          <div className="py-6 text-center text-slate-500 italic">
-                                            No refund has been issued for this checkout transaction.
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {/* Receipts Showcase */}
-                                    <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-4">
-                                      <div className="flex items-center gap-6">
-                                        <div className="flex items-center gap-3">
-                                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Receipt:</span>
-                                          {booking.receiptImageUrl ? (
-                                            <div
-                                              onClick={() => setReceiptLightboxImage(booking.receiptImageUrl || null)}
-                                              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 hover:border-brand-lime cursor-zoom-in transition-all group"
-                                            >
-                                              <img src={booking.receiptImageUrl} alt="Payment Receipt" className="w-8 h-8 rounded object-cover border border-slate-800" />
-                                              <span className="text-xs font-bold text-slate-300 group-hover:text-brand-lime">View Payment Proof</span>
-                                            </div>
-                                          ) : (
-                                            <span className="text-xs text-slate-500 italic">No receipt file uploaded</span>
-                                          )}
-                                        </div>
-
-                                        <div className="flex items-center gap-3">
-                                          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Refund Proof:</span>
-                                          {booking.refundReceiptUrl ? (
-                                            <div
-                                              onClick={() => setReceiptLightboxImage(booking.refundReceiptUrl || null)}
-                                              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-purple-500/40 bg-slate-900 hover:border-purple-400 cursor-zoom-in transition-all group"
-                                            >
-                                              <img src={booking.refundReceiptUrl} alt="Refund Receipt" className="w-8 h-8 rounded object-cover border border-slate-800" />
-                                              <span className="text-xs font-bold text-purple-300 group-hover:text-white">View Refund Proof</span>
-                                            </div>
-                                          ) : (
-                                            <span className="text-xs text-slate-500 italic">No refund proof uploaded</span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </Fragment>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* Centralized Settings & Profile Management Page */}
-            {activeTab === 'settings' && (
-              <div className="w-full animate-fade-in text-left space-y-6">
-
-                {/* 1. Client Admin Personal Profile Sub-Page */}
-                {settingsSubTab === 'profile' && (
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden animate-fade-in">
-                    <div className="flex items-center justify-between pb-4 border-b border-dark-border mb-6">
-                      <div>
-                        <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                          <User className="w-5 h-5 text-brand-lime" /> Client Admin Account Profile
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1">Manage your administrator account display name and personal contact info.</p>
-                      </div>
-                      <span className="px-3 py-1 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-xs">
-                        {isSuperAdmin ? 'Super Admin' : 'Client Admin'}
-                      </span>
-                    </div>
-
-                    {adminProfileSaveSuccess && (
-                      <div className="mb-6 p-4 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald text-xs font-bold flex items-center gap-2 animate-fade-in">
-                        <Check className="w-4 h-4 flex-shrink-0 text-brand-emerald" />
-                        <span>Admin account profile updated successfully!</span>
-                      </div>
-                    )}
-
-                    <form onSubmit={handleSaveAdminPersonalProfile} className="space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                        {/* Admin Name */}
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                            Administrator Full Name
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            value={adminDisplayName}
-                            onChange={(e) => setAdminDisplayName(e.target.value)}
-                            placeholder="e.g. John Doe"
-                            className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                          />
-                        </div>
-
-                        {/* Admin Email (Read-only) */}
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                            Account Email Address
-                          </label>
-                          <div className="w-full bg-slate-950 border border-dark-border/50 text-slate-400 text-xs font-medium rounded-xl px-4 py-3 flex items-center gap-2 cursor-not-allowed select-none">
-                            <Mail className="w-3.5 h-3.5 text-slate-500" />
-                            <span>{user?.email || currentUserEmail}</span>
-                          </div>
-                        </div>
-
-                        {/* Admin Contact Phone */}
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                            Direct Contact Phone
-                          </label>
-                          <input
-                            type="text"
-                            value={adminPhone}
-                            onChange={(e) => setAdminPhone(e.target.value)}
-                            placeholder="e.g. 09171234567"
-                            className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                          />
-                        </div>
-
-                        {/* Role */}
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                            Role & Permissions Level
-                          </label>
-                          <div className="w-full bg-slate-950 border border-dark-border/50 text-brand-lime text-xs font-bold rounded-xl px-4 py-3 flex items-center gap-2 cursor-not-allowed select-none">
-                            <Shield className="w-3.5 h-3.5 text-brand-lime" />
-                            <span>{isSuperAdmin ? 'Super Administrator' : 'Client Administrator'}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end">
-                        <button
-                          type="submit"
-                          className="px-6 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer font-sans shadow-md shadow-brand-lime/10"
-                        >
-                          Save Admin Profile
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                )}
-
-                {/* 2. Organization & Company Profile Sub-Page */}
-                {settingsSubTab === 'organization' && (
-                  myCompany ? (
-                    <div className="glass-panel border border-slate-800 rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden animate-fade-in">
-                      <div className="flex items-center justify-between pb-4 border-b border-dark-border mb-6">
-                        <div>
-                          <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                            <Building2 className="w-5 h-5 text-brand-lime" /> Organization & Company Profile
-                          </h3>
-                          <p className="text-xs text-slate-400 mt-1">Manage venue information for <strong className="text-brand-lime">{myCompany.name}</strong> visible to players and administrators.</p>
-                        </div>
-                        <span className="px-3 py-1 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-xs">
-                          Client Admin
-                        </span>
-                      </div>
-
-                      {orgProfileSaveSuccess && (
-                        <div className="mb-6 p-4 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald text-xs font-bold flex items-center gap-2 animate-fade-in">
-                          <Check className="w-4 h-4 flex-shrink-0 text-brand-emerald" />
-                          <span>Organization profile saved successfully!</span>
-                        </div>
-                      )}
-
-                      <form onSubmit={handleSaveOrgProfile} className="space-y-6">
-                        {/* Organization Logo Upload Card */}
-                        <div className="p-4 rounded-2xl bg-slate-900 border border-dark-border space-y-3">
-                          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                            Organization Logo
-                          </label>
-                          <div className="flex flex-wrap items-center gap-4">
-                            <div className="w-20 h-20 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden flex items-center justify-center relative group flex-shrink-0 shadow-inner">
-                              {orgProfileLogoUrl ? (
-                                <img src={orgProfileLogoUrl} alt="Organization Logo" className="w-full h-full object-cover" />
-                              ) : (
-                                <Building2 className="w-8 h-8 text-slate-600" />
-                              )}
-                            </div>
-                            <div className="space-y-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <label className="px-4 py-2 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-colors text-xs font-bold cursor-pointer inline-flex items-center gap-1.5">
-                                  <Upload className="w-3.5 h-3.5" />
-                                  <span>Upload Logo</span>
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      if (e.target.files && e.target.files[0]) {
-                                        processOrgLogoFile(e.target.files[0]);
-                                      }
-                                    }}
-                                  />
-                                </label>
-                                {orgProfileLogoUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setOrgProfileLogoUrl(null)}
-                                    className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 transition-colors text-xs font-bold cursor-pointer"
-                                  >
-                                    Remove Logo
-                                  </button>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-slate-400">
-                                Recommended size: Square PNG or JPG (min 200x200px). Uploaded logo appears on court details & receipts.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                          {/* Company Name */}
-                          <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                              Company / Organization Name
-                            </label>
-                            <input
-                              type="text"
-                              required
-                              value={orgProfileName}
-                              onChange={(e) => setOrgProfileName(e.target.value)}
-                              placeholder="e.g. Pickleball Club Inc."
-                              className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                            />
-                          </div>
-
-                          {/* Client Admin Email (Read-only reference) */}
-                          <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                              Assigned Client Admin Email
-                            </label>
-                            <div className="w-full bg-slate-950 border border-dark-border/50 text-slate-400 text-xs font-medium rounded-xl px-4 py-3 flex items-center gap-2 cursor-not-allowed select-none">
-                              <Mail className="w-3.5 h-3.5 text-slate-500" />
-                              <span>{myCompany.clientAdminEmail}</span>
-                            </div>
-                          </div>
-
-                          {/* Contact Phone Number */}
-                          <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                              Contact Phone Number
-                            </label>
-                            <input
-                              type="text"
-                              value={orgProfilePhone}
-                              onChange={(e) => setOrgProfilePhone(e.target.value)}
-                              placeholder="e.g. +63 917 123 4567"
-                              className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                            />
-                          </div>
-
-                          {/* Official Website */}
-                          <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                              Official Website URL
-                            </label>
-                            <input
-                              type="url"
-                              value={orgProfileWebsite}
-                              onChange={(e) => setOrgProfileWebsite(e.target.value)}
-                              placeholder="https://www.example.com"
-                              className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                            />
-                          </div>
-
-                          {/* Facebook URL */}
-                          <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                              Facebook Page URL
-                            </label>
-                            <input
-                              type="url"
-                              value={orgProfileFacebook}
-                              onChange={(e) => setOrgProfileFacebook(e.target.value)}
-                              placeholder="https://facebook.com/yourcourtpage"
-                              className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                            />
-                          </div>
-
-                          {/* Instagram Handle/URL */}
-                          <div className="space-y-2">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                              Instagram Page / Handle
-                            </label>
-                            <input
-                              type="text"
-                              value={orgProfileInstagram}
-                              onChange={(e) => setOrgProfileInstagram(e.target.value)}
-                              placeholder="e.g. @pickleball_club or URL"
-                              className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Organization Physical Address Section (Structured PSGC matching Court Address) */}
-                        <div className="p-5 rounded-2xl bg-slate-900 border border-dark-border space-y-4">
-                          <h4 className="text-xs font-extrabold text-white uppercase tracking-wider border-b border-slate-800 pb-2 flex items-center gap-1.5">
-                            <MapPin className="w-3.5 h-3.5 text-brand-lime" /> Organization Location & Address
-                          </h4>
-
-                          {/* PSGC Region & Province */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                                Region
-                              </label>
-                              <select
-                                value={orgSelectedRegion}
-                                onChange={(e) => handleOrgRegionChange(e.target.value)}
-                                className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                              >
-                                <option value="">Select Region...</option>
-                                {regions.map((r) => (
-                                  <option key={r.code} value={r.code}>
-                                    {r.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                                Province
-                              </label>
-                              {orgProvinces.length > 0 ? (
-                                <select
-                                  value={orgSelectedProvince}
-                                  onChange={(e) => handleOrgProvinceChange(e.target.value)}
-                                  className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                                >
-                                  <option value="">Select Province...</option>
-                                  {orgProvinces.map((p) => (
-                                    <option key={p.code} value={p.code}>
-                                      {p.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={orgProvinceName}
-                                  onChange={(e) => setOrgProvinceName(e.target.value)}
-                                  placeholder="e.g. Camarines Sur"
-                                  className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
-                                />
-                              )}
-                            </div>
-                          </div>
-
-                          {/* PSGC City & Barangay */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                                City / Municipality
-                              </label>
-                              {orgCities.length > 0 ? (
-                                <select
-                                  value={orgSelectedCity}
-                                  onChange={(e) => handleOrgCityChange(e.target.value)}
-                                  className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                                >
-                                  <option value="">Select City / Municipality...</option>
-                                  {orgCities.map((c) => (
-                                    <option key={c.code} value={c.code}>
-                                      {c.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={orgCityName}
-                                  onChange={(e) => setOrgCityName(e.target.value)}
-                                  placeholder="e.g. Naga City"
-                                  className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
-                                />
-                              )}
-                            </div>
-
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                                Barangay
-                              </label>
-                              {orgBarangays.length > 0 ? (
-                                <select
-                                  value={orgSelectedBarangay}
-                                  onChange={(e) => handleOrgBarangayChange(e.target.value)}
-                                  className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                                >
-                                  <option value="">Select Barangay...</option>
-                                  {orgBarangays.map((b) => (
-                                    <option key={b.code} value={b.code}>
-                                      {b.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  type="text"
-                                  value={orgBarangayName}
-                                  onChange={(e) => setOrgBarangayName(e.target.value)}
-                                  placeholder="e.g. Concepcion Grande"
-                                  className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
-                                />
-                              )}
-                            </div>
-                          </div>
-
-                        {/* Address Line 1 */}
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                            Street Address (Line 1)
-                          </label>
-                          <input
-                            type="text"
-                            value={orgAddressLine1}
-                            onChange={(e) => setOrgAddressLine1(e.target.value)}
-                            placeholder="e.g. 123 Sports Complex Way"
-                            className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
-                          />
-                        </div>
-
-                        {/* Address Line 2 */}
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                            Building, Suite, Floor (Line 2 - Optional)
-                          </label>
-                          <input
-                            type="text"
-                            value={orgAddressLine2}
-                            onChange={(e) => setOrgAddressLine2(e.target.value)}
-                            placeholder="e.g. Suite 402, Building A"
-                            className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
-                          />
-                        </div>
-
-                        {/* Postal Code & Country */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                              Postal Code
-                            </label>
-                            <input
-                              type="text"
-                              value={orgPostalCode}
-                              onChange={(e) => setOrgPostalCode(e.target.value)}
-                              placeholder="e.g. 4400"
-                              className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">Country</label>
-                            <input
-                              type="text"
-                              value={orgCountry}
-                              onChange={(e) => setOrgCountry(e.target.value)}
-                              placeholder="e.g. Philippines"
-                              className="w-full bg-slate-950 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Daily Operating Hours Section */}
-                      <div className="p-5 rounded-2xl bg-slate-900 border border-dark-border space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                          <div>
-                            <h4 className="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-1.5">
-                              <Clock className="w-4 h-4 text-brand-lime" /> Daily Operating Hours
-                            </h4>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                              Configure opening and closing schedules for each day of the week.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={handleApplyMonToAll}
-                            className="px-3 py-1.5 rounded-lg bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-colors text-[11px] font-bold cursor-pointer flex items-center gap-1"
-                            title="Copy Monday's schedule to Tuesday through Sunday"
-                          >
-                            <Sparkles className="w-3 h-3" />
-                            <span>Apply Mon to All Days</span>
-                          </button>
-                        </div>
-
-                        {/* Schedule List for 7 Days */}
-                        <div className="space-y-3 pt-1">
-                          {DAYS_OF_WEEK.map(({ key, label }) => {
-                            const daySchedule = orgOperatingHours[key] || DEFAULT_OPERATING_HOURS[key];
-                            const isDayOff = daySchedule.isDayOff ?? !daySchedule.isOpen;
-
-                            return (
-                              <div
-                                key={key}
-                                className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border transition-all gap-3 ${
-                                  !isDayOff
-                                    ? 'bg-slate-950/80 border-slate-800/80'
-                                    : 'bg-slate-950/40 border-slate-900/80 opacity-60'
-                                }`}
-                              >
-                                {/* Day Name & Status Badge */}
-                                <div className="flex items-center justify-between sm:justify-start gap-3 min-w-[160px]">
-                                  <span
-                                    className={`text-xs font-bold tracking-wide min-w-[80px] ${
-                                      !isDayOff ? 'text-white' : 'text-slate-400 line-through'
-                                    }`}
-                                  >
-                                    {label}
-                                  </span>
-                                  <span
-                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
-                                      !isDayOff
-                                        ? 'bg-brand-emerald/15 border-brand-emerald/40 text-brand-emerald'
-                                        : 'bg-slate-800/90 border-slate-700 text-slate-400'
-                                    }`}
-                                  >
-                                    {!isDayOff ? 'Open' : 'Day Off'}
-                                  </span>
-                                </div>
-
-                                {/* Controls: Day Off Switch Button & Time Selection */}
-                                <div className="flex flex-wrap items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
-                                  {/* Day Off Switch Button */}
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
-                                      Day Off
-                                    </span>
-                                    <button
-                                      type="button"
-                                      role="switch"
-                                      aria-checked={isDayOff}
-                                      onClick={() => handleToggleDayOff(key)}
-                                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 transition-all duration-200 ease-in-out focus:outline-none ${
-                                        isDayOff ? 'bg-amber-500/90 border-amber-400 shadow-sm' : 'bg-slate-800 border-slate-700'
-                                      }`}
-                                    >
-                                      <span
-                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                                          isDayOff ? 'translate-x-5' : 'translate-x-0'
-                                        }`}
-                                      />
-                                    </button>
-                                  </div>
-
-                                  {/* Open & Close Time Selection */}
-                                  {!isDayOff ? (
-                                    <div className="flex items-center gap-2 sm:gap-3">
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase">Open:</span>
-                                        <select
-                                          value={daySchedule.openTime}
-                                          onChange={(e) => handleDayTimeChange(key, 'openTime', e.target.value)}
-                                          className="bg-slate-900 border border-dark-border text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                                        >
-                                          {OPERATING_TIME_OPTIONS.map((time) => (
-                                            <option key={time} value={time}>
-                                              {time}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-
-                                      <span className="text-slate-500 text-xs font-bold">–</span>
-
-                                      <div className="flex items-center gap-1.5">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase">Close:</span>
-                                        <select
-                                          value={daySchedule.closeTime}
-                                          onChange={(e) => handleDayTimeChange(key, 'closeTime', e.target.value)}
-                                          className="bg-slate-900 border border-dark-border text-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                                        >
-                                          {OPERATING_TIME_OPTIONS.map((time) => (
-                                            <option key={time} value={time}>
-                                              {time}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="text-[11px] font-medium text-slate-400 italic flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-slate-800/60 select-none cursor-not-allowed">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-slate-500 inline-block" />
-                                      <span>Disabled — Closed on {label}s</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="flex justify-end pt-2">
-                        <button
-                          type="submit"
-                          disabled={orgProfileSaveLoading}
-                          className="px-6 py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-brand-lime/10 hover:scale-[1.01]"
-                        >
-                          {orgProfileSaveLoading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin text-dark-bg" />
-                              <span>Saving Profile...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Check className="w-4 h-4" />
-                              <span>Save Organization Profile</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                ) : (
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-8 md:p-12 shadow-xl text-center space-y-4 animate-fade-in">
-                    <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 mx-auto">
-                      <Building2 className="w-7 h-7 text-brand-lime" />
-                    </div>
-                    <h4 className="text-base font-bold text-white">No Linked Organization Profile</h4>
-                    <p className="text-xs text-slate-400 max-w-md mx-auto">
-                      Your admin account is not directly linked to an organization or venue entity yet. As a Super Admin or independent manager, you can manage courts and companies directly from the navigation tabs.
-                    </p>
-                  </div>
-                )
-              )}
-
-                {/* 3. Customer Payment Approval Reminder Notifications Sub-Page */}
-                {settingsSubTab === 'reminders' && (
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-6 md:p-8 shadow-xl relative overflow-hidden text-left space-y-6 animate-fade-in">
-                    {/* Card Header & Status Switch */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-dark-border">
-                      <div>
-                        <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                          <Bell className="w-5 h-5 text-brand-lime" /> Payment Approval Reminders
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Automatically receive reminders and notifications when customer payments require your review and approval.
-                        </p>
-                      </div>
-
-                    {/* Master Switch Badge */}
-                    <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 p-2 rounded-2xl flex-shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentReminderSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
-                        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                          paymentReminderSettings.enabled ? 'bg-brand-lime' : 'bg-slate-800'
-                        }`}
-                      >
-                        <span
-                          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-dark-bg shadow ring-0 transition duration-200 ease-in-out ${
-                            paymentReminderSettings.enabled ? 'translate-x-5' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
-
-                      <span className={`text-xs font-black uppercase tracking-wider ${
-                        paymentReminderSettings.enabled ? 'text-brand-lime' : 'text-slate-500'
-                      }`}>
-                        {paymentReminderSettings.enabled
-                          ? `ACTIVE (${paymentReminderSettings.preset === 'custom' ? `${paymentReminderSettings.customMinutes}m` : `${paymentReminderSettings.preset}m`})`
-                          : 'INACTIVE (DISABLED)'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Feedback Banner */}
-                  {reminderSaveSuccess && (
-                    <div className="p-4 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald text-xs font-bold flex items-center gap-2 animate-fade-in">
-                      <Check className="w-4 h-4 flex-shrink-0 text-brand-emerald" />
-                      <span>Payment approval reminder settings saved successfully!</span>
-                    </div>
-                  )}
-
-                  {testEmailMessage && (
-                    <div className="p-4 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime text-xs font-bold flex items-center gap-2 animate-fade-in">
-                      <Check className="w-4 h-4 flex-shrink-0 text-brand-lime" />
-                      <span>{testEmailMessage}</span>
-                    </div>
-                  )}
-
-                  {/* Reminder Frequency / Interval Configuration */}
-                  <div className="p-5 rounded-2xl bg-slate-900 border border-dark-border space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
-                      <div>
-                        <label className="text-xs font-bold text-slate-200 uppercase tracking-wider block flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-brand-lime" /> Reminder Frequency / Interval
-                        </label>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          How frequently the system should check and remind you if pending customer payments remain unapproved.
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Presets Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-1">
-                      {[
-                        { key: '5', label: '5 Mins', desc: 'Urgent check' },
-                        { key: '10', label: '10 Mins', desc: 'Fast check' },
-                        { key: '15', label: '15 Mins', desc: 'Recommended' },
-                        { key: '30', label: '30 Mins', desc: 'Standard' },
-                        { key: 'custom', label: 'Custom', desc: 'Enter mins' },
-                      ].map((presetItem) => {
-                        const isSelected = paymentReminderSettings.preset === presetItem.key;
-                        return (
-                          <button
-                            key={presetItem.key}
-                            type="button"
-                            onClick={() => {
-                              const newPreset = presetItem.key as PaymentReminderSettings['preset'];
-                              const newMinutes = newPreset === 'custom' ? paymentReminderSettings.customMinutes : Number(newPreset);
-                              setPaymentReminderSettings(prev => ({
-                                ...prev,
-                                preset: newPreset,
-                                intervalMinutes: newMinutes,
-                              }));
-                            }}
-                            className={`p-3.5 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-1 ${
-                              isSelected
-                                ? 'bg-brand-lime/15 border-brand-lime text-white shadow-md shadow-brand-lime/10'
-                                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                            }`}
-                          >
-                            <span className={`text-xs font-black uppercase tracking-wider ${isSelected ? 'text-brand-lime' : 'text-slate-200'}`}>
-                              {presetItem.label}
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-medium">{presetItem.desc}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Custom Minutes Input (Shown when custom preset is selected or alongside) */}
-                    {paymentReminderSettings.preset === 'custom' && (
-                      <div className="mt-4 p-4 rounded-xl bg-slate-950 border border-dark-border animate-fade-in flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                        <div>
-                          <label className="text-xs font-bold text-white uppercase tracking-wider block">
-                            Custom Reminder Interval (Minutes)
-                          </label>
-                          <p className="text-[11px] text-slate-400 mt-0.5">
-                            Enter your desired interval in minutes (e.g. 20 for every 20 minutes, 45 for every 45 minutes).
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                          <input
-                            type="number"
-                            min="1"
-                            max="1440"
-                            value={paymentReminderSettings.customMinutes}
-                            onChange={(e) => {
-                              const val = Math.max(1, Number(e.target.value) || 1);
-                              setPaymentReminderSettings(prev => ({
-                                ...prev,
-                                customMinutes: val,
-                                intervalMinutes: val,
-                              }));
-                            }}
-                            className="w-28 bg-slate-900 border border-dark-border text-white text-xs font-extrabold rounded-xl px-3.5 py-2.5 text-center focus:outline-none focus:border-brand-lime transition-all"
-                            placeholder="e.g. 20"
-                          />
-                          <span className="text-xs font-bold text-slate-400">minutes</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Multi-Channel Delivery Options */}
-                  <div className="p-5 rounded-2xl bg-slate-900 border border-dark-border space-y-4">
-                    <h4 className="text-xs font-extrabold text-white uppercase tracking-wider border-b border-slate-800 pb-2 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-brand-lime" /> Notification Channels & Delivery Methods
-                    </h4>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Email Notification Channel Card */}
-                      <div className={`p-4 rounded-xl border transition-all ${
-                        paymentReminderSettings.emailEnabled ? 'bg-slate-950 border-slate-700' : 'bg-slate-950/40 border-slate-900 opacity-80'
-                      }`}>
-                        <div className="flex items-center justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400">
-                              <Mail className="w-4 h-4" />
-                            </div>
-                            <div>
-                              <h5 className="text-xs font-bold text-white">Email Reminder Notifications</h5>
-                              <p className="text-[11px] text-slate-400">Dispatches detailed email summary to admin</p>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => setPaymentReminderSettings(prev => ({ ...prev, emailEnabled: !prev.emailEnabled }))}
-                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                              paymentReminderSettings.emailEnabled ? 'bg-blue-500' : 'bg-slate-800'
-                            }`}
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                                paymentReminderSettings.emailEnabled ? 'translate-x-4' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
-                        </div>
-
-                        {paymentReminderSettings.emailEnabled && (
-                          <div className="space-y-3 pt-2 border-t border-slate-800/80 animate-fade-in">
-                            <div>
-                              <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1">
-                                Notification Recipient Email
-                              </label>
-                              <input
-                                type="email"
-                                value={paymentReminderSettings.emailRecipient}
-                                onChange={(e) => setPaymentReminderSettings(prev => ({ ...prev, emailRecipient: e.target.value }))}
-                                placeholder={user?.email || "admin@picklepoint.com"}
-                                className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-3 py-2 focus:outline-none focus:border-brand-lime transition-all"
-                              />
-                              <p className="text-[10px] text-slate-500 mt-1">
-                                You can enter your admin email or an alternate venue staff email.
-                              </p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={handleTestReminderEmail}
-                              disabled={testEmailLoading}
-                              className="px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 hover:bg-blue-500 hover:text-white transition-all text-[11px] font-bold cursor-pointer flex items-center gap-1.5"
-                            >
-                              {testEmailLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                              <span>Send Test Email Now</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Desktop / Browser Push & Sound Channels Card */}
-                      <div className="space-y-3">
-                        {/* Browser Push */}
-                        <div className={`p-4 rounded-xl border transition-all ${
-                          paymentReminderSettings.browserNotificationEnabled ? 'bg-slate-950 border-slate-700' : 'bg-slate-950/40 border-slate-900'
-                        }`}>
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-lg bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime">
-                                <Bell className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h5 className="text-xs font-bold text-white">Browser Desktop Notifications</h5>
-                                <p className="text-[11px] text-slate-400">Pushes OS/browser banner even in background tabs</p>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!paymentReminderSettings.browserNotificationEnabled) {
-                                  await requestNotificationPermission();
-                                } else {
-                                  setPaymentReminderSettings(prev => ({ ...prev, browserNotificationEnabled: false }));
-                                }
-                              }}
-                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                paymentReminderSettings.browserNotificationEnabled ? 'bg-brand-lime' : 'bg-slate-800'
-                              }`}
-                            >
-                              <span
-                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-dark-bg shadow ring-0 transition duration-200 ease-in-out ${
-                                  paymentReminderSettings.browserNotificationEnabled ? 'translate-x-4' : 'translate-x-0'
-                                }`}
-                              />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Audio Chime */}
-                        <div className={`p-4 rounded-xl border transition-all ${
-                          paymentReminderSettings.soundEnabled ? 'bg-slate-950 border-slate-700' : 'bg-slate-950/40 border-slate-900'
-                        }`}>
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                                {paymentReminderSettings.soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                              </div>
-                              <div>
-                                <h5 className="text-xs font-bold text-white">Audio Alert Chime</h5>
-                                <p className="text-[11px] text-slate-400">Plays crisp audible chime on interval trigger</p>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => setPaymentReminderSettings(prev => ({ ...prev, soundEnabled: !prev.soundEnabled }))}
-                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                                paymentReminderSettings.soundEnabled ? 'bg-amber-500' : 'bg-slate-800'
-                              }`}
-                            >
-                              <span
-                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-dark-bg shadow ring-0 transition duration-200 ease-in-out ${
-                                  paymentReminderSettings.soundEnabled ? 'translate-x-4' : 'translate-x-0'
-                                }`}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actions Footer */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={handleTestReminderAlert}
-                      className="px-4 py-2.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-bold transition-all cursor-pointer flex items-center gap-2"
-                    >
-                      <Bell className="w-3.5 h-3.5 text-brand-lime" />
-                      <span>Preview Alert (Sound & Banner)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={reminderSaveLoading}
-                      onClick={handleSavePaymentReminderSettings}
-                      className="px-6 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer font-sans shadow-md shadow-brand-lime/10 flex items-center gap-2"
-                    >
-                      {reminderSaveLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin text-dark-bg" />
-                          <span>Saving Settings...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-4 h-4" />
-                          <span>Save Reminder Settings</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>)}
-
-                {/* 4. GCash Accounts Sub-Page */}
-                {settingsSubTab === 'gcash' && (
-                  <div className="space-y-6 animate-fade-in">
-                    {/* Header Section */}
-                    <div className="flex items-center justify-between pb-4 border-b border-dark-border">
-                      <div>
-                        <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                          <Shield className="w-5 h-5 text-brand-lime" /> GCash Accounts
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1">Configure the GCash accounts players scan to make payments during checkout.</p>
-                      </div>
-                      
-                      <button
-                        onClick={() => {
-                          if (isSuperAdmin) {
-                            const opt = confirm("Click 'OK' to add a Personal Account, or 'Cancel' to add a Global Fallback Account.");
-                            handleOpenSettingsModal(opt ? 'my' : 'global');
-                          } else {
-                            handleOpenSettingsModal('my');
-                          }
-                        }}
-                        className="px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Add GCash Details
-                      </button>
-                    </div>
-
-                    {/* Accounts Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                      {/* Personal Account Cards List */}
-                      {personalAccounts.map((acc) => (
-                        <div key={acc.id} className="glass-panel border border-slate-800 rounded-2xl p-5 relative overflow-hidden flex flex-col justify-between hover:border-slate-700 transition-all group shadow-lg">
-                          <div className="absolute top-0 right-0 w-24 h-24 bg-brand-lime/5 rounded-bl-full flex items-center justify-center opacity-70 group-hover:bg-brand-lime/10 transition-colors">
-                            <span className="text-xs font-black text-brand-lime select-none tracking-widest uppercase rotate-[30deg] translate-x-2 -translate-y-1.5">Personal</span>
-                          </div>
-                          
-                          <div>
-                            <div className="flex items-center gap-3 mb-4">
-                              <div className="w-8 h-8 rounded-full bg-brand-lime/10 border border-brand-lime/20 text-brand-lime flex items-center justify-center font-extrabold text-xs select-none">P</div>
-                              <div>
-                                <h4 className="text-xs font-black text-white">{acc.gcashName || 'Unnamed Account'}</h4>
-                                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Your GCash Credentials</p>
-                              </div>
-                            </div>
-
-                            <div className="space-y-2 mb-5">
-                              <div className="flex justify-between items-center text-xs pb-1 border-b border-dark-border/40">
-                                <span className="text-slate-500 font-bold uppercase tracking-wider">Account Number</span>
-                                <span className="text-slate-350 font-mono font-bold">{acc.gcashNumber || 'No number'}</span>
-                              </div>
-                              
-                              <div className="flex justify-between items-center text-xs pb-1 border-b border-dark-border/40">
-                                <span className="text-slate-500 font-bold uppercase tracking-wider">QR Code Screenshot</span>
-                                {acc.gcashQrCode ? (
-                                  <button 
-                                    onClick={() => setReceiptLightboxImage(acc.gcashQrCode)}
-                                    className="text-brand-lime hover:underline font-bold transition-all cursor-pointer flex items-center gap-1 text-xs uppercase tracking-wider"
-                                  >
-                                    View QR <ExternalLink className="w-2.5 h-2.5" />
-                                  </button>
-                                ) : (
-                                  <span className="text-slate-500 italic">Not Uploaded</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 pt-3 border-t border-dark-border/40 mt-auto">
-                            <button
-                              onClick={() => handleOpenSettingsModal('my', acc.id)}
-                              className="flex-1 py-2 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:text-white hover:bg-slate-800 transition-all font-bold text-xs uppercase tracking-wider cursor-pointer"
-                            >
-                              Edit Settings
-                            </button>
-                            <button
-                              onClick={() => handleDeleteCheckoutSettings('my', acc.id)}
-                              className="py-2 px-3 rounded-lg border border-red-955/20 bg-red-955/5 text-red-400 hover:bg-red-900 hover:text-white transition-all font-bold text-xs uppercase tracking-wider cursor-pointer"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Global Fallback Account Card (Super Admin only) */}
-                      {(isSuperAdmin && (globalGcashNameSetting || globalGcashNumberSetting || globalGcashQrSetting)) ? (
-                        <div className="glass-panel border border-slate-800 rounded-2xl p-5 relative overflow-hidden flex flex-col justify-between hover:border-slate-700 transition-all group shadow-lg">
-                          <div className="absolute top-0 right-0 w-24 h-24 bg-purple-600/5 rounded-bl-full flex items-center justify-center opacity-70 group-hover:bg-purple-600/10 transition-colors">
-                            <span className="text-xs font-black text-purple-400 select-none tracking-widest uppercase rotate-[30deg] translate-x-2 -translate-y-1.5">Fallback</span>
-                          </div>
-                          
-                          <div>
-                            <div className="flex items-center gap-3 mb-4">
-                              <div className="w-8 h-8 rounded-full bg-purple-600/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-extrabold text-xs select-none">F</div>
-                              <div>
-                                <h4 className="text-xs font-black text-white">{globalGcashNameSetting || 'Unnamed Account'}</h4>
-                                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">System Fallback Credentials</p>
-                              </div>
-                            </div>
-
-                            <div className="space-y-2 mb-5">
-                              <div className="flex justify-between items-center text-xs pb-1 border-b border-dark-border/40">
-                                <span className="text-slate-500 font-bold uppercase tracking-wider">Account Number</span>
-                                <span className="text-slate-355 font-mono font-bold">{globalGcashNumberSetting || 'No number'}</span>
-                              </div>
-                              
-                              <div className="flex justify-between items-center text-xs pb-1 border-b border-dark-border/40">
-                                <span className="text-slate-500 font-bold uppercase tracking-wider">QR Code Screenshot</span>
-                                {globalGcashQrSetting ? (
-                                  <button 
-                                    onClick={() => setReceiptLightboxImage(globalGcashQrSetting)}
-                                    className="text-brand-lime hover:underline font-bold transition-all cursor-pointer flex items-center gap-1 text-xs uppercase tracking-wider"
-                                  >
-                                    View QR <ExternalLink className="w-2.5 h-2.5" />
-                                  </button>
-                                ) : (
-                                  <span className="text-slate-500 italic">Not Uploaded</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 pt-3 border-t border-dark-border/40 mt-auto">
-                            <button
-                              onClick={() => handleOpenSettingsModal('global')}
-                              className="flex-1 py-2 rounded-lg border border-slate-800 bg-slate-900/40 text-slate-300 hover:text-white hover:bg-slate-800 transition-all font-bold text-xs uppercase tracking-wider cursor-pointer"
-                            >
-                              Edit Settings
-                            </button>
-                            <button
-                              onClick={() => handleDeleteCheckoutSettings('global')}
-                              className="py-2 px-3 rounded-lg border border-red-955/20 bg-red-955/5 text-red-400 hover:bg-red-900 hover:text-white transition-all font-bold text-xs uppercase tracking-wider cursor-pointer"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {/* Empty State */}
-                    {personalAccounts.length === 0 && !(isSuperAdmin && (globalGcashNameSetting || globalGcashNumberSetting || globalGcashQrSetting)) && (
-                      <div className="text-center py-16 px-4 border border-dashed border-slate-800 rounded-3xl bg-slate-900/5 max-w-2xl mx-auto shadow">
-                        <div className="w-12 h-12 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-500 text-lg mx-auto mb-4 select-none">📲</div>
-                        <h4 className="text-xs font-black text-white">No GCash Accounts Configured</h4>
-                        <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto">
-                          Add your GCash account configurations to receive reservation payments. Standard admins can add up to 3 personal accounts, and super admins can configure fallback credentials.
-                        </p>
-                        <button
-                          onClick={() => handleOpenSettingsModal('my')}
-                          className="mt-5 px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer font-sans shadow shadow-brand-lime/10"
-                        >
-                          Configure GCash Now
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 5. Booking Buffer & Lead Time Configuration Sub-Page */}
-                {settingsSubTab === 'lead_time' && (
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6 text-left animate-fade-in">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-dark-border">
-                      <div>
-                        <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                          <Clock className="w-5 h-5 text-brand-lime" /> Booking Buffer & Advance Lead Time
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Configure the minimum advance notice required for players booking court time slots on the current day.
-                        </p>
-                      </div>
-                      <span className="px-3 py-1 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-xs">
-                        Active Buffer: {bookingLeadTimeMinutes === 0 ? 'Immediate (0m)' : bookingLeadTimeMinutes >= 60 ? `${bookingLeadTimeMinutes / 60} Hour${bookingLeadTimeMinutes > 60 ? 's' : ''}` : `${bookingLeadTimeMinutes} Minutes`}
-                      </span>
-                    </div>
-
-                    {leadTimeSaveSuccess && (
-                      <div className="p-4 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald text-xs font-bold flex items-center gap-2 animate-fade-in">
-                        <CheckCircle className="w-4 h-4 shrink-0" />
-                        <span>Booking lead time settings updated successfully! Court Details will apply this rule immediately for players booking today.</span>
-                      </div>
-                    )}
-
-                    {/* Presets Grid */}
-                    <div className="space-y-3">
-                      <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                        Select Minimum Advance Booking Notice
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                        {[
-                          { mins: 0, label: '0 Minutes (Immediate)', desc: 'Next top-of-hour available immediately without buffer.' },
-                          { mins: 15, label: '15 Minutes', desc: 'Fast turnaround for walk-ins and last-minute arrivals.' },
-                          { mins: 30, label: '30 Minutes (Recommended)', desc: 'Ideal balance: allows time to verify GCash & travel.' },
-                          { mins: 45, label: '45 Minutes', desc: 'Extra preparation window for court staff and players.' },
-                          { mins: 60, label: '1 Hour (60 Mins)', desc: 'Requires at least 1 hour advance notice for today.' },
-                          { mins: 120, label: '2 Hours', desc: 'Allows venue team sufficient time to prepare and schedule.' },
-                          { mins: 180, label: '3 Hours', desc: 'Strict preparation lead time for premium courts.' },
-                        ].map((preset) => {
-                          const isSelected = bookingLeadTimeMinutes === preset.mins;
-                          return (
-                            <button
-                              key={preset.mins}
-                              type="button"
-                              onClick={() => setBookingLeadTimeMinutes(preset.mins)}
-                              className={`p-4 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between group relative overflow-hidden ${
-                                isSelected
-                                  ? 'bg-brand-lime/10 border-brand-lime ring-1 ring-brand-lime/30 shadow-lg shadow-brand-lime/5'
-                                  : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
-                              }`}
-                            >
-                              <div>
-                                <div className="flex items-center justify-between gap-2 mb-1.5">
-                                  <span className={`text-xs font-bold ${isSelected ? 'text-brand-lime' : 'text-white group-hover:text-brand-lime transition-colors'}`}>
-                                    {preset.label}
-                                  </span>
-                                  {isSelected && (
-                                    <span className="w-2 h-2 rounded-full bg-brand-lime shadow-sm shadow-brand-lime animate-pulse"></span>
-                                  )}
-                                </div>
-                                <p className="text-[11px] text-slate-400 leading-relaxed">
-                                  {preset.desc}
-                                </p>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Dynamic Scenario / Preview Box */}
-                    <div className="p-5 rounded-2xl bg-slate-900/40 border border-slate-800 space-y-3">
-                      <div className="flex items-center gap-2 text-xs font-bold text-brand-lime uppercase tracking-wider">
-                        <Clock className="w-4 h-4" /> Live Rule Preview
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed">
-                        With a <strong className="text-brand-lime">{bookingLeadTimeMinutes === 0 ? '0-minute (immediate)' : `${bookingLeadTimeMinutes}-minute`}</strong> buffer:
-                      </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                        <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-850">
-                          <span className="text-slate-500 font-semibold block text-[10px] uppercase">Scenario A (Current Time: 1:30 PM)</span>
-                          <span className="text-slate-200 font-bold block mt-1">
-                            {bookingLeadTimeMinutes <= 30 
-                              ? 'Earliest visible slot: 2:00 PM – 3:00 PM' 
-                              : bookingLeadTimeMinutes <= 90 
-                              ? 'Earliest visible slot: 3:00 PM – 4:00 PM' 
-                              : 'Earliest visible slot: 4:00 PM – 5:00 PM'}
-                          </span>
-                        </div>
-                        <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-850">
-                          <span className="text-slate-500 font-semibold block text-[10px] uppercase">Scenario B (Current Time: 1:31 PM)</span>
-                          <span className="text-slate-200 font-bold block mt-1">
-                            {bookingLeadTimeMinutes <= 29 
-                              ? 'Earliest visible slot: 2:00 PM – 3:00 PM' 
-                              : bookingLeadTimeMinutes <= 89 
-                              ? 'Earliest visible slot: 3:00 PM – 4:00 PM' 
-                              : 'Earliest visible slot: 4:00 PM – 5:00 PM'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex justify-end pt-4 border-t border-dark-border">
-                      <button
-                        type="button"
-                        disabled={leadTimeSaveLoading}
-                        onClick={handleSaveLeadTimeSettings}
-                        className="px-6 py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10 flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
-                      >
-                        {leadTimeSaveLoading ? (
-                          <>
-                            <span className="w-3.5 h-3.5 border-2 border-dark-bg border-t-transparent rounded-full animate-spin"></span>
-                            <span>Saving Rule...</span>
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle className="w-4 h-4" />
-                            <span>Save Lead Time Rule</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* 6. Online Booking Service Fee Configuration Sub-Page (Super Admin Only) */}
-                {settingsSubTab === 'service_fee' && isSuperAdmin && (
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 text-left animate-fade-in">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-                      <div>
-                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                          <DollarSign className="w-5 h-5 text-brand-lime" /> Online Booking Service Fee (₱)
-                        </h4>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Activate or deactivate the convenience service fee charged per checkout reservation across the platform.
-                        </p>
-                      </div>
-
-                      {/* Feature Status Toggle Switch Badge */}
-                      <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 p-2 rounded-2xl flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setGlobalServiceFeeEnabled(!globalServiceFeeEnabled)}
-                          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            globalServiceFeeEnabled ? 'bg-brand-lime' : 'bg-slate-800'
-                          }`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-dark-bg shadow ring-0 transition duration-200 ease-in-out ${
-                              globalServiceFeeEnabled ? 'translate-x-5' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-
-                        <span className={`text-xs font-black uppercase tracking-wider ${
-                          globalServiceFeeEnabled ? 'text-brand-lime' : 'text-slate-500'
-                        }`}>
-                          {globalServiceFeeEnabled ? `ACTIVE (₱${globalServiceFeeSetting})` : 'INACTIVE (DISABLED)'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row items-end gap-4">
-                      <div className="flex-1 w-full space-y-1.5">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                          Platform Convenience Service Fee (₱ PHP)
-                        </label>
-                        <div className="relative">
-                          <span className="absolute left-4 top-3 text-slate-500 font-bold">₱</span>
-                          <input
-                            type="number"
-                            min="0"
-                            disabled={!globalServiceFeeEnabled}
-                            value={globalServiceFeeSetting}
-                            onChange={(e) => setGlobalServiceFeeSetting(Number(e.target.value))}
-                            className={`w-full border text-sm font-extrabold rounded-xl pl-8 pr-4 py-2.5 focus:outline-none transition-all ${
-                              globalServiceFeeEnabled 
-                                ? 'bg-slate-900 border-slate-800 text-white focus:border-brand-lime' 
-                                : 'bg-slate-950/60 border-slate-900 text-slate-600 cursor-not-allowed'
-                            }`}
-                          />
-                        </div>
-                        {!globalServiceFeeEnabled && (
-                          <p className="text-[11px] text-amber-400 font-bold mt-1">
-                            ⚠️ Service fee is currently INACTIVE. Players will pay ₱0 online service fee at checkout.
-                          </p>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={handleSaveServiceFee}
-                        disabled={serviceFeeSaving}
-                        className="px-6 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-brand-lime/10 flex-shrink-0"
-                      >
-                        {serviceFeeSaving ? <Loader2 className="w-4 h-4 animate-spin text-dark-bg" /> : <Save className="w-4 h-4" />}
-                        <span>Save Service Fee Settings</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Open Play Management page */}
-            {activeTab === 'openplay' && (
-              selectedEventForRegs ? (
-                /* FULL PAGE PLAYER & GUEST ROSTER VIEW */
-                <div className="w-full animate-fade-in text-left space-y-6">
-                  {/* Top Breadcrumb Navigation Bar */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-dark-border">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedEventForRegs(null)}
-                        className="inline-flex items-center gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01]"
-                      >
-                        <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Open Play Sessions
-                      </button>
-
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-extrabold text-white flex items-center gap-2">
-                          <Trophy className="w-4 h-4 text-brand-lime" /> {selectedEventForRegs.title}
-                        </span>
-                        {isEventExpired(selectedEventForRegs.eventDate, selectedEventForRegs.endTime) || selectedEventForRegs.status === 'expired' ? (
-                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
-                            ⏰ Expired
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-0.5 rounded-full bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-[10px] font-black uppercase tracking-wider">
-                            🟢 Active Session
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleExportOpenPlayRoster(selectedEventForRegs)}
-                        className="py-2.5 px-4 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-extrabold flex items-center gap-2 cursor-pointer shadow-md"
-                      >
-                        <Download className="w-4 h-4" /> Export CSV Roster
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Roster Full Page Body */}
-                  {(() => {
-                    const eventRegs = openPlayRegistrations.filter(r => r.eventId === selectedEventForRegs.id);
-                    
-                    interface RosterAttendee {
-                      id: string;
-                      registrationId: string;
-                      type: 'primary' | 'guest';
-                      name: string;
-                      email: string;
-                      phone: string;
-                      photoUrl?: string;
-                      hostName?: string;
-                      guestIndex?: number;
-                      paymentStatus: string;
-                      status: string;
-                      gcashReferenceNumber?: string;
-                      receiptImageUrl?: string;
-                      createdAt?: string;
-                      regObj: OpenPlayRegistration;
-                    }
-
-                    const allAttendees: RosterAttendee[] = [];
-                    eventRegs.forEach(reg => {
-                      const primaryName = reg.playerName || reg.userName || 'Player';
-                      const primaryEmail = reg.playerEmail || reg.userEmail || '';
-                      const primaryPhone = reg.playerPhone || reg.userPhone || '';
-                      const primaryPhoto = (reg as any).photoUrl || (reg as any).userPhoto || (reg as any).playerPhoto;
-                      const gcashRef = reg.gcashReferenceNumber || '';
-                      const paymentStatus = reg.paymentStatus || 'pending';
-                      const status = reg.status || 'pending';
-
-                      const isAddGuestOnly = reg.isAddGuestOnly === true || (reg as any).isAddGuestOnly === true;
-
-                      // Primary Player (Only if NOT an add-guest-only entry)
-                      if (!isAddGuestOnly) {
-                        allAttendees.push({
-                          id: `${reg.id}-primary`,
-                          registrationId: reg.id,
-                          type: 'primary',
-                          name: primaryName,
-                          email: primaryEmail,
-                          phone: primaryPhone,
-                          photoUrl: primaryPhoto,
-                          paymentStatus,
-                          status,
-                          gcashReferenceNumber: gcashRef,
-                          receiptImageUrl: reg.receiptImageUrl,
-                          createdAt: reg.createdAt,
-                          regObj: reg
-                        });
-                      }
-
-                      // Guests
-                      const spots = reg.playerCount || 1;
-                      const numGuests = isAddGuestOnly
-                        ? Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots || 1)
-                        : Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots > 1 ? spots - 1 : 0);
-                      const hostName = reg.primaryPlayerName || (reg as any).primaryPlayerName || primaryName;
-
-                      for (let gIdx = 0; gIdx < numGuests; gIdx++) {
-                        const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
-                        const gEmail = reg.guests?.[gIdx]?.email || reg.guestEmails?.[gIdx] || `Shared (${reg.primaryPlayerEmail || primaryEmail})`;
-                        const gPhoto = (reg.guests?.[gIdx] as any)?.photoUrl || primaryPhoto;
-                        allAttendees.push({
-                          id: `${reg.id}-guest-${gIdx}`,
-                          registrationId: reg.id,
-                          type: 'guest',
-                          name: gName,
-                          email: gEmail,
-                          phone: primaryPhone,
-                          photoUrl: gPhoto,
-                          hostName: hostName,
-                          guestIndex: gIdx + 1,
-                          paymentStatus,
-                          status,
-                          gcashReferenceNumber: gcashRef,
-                          receiptImageUrl: reg.receiptImageUrl,
-                          createdAt: reg.createdAt,
-                          regObj: reg
-                        });
-                      }
-                    });
-
-                    const filteredAttendees = allAttendees.filter(att => {
-                      if (rosterFilterRole === 'primary' && att.type !== 'primary') return false;
-                      if (rosterFilterRole === 'guest' && att.type !== 'guest') return false;
-                      if (!rosterSearchQuery.trim()) return true;
-                      const q = rosterSearchQuery.toLowerCase();
-                      return (
-                        att.name.toLowerCase().includes(q) ||
-                        att.email.toLowerCase().includes(q) ||
-                        att.phone.toLowerCase().includes(q) ||
-                        (att.hostName && att.hostName.toLowerCase().includes(q)) ||
-                        (att.gcashReferenceNumber && att.gcashReferenceNumber.toLowerCase().includes(q))
-                      );
-                    });
-
-                    const totalHeadcount = allAttendees.length;
-                    const primaryCount = allAttendees.filter(a => a.type === 'primary').length;
-                    const guestCount = allAttendees.filter(a => a.type === 'guest').length;
-                    const approvedHeadcount = allAttendees.filter(a => a.status === 'approved' || a.paymentStatus === 'paid').length;
-                    const pendingHeadcount = allAttendees.filter(a => a.paymentStatus === 'pending_verification' || a.status === 'pending').length;
-                    const attendedCount = allAttendees.filter(a => attendanceMap[a.id]).length;
-                    const attendancePercent = totalHeadcount > 0 ? Math.round((attendedCount / totalHeadcount) * 100) : 0;
-                    const hasEventStarted = checkHasEventStarted(selectedEventForRegs);
-
-                    return (
-                      <div className="space-y-6">
-                        {/* Page Title & Headcount Summary Banner */}
-                        <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden space-y-4">
-                          <div>
-                            <h2 className="text-xl md:text-2xl font-black text-white flex items-center gap-2.5">
-                              <Users className="w-6 h-6 text-brand-lime" /> {selectedEventForRegs.title} — Player & Guest Roster
-                            </h2>
-                            <p className="text-xs text-slate-400 mt-1">
-                              Full headcount breakdown: review registered primary players, guests, verify GCash payments, and track session attendance.
-                            </p>
-                          </div>
-
-                          {/* Headcount Stat Badges */}
-                          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-800/80 text-xs">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="px-3 py-1.5 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-extrabold flex items-center gap-1.5">
-                                <Users className="w-4 h-4" /> Total Headcount: {totalHeadcount} / {selectedEventForRegs.maxParticipants}
-                              </span>
-                              <span className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 font-bold">
-                                👤 {primaryCount} Primary Players
-                              </span>
-                              <span className="px-3 py-1.5 rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 font-bold">
-                                👥 {guestCount} Guests
-                              </span>
-                              {!hasEventStarted ? (
-                                <span className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold flex items-center gap-1.5 text-xs">
-                                  <Clock className="w-4 h-4 text-amber-400" /> ⏳ Early Check-in Opens 15m Before Start ({selectedEventForRegs.startTime || 'Scheduled Time'})
-                                </span>
-                              ) : (
-                                <span className={`px-3 py-1.5 rounded-xl border font-extrabold flex items-center gap-1.5 ${
-                                  attendedCount > 0 ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime' : 'bg-slate-800 border-slate-700 text-slate-400'
-                                }`}>
-                                  <UserCheck className="w-4 h-4 text-brand-lime" /> 🎯 Attendance: {attendedCount}/{totalHeadcount} ({attendancePercent}%)
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <span className="px-3 py-1.5 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald font-extrabold">
-                                ✓ {approvedHeadcount} Approved
-                              </span>
-                              {pendingHeadcount > 0 && (
-                                <span className="px-3 py-1.5 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 font-extrabold">
-                                  ⏳ {pendingHeadcount} Pending Review
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* View Switcher & Search Bar Controls */}
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                          {/* View Mode Toggle Buttons */}
-                          <div className="flex items-center gap-1 p-1 rounded-2xl bg-slate-900 border border-slate-800">
-                            <button
-                              onClick={() => setRosterModalViewMode('cards')}
-                              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                                rosterModalViewMode === 'cards'
-                                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
-                                  : 'text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              <LayoutGrid className="w-3.5 h-3.5" /> Cards View
-                            </button>
-                            <button
-                              onClick={() => setRosterModalViewMode('list')}
-                              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                                rosterModalViewMode === 'list'
-                                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
-                                  : 'text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              <List className="w-3.5 h-3.5" /> Attendance List
-                            </button>
-                            <button
-                              onClick={() => setRosterModalViewMode('table')}
-                              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                                rosterModalViewMode === 'table'
-                                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
-                                  : 'text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              <FileText className="w-3.5 h-3.5" /> Bookings Table
-                            </button>
-                          </div>
-
-                          {/* Role Filters */}
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={rosterFilterRole}
-                              onChange={(e) => setRosterFilterRole(e.target.value as any)}
-                              className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-brand-lime cursor-pointer font-bold"
-                            >
-                              <option value="all">All Roles</option>
-                              <option value="primary">Primary Only</option>
-                              <option value="guest">Guests Only</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        {/* Content Views */}
-                        <div className="space-y-4">
-                          
-                          {/* VIEW 1: CARDS GRID VIEW */}
-                          {rosterModalViewMode === 'cards' && (
-                            filteredAttendees.length === 0 ? (
-                              <div className="py-12 text-center text-slate-500 italic bg-slate-900/30 rounded-2xl border border-slate-800/50">
-                                No players or guests match the current search filter.
-                              </div>
-                            ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                {filteredAttendees.map((att, idx) => {
-                                  const isApproved = att.status === 'approved' || att.paymentStatus === 'paid';
-                                  const isPending = att.paymentStatus === 'pending_verification';
-
-                                  return (
-                                    <div
-                                      key={att.id}
-                                      className={`glass-panel border rounded-2xl p-4 space-y-3 relative transition-all shadow-md flex flex-col justify-between ${
-                                        attendanceMap[att.id] ? 'border-brand-lime/50 bg-slate-900/90 ring-1 ring-brand-lime/30' : 'border-slate-800 hover:border-slate-700'
-                                      }`}
-                                    >
-                                      <div>
-                                        <div className="flex items-center justify-between gap-2 mb-2.5">
-                                          <span className="px-2 py-0.5 rounded-md bg-slate-800 text-[10px] font-black text-slate-300 font-mono">
-                                            #{idx + 1}
-                                          </span>
-                                          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
-                                            att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/40' : 'bg-purple-950/40 text-purple-300 border border-purple-800/50'
-                                          }`}>
-                                            {att.type === 'primary' ? 'Primary Player' : `Guest #${att.guestIndex}`}
-                                          </span>
-                                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ml-auto ${
-                                            isApproved ? 'bg-brand-emerald/10 text-brand-emerald border border-brand-emerald/30' : isPending ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'
-                                          }`}>
-                                            {isApproved ? '✓ Paid' : isPending ? '⏳ Pending' : '✗ Failed'}
-                                          </span>
-                                        </div>
-
-                                        {/* Avatar & Player Name Header */}
-                                        <div className="flex items-center gap-3 mb-2">
-                                          <div className="w-11 h-11 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60 relative">
-                                            <img
-                                              src={att.photoUrl || `https://robohash.org/${encodeURIComponent(att.name)}?set=set4`}
-                                              alt={att.name}
-                                              className="w-full h-full object-cover"
-                                              onError={(e) => {
-                                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(att.name)}&background=b5f529&color=0f172a&bold=true`;
-                                              }}
-                                            />
-                                          </div>
-                                          <div className="min-w-0 flex-1 text-left">
-                                            <div className="font-extrabold text-sm text-white truncate">{att.name}</div>
-                                            {att.hostName && (
-                                              <div className="text-[11px] text-purple-300 font-semibold truncate">
-                                                Host: <strong className="text-white">{att.hostName}</strong>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-
-                                        <div className="text-xs text-slate-400 truncate mt-1 flex items-center gap-1">
-                                          <Mail className="w-3 h-3 text-slate-500 flex-shrink-0" /> {att.email}
-                                        </div>
-                                        {att.phone && (
-                                          <div className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1">
-                                            <Phone className="w-3 h-3 text-slate-500 flex-shrink-0" /> {att.phone}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* Attendance Checker Button & GCash Metadata */}
-                                      <div className="pt-3 border-t border-slate-800/80 text-[11px] space-y-2">
-                                        {!hasEventStarted ? (
-                                          <div
-                                            className="w-full py-2 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-500 text-[11px] font-extrabold uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-not-allowed select-none"
-                                            title={`Attendance opens when session starts at ${selectedEventForRegs.startTime || 'scheduled time'}`}
-                                          >
-                                            <Clock className="w-3.5 h-3.5 text-amber-400" />
-                                            <span>Attendance Opens At {selectedEventForRegs.startTime || 'Start Time'}</span>
-                                          </div>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleToggleAttendance(att.id)}
-                                            className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
-                                              attendanceMap[att.id]
-                                                ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
-                                                : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
-                                            }`}
-                                            title={attendanceMap[att.id] ? "Click to revert to Unmarked/Absent" : "Click to mark as Present"}
-                                          >
-                                            {attendanceMap[att.id] ? (
-                                              <>
-                                                <CheckCircle2 className="w-4 h-4 text-dark-bg" />
-                                                <span>🟢 PRESENT</span>
-                                              </>
-                                            ) : (
-                                              <>
-                                                <UserCheck className="w-4 h-4 text-slate-400" />
-                                                <span>MARK PRESENT</span>
-                                              </>
-                                            )}
-                                          </button>
-                                        )}
-
-                                        {att.gcashReferenceNumber && (
-                                          <div className="flex items-center justify-between text-slate-300 pt-1">
-                                            <span className="text-slate-500 font-bold uppercase text-[9px]">GCash Ref:</span>
-                                            <span className="font-mono font-bold text-brand-lime">{att.gcashReferenceNumber}</span>
-                                          </div>
-                                        )}
-
-                                        {att.receiptImageUrl && (
-                                          <button
-                                            type="button"
-                                            onClick={() => setReceiptLightboxImage(att.receiptImageUrl || null)}
-                                            className="w-full py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-brand-lime text-slate-300 hover:text-white text-[10px] font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1 cursor-pointer"
-                                          >
-                                            <Eye className="w-3 h-3 text-brand-lime" /> View GCash Receipt
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )
-                          )}
-
-                          {/* VIEW 2: ATTENDANCE CHECKLIST */}
-                          {rosterModalViewMode === 'list' && (
-                            <div className="glass-panel border border-slate-800 rounded-3xl p-4 sm:p-6 space-y-3">
-                              {filteredAttendees.length === 0 ? (
-                                <div className="py-8 text-center text-slate-500 italic">No attendees match filter.</div>
-                              ) : (
-                                filteredAttendees.map((att, idx) => (
-                                  <div key={att.id} className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-2xl border transition-all text-xs gap-3 ${
-                                    attendanceMap[att.id] ? 'bg-slate-900/90 border-brand-lime/40' : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'
-                                  }`}>
-                                    <div className="flex items-center gap-3">
-                                      <span className="font-mono text-slate-500 font-bold text-[11px]">#{idx + 1}</span>
-                                      
-                                      {/* Avatar */}
-                                      <div className="w-10 h-10 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60">
-                                        <img
-                                          src={att.photoUrl || `https://robohash.org/${encodeURIComponent(att.name)}?set=set4`}
-                                          alt={att.name}
-                                          className="w-full h-full object-cover"
-                                          onError={(e) => {
-                                            (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(att.name)}&background=b5f529&color=0f172a&bold=true`;
-                                          }}
-                                        />
-                                      </div>
-
-                                      <div>
-                                        <div className="font-extrabold text-white text-sm flex items-center gap-2">
-                                          <span>{att.name}</span>
-                                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
-                                            att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime' : 'bg-purple-950/40 text-purple-300'
-                                          }`}>
-                                            {att.type === 'primary' ? 'Primary' : `Guest (${att.hostName})`}
-                                          </span>
-                                        </div>
-                                        <div className="text-slate-400 text-[11px] mt-0.5">{att.email} • {att.phone || 'No phone'}</div>
-                                      </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-2.5 self-end sm:self-auto">
-                                      {!hasEventStarted ? (
-                                        <span
-                                          className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-500 text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 cursor-not-allowed select-none"
-                                          title={`Attendance opens when session starts at ${selectedEventForRegs.startTime || 'scheduled time'}`}
-                                        >
-                                          <Clock className="w-3.5 h-3.5 text-amber-400" />
-                                          <span>Opens at {selectedEventForRegs.startTime || 'Start Time'}</span>
-                                        </span>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleToggleAttendance(att.id)}
-                                          className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
-                                            attendanceMap[att.id]
-                                              ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
-                                              : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
-                                          }`}
-                                        >
-                                          {attendanceMap[att.id] ? (
-                                            <>
-                                              <CheckCircle2 className="w-4 h-4 text-dark-bg" />
-                                              <span>🟢 PRESENT</span>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <UserCheck className="w-4 h-4 text-slate-400" />
-                                              <span>MARK PRESENT</span>
-                                            </>
-                                          )}
-                                        </button>
-                                      )}
-
-                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
-                                        att.status === 'approved' || att.paymentStatus === 'paid'
-                                          ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
-                                          : att.paymentStatus === 'pending_verification'
-                                          ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                          : 'bg-red-500/10 border-red-500/30 text-red-400'
-                                      }`}>
-                                        {att.status === 'approved' || att.paymentStatus === 'paid' ? '✓ Confirmed' : att.paymentStatus === 'pending_verification' ? '⏳ Pending' : '✗ Rejected'}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          )}
-
-                          {/* VIEW 3: BOOKINGS TABLE VIEW */}
-                          {rosterModalViewMode === 'table' && (
-                            <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
-                              <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
-                                  <thead>
-                                    <tr className="border-b border-dark-border/60 bg-slate-900/40 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                                      <th className="py-3.5 px-4">Primary Player & Guests</th>
-                                      <th className="py-3.5 px-4">Contact</th>
-                                      <th className="py-3.5 px-4">GCash Reference</th>
-                                      <th className="py-3.5 px-4">Receipt</th>
-                                      <th className="py-3.5 px-4 text-center">Status</th>
-                                      <th className="py-3.5 px-4 text-center">Actions</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-dark-border/40 text-xs">
-                                    {eventRegs.length === 0 ? (
-                                      <tr>
-                                        <td colSpan={6} className="py-12 text-center text-slate-500 italic">
-                                          No players have registered for this Open Play session yet.
-                                        </td>
-                                      </tr>
-                                    ) : (
-                                      eventRegs.map((reg) => (
-                                        <tr key={reg.id} className="hover:bg-slate-900/20 transition-colors">
-                                          <td className="py-3.5 px-4 font-bold text-white">
-                                            <div className="flex items-center gap-3">
-                                              <div className="w-9 h-9 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60">
-                                                <img
-                                                  src={(reg as any).photoUrl || (reg as any).userPhoto || `https://robohash.org/${encodeURIComponent(reg.playerName || reg.userName || 'Player')}?set=set4`}
-                                                  alt={reg.playerName || reg.userName || 'Player'}
-                                                  className="w-full h-full object-cover"
-                                                  onError={(e) => {
-                                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(reg.playerName || reg.userName || 'Player')}&background=b5f529&color=0f172a&bold=true`;
-                                                  }}
-                                                />
-                                              </div>
-                                              <div>
-                                                <div>{reg.playerName || reg.userName || 'Player'}</div>
-                                                {((reg.guestCount && reg.guestCount > 0) || (reg.guests && reg.guests.length > 0)) && (
-                                                  <div className="text-[11px] font-semibold text-brand-lime mt-0.5 flex flex-col gap-0.5">
-                                                    <span>
-                                                      +{reg.guestCount || reg.guests?.length} {reg.guestCount === 1 ? 'Guest' : 'Guests'}:
-                                                    </span>
-                                                    <span className="text-slate-300 font-normal">
-                                                      {reg.guests && reg.guests.length > 0
-                                                        ? reg.guests.map(g => g.name || g.email).filter(Boolean).join(', ')
-                                                        : reg.guestNames && reg.guestNames.length > 0
-                                                        ? reg.guestNames.join(', ')
-                                                        : 'Guest names on file'}
-                                                    </span>
-                                                  </div>
-                                                )}
-                                                <div className="text-[10px] text-slate-500 font-normal mt-0.5">
-                                                  Total Spots: {reg.playerCount || 1}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </td>
-
-                                          <td className="py-3.5 px-4 text-slate-300">
-                                            <div>{reg.playerEmail || reg.userEmail}</div>
-                                            <div className="text-[11px] text-slate-400 font-normal">{reg.playerPhone || reg.userPhone || '—'}</div>
-                                          </td>
-
-                                          <td className="py-3.5 px-4 font-mono font-bold text-brand-lime">
-                                            {reg.gcashReferenceNumber || '—'}
-                                          </td>
-
-                                          <td className="py-3.5 px-4">
-                                            {reg.receiptImageUrl ? (
-                                              <button
-                                                onClick={() => setReceiptLightboxImage(reg.receiptImageUrl || null)}
-                                                className="text-xs font-bold text-brand-lime hover:underline flex items-center gap-1 cursor-pointer"
-                                              >
-                                                <Eye className="w-3.5 h-3.5" /> View Receipt
-                                              </button>
-                                            ) : (
-                                              <span className="text-slate-500 italic text-[11px]">None</span>
-                                            )}
-                                          </td>
-
-                                          <td className="py-3.5 px-4 text-center">
-                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
-                                              reg.status === 'approved' || reg.paymentStatus === 'paid'
-                                                ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
-                                                : reg.paymentStatus === 'pending_verification'
-                                                ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                                                : 'bg-red-500/10 border-red-500/30 text-red-400'
-                                            }`}>
-                                              {reg.status === 'approved' || reg.paymentStatus === 'paid' ? '✓ Approved' : reg.paymentStatus === 'pending_verification' ? '⏳ Pending' : '✗ Rejected'}
-                                            </span>
-                                          </td>
-
-                                          <td className="py-3.5 px-4 text-center">
-                                            <div className="flex items-center justify-center gap-1.5">
-                                              {reg.paymentStatus === 'pending_verification' && (
-                                                <>
-                                                  <button
-                                                    onClick={async () => {
-                                                      setActionLoading(reg.id);
-                                                      try {
-                                                        if (isFirebaseConfigured && db) {
-                                                          await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'paid', status: 'approved' });
-                                                        }
-                                                        const updateLocal = (str: string | null) => {
-                                                          if (!str) return;
-                                                          try {
-                                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r);
-                                                            return JSON.stringify(updated);
-                                                          } catch { return null; }
-                                                        };
-                                                        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
-                                                        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
-                                                        const updatedLs = updateLocal(lsStr);
-                                                        const updatedSs = updateLocal(ssStr);
-                                                        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
-                                                        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
-                                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'paid', status: 'approved' } : r));
-                                                      } catch (err) {
-                                                        console.error('Failed to approve registration:', err);
-                                                      } finally {
-                                                        setActionLoading(null);
-                                                      }
-                                                    }}
-                                                    className="px-2.5 py-1 rounded-lg bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase hover:bg-[#a6e224] transition-all cursor-pointer"
-                                                  >
-                                                    Approve
-                                                  </button>
-                                                  <button
-                                                    onClick={async () => {
-                                                      if (!confirm('Are you sure you want to reject this registration payment?')) return;
-                                                      setActionLoading(reg.id);
-                                                      try {
-                                                        if (isFirebaseConfigured && db) {
-                                                          await updateDoc(doc(db, 'openplay_registrations', reg.id), { paymentStatus: 'failed', status: 'cancelled' });
-                                                        }
-                                                        const updateLocal = (str: string | null) => {
-                                                          if (!str) return;
-                                                          try {
-                                                            const updated = JSON.parse(str).map((r: any) => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r);
-                                                            return JSON.stringify(updated);
-                                                          } catch { return null; }
-                                                        };
-                                                        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
-                                                        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
-                                                        const updatedLs = updateLocal(lsStr);
-                                                        const updatedSs = updateLocal(ssStr);
-                                                        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
-                                                        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
-                                                        setOpenPlayRegistrations(prev => prev.map(r => r.id === reg.id ? { ...r, paymentStatus: 'failed', status: 'cancelled' } : r));
-                                                      } catch (err) {
-                                                        console.error('Failed to reject registration:', err);
-                                                      } finally {
-                                                        setActionLoading(null);
-                                                      }
-                                                    }}
-                                                    className="px-2.5 py-1 rounded-lg bg-red-950/20 border border-red-900/30 text-red-400 font-extrabold text-[10px] uppercase hover:bg-red-900 hover:text-white transition-all cursor-pointer"
-                                                  >
-                                                    Reject
-                                                  </button>
-                                                </>
-                                              )}
-                                              {reg.paymentStatus !== 'pending_verification' && (
-                                                <span className={`text-[11px] font-bold uppercase tracking-wider ${
-                                                  reg.status === 'approved' || reg.paymentStatus === 'paid'
-                                                    ? 'text-brand-emerald'
-                                                    : reg.status === 'cancelled'
-                                                    ? 'text-red-400'
-                                                    : 'text-slate-500'
-                                                }`}>
-                                                  {reg.status === 'approved' || reg.paymentStatus === 'paid'
-                                                    ? '✓ Approved'
-                                                    : reg.status === 'cancelled'
-                                                    ? '✗ Rejected'
-                                                    : 'Done'}
-                                                </span>
-                                              )}
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      ))
-                                    )}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              ) : (
-                /* OPEN PLAY SESSIONS OVERVIEW LIST & CARDS */
-                <div className="w-full animate-fade-in text-left">
-                  {/* Header Actions */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-dark-border mb-6">
-                    <div>
-                      <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                        <Trophy className="w-5 h-5 text-brand-lime" /> Open Play Sessions
-                      </h3>
-                      <p className="text-xs text-slate-400 mt-1">Create Open Play registrations, collect GCash entry fees, and share event links with players.</p>
-                    </div>
-
-                    <button
-                      onClick={handleOpenCreateOpenPlay}
-                      className="px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Create Open Play Event
-                    </button>
-                  </div>
-
-                {/* Court requirement alert for Client Admins with 0 courts */}
-                {!isSuperAdmin && availableAdminCourts.length === 0 && (
-                  <div className="mb-6 p-4 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-bold flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                      <span>Court Required: You must create at least 1 court for your organization before you can create Open Play sessions.</span>
-                    </div>
-                    <button
-                      onClick={() => setActiveTab('courts')}
-                      className="px-3.5 py-2 rounded-xl bg-yellow-400 text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-yellow-300 transition-all cursor-pointer flex-shrink-0"
-                    >
-                      + Add Your First Court
-                    </button>
-                  </div>
-                )}
-
-                {/* Toast alert for copied share link */}
-                {copiedShareLink && (
-                  <div className="mb-6 p-4 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime text-xs font-bold flex items-center justify-between animate-fade-in">
-                    <div className="flex items-center gap-2">
-                      <Check className="w-4 h-4 text-brand-lime" />
-                      <span>Shareable event link copied to clipboard! ({window.location.origin}/?openplay={copiedShareLink})</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Filter Tabs & View Mode Controls */}
-                {(() => {
-                  const visibleAdminEvents = isSuperAdmin
-                    ? openPlayEvents
-                    : (() => {
-                        const filtered = openPlayEvents.filter(e => {
-                          const matchesUid = e.createdByUid === currentUserUid;
-                          const matchesEmail = currentUserEmail && e.createdByEmail?.toLowerCase() === currentUserEmail;
-                          const matchesCompanyId = myCompany?.id && e.companyId === myCompany.id;
-                          const matchesCompanyName = myCompany?.name && e.companyName?.toLowerCase() === myCompany.name.toLowerCase();
-                          const matchesCourt = e.courtIds && e.courtIds.some(cid => availableAdminCourts.some(ac => ac.id === cid));
-                          return matchesUid || matchesEmail || matchesCompanyId || matchesCompanyName || matchesCourt;
-                        });
-                        return filtered.length > 0 ? filtered : openPlayEvents;
-                      })();
-
-                  const isEventConcluded = (e: OpenPlayEvent) => {
-                    return isEventExpired(e.eventDate, e.endTime) || e.status === 'expired' || e.status === 'completed';
-                  };
-
-                  const activeAdminEvents = visibleAdminEvents.filter(e => !isEventConcluded(e) && e.status !== 'cancelled');
-                  const expiredAdminEvents = visibleAdminEvents.filter(e => isEventConcluded(e));
-
-                  const displayedAdminEvents = visibleAdminEvents.filter(event => {
-                    const isConcluded = isEventConcluded(event);
-                    if (adminOpenPlayFilter === 'upcoming') return !isConcluded;
-                    if (adminOpenPlayFilter === 'expired') return isConcluded;
-                    return true;
-                  });
-
-                  return (
-                    <>
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-dark-border/40">
-                        {/* Filter Tabs */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          {[
-                            { id: 'all', label: 'All Sessions', count: visibleAdminEvents.length },
-                            { id: 'upcoming', label: 'Active / Upcoming', count: activeAdminEvents.length },
-                            { id: 'expired', label: 'Concluded / Expired History', count: expiredAdminEvents.length },
-                          ].map(tab => (
-                            <button
-                              key={tab.id}
-                              type="button"
-                              onClick={() => {
-                                setAdminOpenPlayFilter(tab.id as any);
-                                if (tab.id === 'expired') {
-                                  setAdminOpenPlayViewMode('history');
-                                }
-                              }}
-                              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                                adminOpenPlayFilter === tab.id
-                                  ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
-                                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-                              }`}
-                            >
-                              <span>{tab.label}</span>
-                              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                                adminOpenPlayFilter === tab.id ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
-                              }`}>
-                                {tab.count}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* View Mode Toggle: Cards vs History Table */}
-                        <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 self-end sm:self-auto">
-                          <button
-                            type="button"
-                            onClick={() => setAdminOpenPlayViewMode('cards')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                              adminOpenPlayViewMode === 'cards'
-                                ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
-                                : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            <LayoutGrid className="w-3.5 h-3.5" />
-                            <span>Cards View</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAdminOpenPlayViewMode('history')}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                              adminOpenPlayViewMode === 'history'
-                                ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
-                                : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            <List className="w-3.5 h-3.5" />
-                            <span>History Table</span>
-                          </button>
-                        </div>
-                        {/* Refresh Events Button */}
-                        <button
-                          type="button"
-                          onClick={() => { console.error('🔄 [Manual Refresh] Triggering fetchData...'); fetchData(); }}
-                          className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 hover:border-brand-lime/40 self-end sm:self-auto"
-                          title="Reload events from Firestore"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          <span>Refresh Events</span>
-                        </button>
-                      </div>
-
-                      {/* PREVIOUS OPEN PLAY SESSIONS HISTORICAL ANALYTICS BANNER */}
-                      {(adminOpenPlayFilter === 'expired' || adminOpenPlayViewMode === 'history') && (() => {
-                        const pastEventIds = new Set(expiredAdminEvents.map(e => e.id));
-                        const pastApprovedRegs = openPlayRegistrations.filter(r => pastEventIds.has(r.eventId) && (r.paymentStatus === 'paid' || r.status === 'approved'));
-                        
-                        const totalPastRevenue = pastApprovedRegs.reduce((sum, r) => sum + ((r.registrationFee || 0) * (r.playerCount || 1)), 0);
-                        const totalPastAttendees = pastApprovedRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
-                        const totalPastCapacity = expiredAdminEvents.reduce((sum, e) => sum + (e.maxParticipants || 16), 0);
-                        const fillRatePercent = totalPastCapacity > 0 ? Math.round((totalPastAttendees / totalPastCapacity) * 100) : 0;
-
-                        return (
-                          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fade-in">
-                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
-                              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                                <Trophy className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Concluded Sessions</div>
-                                <div className="text-xl font-extrabold text-white">{expiredAdminEvents.length} <span className="text-xs text-slate-500 font-normal">events</span></div>
-                              </div>
-                            </div>
-
-                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
-                              <div className="p-3 rounded-xl bg-brand-emerald/10 border border-brand-emerald/20 text-brand-emerald">
-                                <DollarSign className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Past Revenue Collected</div>
-                                <div className="text-xl font-extrabold text-brand-emerald">₱{totalPastRevenue.toLocaleString()}</div>
-                              </div>
-                            </div>
-
-                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
-                              <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                                <Users className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Turnout</div>
-                                <div className="text-xl font-extrabold text-white">{totalPastAttendees} <span className="text-xs text-slate-500 font-normal">players</span></div>
-                              </div>
-                            </div>
-
-                            <div className="glass-panel border border-slate-800 rounded-2xl p-4 flex items-center gap-3">
-                              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
-                                <BarChart3 className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Avg Capacity Fill Rate</div>
-                                <div className="text-xl font-extrabold text-purple-400">{fillRatePercent}%</div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {visibleAdminEvents.length === 0 ? (
-                        <div className="text-center py-16 px-4 border border-dashed border-slate-800 rounded-3xl bg-slate-900/5 max-w-2xl mx-auto shadow">
-                          <Trophy className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                          <h4 className="text-sm font-bold text-white">No Open Play Events Created</h4>
-                          <p className="text-xs text-slate-500 mt-1.5 max-w-sm mx-auto">
-                            Create an Open Play event to organize sessions, accept GCash registrations, and share direct registration links with players.
-                          </p>
-                          <button
-                            onClick={handleOpenCreateOpenPlay}
-                            className="mt-5 px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow shadow-brand-lime/10"
-                          >
-                            Create First Open Play Event
-                          </button>
-                        </div>
-                      ) : displayedAdminEvents.length === 0 ? (
-                        <div className="text-center py-12 px-4 border border-dashed border-slate-800 rounded-3xl bg-slate-900/20 max-w-xl mx-auto my-6 shadow animate-fade-in">
-                          <Calendar className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-                          <h4 className="text-sm font-bold text-white">
-                            No {adminOpenPlayFilter === 'upcoming' ? 'Active / Upcoming' : 'Expired'} Open Play Sessions
-                          </h4>
-                          <p className="text-xs text-slate-400 mt-1.5 max-w-md mx-auto">
-                            {adminOpenPlayFilter === 'upcoming'
-                              ? `You have ${visibleAdminEvents.length} session(s) in total, but none are currently active/upcoming. Switch to "All Sessions" or "Concluded / Expired History" to view your records.`
-                              : `You have ${visibleAdminEvents.length} session(s) in total, but none are marked as expired.`}
-                          </p>
-                          <button
-                            onClick={() => setAdminOpenPlayFilter('all')}
-                            className="mt-4 px-4 py-2 rounded-xl text-xs font-extrabold text-brand-lime bg-slate-900 border border-slate-700 hover:bg-slate-800 transition-all cursor-pointer"
-                          >
-                            View All Sessions ({visibleAdminEvents.length})
-                          </button>
-                        </div>
-                      ) : adminOpenPlayViewMode === 'history' ? (
-                        /* HISTORY TABLE VIEW */
-                        <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-xl animate-fade-in">
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse">
-                              <thead>
-                                <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                                  <th className="py-4 px-4">Event Date & Time</th>
-                                  <th className="py-4 px-4">Session Title</th>
-                                  <th className="py-4 px-4">Category / Rotation</th>
-                                  <th className="py-4 px-4">Assigned Courts</th>
-                                  <th className="py-4 px-4 text-center">Turnout / Capacity</th>
-                                  <th className="py-4 px-4 text-right">Revenue</th>
-                                  <th className="py-4 px-4 text-center">Actions</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-800/60 text-xs">
-                                {displayedAdminEvents.map(event => {
-                              const isExpired = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired';
-                              const eventRegs = openPlayRegistrations.filter(r => r.eventId === event.id && r.status !== 'cancelled');
-                              const approvedRegs = openPlayRegistrations.filter(r => r.eventId === event.id && (r.paymentStatus === 'paid' || r.status === 'approved'));
-                              const totalSpots = eventRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
-                              const totalRevenue = approvedRegs.reduce((sum, r) => sum + ((r.registrationFee || 0) * (r.playerCount || 1)), 0);
-                              const fillPercent = event.maxParticipants > 0 ? Math.round((totalSpots / event.maxParticipants) * 100) : 0;
-
-                              return (
-                                <tr key={event.id} className={isExpired ? "opacity-60 hover:bg-slate-900/40 transition-colors" : "hover:bg-slate-900/40 transition-colors"}>
-                                  <td className="py-3.5 px-4">
-                                    <div className="font-bold text-white flex items-center gap-1.5">
-                                      <Calendar className="w-3.5 h-3.5 text-brand-lime" />
-                                      {formatEventDateLong(event.eventDate)}
-                                    </div>
-                                    <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-                                      {formatTime12h(event.startTime)} - {formatTime12h(event.endTime)}
-                                    </div>
-                                  </td>
-
-                                  <td className="py-3.5 px-4">
-                                    <div className="font-extrabold text-white">{event.title}</div>
-                                    {event.isRecurring && (
-                                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-300 bg-purple-950/40 px-1.5 py-0.2 rounded mt-0.5">
-                                        <Repeat className="w-2.5 h-2.5" /> Recurring
-                                      </span>
-                                    )}
-                                  </td>
-
-                                  <td className="py-3.5 px-4">
-                                    <span className="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-brand-lime font-bold text-[10px] uppercase">
-                                      {event.category}
-                                    </span>
-                                    <div className="text-[11px] text-slate-400 capitalize mt-1">
-                                      Rule: {event.rotationRule?.replace(/_/g, ' ') || 'winners stay'}
-                                    </div>
-                                  </td>
-
-                                  <td className="py-3.5 px-4 text-slate-300">
-                                    {event.courtNames && event.courtNames.length > 0 ? (
-                                      <div className="truncate max-w-[150px]" title={event.courtNames.join(', ')}>
-                                        {event.courtNames.join(', ')}
-                                      </div>
-                                    ) : (
-                                      <span className="text-slate-500 italic">Unassigned</span>
-                                    )}
-                                  </td>
-
-                                  <td className="py-3.5 px-4 text-center">
-                                    <div className="font-bold text-slate-200">
-                                      {totalSpots} / {event.maxParticipants} players
-                                    </div>
-                                    <span className={`inline-block text-[10px] font-extrabold px-1.5 py-0.2 rounded-full mt-0.5 ${
-                                      fillPercent >= 100 ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-brand-emerald/10 text-brand-emerald'
-                                    }`}>
-                                      {fillPercent}% filled
-                                    </span>
-                                  </td>
-
-                                  <td className="py-3.5 px-4 text-right font-mono font-extrabold text-brand-emerald">
-                                    ₱{totalRevenue.toLocaleString()}
-                                  </td>
-
-                                  <td className="py-3.5 px-4 text-center">
-                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                                      <button
-                                        onClick={() => {
-                                          setSelectedEventForRegs(event);
-                                        }}
-                                        title="View Roster"
-                                        className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white hover:bg-slate-800 transition-all text-xs font-bold cursor-pointer"
-                                      >
-                                        <Users className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      <button
-                                        onClick={() => handleDuplicateOpenPlayEvent(event)}
-                                        title="Duplicate Session"
-                                        className="p-1.5 rounded-lg bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 transition-all text-xs font-bold cursor-pointer flex items-center gap-1"
-                                      >
-                                        <Copy className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      <button
-                                        onClick={() => handleExportOpenPlayRoster(event)}
-                                        title="Export Roster CSV"
-                                        className="p-1.5 rounded-lg bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-bold cursor-pointer"
-                                      >
-                                        <Download className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      <button
-                                        onClick={() => handleOpenEditOpenPlay(event)}
-                                        title="Edit Event"
-                                        className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-                                      >
-                                        <Edit2 className="w-3.5 h-3.5" />
-                                      </button>
-
-                                      <button
-                                        onClick={() => setDeletingOpenPlayEvent(event)}
-                                        title="Delete Event"
-                                        className="p-1.5 rounded-lg bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white transition-all cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  /* CARDS GRID VIEW */
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {displayedAdminEvents.map((event) => {
-                        const isExpired = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired';
-                        const eventRegs = openPlayRegistrations.filter(r => r.eventId === event.id && r.status !== 'cancelled');
-                        const pendingRegsCount = openPlayRegistrations.filter(r => r.eventId === event.id && r.paymentStatus === 'pending_verification').length;
-                        const totalSpots = eventRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
-                        
-                        return (
-                          <div key={event.id} className={`glass-panel border rounded-3xl p-5 relative overflow-hidden flex flex-col justify-between transition-all group shadow-lg ${
-                            isExpired ? 'border-slate-800/60 bg-slate-950/40 opacity-90' : 'border-slate-800 hover:border-slate-700'
-                          }`}>
-                            <div>
-                              {/* Poster Header */}
-                              <div className="w-full aspect-[16/9] rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden relative mb-4">
-                                {event.posterImageUrl ? (
-                                  <img src={event.posterImageUrl} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                                ) : (
-                                  <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-slate-900 to-slate-950">
-                                    <Trophy className="w-8 h-8 text-brand-lime/40 mb-1" />
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Open Play Event</span>
-                                  </div>
-                                )}
-
-                                <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap">
-                                  {isExpired ? (
-                                    <div className="px-2.5 py-0.5 rounded-full bg-amber-500/90 backdrop-blur-md border border-amber-400/50 text-dark-bg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
-                                      <span>⏰ EXPIRED / CONCLUDED</span>
-                                    </div>
-                                  ) : (
-                                    <div className="px-2.5 py-0.5 rounded-full bg-brand-lime backdrop-blur-md text-dark-bg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
-                                      <span>🟢 ACTIVE SESSION</span>
-                                    </div>
-                                  )}
-
-                                  <div className="px-2 py-0.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider">
-                                    {event.category}
-                                  </div>
-
-                                  {event.isRecurring && (
-                                    <div className="px-2 py-0.5 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                                      <Repeat className="w-2.5 h-2.5" />
-                                      <span>Recurring</span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700 text-white font-mono font-bold text-[11px]">
-                                  {event.registrationFee > 0 ? `₱${event.registrationFee}` : 'FREE'}
-                                </div>
-                              </div>
-
-                              <div className="flex items-start justify-between gap-2 mb-2">
-                                <h4 className="text-base font-extrabold text-white leading-tight">{event.title}</h4>
-                              </div>
-
-                              {event.isRecurring && event.recurrencePattern && (
-                                <div className="mb-2.5">
-                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-purple-300 bg-purple-950/30 border border-purple-800/40 px-2.5 py-0.5 rounded-lg">
-                                    <Repeat className="w-3 h-3 text-purple-400" />
-                                    <span>{event.recurrencePattern}</span>
-                                  </span>
-                                </div>
-                              )}
-
-                              <div className="space-y-1.5 text-xs text-slate-400 mb-4">
-                                <div className="flex items-center gap-2">
-                                  <Calendar className="w-3.5 h-3.5 text-brand-lime flex-shrink-0" />
-                                  <span className={isExpired ? 'text-amber-400/90 font-medium' : ''}>
-                                    {formatEventDateLong(event.eventDate)} ({formatTime12h(event.startTime)} - {formatTime12h(event.endTime)})
-                                  </span>
-                                </div>
-                                {event.location && (() => {
-                                  const { primary, secondary } = splitAddressComponents(event.location);
-                                  return (
-                                    <div className="flex items-start gap-2">
-                                      <MapPin className="w-3.5 h-3.5 text-brand-emerald flex-shrink-0 mt-0.5" />
-                                      <div className="text-xs text-slate-300 leading-tight">
-                                        <div className="font-semibold text-white">{primary}</div>
-                                        {secondary && (
-                                          <div className="text-[11px] text-slate-400 font-medium mt-0.5">{secondary}</div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-                                <div className="flex items-center gap-2">
-                                  <Users className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-                                  <span className="font-bold text-slate-200">
-                                    {totalSpots} / {event.maxParticipants} Players Registered
-                                  </span>
-                                </div>
-                              {event.courtNames && event.courtNames.length > 0 && (
-                                <div className="flex items-center gap-2 text-[11px] text-slate-300">
-                                  <Building2 className="w-3.5 h-3.5 text-brand-lime flex-shrink-0" />
-                                  <span className="truncate">
-                                    <strong className="text-white font-bold">{event.courtNames.length} {event.courtNames.length === 1 ? 'Court' : 'Courts'}:</strong> {event.courtNames.join(', ')}
-                                  </span>
-                                </div>
-                              )}
-                              {event.gcashName && (
-                                <div className="flex items-center gap-2 text-[11px]">
-                                  <CreditCard className="w-3.5 h-3.5 text-brand-emerald flex-shrink-0" />
-                                  <span>GCash: <strong className="text-slate-300">{event.gcashName}</strong> ({event.gcashNumber})</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="pt-3 border-t border-dark-border/40 flex flex-col gap-2 mt-auto">
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleCopyShareableLink(event.id)}
-                                className="flex-1 py-2 px-3 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer"
-                              >
-                                <Share2 className="w-3.5 h-3.5" /> Share
-                              </button>
-
-                              <button
-                                onClick={() => setSelectedEventForRegs(event)}
-                                className="py-2 px-3 rounded-xl bg-slate-900 border border-slate-700 text-white hover:bg-slate-800 transition-all font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer relative"
-                              >
-                                <Users className="w-3.5 h-3.5" /> Roster
-                                {pendingRegsCount > 0 && (
-                                  <span className="px-1.5 py-0.2 rounded-full bg-red-500 text-white text-[10px] font-black">
-                                    {pendingRegsCount}
-                                  </span>
-                                )}
-                              </button>
-
-                              <button
-                                onClick={() => handleDuplicateOpenPlayEvent(event)}
-                                title="Duplicate session"
-                                className="py-2 px-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 text-purple-300 hover:bg-purple-900 transition-all cursor-pointer"
-                              >
-                                <Copy className="w-3.5 h-3.5" />
-                              </button>
-
-                              <button
-                                onClick={() => handleExportOpenPlayRoster(event)}
-                                title="Export roster CSV"
-                                className="py-2 px-2.5 rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all cursor-pointer"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleToggleEventStatus(event)}
-                                className={`text-xs font-bold transition-colors cursor-pointer px-2 py-1 ${
-                                  isExpired ? 'text-brand-lime hover:underline' : 'text-amber-400 hover:underline'
-                                }`}
-                              >
-                                {isExpired ? 'Reopen Session' : 'Mark Concluded'}
-                              </button>
-                              <button
-                                onClick={() => handleOpenEditOpenPlay(event)}
-                                className="text-xs text-slate-400 hover:text-white font-bold transition-colors cursor-pointer px-2 py-1"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => setDeletingOpenPlayEvent(event)}
-                                className="text-xs text-red-400 hover:text-red-300 font-bold transition-colors cursor-pointer px-2 py-1"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            );
-          })()}
+              }}
+              onRejectBooking={(booking) => {
+                setRejectCheckoutModalBooking(booking);
+                setRejectReasonOption('invalid_ref');
+                setRejectCustomReason('');
+                setRejectSendEmail(true);
+              }}
+              onRefundBooking={(booking) => {
+                setRefundModalBooking(booking);
+                setRefundAmountInput(booking.totalCost.toString());
+                setRefundReasonInput(booking.refundRequestReason ? `Player Requested: ${booking.refundRequestReason}` : '');
+                setRefundReceiptFile(null);
+                setRefundReceiptBase64('');
+                setRefundReceiptName('');
+                setRefundError(null);
+              }}
+              onViewReceipt={(receiptUrl) => setReceiptLightboxImage(receiptUrl)}
+              personalAccounts={personalAccounts}
+              globalGcashName={globalGcashNameSetting}
+              globalGcashNumber={globalGcashNumberSetting}
+              globalGcashQr={globalGcashQrSetting}
+              onOpenGcashModal={handleOpenSettingsModal}
+              onDeleteGcashAccount={(id) => handleDeleteCheckoutSettings('my', id)}
+              formatEventDateLong={formatEventDateLong}
+              formatDateLabel={formatDateLabel}
+              formatTime12h={formatTime12h}
+              formatTimestamp={formatTimestamp}
+            />
+          )}
+
+          {activeTab === 'openplay' && (
+            <AdminOpenPlayTab
+              events={openPlayEvents}
+              openPlayRegistrations={openPlayRegistrations}
+              selectedEventForRegs={selectedEventForRegs}
+              setSelectedEventForRegs={setSelectedEventForRegs}
+              onOpenCreateModal={handleOpenCreateOpenPlay}
+              onOpenEditModal={handleOpenEditOpenPlay}
+              onDeleteEvent={(id) => { const ev = openPlayEvents.find(x => x.id === id); if (ev) setDeletingOpenPlayEvent(ev); }}
+              onCopyShareLink={handleCopyShareableLink}
+              onDuplicateEvent={handleDuplicateOpenPlayEvent}
+              onToggleStatus={handleToggleEventStatus}
+              onExportRoster={handleExportOpenPlayRoster}
+              onViewReceipt={(receiptUrl) => setReceiptLightboxImage(receiptUrl)}
+              onRefreshEvents={fetchData}
+              formatEventDateLong={formatEventDateLong}
+              formatTime12h={formatTime12h}
+            />
+          )}
+
+          {activeTab === 'vouchers' && (
+            <AdminVouchersTab
+              vouchers={vouchers}
+              onOpenCreateVoucherModal={handleOpenCreateVoucher}
+              onDeleteVoucher={handleRevokeVoucher}
+              onCopyVoucherCode={(code) => { navigator.clipboard.writeText(code); }}
+            />
+          )}
+
+          {activeTab === 'shortener' && (
+            <AdminShortenerTab
+              shortLinks={shortLinks}
+              loading={loading}
+              onCreateShortLink={async (data) => {
+                const baseAppUrl = import.meta.env.VITE_APP_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://bookpicklecourt.com');
+                const cleanBaseUrl = baseAppUrl.replace(/\/+$/, '');
+                const slugToUse = data.shortSlug || Math.random().toString(36).substring(2, 8);
+                const shortUrl = `${cleanBaseUrl}/s/${slugToUse}`;
+
+                const newLink: ShortLink = {
+                  id: `sl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+                  title: data.title,
+                  shortSlug: slugToUse,
+                  shortUrl,
+                  originalUrl: data.originalUrl,
+                  createdByEmail: user?.email || '',
+                  createdAt: new Date().toISOString(),
+                  clickCount: 0,
+                };
+
+                if (isFirebaseConfigured && db) {
+                  try {
+                    await setDoc(doc(db, 'short_links', newLink.id), newLink);
+                  } catch (err) {
+                    console.error('Error saving short link to Firestore:', err);
+                  }
+                }
+
+                const existingStr = localStorage.getItem('picklepoint_short_links');
+                const existingList: ShortLink[] = existingStr ? JSON.parse(existingStr) : [];
+                const updatedList = [newLink, ...existingList];
+                localStorage.setItem('picklepoint_short_links', JSON.stringify(updatedList));
+
+                setShortLinks((prev) => [newLink, ...prev]);
+              }}
+              onDeleteShortLink={async (id) => {
+                if (isFirebaseConfigured && db) {
+                  try {
+                    const { deleteDoc, doc } = await import('firebase/firestore');
+                    await deleteDoc(doc(db, 'short_links', id));
+                  } catch (err) {
+                    console.error('Error deleting short link from Firestore:', err);
+                  }
+                }
+
+                const existingStr = localStorage.getItem('picklepoint_short_links');
+                if (existingStr) {
+                  const existingList: ShortLink[] = JSON.parse(existingStr);
+                  const updatedList = existingList.filter((l) => l.id !== id);
+                  localStorage.setItem('picklepoint_short_links', JSON.stringify(updatedList));
+                }
+
+                setShortLinks((prev) => prev.filter((l) => l.id !== id));
+              }}
+              defaultVenueUrl={`${(import.meta.env.VITE_APP_BASE_URL || window.location.origin).replace(/\/+$/, '')}/venue/${orgSubdomain || myCompany?.id || 'picklezone1'}`}
+            />
+          )}
+
+          {activeTab === 'policies' && (
+            <AdminPoliciesTab
+              policies={{
+                cancellationPolicy: policyCancellation,
+                rulesPolicy: policyRules,
+                weatherPolicy: policyWeather,
+                equipmentPolicy: policyEquipment,
+              }}
+              onSavePolicies={async (newP) => {
+                setPolicyCancellation(newP.cancellationPolicy || '');
+                setPolicyRules(newP.rulesPolicy || '');
+                setPolicyWeather(newP.weatherPolicy || '');
+                setPolicyEquipment(newP.equipmentPolicy || '');
+                await handleSavePolicies();
+              }}
+            />
+          )}
+
+          {activeTab === 'users' && (
+            <AdminUsersTab
+              users={filteredUsers}
+              isSuperAdmin={isSuperAdmin}
+              onEditUser={(u) => handleOpenEditUser(u)}
+              onToggleStatus={(uid, currentStatus) => handleQuickToggleUserStatus(uid, currentStatus)}
+              onDeleteUser={(u) => {
+                const target = typeof u === 'string' ? users.find(x => x.uid === u || x.email === u) : u;
+                if (target) handlePromptDeleteUser(target);
+              }}
+              onOpenInviteModal={() => setInviteModalOpen(true)}
+            />
+          )}
+
+          {activeTab === 'settings' && (
+            <AdminSettingsTab
+              user={user}
+              settingsSubTab={settingsSubTab}
+              setSettingsSubTab={setSettingsSubTab}
+              adminDisplayName={adminDisplayName}
+              setAdminDisplayName={setAdminDisplayName}
+              adminPhone={adminPhone}
+              setAdminPhone={setAdminPhone}
+              onSaveAdminProfile={handleSaveAdminPersonalProfile}
+              companyProfile={currentCompany}
+              orgProfileName={orgProfileName}
+              setOrgProfileName={setOrgProfileName}
+              orgProfilePhone={orgProfilePhone}
+              setOrgProfilePhone={setOrgProfilePhone}
+              orgAddressLine1={orgAddressLine1}
+              setOrgAddressLine1={setOrgAddressLine1}
+              orgAddressLine2={orgAddressLine2}
+              setOrgAddressLine2={setOrgAddressLine2}
+              orgPostalCode={orgPostalCode}
+              setOrgPostalCode={setOrgPostalCode}
+              orgCountry={orgCountry}
+              setOrgCountry={setOrgCountry}
+              orgSelectedRegion={orgSelectedRegion}
+              orgSelectedProvince={orgSelectedProvince}
+              orgSelectedCity={orgSelectedCity}
+              orgSelectedBarangay={orgSelectedBarangay}
+              orgProvinces={orgProvinces}
+              orgCities={orgCities}
+              orgBarangays={orgBarangays}
+              handleOrgRegionChange={handleOrgRegionChange}
+              handleOrgProvinceChange={handleOrgProvinceChange}
+              handleOrgCityChange={handleOrgCityChange}
+              handleOrgBarangayChange={handleOrgBarangayChange}
+              orgProfileWebsite={orgProfileWebsite}
+              setOrgProfileWebsite={setOrgProfileWebsite}
+              orgProfileFacebook={orgProfileFacebook}
+              setOrgProfileFacebook={setOrgProfileFacebook}
+              orgProfileInstagram={orgProfileInstagram}
+              setOrgProfileInstagram={setOrgProfileInstagram}
+              orgProfileLogoUrl={orgProfileLogoUrl}
+              setOrgProfileLogoUrl={setOrgProfileLogoUrl}
+              orgSubdomain={orgSubdomain}
+              setOrgSubdomain={setOrgSubdomain}
+              processOrgLogoFile={processOrgLogoFile}
+              orgOperatingHours={orgOperatingHours}
+              setOrgOperatingHours={setOrgOperatingHours}
+              handleToggleDayOff={handleToggleDayOff}
+              handleDayTimeChange={handleDayTimeChange}
+              handleApplyMonToAll={handleApplyMonToAll}
+              onSaveOrgProfile={handleSaveOrgProfile}
+              personalAccounts={personalAccounts}
+              globalGcashName={globalGcashNameSetting}
+              globalGcashNumber={globalGcashNumberSetting}
+              globalGcashQr={globalGcashQrSetting}
+              onOpenGcashModal={handleOpenSettingsModal}
+              onDeleteGcashAccount={(id) => handleDeleteCheckoutSettings('my', id)}
+              paymentReminderSettings={paymentReminderSettings}
+              setPaymentReminderSettings={setPaymentReminderSettings}
+              onSavePaymentReminderSettings={handleSavePaymentReminderSettings}
+              onRequestNotificationPermission={requestNotificationPermission}
+              onTestReminderAlert={handleTestReminderAlert}
+              onTestReminderEmail={handleTestReminderEmail}
+              bookingLeadTimeMinutes={bookingLeadTimeMinutes}
+              onSaveLeadTime={async (min) => { setBookingLeadTimeMinutes(min); await handleSaveLeadTimeSettings(); }}
+              globalServiceFee={globalServiceFeeSetting}
+              globalServiceFeeEnabled={globalServiceFeeEnabled}
+              onSaveServiceFee={async (fee, enabled) => {
+                await handleSaveServiceFee(fee, enabled);
+              }}
+              policies={{
+                cancellationPolicy: policyCancellation,
+                rulesPolicy: policyRules,
+                weatherPolicy: policyWeather,
+                equipmentPolicy: policyEquipment,
+              }}
+              onSavePolicies={async (newP) => {
+                setPolicyCancellation(newP.cancellationPolicy || '');
+                setPolicyRules(newP.rulesPolicy || '');
+                setPolicyWeather(newP.weatherPolicy || '');
+                setPolicyEquipment(newP.equipmentPolicy || '');
+                await handleSavePolicies();
+              }}
+              isSuperAdmin={isSuperAdmin}
+            />
+          )}
+
+          {activeTab === 'service_fee' && isSuperAdmin && (
+            <AdminServiceFeeTab
+              globalServiceFee={globalServiceFeeSetting}
+              globalServiceFeeEnabled={globalServiceFeeEnabled}
+              onSaveServiceFee={async (fee, enabled) => {
+                await handleSaveServiceFee(fee, enabled);
+              }}
+              bookings={bookings}
+              companies={companies}
+              formatEventDateLong={formatEventDateLong}
+            />
+          )}
         </div>
-      )
-    )}
-
-            {/* POLICIES MANAGER TAB */}
-            {activeTab === 'policies' && (
-              <div className="space-y-6 animate-fade-in text-left">
-                  {/* Header Card */}
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="p-3 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
-                          <FileText className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-extrabold text-white">
-                            Venue Policies & Court Rules Manager
-                          </h3>
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            Generate 1-click standard policies or write custom rules. Generated policies are editable anytime in the future and display directly on the public court booking page.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Court Selector */}
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5 text-brand-lime" /> Select Court:
-                        </label>
-                        <select
-                          value={selectedPolicyCourtId}
-                          onChange={(e) => setSelectedPolicyCourtId(e.target.value)}
-                          className="px-4 py-2.5 bg-slate-900 border border-slate-700 text-xs font-bold text-slate-100 rounded-xl focus:outline-none focus:border-brand-lime cursor-pointer transition-all shadow-sm"
-                        >
-                          {courts.filter((c) => c.ownerId === currentUserUid).map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4 Policy Editor Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 1. Cancellation Policy */}
-                    <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-brand-lime" />
-                            1. Cancellation & Refund Policy
-                          </h4>
-                          <button
-                            onClick={() => {
-                              setPolicyCancellation(
-                                '• Full Refund (100%): Cancellations submitted at least 24 hours prior to scheduled court time.\n• 50% Credit Voucher: Cancellations submitted between 12 to 24 hours prior to start time.\n• Non-Refundable: Cancellations made within 12 hours of booking time are non-refundable.\n• Rebooking: Free date/time rescheduling allowed up to 12 hours before match.'
-                              );
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" /> Auto-Generate
-                          </button>
-                        </div>
-
-                        <textarea
-                          rows={5}
-                          value={policyCancellation}
-                          onChange={(e) => setPolicyCancellation(e.target.value)}
-                          placeholder="Type or click 'Auto-Generate' to populate standard cancellation terms..."
-                          className="w-full bg-slate-900 border border-slate-800 text-white text-xs font-medium rounded-2xl p-4 focus:outline-none focus:border-brand-lime transition-all resize-none leading-relaxed"
-                        ></textarea>
-                      </div>
-                      <p className="text-[11px] text-slate-500 italic">
-                        💡 You can edit or modify these cancellation terms anytime in the future.
-                      </p>
-                    </div>
-
-                    {/* 2. Court Rules */}
-                    <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                            <Shield className="w-4 h-4 text-brand-lime" />
-                            2. Court Rules & Player Etiquette
-                          </h4>
-                          <button
-                            onClick={() => {
-                              setPolicyRules(
-                                '1. Non-marking athletic court shoes are strictly required on all court surfaces.\n2. Paddle rotation rules apply during open play and peak hours.\n3. No glass containers, food, or alcohol allowed inside playing enclosures.\n4. Treat all players, staff, and opponents with sportsmanship and respect.'
-                              );
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" /> Auto-Generate
-                          </button>
-                        </div>
-
-                        <textarea
-                          rows={5}
-                          value={policyRules}
-                          onChange={(e) => setPolicyRules(e.target.value)}
-                          placeholder="Type or click 'Auto-Generate' to populate standard court rules..."
-                          className="w-full bg-slate-900 border border-slate-800 text-white text-xs font-medium rounded-2xl p-4 focus:outline-none focus:border-brand-lime transition-all resize-none leading-relaxed"
-                        ></textarea>
-                      </div>
-                      <p className="text-[11px] text-slate-500 italic">
-                        💡 You can edit or modify these court rules anytime in the future.
-                      </p>
-                    </div>
-
-                    {/* 3. Rainout Policy */}
-                    <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                            <CloudRain className="w-4 h-4 text-brand-lime" />
-                            3. Rainout & Weather Policy
-                          </h4>
-                          <button
-                            onClick={() => {
-                              setPolicyWeather(
-                                '• Weather Stoppage: For outdoor courts, matches interrupted by rain or severe weather before 30 minutes played will receive a 100% rebooking voucher.\n• Pro-Rated Voucher: Matches interrupted after 30 minutes will receive a 50% rebooking credit.\n• Indoor Courts: Indoor reservations remain unaffected by outdoor weather.'
-                              );
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" /> Auto-Generate
-                          </button>
-                        </div>
-
-                        <textarea
-                          rows={5}
-                          value={policyWeather}
-                          onChange={(e) => setPolicyWeather(e.target.value)}
-                          placeholder="Type or click 'Auto-Generate' to populate weather policies..."
-                          className="w-full bg-slate-900 border border-slate-800 text-white text-xs font-medium rounded-2xl p-4 focus:outline-none focus:border-brand-lime transition-all resize-none leading-relaxed"
-                        ></textarea>
-                      </div>
-                      <p className="text-[11px] text-slate-500 italic">
-                        💡 You can edit or modify these weather policies anytime in the future.
-                      </p>
-                    </div>
-
-                    {/* 4. Equipment Rental Guidelines */}
-                    <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-                          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                            <Trophy className="w-4 h-4 text-brand-lime" />
-                            4. Equipment Rental Guidelines
-                          </h4>
-                          <button
-                            onClick={() => {
-                              setPolicyEquipment(
-                                '• Return Policy: All rented paddles, balls, and ball machines must be returned to the reception desk immediately following session end.\n• Gear Care: Renter is responsible for proper care. Damaged or unreturned paddles are subject to replacement fees (₱1,500 per paddle).'
-                              );
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" /> Auto-Generate
-                          </button>
-                        </div>
-
-                        <textarea
-                          rows={5}
-                          value={policyEquipment}
-                          onChange={(e) => setPolicyEquipment(e.target.value)}
-                          placeholder="Type or click 'Auto-Generate' to populate rental guidelines..."
-                          className="w-full bg-slate-900 border border-slate-800 text-white text-xs font-medium rounded-2xl p-4 focus:outline-none focus:border-brand-lime transition-all resize-none leading-relaxed"
-                        ></textarea>
-                      </div>
-                      <p className="text-[11px] text-slate-500 italic">
-                        💡 You can edit or modify these rental terms anytime in the future.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Save Button */}
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="text-xs text-slate-400">
-                      Changes saved will instantly update the public Court Details page for players.
-                    </div>
-
-                    <button
-                      onClick={handleSavePolicies}
-                      disabled={actionLoading !== null}
-                      className="px-8 py-3.5 rounded-2xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-brand-lime/20"
-                    >
-                      {actionLoading !== null ? <Loader2 className="w-4 h-4 animate-spin text-dark-bg" /> : <Check className="w-4 h-4" />}
-                      <span>Save Venue Policies</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* VOUCHERS & PROMOS MANAGER TAB */}
-              {activeTab === 'vouchers' && (
-                <div className="space-y-6 animate-fade-in text-left">
-                  {/* Header */}
-                  <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
-                        <Tag className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-extrabold text-white">
-                          Vouchers & Promos Manager
-                        </h3>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          Issue credit vouchers for cancellation refunds, rainout weather stoppages, or active promo campaigns.
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={handleOpenCreateVoucher}
-                      className="px-5 py-3 rounded-2xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-brand-lime/20 flex-shrink-0"
-                    >
-                      <Plus className="w-4 h-4" /> Issue New Voucher / Promo Code
-                    </button>
-                  </div>
-
-                  {/* Vouchers Table */}
-                  <div className="glass-panel border border-slate-800 rounded-3xl overflow-hidden shadow-2xl relative">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-dark-border/60 bg-slate-900/30 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
-                            <th className="py-4 px-6">Voucher Code</th>
-                            <th className="py-4 px-6">Type & Discount</th>
-                            <th className="py-4 px-6">Assigned Recipient</th>
-                            <th className="py-4 px-6 text-center">Expiration</th>
-                            <th className="py-4 px-6 text-center">Uses</th>
-                            <th className="py-4 px-6 text-center">Status</th>
-                            <th className="py-4 px-6 text-center">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-dark-border/40 text-xs">
-                          {vouchers.length === 0 ? (
-                            <tr>
-                              <td colSpan={7} className="py-16 text-center text-slate-500">
-                                <Tag className="w-8 h-8 mx-auto text-slate-600 mb-3" />
-                                <p className="font-bold text-white text-sm">No credit vouchers or promos created yet</p>
-                                <p className="text-xs text-slate-500 mt-1">Click "Issue New Voucher" above or cancel a booking with voucher credit option.</p>
-                              </td>
-                            </tr>
-                          ) : (
-                            vouchers.map((v) => (
-                              <tr key={v.id} className="hover:bg-slate-900/10 transition-colors">
-                                <td className="py-4 px-6">
-                                  <div className="font-mono font-extrabold text-brand-lime text-sm tracking-wider flex items-center gap-2">
-                                    {v.code}
-                                    <button
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(v.code);
-                                        alert(`Copied ${v.code} to clipboard!`);
-                                      }}
-                                      title="Copy Code"
-                                      className="text-slate-500 hover:text-white transition-colors cursor-pointer"
-                                    >
-                                      <Share2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                  <div className="text-[10px] text-slate-500 font-mono mt-0.5">Created: {new Date(v.createdAt).toLocaleDateString()}</div>
-                                </td>
-
-                                <td className="py-4 px-6">
-                                  <div className="font-bold text-white text-xs uppercase">
-                                    {v.discountType === 'percentage' ? `${v.discountValue}% OFF` : `₱${v.discountValue} OFF`}
-                                  </div>
-                                  <div className="text-[10px] text-slate-400 capitalize">
-                                    {v.type.replace('_', ' ')}
-                                  </div>
-                                </td>
-
-                                <td className="py-4 px-6">
-                                  {v.issuedToEmail ? (
-                                    <div>
-                                      <div className="font-bold text-slate-200">{v.issuedToName || 'Player'}</div>
-                                      <div className="text-[11px] text-brand-lime font-mono">{v.issuedToEmail}</div>
-                                    </div>
-                                  ) : (
-                                    <span className="text-slate-500 italic">Open Promo (Any Player)</span>
-                                  )}
-                                </td>
-
-                                <td className="py-4 px-6 text-center">
-                                  {v.expiryDate ? (
-                                    (() => {
-                                      const isExp = new Date(`${v.expiryDate}T23:59:59`).getTime() < Date.now();
-                                      return (
-                                        <div>
-                                          <div className={`font-mono text-xs font-bold ${isExp ? 'text-red-400 line-through' : 'text-slate-200'}`}>
-                                            {v.expiryDate}
-                                          </div>
-                                          <span className={`text-[10px] font-bold block mt-0.5 ${isExp ? 'text-red-400' : 'text-brand-lime'}`}>
-                                            {isExp ? 'Expired' : 'Active'}
-                                          </span>
-                                        </div>
-                                      );
-                                    })()
-                                  ) : (
-                                    <span className="text-slate-500 italic">No Expiry</span>
-                                  )}
-                                </td>
-
-                                <td className="py-4 px-6 text-center font-bold text-slate-300 font-mono">
-                                  {v.usedCount} / {v.maxUses}
-                                </td>
-
-                                <td className="py-4 px-6 text-center">
-                                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
-                                    v.status === 'active'
-                                      ? 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
-                                      : 'bg-red-500/10 border-red-500/30 text-red-400'
-                                  }`}>
-                                    {v.status}
-                                  </span>
-                                </td>
-
-                                <td className="py-4 px-6 text-center">
-                                  {v.status === 'active' && (
-                                    <button
-                                      onClick={() => handleRevokeVoucher(v.id)}
-                                      className="px-2.5 py-1 rounded-lg bg-red-950/40 border border-red-900/40 text-red-400 font-bold text-[10px] hover:bg-red-600 hover:text-white transition-all cursor-pointer"
-                                    >
-                                      Revoke
-                                    </button>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-          </>
-        )}
       </div>
 
       {/* RECEIPT ZOOM LIGHTBOX OVERLAY */}
@@ -11247,8 +6351,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       {/* ISSUE REFUND MODAL */}
       {refundModalBooking && (
         <div className="fixed inset-0 z-55 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="glass-panel border border-purple-500/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-6 shadow-2xl relative animate-scale-up text-left overflow-y-auto max-h-[90vh]">
-            <div className="flex items-center justify-between border-b border-dark-border pb-4">
+          <div className="glass-panel border border-purple-500/30 rounded-3xl max-w-lg w-full shadow-2xl relative animate-scale-up text-left flex flex-col max-h-[90vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 border-b border-dark-border flex items-center justify-between flex-shrink-0 bg-slate-950/60">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
                   <RotateCcw className="w-5 h-5" />
@@ -11266,336 +6371,339 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               </button>
             </div>
 
-            {/* Mode Selector Pills */}
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setCancellationResolutionMode('refund')}
-                className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
-                  cancellationResolutionMode === 'refund'
-                    ? 'bg-purple-600 border-purple-400 text-white shadow-lg'
-                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                💸 Monetary Refund
-              </button>
-              <button
-                type="button"
-                onClick={() => setCancellationResolutionMode('voucher')}
-                className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
-                  cancellationResolutionMode === 'voucher'
-                    ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg'
-                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                🎟️ Rebooking Voucher
-              </button>
-              <button
-                type="button"
-                onClick={() => setCancellationResolutionMode('no_refund')}
-                className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
-                  cancellationResolutionMode === 'no_refund'
-                    ? 'bg-red-600 border-red-400 text-white shadow-lg'
-                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                ❌ Cancel (No Refund)
-              </button>
-            </div>
-
-            {refundError && (
-              <div className="p-3 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{refundError}</span>
+            {/* Scrollable Modal Content */}
+            <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1 custom-scrollbar">
+              {/* Mode Selector Pills */}
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCancellationResolutionMode('refund')}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
+                    cancellationResolutionMode === 'refund'
+                      ? 'bg-purple-600 border-purple-400 text-white shadow-lg'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  💸 Monetary Refund
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCancellationResolutionMode('voucher')}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
+                    cancellationResolutionMode === 'voucher'
+                      ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  🎟️ Rebooking Voucher
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCancellationResolutionMode('no_refund')}
+                  className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
+                    cancellationResolutionMode === 'no_refund'
+                      ? 'bg-red-600 border-red-400 text-white shadow-lg'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  ❌ Cancel (No Refund)
+                </button>
               </div>
-            )}
 
-            {/* Booking Summary Box */}
-            <div className="p-4 rounded-2xl bg-slate-900/50 border border-dark-border space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">Booking Ref:</span>
-                <span className="font-mono font-bold text-white">{refundModalBooking.bookingReference || refundModalBooking.id}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">Customer:</span>
-                <span className="font-bold text-white">{refundModalBooking.user?.name || 'Customer'} ({refundModalBooking.user?.email || 'N/A'})</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">Original Total Paid:</span>
-                <span className="font-extrabold text-brand-lime">₱{refundModalBooking.totalCost}</span>
-              </div>
-            </div>
-
-            {/* Conditional Form Content by Mode */}
-            <div className="space-y-4">
-              {/* MODE 1: MONETARY REFUND */}
-              {cancellationResolutionMode === 'refund' && (
-                <>
-                  {/* Quick Percentage Refund Selector */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between">
-                      <span>Quick Refund Percentage</span>
-                      <span className="text-[10px] text-purple-400 font-normal normal-case">Or enter custom amount below</span>
-                    </label>
-                    <div className="grid grid-cols-4 gap-2 mb-2">
-                      {[20, 50, 80, 100].map((pct) => {
-                        const calculatedVal = (refundModalBooking.totalCost * (pct / 100));
-                        const calculatedStr = Number.isInteger(calculatedVal) ? calculatedVal.toString() : calculatedVal.toFixed(2);
-                        const isSelected = parseFloat(refundAmountInput || '0') === parseFloat(calculatedStr);
-
-                        return (
-                          <button
-                            key={pct}
-                            type="button"
-                            onClick={() => setRefundAmountInput(calculatedStr)}
-                            className={`py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
-                              isSelected
-                                ? 'bg-purple-600/30 border-purple-400 text-white shadow-lg shadow-purple-500/20 scale-[1.02]'
-                                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-purple-500/50 hover:text-purple-300'
-                            }`}
-                          >
-                            <span className="text-xs font-black">{pct === 100 ? '100% Full' : `${pct}%`}</span>
-                            <span className="text-[10px] font-mono font-bold text-purple-300/80 mt-0.5">₱{calculatedStr}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                      Refund Amount (₱) <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={refundAmountInput}
-                      onChange={(e) => setRefundAmountInput(e.target.value)}
-                      className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-purple-500"
-                      placeholder="Enter amount"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                      Refund Reason / Notes
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={refundReasonInput}
-                      onChange={(e) => setRefundReasonInput(e.target.value)}
-                      className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
-                      placeholder="e.g. GCash transfer sent, Customer requested cancellation..."
-                    />
-                  </div>
-
-                  {/* Receipt File Upload */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                      Upload Refund Receipt Proof <span className="text-red-400">*</span>
-                    </label>
-                    
-                    {refundReceiptBase64 ? (
-                      <div className="relative rounded-2xl border border-purple-500/40 bg-slate-950 p-3 flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <img src={refundReceiptBase64} alt="Refund Receipt Preview" className="w-16 h-16 object-cover rounded-xl border border-slate-800" />
-                          <div className="overflow-hidden">
-                            <p className="text-xs font-bold text-white truncate max-w-[200px]">{refundReceiptName || 'Refund Receipt'}</p>
-                            <p className="text-[10px] text-purple-400 font-semibold mt-0.5">✓ Ready for upload</p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setRefundReceiptFile(null);
-                            setRefundReceiptBase64('');
-                            setRefundReceiptName('');
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 hover:bg-red-900 hover:text-white text-xs font-bold transition-all cursor-pointer"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ) : (
-                      <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-700 hover:border-purple-500/60 rounded-2xl cursor-pointer bg-slate-900/40 hover:bg-slate-900/80 transition-all text-center group">
-                        <Upload className="w-7 h-7 text-slate-500 group-hover:text-purple-400 transition-colors mb-2" />
-                        <span className="text-xs font-bold text-slate-300 group-hover:text-white">Click to upload refund receipt screenshot</span>
-                        <span className="text-[10px] text-slate-500 mt-1">PNG, JPG, WEBP formats accepted</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleRefundReceiptChange}
-                          className="hidden"
-                        />
-                      </label>
-                    )}
-                  </div>
-                </>
+              {refundError && (
+                <div className="p-3 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{refundError}</span>
+                </div>
               )}
 
-              {/* MODE 2: REBOOKING VOUCHER */}
-              {cancellationResolutionMode === 'voucher' && (
-                <>
-                  <div className="p-3.5 bg-brand-lime/10 border border-brand-lime/30 rounded-2xl flex items-start gap-3">
-                    <Tag className="w-5 h-5 text-brand-lime shrink-0 mt-0.5" />
-                    <div className="text-xs text-slate-300">
-                      <p className="font-bold text-white mb-0.5">Automated Digital Credit Voucher</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        A unique single-use voucher code (e.g. <span className="font-mono text-brand-lime font-bold">CREDIT-XXXX-XXX</span>) will be automatically generated and emailed to <strong className="text-white">{refundModalBooking.user?.email || 'the player'}</strong>. No receipt upload is required.
-                      </p>
-                    </div>
-                  </div>
+              {/* Booking Summary Box */}
+              <div className="p-4 rounded-2xl bg-slate-900/50 border border-dark-border space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Booking Ref:</span>
+                  <span className="font-mono font-bold text-white">{refundModalBooking.bookingReference || refundModalBooking.id}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Customer:</span>
+                  <span className="font-bold text-white">{refundModalBooking.user?.name || 'Customer'} ({refundModalBooking.user?.email || 'N/A'})</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Original Total Paid:</span>
+                  <span className="font-extrabold text-brand-lime">₱{refundModalBooking.totalCost}</span>
+                </div>
+              </div>
 
-                  {/* Quick Percentage Voucher Value Selector */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between">
-                      <span>Voucher Credit Percentage</span>
-                      <span className="text-[10px] text-brand-lime font-normal normal-case">Or enter custom value below</span>
-                    </label>
-                    <div className="grid grid-cols-4 gap-2 mb-2">
-                      {[20, 50, 80, 100].map((pct) => {
-                        const calculatedVal = (refundModalBooking.totalCost * (pct / 100));
-                        const calculatedStr = Number.isInteger(calculatedVal) ? calculatedVal.toString() : calculatedVal.toFixed(2);
-                        const isSelected = parseFloat(refundAmountInput || '0') === parseFloat(calculatedStr);
+              {/* Conditional Form Content by Mode */}
+              <div className="space-y-4">
+                {/* MODE 1: MONETARY REFUND */}
+                {cancellationResolutionMode === 'refund' && (
+                  <>
+                    {/* Quick Percentage Refund Selector */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between">
+                        <span>Quick Refund Percentage</span>
+                        <span className="text-[10px] text-purple-400 font-normal normal-case">Or enter custom amount below</span>
+                      </label>
+                      <div className="grid grid-cols-4 gap-2 mb-2">
+                        {[20, 50, 80, 100].map((pct) => {
+                          const calculatedVal = (refundModalBooking.totalCost * (pct / 100));
+                          const calculatedStr = Number.isInteger(calculatedVal) ? calculatedVal.toString() : calculatedVal.toFixed(2);
+                          const isSelected = parseFloat(refundAmountInput || '0') === parseFloat(calculatedStr);
 
-                        return (
-                          <button
-                            key={pct}
-                            type="button"
-                            onClick={() => setRefundAmountInput(calculatedStr)}
-                            className={`py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
-                              isSelected
-                                ? 'bg-brand-lime/20 border-brand-lime text-brand-lime shadow-lg scale-[1.02]'
-                                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-brand-lime/50 hover:text-brand-lime'
-                            }`}
-                          >
-                            <span className="text-xs font-black">{pct === 100 ? '100% Full' : `${pct}%`}</span>
-                            <span className="text-[10px] font-mono font-bold text-brand-lime/80 mt-0.5">₱{calculatedStr}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                      Voucher Credit Value (₱) <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={refundAmountInput}
-                      onChange={(e) => setRefundAmountInput(e.target.value)}
-                      className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-brand-lime"
-                      placeholder="Enter voucher amount"
-                    />
-                  </div>
-
-                  {/* Expiration Duration & Validity Selector */}
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-brand-lime" /> Validity Period / Expiration Date
-                      </span>
-                      <span className="text-[10px] text-brand-lime font-mono font-bold">
-                        Valid until: {(() => {
-                          const d = new Date();
-                          d.setDate(d.getDate() + (Number(refundVoucherExpiryDays) || 30));
-                          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                        })()}
-                      </span>
-                    </label>
-
-                    <div className="grid grid-cols-4 gap-2">
-                      {[
-                        { days: 15, label: '15 Days' },
-                        { days: 30, label: '1 Month', badge: 'Default' },
-                        { days: 60, label: '2 Months' },
-                        { days: 90, label: '3 Months' },
-                      ].map((preset) => {
-                        const isSelected = refundVoucherExpiryDays === preset.days;
-                        return (
-                          <button
-                            key={preset.days}
-                            type="button"
-                            onClick={() => setRefundVoucherExpiryDays(preset.days)}
-                            className={`py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
-                              isSelected
-                                ? 'bg-brand-lime/20 border-brand-lime text-brand-lime shadow-lg scale-[1.02]'
-                                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-brand-lime/50 hover:text-brand-lime'
-                            }`}
-                          >
-                            <span className="text-xs font-black">{preset.label}</span>
-                            {preset.badge && (
-                              <span className="text-[9px] font-mono text-brand-lime/80 mt-0.5">({preset.badge})</span>
-                            )}
-                          </button>
-                        );
-                      })}
+                          return (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => setRefundAmountInput(calculatedStr)}
+                              className={`py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'bg-purple-600/30 border-purple-400 text-white shadow-lg shadow-purple-500/20 scale-[1.02]'
+                                  : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-purple-500/50 hover:text-purple-300'
+                              }`}
+                            >
+                              <span className="text-xs font-black">{pct === 100 ? '100% Full' : `${pct}%`}</span>
+                              <span className="text-[10px] font-mono font-bold text-purple-300/80 mt-0.5">₱{calculatedStr}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pt-1">
-                      <span className="text-[11px] text-slate-400">Custom Duration:</span>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Refund Amount (₱) <span className="text-red-400">*</span>
+                      </label>
                       <input
                         type="number"
-                        min="1"
-                        max="365"
-                        value={refundVoucherExpiryDays}
-                        onChange={(e) => setRefundVoucherExpiryDays(Math.max(1, Number(e.target.value)))}
-                        className="w-24 bg-slate-900/80 border border-dark-border rounded-xl px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-brand-lime text-center"
+                        min="0"
+                        step="0.01"
+                        value={refundAmountInput}
+                        onChange={(e) => setRefundAmountInput(e.target.value)}
+                        className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-purple-500"
+                        placeholder="Enter amount"
                       />
-                      <span className="text-[11px] text-slate-500">days from today</span>
                     </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                      Voucher Issue Reason / Notes
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={refundReasonInput}
-                      onChange={(e) => setRefundReasonInput(e.target.value)}
-                      className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-brand-lime"
-                      placeholder="e.g. Rebooking credit for customer rescheduling..."
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* MODE 3: CANCEL WITHOUT REFUND */}
-              {cancellationResolutionMode === 'no_refund' && (
-                <>
-                  <div className="p-3.5 bg-red-950/30 border border-red-900/40 rounded-2xl flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-                    <div className="text-xs text-slate-300">
-                      <p className="font-bold text-red-300 mb-0.5">Non-Refundable Cancellation</p>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        This reservation will be marked as <strong className="text-red-400">Cancelled</strong> with no monetary refund or credit voucher issued per facility terms (e.g. late cancellation within policy window or customer no-show).
-                      </p>
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Refund Reason / Notes
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={refundReasonInput}
+                        onChange={(e) => setRefundReasonInput(e.target.value)}
+                        className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                        placeholder="e.g. GCash transfer sent, Customer requested cancellation..."
+                      />
                     </div>
-                  </div>
 
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                      Cancellation Reason / Policy Note
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={refundReasonInput}
-                      onChange={(e) => setRefundReasonInput(e.target.value)}
-                      className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-red-500"
-                      placeholder="e.g. Late cancellation within 12h policy window, Player no-show..."
-                    />
-                  </div>
-                </>
-              )}
+                    {/* Receipt File Upload */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Upload Refund Receipt Proof <span className="text-red-400">*</span>
+                      </label>
+                      
+                      {refundReceiptBase64 ? (
+                        <div className="relative rounded-2xl border border-purple-500/40 bg-slate-950 p-3 flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <img src={refundReceiptBase64} alt="Refund Receipt Preview" className="w-16 h-16 object-cover rounded-xl border border-slate-800" />
+                            <div className="overflow-hidden">
+                              <p className="text-xs font-bold text-white truncate max-w-[200px]">{refundReceiptName || 'Refund Receipt'}</p>
+                              <p className="text-[10px] text-purple-400 font-semibold mt-0.5">✓ Ready for upload</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRefundReceiptFile(null);
+                              setRefundReceiptBase64('');
+                              setRefundReceiptName('');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 hover:bg-red-900 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-700 hover:border-purple-500/60 rounded-2xl cursor-pointer bg-slate-900/40 hover:bg-slate-900/80 transition-all text-center group">
+                          <Upload className="w-7 h-7 text-slate-500 group-hover:text-purple-400 transition-colors mb-2" />
+                          <span className="text-xs font-bold text-slate-300 group-hover:text-white">Click to upload refund receipt screenshot</span>
+                          <span className="text-[10px] text-slate-500 mt-1">PNG, JPG, WEBP formats accepted</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleRefundReceiptChange}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* MODE 2: REBOOKING VOUCHER */}
+                {cancellationResolutionMode === 'voucher' && (
+                  <>
+                    <div className="p-3.5 bg-brand-lime/10 border border-brand-lime/30 rounded-2xl flex items-start gap-3">
+                      <Tag className="w-5 h-5 text-brand-lime shrink-0 mt-0.5" />
+                      <div className="text-xs text-slate-300">
+                        <p className="font-bold text-white mb-0.5">Automated Digital Credit Voucher</p>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          A unique single-use voucher code (e.g. <span className="font-mono text-brand-lime font-bold">CREDIT-XXXX-XXX</span>) will be automatically generated and emailed to <strong className="text-white">{refundModalBooking.user?.email || 'the player'}</strong>. No receipt upload is required.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Quick Percentage Voucher Value Selector */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between">
+                        <span>Voucher Credit Percentage</span>
+                        <span className="text-[10px] text-brand-lime font-normal normal-case">Or enter custom value below</span>
+                      </label>
+                      <div className="grid grid-cols-4 gap-2 mb-2">
+                        {[20, 50, 80, 100].map((pct) => {
+                          const calculatedVal = (refundModalBooking.totalCost * (pct / 100));
+                          const calculatedStr = Number.isInteger(calculatedVal) ? calculatedVal.toString() : calculatedVal.toFixed(2);
+                          const isSelected = parseFloat(refundAmountInput || '0') === parseFloat(calculatedStr);
+
+                          return (
+                            <button
+                              key={pct}
+                              type="button"
+                              onClick={() => setRefundAmountInput(calculatedStr)}
+                              className={`py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'bg-brand-lime/20 border-brand-lime text-brand-lime shadow-lg scale-[1.02]'
+                                  : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-brand-lime/50 hover:text-brand-lime'
+                              }`}
+                            >
+                              <span className="text-xs font-black">{pct === 100 ? '100% Full' : `${pct}%`}</span>
+                              <span className="text-[10px] font-mono font-bold text-brand-lime/80 mt-0.5">₱{calculatedStr}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Voucher Credit Value (₱) <span className="text-red-400">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={refundAmountInput}
+                        onChange={(e) => setRefundAmountInput(e.target.value)}
+                        className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-brand-lime"
+                        placeholder="Enter voucher amount"
+                      />
+                    </div>
+
+                    {/* Expiration Duration & Validity Selector */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-brand-lime" /> Validity Period / Expiration Date
+                        </span>
+                        <span className="text-[10px] text-brand-lime font-mono font-bold">
+                          Valid until: {(() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + (Number(refundVoucherExpiryDays) || 30));
+                            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                          })()}
+                        </span>
+                      </label>
+
+                      <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { days: 15, label: '15 Days' },
+                          { days: 30, label: '1 Month', badge: 'Default' },
+                          { days: 60, label: '2 Months' },
+                          { days: 90, label: '3 Months' },
+                        ].map((preset) => {
+                          const isSelected = refundVoucherExpiryDays === preset.days;
+                          return (
+                            <button
+                              key={preset.days}
+                              type="button"
+                              onClick={() => setRefundVoucherExpiryDays(preset.days)}
+                              className={`py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
+                                isSelected
+                                  ? 'bg-brand-lime/20 border-brand-lime text-brand-lime shadow-lg scale-[1.02]'
+                                  : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-brand-lime/50 hover:text-brand-lime'
+                              }`}
+                            >
+                              <span className="text-xs font-black">{preset.label}</span>
+                              {preset.badge && (
+                                <span className="text-[9px] font-mono text-brand-lime/80 mt-0.5">({preset.badge})</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-[11px] text-slate-400">Custom Duration:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="365"
+                          value={refundVoucherExpiryDays}
+                          onChange={(e) => setRefundVoucherExpiryDays(Math.max(1, Number(e.target.value)))}
+                          className="w-24 bg-slate-900/80 border border-dark-border rounded-xl px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-brand-lime text-center"
+                        />
+                        <span className="text-[11px] text-slate-500">days from today</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Voucher Issue Reason / Notes
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={refundReasonInput}
+                        onChange={(e) => setRefundReasonInput(e.target.value)}
+                        className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-brand-lime"
+                        placeholder="e.g. Rebooking credit for customer rescheduling..."
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* MODE 3: CANCEL WITHOUT REFUND */}
+                {cancellationResolutionMode === 'no_refund' && (
+                  <>
+                    <div className="p-3.5 bg-red-950/30 border border-red-900/40 rounded-2xl flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                      <div className="text-xs text-slate-300">
+                        <p className="font-bold text-red-300 mb-0.5">Non-Refundable Cancellation</p>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          This reservation will be marked as <strong className="text-red-400">Cancelled</strong> with no monetary refund or credit voucher issued per facility terms (e.g. late cancellation within policy window or customer no-show).
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                        Cancellation Reason / Policy Note
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={refundReasonInput}
+                        onChange={(e) => setRefundReasonInput(e.target.value)}
+                        className="w-full bg-slate-900/80 border border-dark-border rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-red-500"
+                        placeholder="e.g. Late cancellation within 12h policy window, Player no-show..."
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-dark-border">
+            {/* Modal Actions Footer */}
+            <div className="flex items-center justify-end gap-3 p-5 sm:p-6 border-t border-dark-border flex-shrink-0 bg-slate-950/60">
               <button
                 type="button"
                 onClick={() => setRefundModalBooking(null)}
@@ -12246,6 +7354,25 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </div>
 
             <div className="space-y-5">
+              {/* Payment Label / Purpose Name */}
+              {settingsModalType === 'my' && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                    Payment / Account Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Court Booking GCash, Open Play Entry Account, Tournament Account"
+                    value={paymentNameSetting}
+                    onChange={(e) => setPaymentNameSetting(e.target.value)}
+                    className="w-full bg-slate-900/60 border border-dark-border text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    Descriptive label to help identify this GCash account (e.g., Court Reservations, Open Play).
+                  </p>
+                </div>
+              )}
+
               {/* Account Name */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
@@ -12610,7 +7737,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     <option value="">-- Use Default Choice --</option>
                     {personalAccounts.map(a => (
                       <option key={a.id} value={a.id}>
-                        {a.gcashName} ({a.gcashNumber})
+                        {a.paymentName ? `${a.paymentName} — ` : ''}{a.gcashName} ({a.gcashNumber})
                       </option>
                     ))}
                   </select>
@@ -14107,6 +9234,32 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </div>
 
             <form onSubmit={handleSaveEditUser} className="space-y-4">
+              {/* Profile Avatar Preview & Photo URL */}
+              <div className="flex items-center gap-4 p-3 bg-slate-900/60 border border-slate-800 rounded-2xl">
+                <div className="w-12 h-12 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-brand-lime/20">
+                  <img
+                    src={editUserPhotoUrl || `https://robohash.org/${encodeURIComponent(editUserName || editUserEmail || 'User')}?set=set4`}
+                    alt={editUserName}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(editUserName || 'User')}&background=b5f529&color=0f172a&bold=true`;
+                    }}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Profile Avatar URL
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="https://example.com/avatar.jpg"
+                    value={editUserPhotoUrl}
+                    onChange={(e) => setEditUserPhotoUrl(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-950 border border-dark-border text-white rounded-lg text-xs focus:outline-none focus:border-brand-lime"
+                  />
+                </div>
+              </div>
+
               {/* Full Name */}
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
@@ -14221,12 +9374,45 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 <p className="text-xs text-slate-400 mt-1">Configure event details, category, poster image, and choose payment GCash account.</p>
               </div>
 
-              <button
-                onClick={() => setOpenPlayModalOpen(false)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer flex-shrink-0"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {/* Draft vs Live Switch Toggle Beside Close Button */}
+                <div className="flex items-center gap-2.5 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-2xl shadow-inner">
+                  <span className={`text-[10px] font-black uppercase tracking-wider ${
+                    openPlayStatusSetting === 'draft' ? 'text-amber-400' : 'text-slate-400'
+                  }`}>
+                    Draft
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => setOpenPlayStatusSetting(prev => prev === 'draft' ? 'active' : 'draft')}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all cursor-pointer border ${
+                      openPlayStatusSetting === 'active' ? 'bg-brand-lime border-brand-lime shadow-[0_0_10px_rgba(181,245,41,0.3)]' : 'bg-slate-950 border-slate-700'
+                    }`}
+                    title={openPlayStatusSetting === 'draft' ? 'Click to Publish Event Live' : 'Click to Save as Draft (Hidden)'}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full transition-transform ${
+                        openPlayStatusSetting === 'active' ? 'translate-x-6 bg-dark-bg' : 'translate-x-1 bg-amber-400'
+                      }`}
+                    />
+                  </button>
+
+                  <span className={`text-[10px] font-black uppercase tracking-wider ${
+                    openPlayStatusSetting === 'active' ? 'text-brand-lime' : 'text-slate-400'
+                  }`}>
+                    Live
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setOpenPlayModalOpen(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer flex-shrink-0"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <form onSubmit={handleSaveOpenPlayEvent} className="space-y-5 flex-1 overflow-y-auto pr-2 custom-scrollbar flex flex-col">
@@ -14363,6 +9549,37 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     <option value="Doubles">Doubles</option>
                     <option value="Singles">Singles</option>
                   </select>
+                </div>
+
+                {/* Skill Level */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">Skill Level Rating</label>
+                  <select
+                    value={openPlaySkillLevel}
+                    onChange={(e) => setOpenPlaySkillLevel(e.target.value)}
+                    className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
+                  >
+                    <option value="All Skill Levels">All Skill Levels</option>
+                    <option value="2.0 - 2.5 (Beginner)">2.0 - 2.5 (Beginner)</option>
+                    <option value="3.0 - 3.5 (Intermediate)">3.0 - 3.5 (Intermediate)</option>
+                    <option value="3.5 - 4.0 (Advanced)">3.5 - 4.0 (Advanced)</option>
+                    <option value="4.0+ (Competitive / DUPR)">4.0+ (Competitive / DUPR)</option>
+                  </select>
+                </div>
+
+                {/* Host Contact Phone Number */}
+                <div className="space-y-1.5 md:col-span-2">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                    <span>Host / Organizer Contact Phone Number</span>
+                    <span className="text-[10px] text-brand-lime font-normal">Pre-filled from Venue Profile</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={openPlayHostPhone}
+                    onChange={(e) => setOpenPlayHostPhone(e.target.value)}
+                    placeholder="e.g. +63 917 123 4567"
+                    className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
+                  />
                 </div>
 
                 {/* Time Slots */}
@@ -14636,12 +9853,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   >
                     {personalAccounts.map((acc) => (
                       <option key={acc.id} value={acc.id}>
-                        Personal GCash: {acc.gcashName} ({acc.gcashNumber})
+                        {acc.paymentName ? `${acc.paymentName} — ` : ''}{acc.gcashName} ({acc.gcashNumber})
                       </option>
                     ))}
                     {(globalGcashNameSetting || globalGcashNumberSetting) ? (
                       <option value="global">
-                        Global Fallback GCash: {globalGcashNameSetting} ({globalGcashNumberSetting})
+                        {globalGcashNameSetting || 'Global Account'} — ({globalGcashNumberSetting}) [Global Fallback]
                       </option>
                     ) : null}
                   </select>
@@ -15921,8 +11138,233 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           </div>
         </div>
       )}
-        </div>
-      </div>
-    );
-  }
 
+      {/* ========================================================================= */}
+      {/* INVITE USER MODAL                                                         */}
+      {/* ========================================================================= */}
+      {inviteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="glass-panel w-full max-w-lg p-6 rounded-3xl border border-slate-800 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => {
+                setInviteModalOpen(false);
+                setInviteSuccessInfo(null);
+                setCopiedInviteLink(false);
+              }}
+              className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center space-x-3 border-b border-slate-800 pb-4">
+              <div className="w-10 h-10 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-bold">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Invite Platform User</h3>
+                <p className="text-xs text-slate-400">Issue an authorized invitation link to register a new user on Book Picklecourt.</p>
+              </div>
+            </div>
+
+            {/* Role Selection Selector */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">Select Account Role *</label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInviteRoleInput('client_admin')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    inviteRoleInput === 'client_admin'
+                      ? 'bg-brand-lime/10 border-brand-lime text-brand-lime shadow-md shadow-brand-lime/10'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className="text-xs font-extrabold flex items-center gap-1">
+                    🎾 Client Admin
+                  </span>
+                  <span className="text-[10px] opacity-80 mt-1">Court & Facility Host</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setInviteRoleInput('super_admin')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    inviteRoleInput === 'super_admin'
+                      ? 'bg-amber-500/10 border-amber-500 text-amber-400 shadow-md shadow-amber-500/10'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className="text-xs font-extrabold flex items-center gap-1">
+                    🛡️ Super Admin
+                  </span>
+                  <span className="text-[10px] opacity-80 mt-1">Global Platform</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setInviteRoleInput('player')}
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    inviteRoleInput === 'player'
+                      ? 'bg-sky-500/10 border-sky-500 text-sky-400 shadow-md shadow-sky-500/10'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className="text-xs font-extrabold flex items-center gap-1">
+                    ⚡ Player
+                  </span>
+                  <span className="text-[10px] opacity-80 mt-1">Standard Member</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Super Admin Security Alert */}
+            {inviteRoleInput === 'super_admin' && (
+              <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-[11px] flex items-start gap-2 animate-fade-in">
+                <Shield className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <span><strong>Security Notice:</strong> Super Admin role grants full global administrative privileges including managing system fees, viewing revenue, and configuring platform settings.</span>
+              </div>
+            )}
+
+            {inviteSuccessInfo && (
+              <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 text-xs space-y-2 animate-fade-in">
+                <div className="flex items-center space-x-2 font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Invitation successfully created and email dispatched to {inviteSuccessInfo.email}!</span>
+                </div>
+
+                {inviteSuccessInfo.link && (
+                  <div className="pt-2">
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block mb-1">
+                      SHAREABLE INVITATION LINK
+                    </label>
+                    <div className="flex items-center bg-slate-950 border border-slate-800 rounded-xl p-2 font-mono text-[11px] text-brand-lime break-all">
+                      <span className="flex-1 truncate mr-2">{inviteSuccessInfo.link}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(inviteSuccessInfo.link);
+                          setCopiedInviteLink(true);
+                          alert('Invite link copied to clipboard!');
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans font-bold transition-all flex items-center gap-1 cursor-pointer flex-shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>{copiedInviteLink ? 'Copied!' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <form onSubmit={handleSendInviteUser} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Recipient Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={inviteNameInput}
+                  onChange={(e) => setInviteNameInput(e.target.value)}
+                  placeholder="e.g. John Doe"
+                  className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime font-sans"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Recipient Email Address *</label>
+                <input
+                  type="email"
+                  required
+                  value={inviteEmailInput}
+                  onChange={(e) => setInviteEmailInput(e.target.value)}
+                  placeholder="e.g. user@picklezone.ph"
+                  className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime font-mono"
+                />
+              </div>
+
+              {/* Dynamic Field: Facility / Company Name for Client Admin */}
+              {inviteRoleInput === 'client_admin' && (
+                <div className="animate-fade-in">
+                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Assigned Facility / Company Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={inviteCompanyNameInput}
+                    onChange={(e) => setInviteCompanyNameInput(e.target.value)}
+                    placeholder="e.g. PickleZone Libmanan"
+                    className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime"
+                  />
+                </div>
+              )}
+
+              {/* Dynamic Field: Department for Super Admin */}
+              {inviteRoleInput === 'super_admin' && (
+                <div className="animate-fade-in">
+                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Administrative Designation / Department (Optional)</label>
+                  <input
+                    type="text"
+                    value={inviteDepartmentInput}
+                    onChange={(e) => setInviteDepartmentInput(e.target.value)}
+                    placeholder="e.g. Operations & Support Team"
+                    className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime"
+                  />
+                </div>
+              )}
+
+              {/* Dynamic Field: Preferred Facility for Player */}
+              {inviteRoleInput === 'player' && (
+                <div className="animate-fade-in">
+                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Preferred Facility Affiliation (Optional)</label>
+                  <input
+                    type="text"
+                    value={inviteCompanyNameInput}
+                    onChange={(e) => setInviteCompanyNameInput(e.target.value)}
+                    placeholder="e.g. PickleZone Libmanan (or leave blank for Global)"
+                    className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Custom Message / Welcome Note (Optional)</label>
+                <textarea
+                  rows={2}
+                  value={inviteCustomMessage}
+                  onChange={(e) => setInviteCustomMessage(e.target.value)}
+                  placeholder="Welcome to Book Picklecourt! Click the link above to complete your registration."
+                  className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-brand-lime resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInviteModalOpen(false);
+                    setInviteSuccessInfo(null);
+                    setCopiedInviteLink(false);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white font-bold text-xs transition-all cursor-pointer"
+                >
+                  Close
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={inviteLoading}
+                  className="px-5 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] transition-all shadow-lg shadow-brand-lime/20 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>{inviteLoading ? 'Sending Invite...' : `Send ${inviteRoleInput === 'super_admin' ? 'Super Admin' : inviteRoleInput === 'player' ? 'Player' : 'Client Admin'} Invite`}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Global Custom Modal Alert */}
+      <AdminModalAlert alert={modalAlert} onClose={() => setModalAlert((prev) => ({ ...prev, open: false }))} />
+    </div>
+  );
+}

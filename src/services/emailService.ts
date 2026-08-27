@@ -5,7 +5,7 @@ interface SendCustomEmailParams {
   toName: string;
   subject: string;
   message: string;
-  extraParams?: Record<string, any>;
+  extraParams?: Record<string, unknown>;
 }
 
 interface BookingEmailParams {
@@ -131,7 +131,7 @@ const getHostingerMailboxResourceId = async (token: string, senderEmail: string)
     if (res.ok) {
       const json = await res.json();
       const mailboxes = json?.data?.mailboxes || [];
-      const match = mailboxes.find((m: any) => m.address?.toLowerCase() === senderEmail?.toLowerCase()) || mailboxes[0];
+      const match = mailboxes.find((m: { address?: string; resourceId?: string }) => m.address?.toLowerCase() === senderEmail?.toLowerCase()) || mailboxes[0];
       if (match?.resourceId) {
         cachedHostingerMailboxResourceId = match.resourceId;
         lastUsedHostingerToken = token;
@@ -1178,10 +1178,30 @@ export interface ClientAdminInvitationEmailParams {
   expiresAt: string;
   invitedBy?: string;
   customMessage?: string;
+  companyName?: string;
+  role?: 'super_admin' | 'client_admin' | 'player';
 }
 
-export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitationEmailParams): Promise<{ success: boolean; error?: string }> => {
-  const subject = `Official Invitation: Become a Client Admin on Book Picklecourt`;
+export interface UserInvitationEmailParams {
+  toEmail: string;
+  toName?: string;
+  role: 'super_admin' | 'client_admin' | 'player';
+  inviteUrl: string;
+  expiresAt: string;
+  invitedBy?: string;
+  customMessage?: string;
+  companyName?: string;
+}
+
+export const sendUserInvitationEmail = async (params: UserInvitationEmailParams): Promise<{ success: boolean; error?: string }> => {
+  const roleLabels: Record<string, { title: string; badge: string; color: string }> = {
+    super_admin: { title: 'Super Administrator (Global Platform Access)', badge: '🛡️ SUPER ADMIN', color: '#f59e0b' },
+    client_admin: { title: 'Client Admin (Venue & Facility Host)', badge: '🎾 FACILITY HOST', color: '#a6e224' },
+    player: { title: 'Standard Player / Court Member', badge: '⚡ PLAYER ACCOUNT', color: '#38bdf8' },
+  };
+
+  const roleInfo = roleLabels[params.role] || roleLabels.client_admin;
+  const subject = `Official Invitation: Register as ${roleInfo.badge} on Book Picklecourt`;
   const inviteeDisplayName = params.toName || params.toEmail.split('@')[0];
   const formattedExpiry = new Date(params.expiresAt).toLocaleDateString('en-US', {
     weekday: 'short',
@@ -1198,11 +1218,11 @@ export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitati
         Hello <strong style="color: #ffffff;">${inviteeDisplayName}</strong>,
       </p>
       <p style="margin: 0 0 14px 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
-        You have been invited by the Book Picklecourt System Administration${params.invitedBy ? ` (<strong>${params.invitedBy}</strong>)` : ''} to register as an authorized <strong>Client Admin (Venue & Facility Host)</strong> on the Book Picklecourt Platform.
+        You have been invited by Book Picklecourt System Administration${params.invitedBy ? ` (<strong>${params.invitedBy}</strong>)` : ''} to join the platform as a <strong style="color: ${roleInfo.color};">${roleInfo.title}</strong>${params.companyName ? ` for <strong>${params.companyName}</strong>` : ''}.
       </p>
       ${params.customMessage ? `
-        <div style="background-color: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
-          <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.5px; margin-bottom: 4px;">NOTE FROM SUPER ADMIN</div>
+        <div style="background-color: rgba(56, 189, 248, 0.08); border-left: 3px solid ${roleInfo.color}; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
+          <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: ${roleInfo.color}; letter-spacing: 0.5px; margin-bottom: 4px;">NOTE FROM SUPER ADMIN</div>
           <p style="margin: 0; font-size: 12px; color: #bae6fd; font-style: italic; line-height: 1.5;">"${params.customMessage}"</p>
         </div>
       ` : ''}
@@ -1212,11 +1232,11 @@ export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitati
     <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #1e293b; border-radius: 14px; border: 1px solid #334155; margin-bottom: 24px;">
       <tr>
         <td style="padding: 16px;">
-          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #a6e224; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-            🔒 SECURE INVITATION LINK
+          <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: ${roleInfo.color}; letter-spacing: 0.5px; margin-bottom: 8px;">
+            🔒 AUTHORIZED INVITATION LINK (${roleInfo.badge})
           </div>
           <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 6px;">
-            This invitation is strictly designated for: <strong style="color: #a6e224;">${params.toEmail}</strong>
+            Designated Recipient: <strong style="color: #ffffff;">${params.toEmail}</strong>
           </div>
           <div style="font-size: 11px; color: #94a3b8;">
             ⏱️ <strong>Expires:</strong> ${formattedExpiry} (Single-use token)
@@ -1229,7 +1249,7 @@ export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitati
     <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px; margin-bottom: 24px;">
       <tr>
         <td align="center">
-          <a href="${params.inviteUrl}" target="_blank" style="display: inline-block; padding: 14px 36px; background: linear-gradient(135deg, #a6e224 0%, #38bdf8 100%); color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; box-shadow: 0 8px 20px -4px rgba(166, 226, 36, 0.4); text-align: center; letter-spacing: 0.3px;">
+          <a href="${params.inviteUrl}" target="_blank" style="display: inline-block; padding: 14px 36px; background: linear-gradient(135deg, ${roleInfo.color} 0%, #38bdf8 100%); color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; box-shadow: 0 8px 20px -4px rgba(166, 226, 36, 0.4); text-align: center; letter-spacing: 0.3px;">
             Accept Invitation & Complete Registration &rarr;
           </a>
         </td>
@@ -1242,16 +1262,23 @@ export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitati
   `;
 
   const htmlMessage = buildHtmlWrapper(
-    'Client Admin Invitation',
-    'Exclusive Access to Manage Venue & Courts',
+    `${roleInfo.badge} Invitation`,
+    'Official Platform Registration Access',
     bodyContent
   );
 
   return sendCustomUserEmail({
     toEmail: params.toEmail,
-    toName: params.toName || 'Client Admin Invitee',
+    toName: params.toName || 'Invited User',
     subject,
     message: htmlMessage,
+  });
+};
+
+export const sendClientAdminInvitationEmail = async (params: ClientAdminInvitationEmailParams): Promise<{ success: boolean; error?: string }> => {
+  return sendUserInvitationEmail({
+    ...params,
+    role: params.role || 'client_admin',
   });
 };
 

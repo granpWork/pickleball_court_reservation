@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "picklepoint-md"
+    "default": "bookpicklecourt-prod",
+    "staging": "picklepoint-md",
+    "production": "bookpicklecourt-prod"
   }
 }

@@ -12,7 +12,8 @@ import {
   Clock,
   DollarSign,
   Share2,
-  Check
+  Check,
+  ChevronDown
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
@@ -28,6 +29,7 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
   const [registrations, setRegistrations] = useState<OpenPlayRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedEventId, setCopiedEventId] = useState<string | null>(null);
+  const [isCategoryOpen, setIsCategoryOpen] = useState(false);
 
   const handleShareEvent = async (e: React.MouseEvent, event: OpenPlayEvent) => {
     e.stopPropagation();
@@ -62,7 +64,7 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
 
   const fetchOpenPlayData = async () => {
     setLoading(true);
-    let eventsList: OpenPlayEvent[] = [];
+    const eventsList: OpenPlayEvent[] = [];
     let regsList: OpenPlayRegistration[] = [];
     const logosRecord: Record<string, string> = {};
 
@@ -187,7 +189,7 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
       }
     } catch (e) {}
 
-    setEvents(Array.from(eventsMap.values()).filter((e) => e.status !== 'cancelled'));
+    setEvents(Array.from(eventsMap.values()).filter((e) => e.status !== 'cancelled' && e.status !== 'draft'));
     setRegistrations(regsList);
     setLoading(false);
   };
@@ -321,25 +323,46 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
             </div>
 
             {/* Category / Skill Filter */}
-            <div>
+            <div className="relative">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
                 Category / Skill Level
               </label>
               <div className="relative">
-                <Filter className="w-4 h-4 text-slate-500 absolute left-3.5 top-3 pointer-events-none" />
-                <select
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:border-brand-lime transition-all cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryOpen(!isCategoryOpen)}
+                  className="w-full flex items-center justify-between gap-2 bg-slate-900 border border-dark-border text-white text-xs font-semibold rounded-xl pl-9 pr-3 py-2.5 focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
                 >
-                  <option value="All">All Categories</option>
-                  <option value="Open to All">Open to All</option>
-                  <option value="Beginner">Beginner</option>
-                  <option value="Intermediate">Intermediate</option>
-                  <option value="Advanced">Advanced</option>
-                  <option value="Doubles">Doubles</option>
-                  <option value="Singles">Singles</option>
-                </select>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Filter className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span className="truncate">{categoryFilter === 'All' ? 'All Categories' : categoryFilter}</span>
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isCategoryOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                </button>
+
+                {isCategoryOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsCategoryOpen(false)} />
+                    <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                      {['All', 'Open to All', 'Beginner', 'Intermediate', 'Advanced', 'Doubles', 'Singles'].map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => {
+                            setCategoryFilter(cat);
+                            setIsCategoryOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between cursor-pointer transition-all ${
+                            categoryFilter === cat ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                          }`}
+                        >
+                          <span>{cat === 'All' ? 'All Categories' : cat}</span>
+                          {categoryFilter === cat && <Check className="w-3.5 h-3.5 text-brand-lime" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -609,9 +632,9 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
                             <div className="flex items-start gap-2">
                               <MapPin className="w-3.5 h-3.5 text-brand-emerald flex-shrink-0 mt-0.5" />
                               <div className="text-xs text-slate-300 leading-normal">
-                                <div className="font-bold text-white">{primary}</div>
+                                <div className="font-normal text-slate-300">{primary}</div>
                                 {secondary && (
-                                  <div className="text-[11px] text-slate-400 font-medium mt-0.5">{secondary}</div>
+                                  <div className="text-[11px] text-slate-400 font-normal mt-0.5">{secondary}</div>
                                 )}
                               </div>
                             </div>

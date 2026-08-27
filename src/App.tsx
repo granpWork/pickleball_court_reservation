@@ -30,7 +30,7 @@ function App() {
     if (params.get('view') === 'lookup' || params.get('ref')) {
       return 'lookup';
     }
-    if (params.get('view') === 'openplay' || window.location.pathname === '/open-play') {
+    if (params.get('openplay') || params.get('eventId') || params.get('view') === 'openplay' || window.location.pathname === '/open-play') {
       return 'openplay';
     }
     if (params.get('view') === 'bootcamp' || window.location.pathname === '/bootcamp') {
@@ -46,6 +46,10 @@ function App() {
       return 'admin';
     }
     return 'landing';
+  });
+
+  const [isRedirectingShortLink, setIsRedirectingShortLink] = useState<boolean>(() => {
+    return window.location.pathname.startsWith('/s/') || Boolean(new URLSearchParams(window.location.search).get('s'));
   });
 
   const [openPlayEventId, setOpenPlayEventId] = useState<string | null>(() => {
@@ -65,13 +69,87 @@ function App() {
     setSelectedCourtIdState(id);
   };
 
+  const isUserUnonboardedClientAdmin = (u?: { role?: string; companyId?: string; needsOnboarding?: boolean } | null) => {
+    if (!u) return false;
+    return u.role === 'client_admin' && (!u.companyId || (u as any).needsOnboarding === true);
+  };
+
   const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding') => {
     setOpenPlayEventId(null);
+    if (isUserUnonboardedClientAdmin(user) && nextView !== 'client_onboarding' && nextView !== 'login' && nextView !== 'register') {
+      if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
+        window.history.pushState({}, '', '/');
+      }
+      setView('client_onboarding');
+      return;
+    }
     if (nextView === 'landing') {
       setSelectedCourtId('');
+      if (typeof window !== 'undefined' && (window.location.search || window.location.pathname !== '/')) {
+        window.history.pushState({}, '', '/');
+      }
     }
     setView(nextView);
   };
+
+  // Handle Short Link /s/:slug redirection
+  useEffect(() => {
+    const path = window.location.pathname;
+    const searchParams = new URLSearchParams(window.location.search);
+    let shortSlug: string | null = null;
+
+    if (path.startsWith('/s/')) {
+      shortSlug = path.substring(3).trim();
+    } else if (searchParams.get('s')) {
+      shortSlug = searchParams.get('s')!.trim();
+    }
+
+    if (shortSlug) {
+      const handleShortLinkRedirect = async () => {
+        let matchedLink: any = null;
+
+        if (isFirebaseConfigured && db) {
+          try {
+            const { collection, getDocs, query, where, updateDoc, increment, doc: fDoc } = await import('firebase/firestore');
+            const q = query(collection(db, 'short_links'), where('shortSlug', '==', shortSlug));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              const docSnap = snap.docs[0];
+              matchedLink = { id: docSnap.id, ...docSnap.data() };
+              updateDoc(fDoc(db, 'short_links', docSnap.id), {
+                clickCount: increment(1),
+              }).catch(() => {});
+            }
+          } catch (fErr) {
+            console.warn('Firestore short_links fetch warning:', fErr);
+          }
+        }
+
+        if (!matchedLink) {
+          const localStr = localStorage.getItem('picklepoint_short_links');
+          if (localStr) {
+            try {
+              const localLinks = JSON.parse(localStr);
+              matchedLink = localLinks.find((l: any) => l.shortSlug?.toLowerCase() === shortSlug?.toLowerCase());
+              if (matchedLink) {
+                matchedLink.clickCount = (matchedLink.clickCount || 0) + 1;
+                localStorage.setItem('picklepoint_short_links', JSON.stringify(localLinks));
+              }
+            } catch (e) {}
+          }
+        }
+
+        if (matchedLink?.originalUrl) {
+          window.location.replace(matchedLink.originalUrl);
+        } else {
+          setIsRedirectingShortLink(false);
+        }
+      };
+      handleShortLinkRedirect();
+    } else {
+      setIsRedirectingShortLink(false);
+    }
+  }, []);
 
   const [checkoutDetails, setCheckoutDetails] = useState<{
     courtId: string;
@@ -101,8 +179,23 @@ function App() {
     }
     return null;
   });
-  const [user, setUser] = useState<{ uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState<{ uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null>(() => {
+    try {
+      const saved = localStorage.getItem('picklepoint_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [authLoading, setAuthLoading] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const isInviteLink = !!params.get('inviteToken');
+    const isAdminRoute = window.location.pathname === '/pickle-admin';
+    const hasCachedSession = typeof localStorage !== 'undefined' && !!localStorage.getItem('picklepoint_session');
+    
+    // Only block UI with full-screen spinner if accessing admin route or invite link without cached session
+    return (isAdminRoute || isInviteLink) && !hasCachedSession;
+  });
   const [invitationNotice, setInvitationNotice] = useState<{ email: string; company?: string } | null>(() => {
     const params = new URLSearchParams(window.location.search);
     const emailParam = params.get('email');
@@ -124,18 +217,21 @@ function App() {
   }, [checkoutDetails]);
 
   const restoreSessionView = () => {
-    // 1. Admin path & Admin role check FIRST to prevent landing view flashes
-    const activeSessionStr = localStorage.getItem('picklepoint_session');
-    let sessionUser: any = null;
-    if (activeSessionStr) {
-      try { sessionUser = JSON.parse(activeSessionStr); } catch (e) {}
-    }
-    const isSessionAdmin = user?.isAdmin || sessionUser?.isAdmin || sessionUser?.role === 'super_admin' || sessionUser?.role === 'client_admin';
-
-    if (window.location.pathname === '/pickle-admin' || isSessionAdmin) {
+    // 0. Strict Client Admin onboarding guard
+    if (isUserUnonboardedClientAdmin(user)) {
       sessionStorage.removeItem('picklepoint_checkout_details');
       setCheckoutDetails(null);
-      window.history.pushState({}, '', '/pickle-admin');
+      if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
+        window.history.pushState({}, '', '/');
+      }
+      setView('client_onboarding');
+      return;
+    }
+
+    // 1. Explicit admin route check
+    if (window.location.pathname === '/pickle-admin') {
+      sessionStorage.removeItem('picklepoint_checkout_details');
+      setCheckoutDetails(null);
       setView('admin');
       return;
     }
@@ -148,21 +244,35 @@ function App() {
         setCheckoutDetails(parsed);
         setView('checkout');
         return;
-      } catch (e) {}
+      } catch (_err) {
+        sessionStorage.removeItem('picklepoint_checkout_details');
+      }
     }
 
-    // 3. If user is explicitly visiting root URL "/" with no view search params, remain on landing view
-    if (window.location.pathname === '/' && !window.location.search) {
+    const params = new URLSearchParams(window.location.search);
+
+    // PRIORITY CHECK: If URL contains inviteToken, always load the invitation registration view
+    if (params.get('inviteToken')) {
+      const invitedEmail = params.get('email') || '';
+      const invitedCompany = params.get('company') || '';
+      if (invitedEmail) {
+        setInvitationNotice({ email: invitedEmail, company: invitedCompany });
+      }
+      setView('register');
+      return;
+    }
+
+    // 3. If on root path "/" without explicit view query params, stay on landing page
+    if (window.location.pathname === '/' && !params.get('view') && !params.get('openplay') && !params.get('eventId') && !params.get('court') && !params.get('ref')) {
       setView('landing');
       return;
     }
 
-    // 5. URL view parameters
-    const params = new URLSearchParams(window.location.search);
+    // 4. URL view parameters for unauthenticated visitors vs logged-in users
     const isUserLoggedIn = !!auth?.currentUser || !!localStorage.getItem('picklepoint_session');
 
     if (!isUserLoggedIn) {
-      if (params.get('view') === 'register' || params.get('inviteToken') || window.location.pathname === '/register') {
+      if (params.get('view') === 'register' || window.location.pathname === '/register') {
         setView('register');
         return;
       }
@@ -173,6 +283,8 @@ function App() {
     } else {
       if ((params.get('view') === 'login' || params.get('view') === 'register' || window.location.pathname === '/login' || window.location.pathname === '/register') && !params.get('inviteToken')) {
         window.history.pushState({}, '', '/');
+        setView('landing');
+        return;
       }
     }
 
@@ -180,7 +292,7 @@ function App() {
       setView('lookup');
       return;
     }
-    if (params.get('view') === 'openplay' || window.location.pathname === '/open-play') {
+    if (params.get('openplay') || params.get('eventId') || params.get('view') === 'openplay' || window.location.pathname === '/open-play') {
       setView('openplay');
       return;
     }
@@ -204,14 +316,23 @@ function App() {
   // Check URL parameters for invitation links, tracking links & Open Play shareable links
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('view') === 'register' || params.get('inviteToken') || window.location.pathname === '/register') {
+    const openPlayParam = params.get('eventId') || params.get('openplay');
+    if (openPlayParam) {
+      setOpenPlayEventId(openPlayParam);
+      setView('openplay');
+      return;
+    }
+
+    if (params.get('inviteToken') || params.get('view') === 'register' || window.location.pathname === '/register') {
       const invitedEmail = params.get('email') || '';
       const invitedCompany = params.get('company') || '';
       if (invitedEmail) {
         setInvitationNotice({ email: invitedEmail, company: invitedCompany });
       }
       setView('register');
-    } else if (params.get('view') === 'login' || params.get('invite') === 'true' || window.location.pathname === '/login') {
+      return;
+    }
+    if (params.get('view') === 'login' || params.get('invite') === 'true' || window.location.pathname === '/login') {
       const invitedEmail = params.get('email') || '';
       const invitedCompany = params.get('company') || '';
       if (invitedEmail) {
@@ -227,10 +348,6 @@ function App() {
     } else if (params.get('view') === 'profile' || window.location.pathname === '/profile') {
       setView('profile');
     }
-    const openPlayParam = params.get('eventId') || params.get('openplay');
-    if (openPlayParam) {
-      setOpenPlayEventId(openPlayParam);
-    }
   }, []);
 
   // Check for existing session on mount
@@ -242,15 +359,65 @@ function App() {
           try {
             const userDocRef = doc(firestoreDb, 'users', firebaseUser.uid);
             const userDocSnap = await getDoc(userDocRef);
-            let role = 'player';
+            const userEmailLower = firebaseUser.email?.toLowerCase() || '';
+
+            // Check for pending invitation matching user's email or inviteToken in URL BEFORE setting default role
+            let matchedInvite: { role?: string; company?: string; email?: string } | null = null;
+            let inviteDocId: string | null = null;
+
+            if (userEmailLower) {
+              try {
+                const { collection, query, where, getDocs, doc: fDoc, getDoc: fGetDoc } = await import('firebase/firestore');
+                const searchParams = new URLSearchParams(window.location.search);
+                const inviteTokenParam = searchParams.get('inviteToken');
+
+                if (inviteTokenParam) {
+                  const invRef = fDoc(firestoreDb, 'invitations', inviteTokenParam);
+                  const invSnap = await fGetDoc(invRef);
+                  if (invSnap.exists() && invSnap.data().status !== 'used') {
+                    matchedInvite = invSnap.data();
+                    inviteDocId = inviteTokenParam;
+                  }
+                }
+
+                if (!matchedInvite) {
+                  const invQuery = query(
+                    collection(firestoreDb, 'invitations'),
+                    where('email', '==', userEmailLower),
+                    where('status', '==', 'pending')
+                  );
+                  const invSnap = await getDocs(invQuery);
+                  if (!invSnap.empty) {
+                    matchedInvite = invSnap.docs[0].data();
+                    inviteDocId = invSnap.docs[0].id;
+                  }
+                }
+              } catch (e) {
+                console.warn('Error checking pending invitations on auth state change:', e);
+              }
+            }
+
+            let role = matchedInvite?.role || (userEmailLower === 'admin@picklepoint.com' ? 'super_admin' : 'player');
             let status = 'active';
-            
+
             if (userDocSnap.exists()) {
               const uData = userDocSnap.data();
-              role = uData.role || 'player';
+              role = matchedInvite?.role || uData.role || (userEmailLower === 'admin@picklepoint.com' ? 'super_admin' : 'player');
               status = uData.status || (uData.isInvitedPending ? 'pending' : 'active');
+
+              // If matched invite role differs from stored role, update Firestore document
+              if (matchedInvite?.role && uData.role !== matchedInvite.role) {
+                try {
+                  await setDoc(userDocRef, {
+                    role: matchedInvite.role,
+                    companyName: matchedInvite.company || '',
+                    isInvitedPending: false
+                  }, { merge: true });
+                } catch (e) {
+                  console.warn('Could not update user role from invitation:', e);
+                }
+              }
             } else {
-              role = firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player';
               status = 'active';
               try {
                 await setDoc(userDocRef, {
@@ -258,6 +425,7 @@ function App() {
                   name: firebaseUser.displayName || 'Player',
                   email: firebaseUser.email || '',
                   role: role,
+                  companyName: matchedInvite?.company || '',
                   status: 'active',
                   createdAt: new Date().toISOString()
                 });
@@ -272,6 +440,19 @@ function App() {
                 }).catch((e) => console.warn('Welcome email error:', e));
               } catch (e) {
                 console.warn('Could not auto-create user document on auth state change:', e);
+              }
+            }
+
+            // Mark invitation as used if it was matched
+            if (matchedInvite && inviteDocId) {
+              try {
+                const { updateDoc, doc: fDoc } = await import('firebase/firestore');
+                await updateDoc(fDoc(firestoreDb, 'invitations', inviteDocId), {
+                  status: 'used',
+                  usedAt: new Date().toISOString()
+                });
+              } catch (e) {
+                console.warn('Could not mark invitation used:', e);
               }
             }
 
@@ -297,7 +478,6 @@ function App() {
             }
             
             // Auto-promote role to client_admin if user's email matches a company's designated clientAdminEmail
-            const userEmailLower = firebaseUser.email?.toLowerCase() || '';
             let companyId: string | undefined;
             let companyName: string | undefined;
             if (userEmailLower && role !== 'super_admin') {
@@ -329,6 +509,8 @@ function App() {
             }
             
             const isAdmin = role === 'super_admin' || role === 'client_admin' || firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
+            const needsOnboarding = role === 'client_admin' && !companyId;
+
             const loadedUser = {
               uid: firebaseUser.uid,
               name: firebaseUser.displayName || 'Player',
@@ -338,12 +520,17 @@ function App() {
               companyId: companyId,
               companyName: companyName,
               isAdmin: isAdmin,
+              needsOnboarding: needsOnboarding,
             };
 
             setUser(loadedUser);
             localStorage.setItem('picklepoint_session', JSON.stringify(loadedUser));
 
-            if (isAdmin) {
+            if (needsOnboarding) {
+              sessionStorage.removeItem('picklepoint_checkout_details');
+              setCheckoutDetails(null);
+              setView('client_onboarding');
+            } else if (isAdmin && window.location.pathname === '/pickle-admin') {
               window.history.pushState({}, '', '/pickle-admin');
               setView('admin');
             } else {
@@ -604,6 +791,17 @@ function App() {
       </div>
     );
   };
+
+  if (isRedirectingShortLink) {
+    return (
+      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col items-center justify-center p-6 selection:bg-brand-lime selection:text-dark-bg">
+        <div className="w-12 h-12 rounded-2xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime mb-4 shadow-lg shadow-brand-lime/10">
+          <Loader2 className="w-6 h-6 animate-spin text-brand-lime" />
+        </div>
+        <p className="text-sm font-bold text-slate-200 animate-pulse">Redirecting to short link destination...</p>
+      </div>
+    );
+  }
 
   if (authLoading) {
     return (

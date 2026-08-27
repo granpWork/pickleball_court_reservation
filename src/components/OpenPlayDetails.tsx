@@ -33,6 +33,8 @@ export interface OpenPlayEvent {
   startTime: string;
   endTime: string;
   category: 'Beginner' | 'Intermediate' | 'Advanced' | 'Open to All' | 'Doubles' | 'Singles';
+  skillLevel?: string;
+  hostPhone?: string;
   description: string;
   posterImageUrl?: string;
   maxParticipants: number;
@@ -47,7 +49,7 @@ export interface OpenPlayEvent {
   createdByUid: string;
   createdByEmail: string;
   createdAt: string;
-  status: 'active' | 'completed' | 'cancelled' | 'expired';
+  status: 'draft' | 'active' | 'completed' | 'cancelled' | 'expired';
   rotationRule?: 'winners_stay' | 'all_4_rotate' | 'split_winners';
   courtIds?: string[];
   courtNames?: string[];
@@ -122,7 +124,7 @@ export const isEventExpired = (eventDate: string, endTime?: string): boolean => 
   if (trimmedTime.includes(':')) {
     const parts = trimmedTime.split(':');
     let h = parseInt(parts[0], 10);
-    let m = parseInt(parts[1]?.substring(0, 2) || '0', 10);
+    const m = parseInt(parts[1]?.substring(0, 2) || '0', 10);
     
     if (trimmedTime.toLowerCase().includes('pm') && h < 12) h += 12;
     if (trimmedTime.toLowerCase().includes('am') && h === 12) h = 0;
@@ -295,12 +297,16 @@ export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => 
   const endTime = data.endTime || '21:00';
   const isPast = isEventExpired(eventDate, endTime);
 
-  let effectiveStatus: 'active' | 'completed' | 'cancelled' | 'expired' = data.status || (isPast ? 'expired' : 'active');
-  if (isPast && effectiveStatus === 'active') {
+  let effectiveStatus: 'draft' | 'active' | 'completed' | 'cancelled' | 'expired' = data.status || (isPast ? 'expired' : 'active');
+  if (isPast && (effectiveStatus === 'active' || effectiveStatus === 'draft')) {
     effectiveStatus = 'expired';
   } else if (!isPast && effectiveStatus === 'expired') {
-    effectiveStatus = 'active';
+    effectiveStatus = data.status || 'active';
   }
+
+  const rawMax = data?.maxParticipants ?? data?.maxPlayers ?? data?.capacity ?? data?.max_participants;
+  const parsedMax = Number(rawMax);
+  const finalMax = (!isNaN(parsedMax) && parsedMax > 0) ? parsedMax : 16;
 
   return {
     id,
@@ -312,7 +318,7 @@ export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => 
     category: data.category || data.skillLevel || 'Open to All',
     description: data.description || '',
     posterImageUrl: data.posterImageUrl || data.imageUrl || data.posterUrl || undefined,
-    maxParticipants: Number(data.maxParticipants || data.maxPlayers || data.slots) || 16,
+    maxParticipants: finalMax,
     registrationFee: Number(data.registrationFee || data.fee || data.price) || 0,
     gcashAccountId: data.gcashAccountId || 'global',
     gcashName: data.gcashName || '',
@@ -884,6 +890,29 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     );
   }
 
+  const isDraft = event?.status === 'draft';
+  const isOrganizerOrAdmin = user && (user.isAdmin || user.uid === event?.createdByUid);
+
+  if (isDraft && !isOrganizerOrAdmin) {
+    return (
+      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-4">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-black text-white mb-2">Open Play Session is in Draft Mode</h2>
+        <p className="text-slate-400 text-sm max-w-md mb-6 leading-relaxed">
+          This Open Play event is currently saved in Draft mode by the organizer and is not yet open for public registrations.
+        </p>
+        <button
+          onClick={onBack}
+          className="px-6 py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg"
+        >
+          Return to Home
+        </button>
+      </div>
+    );
+  }
+
   if (error || !event) {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col items-center justify-center p-6">
@@ -951,7 +980,18 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
         {/* Main Event Registration Container */}
         <div className="glass-panel border border-slate-800 rounded-3xl p-6 md:p-10 shadow-2xl overflow-hidden relative">
-          
+          {/* Admin Draft Preview Notice Banner */}
+          {isDraft && isOrganizerOrAdmin && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center justify-between gap-4 animate-fade-in shadow-lg">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                <span>
+                  <strong>Admin Preview Mode:</strong> This event is currently saved in <span className="underline uppercase font-extrabold">Draft Mode</span> and is hidden from public players. Switch to <strong>Live / Published</strong> in Admin Dashboard to accept bookings.
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Header Banner & Poster Grid */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8 mb-8 pb-8 border-b border-dark-border/60">
             {/* Event Poster Column */}

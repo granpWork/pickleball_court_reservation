@@ -421,12 +421,7 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
           </button>
         </form>
 
-        {/* Demo Credentials Info */}
-        <div className="mt-6 p-3 rounded-xl bg-slate-900/60 border border-dark-border/50 text-xs font-normal text-slate-400 text-left">
-          <p className="text-sm font-medium text-slate-300 mb-0.5">Demo Credentials:</p>
-          <p>Email: <span className="text-brand-lime">demo@picklepoint.com</span></p>
-          <p>Password: <span className="text-brand-lime">password123</span></p>
-        </div>
+
 
         {/* Direct to Sign Up */}
         <div className="mt-8 pt-6 border-t border-dark-border/50 text-center text-base font-normal text-slate-400">

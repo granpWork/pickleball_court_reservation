@@ -463,9 +463,9 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
 
     const fetchBookingsForDate = async () => {
       setLoadingAvailability(true);
-      let booked: string[] = [];
-      let conflicts: Record<string, { courtName: string }> = {};
-      let openPlayBlocks: Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }> = {};
+      const booked: string[] = [];
+      const conflicts: Record<string, { courtName: string }> = {};
+      const openPlayBlocks: Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }> = {};
       const currentUserEmail = user?.email?.toLowerCase();
       const currentUserUid = user?.uid;
 
@@ -505,7 +505,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
           const opSnap = await getDocs(opQuery);
           opSnap.forEach((docSnap) => {
             const ev = docSnap.data();
-            if (ev.status !== 'cancelled') {
+            if (ev.status !== 'cancelled' && ev.status !== 'draft') {
               const isCourtMatch = !ev.courtIds || ev.courtIds.length === 0 || ev.courtIds.includes(court.id);
               if (isCourtMatch) {
                 const startH = parseTimeHour(ev.startTime);
@@ -560,7 +560,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
             const localEvents = JSON.parse(opStr);
             localEvents.forEach((ev: any) => {
               const evDate = ev.eventDate || ev.date;
-              if (evDate === selectedDate && ev.status !== 'cancelled') {
+              if (evDate === selectedDate && ev.status !== 'cancelled' && ev.status !== 'draft') {
                 const isCourtMatch = !ev.courtIds || ev.courtIds.length === 0 || ev.courtIds.includes(court.id);
                 if (isCourtMatch) {
                   const startH = parseTimeHour(ev.startTime);
