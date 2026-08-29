@@ -2888,73 +2888,96 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
       setUsers(loadedUsers);
 
-      // 4. Fetch GCash checkout settings (personal, facility/company, and global fallback)
+      // 4. Fetch GCash checkout settings (both personal/facility and global fallback)
       if (isFirebaseConfigured && db) {
         try {
-          let loadedAccounts: GcashAccount[] = [];
-
-          // 1. Try logged-in user's direct checkout settings doc
+          // Fetch personal/facility GCash details list
           try {
-            const personalSnap = await getDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid));
-            if (personalSnap.exists() && Array.isArray(personalSnap.data().accounts) && personalSnap.data().accounts.length > 0) {
-              loadedAccounts = personalSnap.data().accounts;
+            let gcashAccountsList: GcashAccount[] = [];
+            const ownerUidsToTry = new Set<string>();
+
+            if (currentUserUid && currentUserUid !== 'unknown') {
+              ownerUidsToTry.add(currentUserUid);
             }
-          } catch (e) {}
 
-          // 2. If empty and user is attached to a facility/company, try loading company GCash settings doc
-          const effCompanyId = (user as any)?.companyId || myCompany?.id;
-          if (loadedAccounts.length === 0 && effCompanyId) {
-            try {
-              const compSnap = await getDoc(doc(db, 'settings', 'checkout', 'companies', effCompanyId));
-              if (compSnap.exists() && Array.isArray(compSnap.data().accounts) && compSnap.data().accounts.length > 0) {
-                loadedAccounts = compSnap.data().accounts;
+            const hostCompanyId = myActiveCompany?.id || (user as any)?.companyId;
+            if (hostCompanyId) {
+              ownerUidsToTry.add(hostCompanyId);
+            }
+            if ((myActiveCompany as any)?.clientAdminUid) {
+              ownerUidsToTry.add((myActiveCompany as any).clientAdminUid);
+            }
+
+            const inviterEmail = ((user as any)?.invitedBy || myActiveCompany?.clientAdminEmail || '').trim().toLowerCase();
+            if (inviterEmail) {
+              const inviterUser = loadedUsers.find(u => u.email?.toLowerCase() === inviterEmail);
+              if (inviterUser?.uid && !inviterUser.uid.startsWith('invite-')) {
+                ownerUidsToTry.add(inviterUser.uid);
               }
-            } catch (e) {}
-          }
+            }
 
-          // 3. If still empty, find the Client Admin / Facility Owner for this company and load their GCash accounts
-          if (loadedAccounts.length === 0 && effCompanyId) {
-            try {
-              const caUser = loadedUsers.find(u => (u.role === 'client_admin' || u.role === 'super_admin') && (u.companyId === effCompanyId || u.companyId === myCompany?.id));
-              if (caUser && caUser.uid) {
-                const caSnap = await getDoc(doc(db, 'settings', 'checkout', 'users', caUser.uid));
-                if (caSnap.exists() && Array.isArray(caSnap.data().accounts) && caSnap.data().accounts.length > 0) {
-                  loadedAccounts = caSnap.data().accounts;
+            scopedAdminCourts.forEach(c => {
+              if (c.ownerId && !c.ownerId.startsWith('invite-')) {
+                ownerUidsToTry.add(c.ownerId);
+              }
+            });
+
+            for (const targetUid of ownerUidsToTry) {
+              if (isFirebaseConfigured && db) {
+                try {
+                  const personalSnap = await getDoc(doc(db, 'settings', 'checkout', 'users', targetUid));
+                  if (personalSnap.exists()) {
+                    const data = personalSnap.data();
+                    if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
+                      gcashAccountsList = data.accounts;
+                      break;
+                    }
+                  }
+                } catch (pErr) {
+                  console.warn(`Failed to read personal settings from Firestore for UID ${targetUid}:`, pErr);
                 }
               }
-            } catch (e) {}
-          }
 
-          // 4. Fallback to localStorage checks
-          if (loadedAccounts.length === 0) {
-            const userLocal = localStorage.getItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`);
-            if (userLocal) {
-              try { loadedAccounts = JSON.parse(userLocal); } catch (e) {}
-            }
-            if (loadedAccounts.length === 0 && effCompanyId) {
-              const compLocal = localStorage.getItem(`picklepoint_checkout_settings_accounts_${effCompanyId}`);
-              if (compLocal) {
-                try { loadedAccounts = JSON.parse(compLocal); } catch (e) {}
+              const localStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${targetUid}`);
+              if (localStr) {
+                try {
+                  const parsed = JSON.parse(localStr);
+                  if (Array.isArray(parsed) && parsed.length > 0) {
+                    gcashAccountsList = parsed;
+                    break;
+                  }
+                } catch (e) {}
               }
             }
+
+            setPersonalAccounts(gcashAccountsList);
+          } catch (pErr) {
+            console.warn('Failed to read personal settings from Firestore:', pErr);
           }
 
-          setPersonalAccounts(loadedAccounts);
-        } catch (pErr) {
-          console.warn('Failed to read personal settings from Firestore:', pErr);
-        }
-
-        // Fetch global fallback details
-        try {
-          const globalSnap = await getDoc(doc(db, 'settings', 'checkout'));
-          if (globalSnap.exists()) {
-            const data = globalSnap.data();
-            setGlobalGcashQrSetting(data.gcashQrCode || '');
-            setGlobalGcashNameSetting(data.gcashName || '');
-            setGlobalGcashNumberSetting(data.gcashNumber || '');
-            setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
-            setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
-          } else {
+          // Fetch global fallback details
+          try {
+            const globalSnap = await getDoc(doc(db, 'settings', 'checkout'));
+            if (globalSnap.exists()) {
+              const data = globalSnap.data();
+              setGlobalGcashQrSetting(data.gcashQrCode || '');
+              setGlobalGcashNameSetting(data.gcashName || '');
+              setGlobalGcashNumberSetting(data.gcashNumber || '');
+              setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
+              setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
+            } else {
+              const globalStr = localStorage.getItem('picklepoint_checkout_settings');
+              if (globalStr) {
+                const data = JSON.parse(globalStr);
+                setGlobalGcashQrSetting(data.gcashQrCode || '');
+                setGlobalGcashNameSetting(data.gcashName || '');
+                setGlobalGcashNumberSetting(data.gcashNumber || '');
+                setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
+                setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
+              }
+            }
+          } catch (gErr) {
+            console.warn('Failed to read global settings from Firestore:', gErr);
             const globalStr = localStorage.getItem('picklepoint_checkout_settings');
             if (globalStr) {
               const data = JSON.parse(globalStr);
@@ -2965,17 +2988,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
             }
           }
-        } catch (gErr) {
-          console.warn('Failed to read global settings from Firestore:', gErr);
-          const globalStr = localStorage.getItem('picklepoint_checkout_settings');
-          if (globalStr) {
-            const data = JSON.parse(globalStr);
-            setGlobalGcashQrSetting(data.gcashQrCode || '');
-            setGlobalGcashNameSetting(data.gcashName || '');
-            setGlobalGcashNumberSetting(data.gcashNumber || '');
-            setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
-            setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
-          }
+        } catch (err) {
+          console.error('Error fetching checkout settings:', err);
         }
       } else {
         // LocalStorage fallback for personal settings list
@@ -3181,17 +3195,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           updatedAccounts.push(newAcc);
         }
 
-        const effCompanyId = (user as any)?.companyId || myCompany?.id;
+        const targetGcashSaveUid = (user?.role === 'client_admin' || isSuperAdmin)
+          ? currentUserUid
+          : (myCompany?.id || (user as any)?.companyId || users.find(u => u.email?.toLowerCase() === ((user as any)?.invitedBy || myCompany?.clientAdminEmail || '').toLowerCase())?.uid || courts[0]?.ownerId || currentUserUid);
+
         if (isFirebaseConfigured && db) {
-          await setDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid), { accounts: updatedAccounts });
-          if (effCompanyId) {
-            await setDoc(doc(db, 'settings', 'checkout', 'companies', effCompanyId), { accounts: updatedAccounts });
-          }
+          await setDoc(doc(db, 'settings', 'checkout', 'users', targetGcashSaveUid), { accounts: updatedAccounts });
         } else {
-          localStorage.setItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`, JSON.stringify(updatedAccounts));
-          if (effCompanyId) {
-            localStorage.setItem(`picklepoint_checkout_settings_accounts_${effCompanyId}`, JSON.stringify(updatedAccounts));
-          }
+          localStorage.setItem(`picklepoint_checkout_settings_accounts_${targetGcashSaveUid}`, JSON.stringify(updatedAccounts));
         }
 
         setPersonalAccounts(updatedAccounts);
@@ -3546,17 +3557,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         setGlobalGcashNumberSetting('');
       } else {
         const updatedAccounts = personalAccounts.filter(a => a.id !== accountId);
-        const effCompanyId = (user as any)?.companyId || myCompany?.id;
+        const targetGcashSaveUid = (user?.role === 'client_admin' || isSuperAdmin)
+          ? currentUserUid
+          : (myCompany?.id || (user as any)?.companyId || users.find(u => u.email?.toLowerCase() === ((user as any)?.invitedBy || myCompany?.clientAdminEmail || '').toLowerCase())?.uid || courts[0]?.ownerId || currentUserUid);
+
         if (isFirebaseConfigured && db) {
-          await setDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid), { accounts: updatedAccounts });
-          if (effCompanyId) {
-            await setDoc(doc(db, 'settings', 'checkout', 'companies', effCompanyId), { accounts: updatedAccounts });
-          }
+          await setDoc(doc(db, 'settings', 'checkout', 'users', targetGcashSaveUid), { accounts: updatedAccounts });
         } else {
-          localStorage.setItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`, JSON.stringify(updatedAccounts));
-          if (effCompanyId) {
-            localStorage.setItem(`picklepoint_checkout_settings_accounts_${effCompanyId}`, JSON.stringify(updatedAccounts));
-          }
+          localStorage.setItem(`picklepoint_checkout_settings_accounts_${targetGcashSaveUid}`, JSON.stringify(updatedAccounts));
         }
         setPersonalAccounts(updatedAccounts);
       }
