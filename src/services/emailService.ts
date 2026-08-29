@@ -1425,3 +1425,273 @@ export const sendOpenPlayInvitationEmail = async (
   });
 };
 
+export interface OpenPlayEventCancellationEmailParams {
+  toEmail: string;
+  toName: string;
+  eventTitle: string;
+  eventDate: string;
+  eventTime: string;
+  location?: string;
+  cancellationReason?: string;
+  refundNotice?: string;
+  companyName?: string;
+  hostPhone?: string;
+}
+
+export const sendOpenPlayEventCancellationEmail = async (
+  params: OpenPlayEventCancellationEmailParams
+): Promise<{ success: boolean; message: string }> => {
+  const baseUrl = getBaseUrl();
+  const subject = `⚠️ EVENT CANCELLED: ${params.eventTitle} (${params.eventDate})`;
+
+  const bodyContent = `
+    <!-- CANCELLATION BANNER -->
+    <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 16px; padding: 20px; text-align: center; margin-bottom: 24px;">
+      <div style="font-size: 28px; margin-bottom: 8px;">⚠️</div>
+      <div style="font-size: 16px; font-weight: 900; color: #f87171; text-transform: uppercase; letter-spacing: 0.5px;">
+        Open Play Session Cancelled
+      </div>
+      <p style="margin: 6px 0 0 0; font-size: 13px; color: #fca5a5;">
+        We regret to inform you that the following session has been cancelled by the venue administration.
+      </p>
+    </div>
+
+    <!-- EVENT DETAILS SUMMARY CARD -->
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #1e293b; border-radius: 16px; border: 1px solid #334155; margin-bottom: 24px;">
+      <tr>
+        <td style="padding: 20px;">
+          <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #a6e224; letter-spacing: 1px; margin-bottom: 8px;">
+            CANCELLED SESSION SUMMARY
+          </div>
+          
+          <div style="margin-bottom: 12px;">
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Event Title</span>
+            <span style="font-size: 17px; color: #ffffff; font-weight: 900;">${params.eventTitle}</span>
+          </div>
+
+          <div style="margin-bottom: 12px;">
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Original Date & Schedule</span>
+            <span style="font-size: 14px; color: #cbd5e1; font-weight: 700;">${params.eventDate} • ${params.eventTime}</span>
+          </div>
+
+          ${params.location ? `
+          <div style="margin-bottom: 12px;">
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Venue Location</span>
+            <span style="font-size: 13px; color: #cbd5e1;">${params.location}</span>
+          </div>
+          ` : ''}
+
+          ${params.companyName ? `
+          <div>
+            <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Organizer</span>
+            <span style="font-size: 13px; color: #a6e224; font-weight: 700;">${params.companyName}</span>
+          </div>
+          ` : ''}
+        </td>
+      </tr>
+    </table>
+
+    <!-- CANCELLATION REASON -->
+    ${params.cancellationReason ? `
+    <div style="background-color: #0f172a; border-radius: 14px; border: 1px solid #1e293b; padding: 18px; margin-bottom: 24px;">
+      <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #f59e0b; letter-spacing: 0.5px; margin-bottom: 6px;">
+        💬 Reason for Cancellation
+      </div>
+      <p style="margin: 0; font-size: 14px; color: #e2e8f0; line-height: 1.5;">
+        "${params.cancellationReason}"
+      </p>
+    </div>
+    ` : ''}
+
+    <!-- REFUND & GCASH NOTICE -->
+    <div style="background-color: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 14px; padding: 18px; margin-bottom: 24px;">
+      <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; color: #10b981; letter-spacing: 0.5px; margin-bottom: 6px;">
+        💳 Payment & Refund Status
+      </div>
+      <p style="margin: 0; font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+        ${params.refundNotice || 'If you completed registration payment via GCash, our admin team is processing your full refund directly to your GCash account. For inquiries, please contact our support host.'}
+      </p>
+      ${params.hostPhone ? `
+      <p style="margin: 8px 0 0 0; font-size: 12px; font-weight: 700; color: #34d399;">
+        📞 Organizer Support Line: ${params.hostPhone}
+      </p>
+      ` : ''}
+    </div>
+
+    <!-- ACTION BUTTON -->
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px; margin-bottom: 24px;">
+      <tr>
+        <td align="center">
+          <a href="${baseUrl}?view=openplay" target="_blank" style="display: inline-block; padding: 14px 36px; background-color: #a6e224; color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; box-shadow: 0 8px 20px -4px rgba(166, 226, 36, 0.35); text-align: center;">
+            Browse Other Open Play Sessions &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const htmlMessage = buildHtmlWrapper(
+    'Event Cancellation Notification',
+    `Session Update: ${params.eventTitle}`,
+    bodyContent,
+    params.companyName
+  );
+
+  return sendCustomUserEmail({
+    toEmail: params.toEmail,
+    toName: params.toName || 'Valued Player',
+    subject,
+    message: htmlMessage,
+  });
+};
+
+export interface OpenPlayGameReminderEmailParams {
+  toEmail: string;
+  toName: string;
+  eventTitle: string;
+  eventDate: string;
+  eventTime: string;
+  location: string;
+  eventDateIso?: string;
+  startTime24h?: string;
+  leadTimeMinutes?: number;
+  assignedCourts?: string;
+  companyName?: string;
+  hostPhone?: string;
+  customMessage?: string;
+}
+
+export const sendOpenPlayGameReminderEmail = async (
+  params: OpenPlayGameReminderEmailParams
+): Promise<{ success: boolean; error?: string }> => {
+  const baseUrl = getBaseUrl();
+
+  let timeText = '';
+  let isGameStartingNow = false;
+
+  if (params.eventDateIso && params.startTime24h) {
+    try {
+      const [year, month, day] = params.eventDateIso.split('-').map((n) => parseInt(n, 10));
+      const [hours, minutes] = params.startTime24h.split(':').map((n) => parseInt(n, 10));
+      const gameStartTimestamp = new Date(year, month - 1, day, hours, minutes, 0, 0).getTime();
+      const now = Date.now();
+      const diffMs = gameStartTimestamp - now;
+      const diffMins = Math.round(diffMs / (60 * 1000));
+
+      if (diffMins <= 0) {
+        isGameStartingNow = true;
+        timeText = 'Now';
+      } else if (diffMins < 60) {
+        timeText = `${diffMins} Minute${diffMins > 1 ? 's' : ''}`;
+      } else {
+        const hrs = Math.floor(diffMins / 60);
+        const remMins = diffMins % 60;
+        if (remMins === 0) {
+          timeText = `${hrs} Hour${hrs > 1 ? 's' : ''}`;
+        } else {
+          timeText = `${hrs} Hour${hrs > 1 ? 's' : ''} and ${remMins} Minute${remMins > 1 ? 's' : ''}`;
+        }
+      }
+    } catch (e) {
+      const fallbackMins = params.leadTimeMinutes || 15;
+      timeText = `${fallbackMins} Minutes`;
+    }
+  } else {
+    const fallbackMins = params.leadTimeMinutes || 15;
+    timeText = fallbackMins >= 60 && fallbackMins % 60 === 0
+      ? `${fallbackMins / 60} Hour${fallbackMins / 60 > 1 ? 's' : ''}`
+      : `${fallbackMins} Minutes`;
+  }
+
+  const subject = isGameStartingNow
+    ? `⏰ Game Starting Now! - ${params.eventTitle}`
+    : `⏰ Game Reminder: Starting in ${timeText}! - ${params.eventTitle}`;
+
+  const bannerTitle = isGameStartingNow
+    ? `Your Game Session is Starting Now!`
+    : `Your Game Begins in ${timeText}!`;
+
+  const bodyContent = `
+    <!-- REMINDER BANNER -->
+    <div style="background-color: rgba(166, 226, 36, 0.12); border: 1px solid rgba(166, 226, 36, 0.35); border-radius: 16px; padding: 20px; margin-bottom: 24px; text-align: center;">
+      <div style="font-size: 28px; margin-bottom: 6px;">⏰ 🏓</div>
+      <div style="font-size: 18px; font-weight: 900; color: #a6e224; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+        ${bannerTitle}
+      </div>
+      <p style="margin: 0; font-size: 13px; color: #cbd5e1; font-weight: 600;">
+        Hello <strong style="color: #ffffff;">${params.toName || 'Player'}</strong>, get ready! Your Open Play pickleball session is starting soon.
+      </p>
+    </div>
+
+    <!-- EVENT DETAILS CARD -->
+    <div style="background-color: #0f172a; border-radius: 16px; padding: 20px; border: 1px solid #1e293b; margin-bottom: 24px;">
+      <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px; margin-bottom: 12px; border-bottom: 1px solid #1e293b; padding-bottom: 8px;">
+        📋 SESSION RECAP & LOCATION
+      </div>
+      
+      <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #94a3b8; font-weight: 700; width: 110px;">Event Title:</td>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #ffffff; font-weight: 800;">${params.eventTitle}</td>
+        </tr>
+        <tr>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #94a3b8; font-weight: 700;">Date & Time:</td>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #a6e224; font-weight: 800;">${params.eventDate} (${params.eventTime})</td>
+        </tr>
+        <tr>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #94a3b8; font-weight: 700;">Venue Location:</td>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #e2e8f0; font-weight: 700;">${params.location}</td>
+        </tr>
+        ${params.assignedCourts ? `
+        <tr>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #94a3b8; font-weight: 700;">Courts:</td>
+          <td style="padding-bottom: 10px; font-size: 14px; color: #38bdf8; font-weight: 800;">${params.assignedCourts}</td>
+        </tr>
+        ` : ''}
+      </table>
+    </div>
+
+    <!-- PRE-GAME CHECKLIST -->
+    <div style="background-color: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 16px; padding: 18px; margin-bottom: 24px;">
+      <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; color: #38bdf8; letter-spacing: 0.5px; margin-bottom: 10px;">
+        💡 Quick Player Checklist
+      </div>
+      <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #cbd5e1; line-height: 1.6;">
+        <li>Please check in with the desk host upon arrival at the court.</li>
+        <li>Bring your paddle, court shoes, and hydration bottle.</li>
+        <li>Warm up thoroughly and enjoy competitive, fun games!</li>
+      </ul>
+    </div>
+
+    <!-- ACTION BUTTON -->
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px; margin-bottom: 20px;">
+      <tr>
+        <td align="center">
+          <a href="${baseUrl}?view=openplay" target="_blank" style="display: inline-block; padding: 14px 36px; background-color: #a6e224; color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; box-shadow: 0 8px 20px -4px rgba(166, 226, 36, 0.35); text-align: center;">
+            View Session Details & Roster &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const headerTitle = isGameStartingNow
+    ? 'Game Starting Now!'
+    : `Game Starting in ${timeText}!`;
+
+  const htmlMessage = buildHtmlWrapper(
+    headerTitle,
+    `Reminder: ${params.eventTitle}`,
+    bodyContent,
+    params.companyName
+  );
+
+  return sendCustomUserEmail({
+    toEmail: params.toEmail,
+    toName: params.toName || 'Valued Player',
+    subject,
+    message: htmlMessage,
+  });
+};
+
+

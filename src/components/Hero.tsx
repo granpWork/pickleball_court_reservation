@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { MapPin, Search, X, LayoutGrid, List, Clock, Building2, Layers } from 'lucide-react';
+import { MapPin, Search, X, LayoutGrid, List, Clock, Building2, Layers, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 
@@ -62,10 +62,88 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
   const [courts, setCourts] = useState<Court[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDate, setSearchDate] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [calendarViewDate, setCalendarViewDate] = useState(() => new Date());
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState<'relevance' | 'dayPrice' | 'nightPrice' | 'courts'>('relevance');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const handleExecuteSearch = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsFocused(false);
+    setIsDatePickerOpen(false);
+    const resultsElement = document.getElementById('venues-results');
+    if (resultsElement) {
+      resultsElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const prevMonth = () => {
+    setCalendarViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const nextMonth = () => {
+    setCalendarViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const renderMonthGrid = (year: number, monthIndex: number) => {
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const firstDayIndex = (new Date(year, monthIndex, 1).getDay() + 6) % 7;
+    const todayObj = new Date();
+    const todayStr = `${todayObj.getFullYear()}-${String(todayObj.getMonth() + 1).padStart(2, '0')}-${String(todayObj.getDate()).padStart(2, '0')}`;
+
+    const monthName = new Date(year, monthIndex, 1).toLocaleString('default', { month: 'long' });
+
+    const days = [];
+    for (let i = 0; i < firstDayIndex; i++) {
+      days.push(<div key={`blank-${year}-${monthIndex}-${i}`} className="h-9" />);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const isSelected = searchDate === dateStr;
+      const isToday = todayStr === dateStr;
+
+      days.push(
+        <button
+          key={dateStr}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSearchDate(dateStr);
+            setIsDatePickerOpen(false);
+          }}
+          className={`h-9 w-9 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer mx-auto ${
+            isSelected
+              ? 'bg-brand-lime text-slate-950 font-black shadow-md shadow-brand-lime/20 scale-105'
+              : isToday
+              ? 'border border-brand-lime text-brand-lime bg-brand-lime/10 font-bold'
+              : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+          }`}
+        >
+          {day}
+        </button>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="text-center font-extrabold text-white text-sm tracking-wide">
+          {monthName} {year}
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center mb-1">
+          {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => (
+            <div key={d} className="text-[10px] font-bold text-slate-500 uppercase">
+              {d}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">{days}</div>
+      </div>
+    );
+  };
 
   const fetchCourts = async () => {
     setLoading(true);
@@ -317,39 +395,177 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
 
           {/* Sticky Spotlight Search Bar Container */}
           <div id="booking-widget" className="w-full max-w-4xl sticky top-[76px] sm:top-[96px] z-30 animate-slide-up">
-            <div className="relative group">
-              {/* Outer floating search wrapper (Borderless) */}
+            <form onSubmit={handleExecuteSearch} className="relative group">
+              {/* Outer floating search wrapper */}
               <div 
-                className={`w-full h-14 sm:h-16 rounded-2xl bg-slate-900/60 backdrop-blur-2xl px-4 sm:px-6 flex items-center gap-3 sm:gap-4 transition-all duration-300 shadow-[0_20px_50px_rgba(0,0,0,0.55)] border border-slate-800/40 ${
+                className={`w-full rounded-2xl bg-slate-900/80 backdrop-blur-2xl p-2 sm:p-2.5 flex flex-col md:flex-row items-stretch md:items-center gap-2 sm:gap-3 transition-all duration-300 shadow-[0_20px_50px_rgba(0,0,0,0.65)] border border-slate-800/80 ${
                   isFocused 
-                    ? 'bg-slate-900/80 shadow-[0_20px_50px_rgba(181,245,41,0.06)] border-brand-lime/20' 
-                    : 'hover:bg-slate-900/70'
+                    ? 'shadow-[0_20px_50px_rgba(181,245,41,0.08)] border-brand-lime/30' 
+                    : 'hover:border-slate-700/80'
                 }`}
               >
-                <Search className={`w-5 h-5 transition-colors duration-300 ${isFocused ? 'text-brand-lime' : 'text-slate-500'}`} />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onFocus={() => setIsFocused(true)}
-                  onBlur={() => setTimeout(() => setIsFocused(false), 200)}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
+                {/* Field 1: Location & Venue Search */}
+                <div className="flex-1 flex items-center gap-3 px-3.5 py-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 focus-within:border-brand-lime/50 transition-all">
+                  <MapPin className="w-4 h-4 text-brand-lime shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">
+                      Location / Venue
+                    </label>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onFocus={() => setIsFocused(true)}
+                      onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="City, province, or court name..."
+                      className="w-full bg-transparent text-white text-xs sm:text-sm font-semibold focus:outline-none placeholder-slate-500 truncate"
+                    />
+                  </div>
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Field 2: Target Booking Date */}
+                <div 
+                  onClick={() => {
+                    setIsDatePickerOpen(!isDatePickerOpen);
+                    setIsFocused(false);
                   }}
-                  placeholder="Search city, province, or court name..."
-                  className="flex-1 bg-transparent text-white text-base focus:outline-none placeholder-slate-500 font-sans tracking-wide cursor-text font-medium"
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery('');
-                    }}
-                    className="text-slate-400 hover:text-brand-lime transition-colors cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
+                  className="flex-1 flex items-center gap-3 px-3.5 py-2.5 bg-slate-950/60 rounded-xl border border-slate-800/80 hover:border-blue-400/50 focus-within:border-brand-lime/50 transition-all cursor-pointer group/date"
+                >
+                  <Calendar className="w-4 h-4 text-blue-400 shrink-0 group-hover/date:text-brand-lime transition-colors" />
+                  <div className="flex-1 min-w-0 text-left">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1 cursor-pointer">
+                      Target Booking Date
+                    </label>
+                    <span className={`text-xs sm:text-sm font-bold block truncate ${searchDate ? 'text-white font-extrabold' : 'text-slate-500'}`}>
+                      {searchDate ? (
+                        new Date(searchDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      ) : (
+                        'Select date...'
+                      )}
+                    </span>
+                  </div>
+                  {searchDate && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSearchDate('');
+                      }}
+                      className="text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Field 3: Search Action Button */}
+                <button
+                  type="submit"
+                  className="px-6 py-3.5 rounded-xl bg-brand-lime text-slate-950 font-black text-xs sm:text-sm hover:bg-lime-400 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-brand-lime/20 shrink-0 group/btn"
+                >
+                  <Search className="w-4 h-4 text-slate-950 group-hover/btn:scale-110 transition-transform" />
+                  <span>Search Courts</span>
+                </button>
               </div>
+
+              {/* DUAL-MONTH CALENDAR PANEL POP-OVER */}
+              {isDatePickerOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsDatePickerOpen(false)} />
+                  <div className="absolute top-20 right-0 sm:right-auto sm:left-1/3 z-50 glass-panel bg-slate-950/95 border border-slate-800/90 rounded-3xl p-6 shadow-[0_30px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl animate-fade-in text-left w-full max-w-2xl">
+                    {/* Header Controls */}
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-900 mb-6">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-brand-lime" />
+                        <h4 className="text-sm font-extrabold text-white">Select Booking Date</h4>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={prevMonth}
+                          className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-all cursor-pointer"
+                          title="Previous Month"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={nextMonth}
+                          className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 transition-all cursor-pointer"
+                          title="Next Month"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsDatePickerOpen(false)}
+                          className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-all cursor-pointer ml-2"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Dual Month Grids Side-by-Side */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                      {/* Month 1 */}
+                      {renderMonthGrid(calendarViewDate.getFullYear(), calendarViewDate.getMonth())}
+
+                      {/* Month 2 */}
+                      {renderMonthGrid(
+                        calendarViewDate.getMonth() === 11 ? calendarViewDate.getFullYear() + 1 : calendarViewDate.getFullYear(),
+                        (calendarViewDate.getMonth() + 1) % 12
+                      )}
+                    </div>
+
+                    {/* Quick Selection Shortcuts */}
+                    <div className="mt-6 pt-4 border-t border-slate-900 flex flex-wrap items-center justify-between gap-3 text-xs">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            setSearchDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+                            setIsDatePickerOpen(false);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-brand-lime/10 text-slate-300 hover:text-brand-lime border border-slate-800 transition-all cursor-pointer font-bold"
+                        >
+                          Today
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date(Date.now() + 86400000);
+                            setSearchDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+                            setIsDatePickerOpen(false);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-brand-lime/10 text-slate-300 hover:text-brand-lime border border-slate-800 transition-all cursor-pointer font-bold"
+                        >
+                          Tomorrow
+                        </button>
+                      </div>
+                      {searchDate && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchDate('')}
+                          className="text-rose-400 hover:text-rose-300 font-bold underline underline-offset-2 cursor-pointer"
+                        >
+                          Clear Date
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* Floating Dropdown Suggestions Panel */}
               {isFocused && venueGroups.length > 0 && (
@@ -500,11 +716,11 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
                   )}
                 </div>
               )}
-            </div>
+            </form>
           </div>
 
           {/* 2. Results Section (Directly Below Hero) */}
-          <div className="w-full mt-10 space-y-8 animate-fade-in text-left">
+          <div id="venues-results" className="w-full mt-10 space-y-8 animate-fade-in text-left scroll-mt-24">
             
             {/* Header section with sort & keyword details */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-dark-border">
@@ -516,8 +732,43 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
                   </span>
                 </h2>
                 <p className="text-sm font-normal text-slate-400 mt-1">
-                  Browse host organizations and multi-court facilities {searchQuery && <>for "<span className="text-white font-medium">{searchQuery}</span>"</>}
+                  Browse host organizations and multi-court facilities {searchQuery && <>matching "<span className="text-white font-medium">{searchQuery}</span>"</>}
                 </p>
+
+                {/* Active Filter Chips */}
+                {(searchQuery || searchDate) && (
+                  <div className="flex flex-wrap items-center gap-2 mt-3">
+                    <span className="text-xs text-slate-500 font-medium">Active Filters:</span>
+                    {searchQuery && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 border border-brand-lime/30 text-xs text-slate-200">
+                        <MapPin className="w-3.5 h-3.5 text-brand-lime" />
+                        <span>"{searchQuery}"</span>
+                        <button type="button" onClick={() => setSearchQuery('')} className="text-slate-400 hover:text-white cursor-pointer ml-1">
+                          <X className="w-3 h-3 text-rose-400" />
+                        </button>
+                      </span>
+                    )}
+                    {searchDate && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 border border-blue-500/30 text-xs text-slate-200">
+                        <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Target: {searchDate}</span>
+                        <button type="button" onClick={() => setSearchDate('')} className="text-slate-400 hover:text-white cursor-pointer ml-1">
+                          <X className="w-3 h-3 text-rose-400" />
+                        </button>
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSearchDate('');
+                      }}
+                      className="text-xs text-rose-400 hover:text-rose-300 font-bold underline underline-offset-2 ml-1 cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Sorting and Category Badges */}

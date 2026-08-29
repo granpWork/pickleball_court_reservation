@@ -15,7 +15,8 @@ import Profile from './components/Profile';
 import ClientAdminOnboarding from './components/ClientAdminOnboarding';
 import { auth, db, isFirebaseConfigured } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc, increment, deleteDoc } from 'firebase/firestore';
+import { sendRegistrationConfirmationEmail } from './services/emailService';
 import { AlertCircle, Loader2 } from 'lucide-react';
 
 function App() {
@@ -42,9 +43,23 @@ function App() {
     if (window.location.pathname === '/checkout' || params.get('view') === 'checkout') {
       return 'checkout';
     }
-    if (window.location.pathname === '/pickle-admin') {
+    if (window.location.pathname === '/pickle-admin' || params.get('view') === 'admin') {
       return 'admin';
     }
+
+    // Check cached admin/manager session before defaulting to 'landing' on root path '/'
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('picklepoint_session');
+        if (saved) {
+          const u = JSON.parse(saved);
+          if (u && (u.isAdmin || u.role === 'client_admin' || u.role === 'super_admin' || u.role === 'manager' || u.role === 'editor')) {
+            return 'admin';
+          }
+        }
+      } catch (e) {}
+    }
+
     return 'landing';
   });
 
@@ -110,13 +125,12 @@ function App() {
 
         if (isFirebaseConfigured && db) {
           try {
-            const { collection, getDocs, query, where, updateDoc, increment, doc: fDoc } = await import('firebase/firestore');
             const q = query(collection(db, 'short_links'), where('shortSlug', '==', shortSlug));
             const snap = await getDocs(q);
             if (!snap.empty) {
               const docSnap = snap.docs[0];
               matchedLink = { id: docSnap.id, ...docSnap.data() };
-              updateDoc(fDoc(db, 'short_links', docSnap.id), {
+              updateDoc(doc(db, 'short_links', docSnap.id), {
                 clickCount: increment(1),
               }).catch(() => {});
             }
@@ -371,13 +385,12 @@ function App() {
 
             if (userEmailLower) {
               try {
-                const { collection, query, where, getDocs, doc: fDoc, getDoc: fGetDoc } = await import('firebase/firestore');
                 const searchParams = new URLSearchParams(window.location.search);
                 const inviteTokenParam = searchParams.get('inviteToken');
 
                 if (inviteTokenParam) {
-                  const invRef = fDoc(firestoreDb, 'invitations', inviteTokenParam);
-                  const invSnap = await fGetDoc(invRef);
+                  const invRef = doc(firestoreDb, 'invitations', inviteTokenParam);
+                  const invSnap = await getDoc(invRef);
                   if (invSnap.exists() && invSnap.data().status !== 'used') {
                     matchedInvite = invSnap.data();
                     inviteDocId = inviteTokenParam;
@@ -406,19 +419,40 @@ function App() {
 
             if (userDocSnap.exists()) {
               const uData = userDocSnap.data();
-              role = matchedInvite?.role || uData.role || (userEmailLower === 'admin@picklepoint.com' ? 'super_admin' : 'player');
               status = uData.status || (uData.isInvitedPending ? 'pending' : 'active');
 
-              // If matched invite role differs from stored role, update Firestore document
-              if (matchedInvite?.role && uData.role !== matchedInvite.role) {
+              if (status === 'deleted') {
+                // Smoothly migrate former staff to active player role
+                status = 'active';
+                role = 'player';
                 try {
                   await setDoc(userDocRef, {
-                    role: matchedInvite.role,
-                    companyName: matchedInvite.company || '',
+                    status: 'active',
+                    role: 'player',
+                    companyId: '',
+                    companyName: '',
+                    permissions: {},
                     isInvitedPending: false
                   }, { merge: true });
                 } catch (e) {
-                  console.warn('Could not update user role from invitation:', e);
+                  console.warn('Could not reset deleted status to active player:', e);
+                }
+              } else if (status === 'inactive') {
+                role = 'player';
+              } else {
+                role = matchedInvite?.role || uData.role || (userEmailLower === 'admin@picklepoint.com' ? 'super_admin' : 'player');
+
+                // If matched invite role differs from stored role, update Firestore document
+                if (matchedInvite?.role && uData.role !== matchedInvite.role) {
+                  try {
+                    await setDoc(userDocRef, {
+                      role: matchedInvite.role,
+                      companyName: matchedInvite.company || '',
+                      isInvitedPending: false
+                    }, { merge: true });
+                  } catch (e) {
+                    console.warn('Could not update user role from invitation:', e);
+                  }
                 }
               }
             } else {
@@ -435,7 +469,6 @@ function App() {
                 });
                 const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
                 const loginUrl = `${origin}/?view=login&registered=true&email=${encodeURIComponent(firebaseUser.email || '')}`;
-                const { sendRegistrationConfirmationEmail } = await import('./services/emailService');
                 sendRegistrationConfirmationEmail({
                   toEmail: firebaseUser.email || '',
                   toName: firebaseUser.displayName || 'Player',
@@ -450,8 +483,7 @@ function App() {
             // Mark invitation as used if it was matched
             if (matchedInvite && inviteDocId) {
               try {
-                const { updateDoc, doc: fDoc } = await import('firebase/firestore');
-                await updateDoc(fDoc(firestoreDb, 'invitations', inviteDocId), {
+                await updateDoc(doc(firestoreDb, 'invitations', inviteDocId), {
                   status: 'used',
                   usedAt: new Date().toISOString()
                 });
@@ -486,7 +518,6 @@ function App() {
             let companyName: string | undefined;
             if (userEmailLower && role !== 'super_admin') {
               try {
-                const { collection, query, where, getDocs, updateDoc, deleteDoc, doc: fDoc } = await import('firebase/firestore');
                 const compQuery = query(collection(firestoreDb, 'companies'), where('clientAdminEmail', '==', userEmailLower));
                 const compSnap = await getDocs(compQuery);
                 if (!compSnap.empty) {
@@ -504,7 +535,7 @@ function App() {
                 const invSnap = await getDocs(invQuery);
                 invSnap.forEach((dSnap) => {
                   if (dSnap.id.startsWith('invited-') && dSnap.id !== firebaseUser.uid) {
-                    deleteDoc(fDoc(firestoreDb, 'users', dSnap.id)).catch(() => {});
+                    deleteDoc(doc(firestoreDb, 'users', dSnap.id)).catch(() => {});
                   }
                 });
               } catch (e) {
@@ -649,7 +680,6 @@ function App() {
     if (!userStatus) {
       if (isFirebaseConfigured && db && loggedInUser.uid) {
         try {
-          const { doc, getDoc } = await import('firebase/firestore');
           const userDocSnap = await getDoc(doc(db, 'users', loggedInUser.uid));
           if (userDocSnap.exists()) {
             userStatus = userDocSnap.data().status;
@@ -690,7 +720,6 @@ function App() {
     if (emailLower !== 'admin@picklepoint.com' && finalRole !== 'super_admin') {
       if (isFirebaseConfigured && db) {
         try {
-          const { collection, query, where, getDocs, doc, updateDoc } = await import('firebase/firestore');
           const compQuery = query(collection(db, 'companies'), where('clientAdminEmail', '==', emailLower));
           const compSnap = await getDocs(compQuery);
           if (!compSnap.empty && finalRole !== 'client_admin') {

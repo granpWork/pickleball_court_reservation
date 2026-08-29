@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
-import { doc, getDoc, setDoc, getDocs, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, getDocs, collection, query, where, updateDoc } from 'firebase/firestore';
 import { sendBookingConfirmationEmail, sendOpenPlayInvitationEmail } from '../services/emailService';
 
 interface CheckoutProps {
@@ -147,7 +147,6 @@ export default function Checkout({
 
       if (isFirebaseConfigured && db) {
         try {
-          const { doc, getDoc } = await import('firebase/firestore');
           const bookingDoc = await getDoc(doc(db, 'bookings', targetRef));
           if (bookingDoc.exists()) {
             const data = bookingDoc.data();
@@ -312,7 +311,6 @@ export default function Checkout({
     // 1. Check Cloud Firestore if configured
     if (isFirebaseConfigured && db) {
       try {
-        const { collection, getDocs } = await import('firebase/firestore');
         const vSnap = await getDocs(collection(db, 'vouchers'));
         vSnap.forEach((dSnap) => {
           const vData = { id: dSnap.id, ...dSnap.data() } as Voucher;
@@ -778,10 +776,9 @@ export default function Checkout({
 
     if (isFirebaseConfigured && db) {
       try {
-        const { collection: fCollection, query: fQuery, where: fWhere, getDocs: fGetDocs } = await import('firebase/firestore');
-        const bookingsRef = fCollection(db, 'bookings');
-        const q = fQuery(bookingsRef, fWhere('date', '==', targetDate));
-        const querySnapshot = await fGetDocs(q);
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(bookingsRef, where('date', '==', targetDate));
+        const querySnapshot = await getDocs(q);
 
         querySnapshot.forEach((docSnap) => {
           const data = docSnap.data();
@@ -924,8 +921,7 @@ export default function Checkout({
 
       if (isFirebaseConfigured && db) {
         try {
-          const { doc: firestoreDoc, updateDoc: firestoreUpdateDoc } = await import('firebase/firestore');
-          await firestoreUpdateDoc(firestoreDoc(db, 'vouchers', appliedVoucher.id), {
+          await updateDoc(doc(db, 'vouchers', appliedVoucher.id), {
             usedCount: updatedCount,
             status: updatedStatus,
             lastUsedAt: new Date().toISOString(),

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, CheckCircle2 } from 'lucide-react';
 import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
-import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
@@ -198,7 +198,6 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
 
         if (firebaseError.code === 'auth/popup-blocked') {
           try {
-            const { signInWithRedirect } = await import('firebase/auth');
             await signInWithRedirect(auth, googleProvider);
             return;
           } catch (redirectErr) {
@@ -239,7 +238,6 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
 
         if (firebaseError.code === 'auth/popup-blocked') {
           try {
-            const { signInWithRedirect } = await import('firebase/auth');
             await signInWithRedirect(auth, facebookProvider);
             return;
           } catch (redirectErr) {

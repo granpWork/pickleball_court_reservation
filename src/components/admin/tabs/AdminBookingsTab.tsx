@@ -1,22 +1,23 @@
 import React, { useState } from 'react';
 import {
   Calendar,
-  DollarSign,
   Clock,
-  CheckCircle,
-  XCircle,
   Search,
   Eye,
   AlertCircle,
-  Loader2,
-  Trash2,
   ChevronLeft,
   ChevronRight,
-  LayoutGrid,
   X,
-  User
+  ChevronDown,
+  User,
+  Building2,
+  RotateCcw,
+  CreditCard,
+  Users,
+  SlidersHorizontal,
+  Trophy,
 } from 'lucide-react';
-import { type Booking, getBookingColorTheme, isPastBookingDate } from '../adminTypes';
+import { type Booking, type UserPermissions, getBookingScheduleState } from '../adminTypes';
 
 interface AdminBookingsTabProps {
   bookings: Booking[];
@@ -27,38 +28,167 @@ interface AdminBookingsTabProps {
   setBookingSearch: (val: string) => void;
   bookingStatusFilter: 'all' | 'approved' | 'pending' | 'cancelled';
   setBookingStatusFilter: (val: 'all' | 'approved' | 'pending' | 'cancelled') => void;
-  actionLoading: string | null;
-  onApproveBooking: (bookingId: string) => void;
-  onOpenCancelModal: (booking: Booking) => void;
+  actionLoading?: string | null;
+  onApproveBooking?: (bookingId: string) => void;
+  onOpenCancelModal?: (booking: Booking) => void;
   onViewReceipt: (booking: Booking) => void;
   onDeleteBooking?: (bookingId: string) => void;
+  onRefundBooking?: (booking: Booking) => void;
   courts?: { id: string; name: string }[];
+  users?: { id?: string; uid?: string; name?: string; email?: string; photoUrl?: string; avatarUrl?: string; role?: string }[];
+  userPermissions?: UserPermissions;
 }
 
 export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   bookings,
   filteredBookings,
-  totalRevenue,
-  pendingBookings,
+  totalRevenue: _totalRevenue,
+  pendingBookings: _pendingBookings,
   bookingSearch,
   setBookingSearch,
   bookingStatusFilter,
   setBookingStatusFilter,
-  actionLoading,
-  onApproveBooking,
-  onOpenCancelModal,
+  actionLoading: _actionLoading,
+  onApproveBooking: _onApproveBooking,
+  onOpenCancelModal: _onOpenCancelModal,
   onViewReceipt,
-  onDeleteBooking,
+  onDeleteBooking: _onDeleteBooking,
+  onRefundBooking,
   courts = [],
+  users = [],
+  userPermissions: _userPermissions,
 }) => {
   // Calendar View State
-  const [bookingsViewMode, setBookingsViewMode] = useState<'table' | 'calendar'>('table');
+  const [bookingsViewMode, _setBookingsViewMode] = useState<'table' | 'calendar'>('table');
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [selectedCalendarCourtId, setSelectedCalendarCourtId] = useState<string>('all');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
+  const [scheduleFilter, setScheduleFilter] = useState<'all' | 'active' | 'completed'>('all');
+  const [selectedBookingDate, setSelectedBookingDate] = useState<string>('');
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
 
-  const approvedCount = bookings.filter((b) => b.status === 'approved').length;
-  const cancelledCount = bookings.filter((b) => b.status === 'cancelled').length;
+  const displayBookings = filteredBookings.filter((b) => {
+    if (selectedBookingDate && b.date !== selectedBookingDate) {
+      return false;
+    }
+    const schedState = getBookingScheduleState(b.date, b.slots);
+    if (scheduleFilter === 'active') {
+      return schedState === 'upcoming' || schedState === 'in_progress';
+    }
+    if (scheduleFilter === 'completed') {
+      return schedState === 'completed';
+    }
+    return true;
+  });
+
+  const activeFilterCount =
+    (selectedBookingDate ? 1 : 0) +
+    (scheduleFilter !== 'all' ? 1 : 0) +
+    (bookingStatusFilter !== 'all' ? 1 : 0);
+
+  const renderStatusBadgeWithDot = (status: string, isScheduleCompleted?: boolean) => {
+    const displayStatus = (status === 'approved' && isScheduleCompleted) ? 'completed' : status;
+    const isApproved = displayStatus === 'approved';
+    const isPending = displayStatus === 'pending';
+    const isCompleted = displayStatus === 'completed';
+
+    const dotClass = isApproved
+      ? 'bg-emerald-400 shadow-emerald-500/60 ring-4 ring-emerald-500/20'
+      : isPending
+      ? 'bg-amber-400 shadow-amber-500/60 ring-4 ring-amber-500/20 animate-pulse'
+      : isCompleted
+      ? 'bg-purple-400 shadow-purple-500/60 ring-4 ring-purple-500/20'
+      : 'bg-rose-500 shadow-rose-500/60 ring-4 ring-rose-500/20';
+
+    const tooltipDesc = isApproved
+      ? 'Approved & Active'
+      : isPending
+      ? 'Pending Admin Approval'
+      : isCompleted
+      ? 'Match Schedule Completed'
+      : 'Reservation Cancelled';
+
+    return (
+      <div className="relative group/tooltip inline-flex items-center justify-center p-1">
+        <span
+          title={`${displayStatus.toUpperCase()} - ${tooltipDesc}`}
+          className={`w-3.5 h-3.5 rounded-full shrink-0 shadow-md ring-2 transition-all cursor-help hover:scale-125 ${dotClass}`}
+        />
+
+        {/* Hover Tooltip */}
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 hidden group-hover/tooltip:flex flex-col items-center z-50 pointer-events-none w-max max-w-xs animate-fade-in">
+          <div className="bg-slate-950 text-white border border-slate-700/90 px-3 py-1.5 rounded-xl text-[11px] font-semibold shadow-2xl whitespace-nowrap flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${isApproved ? 'bg-emerald-400' : isPending ? 'bg-amber-400' : isCompleted ? 'bg-purple-400' : 'bg-rose-500'}`}></span>
+            <span className="font-extrabold capitalize text-brand-lime">{displayStatus}</span> &mdash; <span>{tooltipDesc}</span>
+          </div>
+          <div className="w-2 h-2 bg-slate-950 border-r border-b border-slate-700/90 rotate-45 -mt-1" />
+        </div>
+      </div>
+    );
+  };
+
+  const formatBookingDate = (dateStr?: string) => {
+    if (!dateStr) return 'N/A';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    if (isNaN(year) || isNaN(month) || isNaN(day)) return dateStr;
+
+    const d = new Date(year, month, day);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const getBookingCategoryInfo = (b: Booking) => {
+    const typeStr = (b.type || '').toLowerCase();
+    
+    if (typeStr === 'tournament' || (b as any).isTournament || (b as any).tournamentId) {
+      return { label: 'Tournament', colorClass: 'text-amber-400 font-extrabold' };
+    }
+    
+    if (typeStr === 'bootcamp' || (b as any).isBootcamp || (b as any).bootcampId) {
+      return { label: 'Bootcamp', colorClass: 'text-purple-400 font-extrabold' };
+    }
+    
+    if (typeStr === 'openplay' || typeStr === 'open_play' || b.openPlayEventId || (b as any).isOpenPlay) {
+      return { label: 'Open Play', colorClass: 'text-cyan-400 font-extrabold' };
+    }
+
+    return { label: 'Court', colorClass: 'text-brand-lime font-extrabold' };
+  };
+
+  const formatTime12h = (t: string) => {
+    if (!t) return 'N/A';
+    const trimmed = t.trim();
+    const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match12) {
+      const h = parseInt(match12[1], 10);
+      return `${h}:${match12[2]} ${match12[3].toUpperCase()}`;
+    }
+    if (trimmed.includes(':')) {
+      const parts = trimmed.split(':');
+      const h = parseInt(parts[0], 10);
+      if (isNaN(h)) return trimmed;
+      const m = parts[1]?.substring(0, 2) || '00';
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return `${h12}:${m} ${ampm}`;
+    }
+    return trimmed;
+  };
+
+  const formatTimestamp = (ts?: string) => {
+    if (!ts) return 'N/A';
+    try {
+      const d = new Date(ts);
+      if (isNaN(d.getTime())) return ts;
+      return d.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return ts;
+    }
+  };
 
   // Helper for generating monthly calendar grid days (42 cells)
   const generateMonthDays = () => {
@@ -117,137 +247,55 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* 1. Performance Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Revenue</p>
-              <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors">
-                ₱{totalRevenue.toLocaleString()}
-              </h3>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime shadow-inner">
-              <DollarSign className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
-            <span>Approved Bookings</span>
-            <span className="text-brand-lime font-semibold">{approvedCount} Paid</span>
-          </div>
+      {/* Controls, Search & Filter Settings Trigger */}
+      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between glass-panel p-4 rounded-2xl border border-slate-800">
+        <div className="relative flex-1 w-full">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search reference, court, customer name or email..."
+            value={bookingSearch}
+            onChange={(e) => setBookingSearch(e.target.value)}
+            className="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime transition-all"
+          />
         </div>
 
-        <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Bookings</p>
-              <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors">
-                {bookings.length}
-              </h3>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shadow-inner">
-              <Calendar className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
-            <span>Reservations Placed</span>
-            <span className="text-amber-400 font-semibold">{pendingBookings.length} Pending</span>
-          </div>
-        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsFilterModalOpen(true)}
+            className={`flex-1 sm:flex-none px-4 py-2.5 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm ${
+              activeFilterCount > 0
+                ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-brand-lime/20'
+                : 'bg-slate-900 border-slate-700/80 text-slate-200 hover:border-brand-lime/50 hover:text-white'
+            }`}
+            title="Open Filter & Timeline Settings"
+          >
+            <SlidersHorizontal className="w-4 h-4 text-current" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="w-5 h-5 rounded-full bg-dark-bg text-brand-lime text-[10px] font-black flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
 
-        <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Approved Rate</p>
-              <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors">
-                {bookings.length > 0 ? Math.round((approvedCount / bookings.length) * 100) : 0}%
-              </h3>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shadow-inner">
-              <CheckCircle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
-            <span>Confirmed Bookings</span>
-            <span className="text-emerald-400 font-semibold">{approvedCount} Confirmed</span>
-          </div>
-        </div>
-
-        <div className="glass-panel border border-slate-800 rounded-2xl p-5 hover:border-slate-700/80 transition-all group">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Cancelled / Refunded</p>
-              <h3 className="text-2xl font-bold text-white mt-2 group-hover:text-brand-lime transition-colors">
-                {cancelledCount}
-              </h3>
-            </div>
-            <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shadow-inner">
-              <XCircle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
-            <span>Cancelled Reservations</span>
-            <span className="text-rose-400 font-semibold">{cancelledCount} Returned</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Controls, Search & View Mode Toggle */}
-      <div className="flex flex-col md:flex-row gap-4 items-center justify-between glass-panel p-4 rounded-2xl border border-slate-800">
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search reference, court, customer..."
-              value={bookingSearch}
-              onChange={(e) => setBookingSearch(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime transition-all"
-            />
-          </div>
-
-          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+          {(activeFilterCount > 0 || Boolean(bookingSearch) || Boolean(selectedBookingDate)) && (
             <button
               type="button"
-              onClick={() => setBookingsViewMode('table')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                bookingsViewMode === 'table'
-                  ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              onClick={() => {
+                setSelectedBookingDate('');
+                setScheduleFilter('all');
+                setBookingStatusFilter('all');
+                setBookingSearch('');
+              }}
+              className="px-3.5 py-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shrink-0"
+              title="Reset all reservation filters"
             >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>Table</span>
+              <X className="w-3.5 h-3.5 text-red-400" />
+              <span>Reset</span>
             </button>
-            <button
-              type="button"
-              onClick={() => setBookingsViewMode('calendar')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                bookingsViewMode === 'calendar'
-                  ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Calendar</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-          {(['all', 'approved', 'pending', 'cancelled'] as const).map((status) => (
-            <button
-              key={status}
-              onClick={() => setBookingStatusFilter(status)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold capitalize transition-all whitespace-nowrap ${
-                bookingStatusFilter === status
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/20'
-                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-              }`}
-            >
-              {status === 'all' ? `All (${bookings.length})` : `${status} (${bookings.filter((b) => b.status === status).length})`}
-            </button>
-          ))}
+          )}
         </div>
       </div>
 
@@ -256,58 +304,78 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
         <div className="glass-panel border border-slate-800 rounded-2xl overflow-hidden shadow-xl animate-fade-in">
           {/* MOBILE CARDS VIEW (Visible on small screens < md) */}
           <div className="md:hidden space-y-4 p-4">
-            {filteredBookings.length === 0 ? (
+            {displayBookings.length === 0 ? (
               <div className="py-12 text-center text-slate-500 glass-panel border border-slate-800/80 rounded-2xl p-6">
                 <AlertCircle className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                 <p className="font-semibold text-slate-400">No bookings match your filter criteria.</p>
               </div>
             ) : (
-              filteredBookings.map((b) => {
-                const isPast = isPastBookingDate(b.date);
-                const colorTheme = getBookingColorTheme(b.id || b.user?.email || b.courtId);
-                const isPendingAction = actionLoading === b.id;
+              displayBookings.map((b) => {
+                const schedState = getBookingScheduleState(b.date, b.slots);
+                const isCompleted = schedState === 'completed';
 
                 return (
-                  <div key={b.id} className="glass-panel border border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-xl text-left bg-slate-900/60">
+                  <div key={b.id} className={`glass-panel border border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-xl text-left bg-slate-900/60 ${isCompleted ? 'opacity-80 hover:opacity-100 transition-opacity' : ''}`}>
                     {/* Header Row: Ref & Court */}
                     <div className="flex items-start justify-between gap-3 border-b border-slate-800/80 pb-3">
                       <div>
                         <div className="font-mono font-bold text-white text-xs">{b.bookingReference || b.id.substring(0, 8).toUpperCase()}</div>
-                        <div className="text-xs text-brand-lime font-bold mt-0.5">{b.courtName}</div>
+                        {(() => {
+                          const cat = getBookingCategoryInfo(b);
+                          return <div className={`text-xs mt-0.5 ${cat.colorClass}`}>{cat.label}</div>;
+                        })()}
                       </div>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-extrabold capitalize ${
-                          b.status === 'approved'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            : b.status === 'pending'
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                        }`}
-                      >
-                        {b.status}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {renderStatusBadgeWithDot(b.status, isCompleted)}
+                      </div>
                     </div>
 
                     {/* Customer Info */}
-                    <div className="text-xs space-y-0.5">
-                      <div className="font-extrabold text-white">{b.user?.name || b.userName || 'Guest'}</div>
-                      <div className="text-slate-400 font-mono text-[11px]">{b.user?.email || b.userEmail || 'No Email'}</div>
-                    </div>
+                    {(() => {
+                      const bName = b.user?.name || b.userName || 'Guest';
+                      const bEmail = b.user?.email || b.userEmail || '';
+                      const bUid = b.user?.uid || (b as any).userId;
+                      const matchedUser = users.find(
+                        (u) => (u.uid && bUid && u.uid === bUid) || (u.email && bEmail && u.email.toLowerCase() === bEmail.toLowerCase())
+                      );
+                      const avatarSrc =
+                        matchedUser?.photoUrl ||
+                        matchedUser?.avatarUrl ||
+                        (b.user as any)?.photoUrl ||
+                        (b.user as any)?.avatarUrl ||
+                        (b as any).photoUrl ||
+                        (b as any).avatarUrl ||
+                        (b as any).playerPhotoUrl ||
+                        (b as any).userPhotoUrl ||
+                        `https://robohash.org/${encodeURIComponent(bName)}?set=set4`;
+
+                      return (
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60 flex items-center justify-center">
+                            <img
+                              src={avatarSrc}
+                              alt={bName}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(bName)}&background=b5f529&color=0f172a&bold=true`;
+                              }}
+                            />
+                          </div>
+                          <div className="text-xs space-y-0.5 min-w-0 flex-1">
+                            <div className="font-extrabold text-white truncate">{bName}</div>
+                            <div className="text-slate-400 font-mono text-[11px] truncate">{bEmail || 'No Email'}</div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Details Grid */}
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60 space-y-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Schedule Date & Slots</span>
-                        <div className="font-bold text-white text-[11px] flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-brand-lime" />
-                          <span>{b.date}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {b.slots?.map((slot, idx) => (
-                            <span key={idx} className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${colorTheme.bg} ${colorTheme.text}`}>
-                              {slot}
-                            </span>
-                          ))}
+                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Schedule Date</span>
+                        <div className="font-bold text-white text-[11px] flex items-center gap-1.5">
+                          <Clock className="w-3 h-3 text-brand-lime shrink-0" />
+                          <span>{formatBookingDate(b.date)}</span>
                         </div>
                       </div>
 
@@ -322,23 +390,28 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
                       {b.receiptImageUrl && (
                         <button onClick={() => onViewReceipt(b)} className="px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer">
-                          <Eye className="w-3.5 h-3.5 text-brand-lime" /> Proof
+                          <Eye className="w-3.5 h-3.5" /> Proof
                         </button>
                       )}
-                      {b.status === 'pending' && (
-                        <button onClick={() => onApproveBooking(b.id)} disabled={isPendingAction} className="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-xs hover:bg-emerald-500/30 transition-all cursor-pointer">
-                          {isPendingAction ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Approve'}
+                      {onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
+                        <button
+                          onClick={() => onRefundBooking(b)}
+                          title="Issue Refund & Upload Receipt"
+                          className={`px-2 py-1 rounded-xl border text-[11px] font-extrabold uppercase tracking-wider transition-all cursor-pointer shadow hover:scale-[1.02] flex items-center gap-1 ${
+                            b.refundRequested
+                              ? 'bg-purple-600 border-purple-400 text-white animate-pulse'
+                              : 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white'
+                          }`}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          {b.refundRequested ? 'Approve Refund' : 'Refund'}
                         </button>
                       )}
-                      {b.status !== 'cancelled' && (
-                        <button onClick={() => onOpenCancelModal(b)} className="p-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 transition-all cursor-pointer">
-                          <XCircle className="w-4 h-4" />
-                        </button>
-                      )}
-                      {onDeleteBooking && isPast && (
-                        <button onClick={() => onDeleteBooking(b.id)} className="p-1.5 rounded-xl bg-slate-900 hover:bg-rose-900/30 text-slate-500 hover:text-rose-400 transition-all cursor-pointer">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      {b.paymentStatus === 'refunded' && (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-purple-400 font-bold uppercase tracking-wider">
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          Refunded
+                        </span>
                       )}
                     </div>
                   </div>
@@ -352,16 +425,16 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-900/80 border-b border-slate-800 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                  <th className="py-4 px-6">Reference & Court</th>
+                  <th className="py-4 px-6">Reference & Type</th>
                   <th className="py-4 px-6">Customer Info</th>
-                  <th className="py-4 px-6">Schedule & Slots</th>
+                  <th className="py-4 px-6">Schedule Date</th>
                   <th className="py-4 px-6">Total & Payment</th>
                   <th className="py-4 px-6">Status</th>
                   <th className="py-4 px-6 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-sm">
-                {filteredBookings.length === 0 ? (
+                {displayBookings.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-slate-500">
                       <AlertCircle className="w-8 h-8 text-slate-600 mx-auto mb-2" />
@@ -369,79 +442,358 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredBookings.map((b) => {
-                    const isPast = isPastBookingDate(b.date);
-                    const colorTheme = getBookingColorTheme(b.id || b.user?.email || b.courtId);
-                    const isPendingAction = actionLoading === b.id;
+                  displayBookings.map((b) => {
+                    const schedState = getBookingScheduleState(b.date, b.slots);
+                    const isPast = schedState === 'completed';
+                    const isCompleted = isPast;
+                    const isExpanded = expandedBookingId === b.id;
+
+                    const bName = b.user?.name || b.userName || 'Guest';
+                    const bEmail = b.user?.email || b.userEmail || '';
+                    const bUid = b.user?.uid || (b as any).userId;
+                    const matchedUser = users.find(
+                      (u) => (u.uid && bUid && u.uid === bUid) || (u.email && bEmail && u.email.toLowerCase() === bEmail.toLowerCase())
+                    );
+                    const avatarSrc =
+                      matchedUser?.photoUrl ||
+                      matchedUser?.avatarUrl ||
+                      (b.user as any)?.photoUrl ||
+                      (b.user as any)?.avatarUrl ||
+                      (b as any).photoUrl ||
+                      (b as any).avatarUrl ||
+                      (b as any).playerPhotoUrl ||
+                      (b as any).userPhotoUrl ||
+                      `https://robohash.org/${encodeURIComponent(bName)}?set=set4`;
 
                     return (
-                      <tr key={b.id} className="hover:bg-slate-800/40 transition-colors group">
-                        <td className="py-4 px-6">
-                          <div className="font-bold text-white font-mono text-xs">{b.bookingReference || b.id.substring(0, 8).toUpperCase()}</div>
-                          <div className="text-xs text-brand-lime font-medium mt-0.5">{b.courtName}</div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="font-semibold text-slate-200">{b.user?.name || b.userName || 'Guest'}</div>
-                          <div className="text-xs text-slate-400">{b.user?.email || b.userEmail || 'No Email'}</div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-slate-400" />
-                            {b.date}
-                          </div>
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {b.slots?.map((slot, idx) => (
-                              <span
-                                key={idx}
-                                className={`px-2 py-0.5 rounded text-[11px] font-bold ${colorTheme.bg} ${colorTheme.text} ${colorTheme.border}`}
-                              >
-                                {slot}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="font-bold text-white">₱{(b.totalCost || 0).toLocaleString()}</div>
-                          <div className="text-xs text-slate-400 capitalize">{b.paymentMethod || 'GCash'}</div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-extrabold capitalize ${
-                              b.status === 'approved'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : b.status === 'pending'
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                            }`}
-                          >
-                            {b.status}
-                          </span>
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            {b.receiptImageUrl && (
-                              <button onClick={() => onViewReceipt(b)} className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all" title="View Proof">
-                                <Eye className="w-4 h-4" />
-                              </button>
-                            )}
-                            {b.status === 'pending' && (
-                              <button onClick={() => onApproveBooking(b.id)} disabled={isPendingAction} className="flex items-center space-x-1 px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-xs hover:bg-emerald-500/30 transition-all disabled:opacity-50">
-                                {isPendingAction ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
-                              </button>
-                            )}
-                            {b.status !== 'cancelled' && (
-                              <button onClick={() => onOpenCancelModal(b)} className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 transition-all">
-                                <XCircle className="w-4 h-4" />
-                              </button>
-                            )}
-                            {onDeleteBooking && isPast && (
-                              <button onClick={() => onDeleteBooking(b.id)} className="p-2 rounded-xl bg-slate-900 hover:bg-rose-900/30 text-slate-500 hover:text-rose-400 transition-all">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                      <React.Fragment key={b.id}>
+                        <tr 
+                          onClick={() => setExpandedBookingId(prev => prev === b.id ? null : b.id)}
+                          className={`transition-colors cursor-pointer ${isCompleted ? 'opacity-75 bg-slate-950/20 hover:opacity-100' : isExpanded ? 'bg-slate-900/40' : 'hover:bg-slate-800/40'}`}
+                        >
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-2">
+                              <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform shrink-0 ${isExpanded ? 'rotate-180 text-brand-lime' : ''}`} />
+                              <div>
+                                <div className="font-bold text-white font-mono text-xs">{b.bookingReference || b.id.substring(0, 8).toUpperCase()}</div>
+                                {(() => {
+                                  const cat = getBookingCategoryInfo(b);
+                                  return <div className={`text-xs mt-0.5 ${cat.colorClass}`}>{cat.label}</div>;
+                                })()}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60 flex items-center justify-center">
+                                <img
+                                  src={avatarSrc}
+                                  alt={bName}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(bName)}&background=b5f529&color=0f172a&bold=true`;
+                                  }}
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-slate-200 truncate">{bName}</div>
+                                <div className="text-xs text-slate-400 truncate">{bEmail || 'No Email'}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                              <span>{formatBookingDate(b.date)}</span>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="font-medium text-white">₱{(b.totalCost || 0).toLocaleString()}</div>
+                            <div className="text-xs text-slate-400 capitalize">{b.paymentMethod || 'GCash'}</div>
+                          </td>
+                          <td className="py-4 px-6">
+                            {renderStatusBadgeWithDot(b.status, isCompleted)}
+                          </td>
+                          <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end space-x-2">
+                              {b.receiptImageUrl && (
+                                <button onClick={() => onViewReceipt(b)} className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all" title="View Proof">
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                              )}
+                              {onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
+                                <button
+                                  onClick={() => onRefundBooking(b)}
+                                  title="Issue Refund & Upload Receipt"
+                                  className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer shadow hover:scale-[1.02] flex items-center gap-1.5 ${
+                                    b.refundRequested
+                                      ? 'bg-purple-600 border-purple-400 text-white animate-pulse'
+                                      : 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white'
+                                  }`}
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  {b.refundRequested ? 'Approve Refund' : 'Refund'}
+                                </button>
+                              )}
+                              {b.paymentStatus === 'refunded' && (
+                                <span className="inline-flex items-center gap-1 text-xs text-purple-400 font-bold uppercase tracking-wider px-2 py-1">
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  Refunded
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* EXPANDED ACCORDION PANEL ROW */}
+                        {isExpanded && (
+                          <tr key={`${b.id}-expanded`} className="bg-slate-950/80 border-b border-dark-border/60 animate-fade-in">
+                            <td colSpan={6} className="p-6 text-left space-y-4">
+                              {/* Joined Open Play Event Banner */}
+                              {(b.type === 'openplay' || b.openPlayEventId || (b as any).isOpenPlay) && (
+                                <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-inner">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shrink-0 shadow-sm">
+                                      <Trophy className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400">
+                                          Joined Open Play Event
+                                        </span>
+                                        {b.openPlayCategory && (
+                                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                                            {b.openPlayCategory}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <h4 className="text-base font-extrabold text-white mt-0.5">
+                                        {b.openPlayTitle || b.courtName || 'Open Play Session'}
+                                      </h4>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-4 text-xs">
+                                    <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
+                                      <Calendar className="w-4 h-4 text-cyan-400 shrink-0" />
+                                      <span>{b.date}</span>
+                                    </div>
+                                    {b.slots && b.slots.length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        {b.slots.map((s, idx) => {
+                                          const slotText = s.includes(' - ')
+                                            ? `${formatTime12h(s.split(' - ')[0])} - ${formatTime12h(s.split(' - ')[1])}`
+                                            : formatTime12h(s);
+                                          return (
+                                            <span
+                                              key={idx}
+                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 shadow-sm"
+                                            >
+                                              <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
+                                              <span>{slotText}</span>
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Court Booking Details Banner */}
+                              {!(b.type === 'openplay' || b.openPlayEventId || (b as any).isOpenPlay) && (
+                                <div className="bg-brand-lime/10 border border-brand-lime/30 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-inner">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-brand-lime/20 border border-brand-lime/40 flex items-center justify-center text-brand-lime shrink-0 shadow-sm">
+                                      <Building2 className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-brand-lime">
+                                          Court Reservation Details
+                                        </span>
+                                        {b.courtType && (
+                                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-brand-lime/20 text-brand-lime border border-brand-lime/40">
+                                            {b.courtType}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <h4 className="text-base font-extrabold text-white mt-0.5">
+                                        {b.courtName || 'Pickleball Court'}
+                                      </h4>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-4 text-xs">
+                                    <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
+                                      <Calendar className="w-4 h-4 text-brand-lime shrink-0" />
+                                      <span>{b.date}</span>
+                                    </div>
+                                    {b.slots && b.slots.length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        {b.slots.map((s, idx) => {
+                                          const slotText = s.includes(' - ')
+                                            ? `${formatTime12h(s.split(' - ')[0])} - ${formatTime12h(s.split(' - ')[1])}`
+                                            : formatTime12h(s);
+                                          return (
+                                            <span
+                                              key={idx}
+                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shadow-sm"
+                                            >
+                                              <Clock className="w-3 h-3 text-brand-lime shrink-0" />
+                                              <span>{slotText}</span>
+                                            </span>
+                                          );
+                                        })}
+                                        <span className="text-[10px] font-bold text-slate-400 px-2 py-1 rounded-lg bg-slate-900 border border-slate-800">
+                                          {b.slots.length} {b.slots.length === 1 ? 'hr' : 'hrs'}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {/* Customer Profile Card */}
+                                <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 space-y-2.5 text-sm">
+                                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-1">
+                                    <div className="font-semibold text-brand-lime uppercase tracking-wider text-xs flex items-center gap-1.5">
+                                      <User className="w-4 h-4" /> Customer Profile
+                                    </div>
+                                    <div className="w-10 h-10 rounded-full border border-slate-700 bg-slate-950 overflow-hidden shrink-0 shadow-sm">
+                                      <img
+                                        src={avatarSrc}
+                                        alt={bName}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(bName)}&background=b5f529&color=0f172a&bold=true`;
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                    <span className="text-slate-400 font-semibold">Full Name:</span>
+                                    <span className="font-semibold text-white text-sm">{bName}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                    <span className="text-slate-400 font-semibold">Email Address:</span>
+                                    <span className="font-semibold text-slate-200 font-mono text-xs">{bEmail || 'No Email Registered'}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                    <span className="text-slate-400 font-semibold">Phone Number:</span>
+                                    <span className="font-semibold text-slate-200 font-mono text-xs">{b.userPhone || (b.user as any)?.phone || 'Not provided'}</span>
+                                  </div>
+                                  {b.guests && b.guests.length > 0 && (
+                                    <div className="mt-2.5 pt-2.5 border-t border-slate-800/60">
+                                      <div className="text-xs font-semibold text-brand-lime mb-1.5 flex items-center gap-1">
+                                        <Users className="w-4 h-4" /> Registered Roster ({1 + b.guests.length} Players):
+                                      </div>
+                                      <div className="space-y-1">
+                                        <div className="flex items-center justify-between text-xs py-0.5 text-slate-200">
+                                          <span className="font-semibold">1. {bName}</span>
+                                          <span className="text-[10px] font-semibold text-brand-lime uppercase">Primary</span>
+                                        </div>
+                                        {b.guests.map((g, idx) => (
+                                          <div key={idx} className="flex items-center justify-between text-xs py-0.5 text-slate-400">
+                                            <span className="font-semibold">{idx + 2}. {g.name || g.email}</span>
+                                            <span className="text-[10px] font-semibold text-purple-300 uppercase">Guest</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Financial & Voucher Breakdown Card */}
+                                <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 space-y-2 text-xs">
+                                  <div className="font-bold text-brand-lime uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
+                                    <CreditCard className="w-3.5 h-3.5" /> Payment & Voucher Breakdown
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                    <span className="text-slate-400">Transaction Time:</span>
+                                    <span className="font-semibold text-slate-300">{formatTimestamp(b.createdAt)}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                    <span className="text-slate-400">Payment Mode:</span>
+                                    <span className="font-semibold text-white capitalize">{b.paymentMethod || 'GCash'}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                    <span className="text-slate-400">Booking Ref:</span>
+                                    <span className="font-bold text-white font-mono">{b.bookingReference || b.id}</span>
+                                  </div>
+                                  {b.gcashReferenceNumber && (
+                                    <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                      <span className="text-slate-400">GCash Ref:</span>
+                                      <span className="font-bold text-brand-lime font-mono">{b.gcashReferenceNumber}</span>
+                                    </div>
+                                  )}
+                                  {b.voucherCode && (
+                                    <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                      <span className="text-slate-400">Voucher Code:</span>
+                                      <span className="font-bold text-brand-lime font-mono">{b.voucherCode}</span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between items-center py-1">
+                                    <span className="text-slate-400">Total Amount Paid:</span>
+                                    <span className="font-extrabold text-white text-sm">₱{(b.totalCost || 0).toLocaleString()}</span>
+                                  </div>
+                                </div>
+
+                                {/* Receipt Image Preview & Actions Card */}
+                                <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between text-xs space-y-3">
+                                  <div>
+                                    <div className="font-bold text-brand-lime uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
+                                      <Eye className="w-3.5 h-3.5" /> Payment Receipt Proof
+                                    </div>
+                                    {b.receiptImageUrl ? (
+                                      <div className="relative rounded-lg overflow-hidden border border-slate-700 bg-black/40 group max-h-28 flex items-center justify-center">
+                                        <img
+                                          src={b.receiptImageUrl}
+                                          alt="Payment Receipt Proof"
+                                          className="object-cover w-full h-28"
+                                        />
+                                        <button
+                                          onClick={() => onViewReceipt(b)}
+                                          className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white font-bold text-xs cursor-pointer"
+                                        >
+                                          <Eye className="w-4 h-4 text-brand-lime" /> View Full Image
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <p className="text-slate-500 italic text-xs">No receipt screenshot attached.</p>
+                                    )}
+                                  </div>
+
+                                  {/* Actions */}
+                                  <div className="space-y-2 pt-2 border-t border-slate-800/60">
+                                    {onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
+                                      <button
+                                        onClick={() => onRefundBooking(b)}
+                                        className={`w-full py-2 px-3 rounded-xl border text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow hover:scale-[1.01] ${
+                                          b.refundRequested
+                                            ? 'bg-purple-600 border-purple-400 text-white animate-pulse'
+                                            : 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white'
+                                        }`}
+                                      >
+                                        <RotateCcw className="w-3.5 h-3.5" />
+                                        {b.refundRequested ? 'Approve Refund & Issue Credit/Receipt' : 'Issue Refund / Rebooking Credit'}
+                                      </button>
+                                    )}
+                                    {b.paymentStatus === 'refunded' && (
+                                      <div className="text-center py-1">
+                                        <span className="inline-flex items-center gap-1.5 text-xs text-purple-400 font-bold uppercase tracking-wider">
+                                          <RotateCcw className="w-3.5 h-3.5" />
+                                          Payment Refunded
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -498,11 +850,198 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     <p className="text-sm font-bold text-white">{b.courtName}</p>
                     <span className="text-[10px] font-bold uppercase text-brand-lime">{b.status}</span>
                   </div>
-                  <div className="flex items-center gap-2 mt-2 text-xs text-slate-400">
-                    <User className="w-3 h-3" /> {b.userName || 'Guest'}
-                  </div>
+                  {(() => {
+                    const bName = b.user?.name || b.userName || 'Guest';
+                    const bEmail = b.user?.email || b.userEmail || '';
+                    const bUid = b.user?.uid || (b as any).userId;
+                    const matchedUser = users.find(
+                      (u) => (u.uid && bUid && u.uid === bUid) || (u.email && bEmail && u.email.toLowerCase() === bEmail.toLowerCase())
+                    );
+                    const avatarSrc =
+                      matchedUser?.photoUrl ||
+                      matchedUser?.avatarUrl ||
+                      (b.user as any)?.photoUrl ||
+                      (b.user as any)?.avatarUrl ||
+                      (b as any).photoUrl ||
+                      (b as any).avatarUrl ||
+                      (b as any).playerPhotoUrl ||
+                      (b as any).userPhotoUrl ||
+                      `https://robohash.org/${encodeURIComponent(bName)}?set=set4`;
+
+                    return (
+                      <div className="flex items-center gap-2.5 mt-2.5 text-xs text-slate-300">
+                        <div className="w-6 h-6 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-xs ring-1 ring-slate-800/60 flex items-center justify-center">
+                          <img
+                            src={avatarSrc}
+                            alt={bName}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(bName)}&background=b5f529&color=0f172a&bold=true`;
+                            }}
+                          />
+                        </div>
+                        <span className="font-semibold text-slate-200">{bName}</span>
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FILTER & TIMELINE SETTINGS MODAL */}
+      {isFilterModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+          onClick={() => setIsFilterModalOpen(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700/90 rounded-3xl max-w-md w-full p-6 space-y-6 shadow-2xl relative text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime shrink-0 shadow-inner">
+                  <SlidersHorizontal className="w-5 h-5 text-brand-lime" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-extrabold text-white tracking-tight">Filter & Timeline Settings</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Refine reservation records by date, timeline, and status.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body / Filter Controls */}
+            <div className="space-y-5">
+              {/* Section 1: Specific Date Filter */}
+              <div className="space-y-2">
+                <label className="text-xs font-extrabold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-brand-lime" />
+                  <span>Specific Match Date</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={selectedBookingDate}
+                    onChange={(e) => setSelectedBookingDate(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 hover:border-brand-lime/50 text-xs font-bold text-white rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-lime/30 cursor-pointer transition-all [color-scheme:dark]"
+                  />
+                  {selectedBookingDate && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBookingDate('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-semibold"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Section 2: Schedule Timeline Filter */}
+              <div className="space-y-2">
+                <label className="text-xs font-extrabold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-brand-lime" />
+                  <span>Schedule Timeline</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setScheduleFilter('all')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-extrabold border text-center transition-all cursor-pointer ${
+                      scheduleFilter === 'all'
+                        ? 'bg-brand-lime/10 border-brand-lime text-brand-lime font-black shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    All Dates
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleFilter('active')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-extrabold border text-center flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      scheduleFilter === 'active'
+                        ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 font-black shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                    <span>Active</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleFilter('completed')}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-extrabold border text-center transition-all cursor-pointer ${
+                      scheduleFilter === 'completed'
+                        ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 font-black shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    Completed
+                  </button>
+                </div>
+              </div>
+
+              {/* Section 3: Booking Status Filter */}
+              <div className="space-y-2">
+                <label className="text-xs font-extrabold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-brand-lime" />
+                  <span>Booking Status</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['all', 'approved', 'pending', 'cancelled'] as const).map((st) => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setBookingStatusFilter(st)}
+                      className={`px-3.5 py-2.5 rounded-xl text-xs font-extrabold capitalize border text-left flex items-center justify-between cursor-pointer transition-all ${
+                        bookingStatusFilter === st
+                          ? 'bg-brand-lime/10 border-brand-lime text-brand-lime font-black shadow-sm'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <span>{st === 'all' ? 'All Statuses' : st}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        ({st === 'all' ? bookings.length : bookings.filter((b) => b.status === st).length})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="flex items-center justify-between pt-4 border-t border-slate-800 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedBookingDate('');
+                  setScheduleFilter('all');
+                  setBookingStatusFilter('all');
+                }}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <X className="w-3.5 h-3.5 text-red-400" />
+                <span>Reset All Filters</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="px-6 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-md hover:scale-[1.02]"
+              >
+                Apply Filters
+              </button>
             </div>
           </div>
         </div>

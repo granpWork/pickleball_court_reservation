@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import { AdminSidebar } from './admin/AdminSidebar';
 import { AdminHeader } from './admin/AdminHeader';
+import { AdminDashboardTab } from './admin/tabs/AdminDashboardTab';
 import { AdminBookingsTab } from './admin/tabs/AdminBookingsTab';
 import { AdminCourtsTab } from './admin/tabs/AdminCourtsTab';
 import { AdminCompaniesTab } from './admin/tabs/AdminCompaniesTab';
@@ -12,8 +13,11 @@ import { AdminUsersTab } from './admin/tabs/AdminUsersTab';
 import { AdminSettingsTab } from './admin/tabs/AdminSettingsTab';
 import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
 import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
-import { type AdminTab, type AdminSettingsSubTab, type ShortLink, type UserPermissions } from './admin/adminTypes';
+import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
+import { type AdminTab, type AdminSettingsSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
+import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
+import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { InteractiveMapPicker } from './InteractiveMapPicker';
 import {
@@ -86,7 +90,7 @@ import {
   Phone,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot } from 'firebase/firestore';
 import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPaymentApprovalReceiptEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail } from '../services/emailService';
 import { isEventExpired, formatTime12h, formatEventDateLong, splitAddressComponents, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 
@@ -426,6 +430,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   }, [user, setView]);
 
+  // Support Modal State
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+  const [isClientTicketsModalOpen, setIsClientTicketsModalOpen] = useState(false);
+
   // Custom Modal Alert State
   const [modalAlert, setModalAlert] = useState<AdminModalAlertData>({
     open: false,
@@ -596,7 +604,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'cancelled'>('all');
   const [checkoutCategoryFilter, setCheckoutCategoryFilter] = useState<'all' | 'court' | 'openplay'>('all');
-  const [checkoutStatusFilter, setCheckoutStatusFilter] = useState<'all' | 'pending' | 'paid' | 'cancelled'>('all');
+  const [checkoutStatusFilter, setCheckoutStatusFilter] = useState<'all' | 'pending' | 'paid' | 'cancelled'>('pending');
   const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'player' | 'client_admin' | 'super_admin'>('all');
   const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive' | 'deleted'>('all');
   
@@ -699,6 +707,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         companyId: myCompany?.id || (user as any)?.companyId || '',
         department: inviteRoleInput === 'super_admin' ? inviteDepartmentInput.trim() : '',
         role: inviteRoleInput,
+        permissions: getUserEffectivePermissions({ role: inviteRoleInput }),
         status: 'pending',
         createdAt: new Date().toISOString(),
         expiresAt,
@@ -728,6 +737,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         expiresAt,
         role: inviteRoleInput,
       });
+
+      // Refresh users state to immediately render pending invite in Team & Access
+      fetchData();
 
       setInviteEmailInput('');
       setInviteNameInput('');
@@ -1553,8 +1565,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [courtCountry, setCourtCountry] = useState('Philippines');
   const [courtPostalCode, setCourtPostalCode] = useState('');
   const [courtRentals, setCourtRentals] = useState<RentalItem[]>([]);
-  const [courtPublished, setCourtPublished] = useState(true);
+  const [courtPublished, setCourtPublished] = useState(false);
   const [courtsViewMode, setCourtsViewMode] = useState<'list' | 'grid'>('list');
+  // Court Modal Popover Dropdown Toggle States
+  const [isCourtTypeOpen, setIsCourtTypeOpen] = useState(false);
+  const [isCourtGcashOpen, setIsCourtGcashOpen] = useState(false);
+  const [isCourtRegionOpen, setIsCourtRegionOpen] = useState(false);
+  const [isCourtProvinceOpen, setIsCourtProvinceOpen] = useState(false);
+  const [isCourtCityOpen, setIsCourtCityOpen] = useState(false);
+  const [isCourtBarangayOpen, setIsCourtBarangayOpen] = useState(false);
+  // Open Play Modal Popover Dropdown Toggle States
+  const [isOpenPlayCategoryOpen, setIsOpenPlayCategoryOpen] = useState(false);
+  const [isOpenPlaySkillOpen, setIsOpenPlaySkillOpen] = useState(false);
+  const [isOpenPlayGcashOpen, setIsOpenPlayGcashOpen] = useState(false);
+  const [posterDragActive, setPosterDragActive] = useState(false);
   // Bookings View States
   const [bookingsViewMode, setBookingsViewMode] = useState<'table' | 'calendar'>('table');
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
@@ -2039,7 +2063,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     try {
       if (isFirebaseConfigured && db) {
-        const { doc, updateDoc } = await import('firebase/firestore');
         await updateDoc(doc(db, 'users', currentUserUid), {
           name: adminDisplayName.trim(),
           phone: adminPhone.trim(),
@@ -2199,9 +2222,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const companyDocId = myCompany?.id || (currentUserUid !== 'unknown' ? currentUserUid : 'company-' + currentUserEmail.replace(/[^a-zA-Z0-9]/g, '_'));
 
       if (isFirebaseConfigured && db) {
-        const { doc: firestoreDoc, setDoc: firestoreSetDoc } = await import('firebase/firestore');
-        await firestoreSetDoc(firestoreDoc(db, 'companies', companyDocId), { bookingLeadTimeMinutes }, { merge: true });
-        await firestoreSetDoc(firestoreDoc(db, 'settings', 'booking_rules', 'users', currentUserUid), { bookingLeadTimeMinutes }, { merge: true });
+        await setDoc(doc(db, 'companies', companyDocId), { bookingLeadTimeMinutes }, { merge: true });
+        await setDoc(doc(db, 'settings', 'booking_rules', 'users', currentUserUid), { bookingLeadTimeMinutes }, { merge: true });
       }
 
       const compStr = localStorage.getItem('picklepoint_companies');
@@ -2745,11 +2767,16 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
               if (!existingUser) {
                 if (isPending) {
+                  const invRole = invData.role || 'client_admin';
+                  const defaultName = invRole === 'manager' ? 'Invited Manager' : invRole === 'editor' ? 'Invited Editor' : 'Invited Client Admin';
                   userMap.set(invEmail, {
                     uid: `invite-${invDoc.id}`,
-                    name: invData.name || 'Invited Client Admin',
+                    name: invData.name || defaultName,
                     email: invData.email,
-                    role: 'client_admin',
+                    role: invRole,
+                    companyId: invData.companyId || (user as any)?.companyId || myCompany?.id || '',
+                    companyName: invData.company || invData.companyName || myCompany?.name || '',
+                    permissions: invData.permissions || getUserEffectivePermissions({ role: invRole }),
                     status: 'pending',
                     isInvitedPending: true,
                     isInvitation: true,
@@ -2761,8 +2788,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   });
                 }
               } else {
-                // Attach invitation metadata if available and not yet full active user
-                if (isPending && (existingUser.uid?.startsWith('invited-') || existingUser.status === 'pending' || existingUser.isInvitedPending)) {
+                // Attach invitation metadata if available and override pending invitation status/role/company
+                if (isPending) {
                   existingUser.status = 'pending';
                   existingUser.isInvitedPending = true;
                   existingUser.isInvitation = true;
@@ -2770,7 +2797,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   existingUser.expiresAt = invData.expiresAt;
                   existingUser.invitedBy = invData.invitedBy;
                   existingUser.customMessage = invData.customMessage;
-                  if (invData.name && !existingUser.name) {
+                  if (invData.role) {
+                    existingUser.role = invData.role;
+                  }
+                  existingUser.companyId = invData.companyId || existingUser.companyId || (user as any)?.companyId || myCompany?.id || '';
+                  existingUser.companyName = invData.company || invData.companyName || existingUser.companyName || myCompany?.name || '';
+                  existingUser.permissions = invData.permissions || getUserEffectivePermissions({ role: invData.role || existingUser.role });
+                  if (invData.name && (!existingUser.name || existingUser.name === 'Player' || existingUser.name.startsWith('Invited'))) {
                     existingUser.name = invData.name;
                   }
                 }
@@ -2811,11 +2844,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             localInvs.forEach((inv: any) => {
               const invEmail = (inv.email || '').trim().toLowerCase();
               if (invEmail && inv.status === 'pending' && !localMap.has(invEmail)) {
+                const invRole = inv.role || 'client_admin';
+                const defaultName = invRole === 'manager' ? 'Invited Manager' : invRole === 'editor' ? 'Invited Editor' : 'Invited Client Admin';
                 localMap.set(invEmail, {
                   uid: `invite-${inv.token}`,
-                  name: inv.name || 'Invited Client Admin',
+                  name: inv.name || defaultName,
                   email: inv.email,
-                  role: 'client_admin',
+                  role: invRole,
                   status: 'pending',
                   isInvitedPending: true,
                   isInvitation: true,
@@ -2950,7 +2985,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       let loadedReminderSettings: PaymentReminderSettings | null = null;
       if (isFirebaseConfigured && db) {
         try {
-          const { getDoc, doc } = await import('firebase/firestore');
           const remSnap = await getDoc(doc(db, 'settings', 'reminders', 'users', currentUserUid));
           if (remSnap.exists()) {
             const data = remSnap.data();
@@ -3017,9 +3051,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     let unsubscribeBookings: (() => void) | null = null;
 
     if (isFirebaseConfigured && db) {
-      import('firebase/firestore').then(({ collection, onSnapshot }) => {
-        try {
-          unsubscribeBookings = onSnapshot(collection(db!, 'bookings'), (snapshot) => {
+      try {
+        unsubscribeBookings = onSnapshot(collection(db!, 'bookings'), (snapshot) => {
             const bookingMap = new Map<string, Booking>();
 
             // 1. Include local storage base
@@ -3065,8 +3098,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         } catch (err) {
           console.warn('Failed to initialize real-time bookings listener:', err);
         }
-      });
-    }
+      }
 
     // Cross-tab storage listener
     const handleStorageChange = (e: StorageEvent) => {
@@ -3116,7 +3148,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
 
         if (isFirebaseConfigured && db) {
-          const { doc, setDoc } = await import('firebase/firestore');
           await setDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid), { accounts: updatedAccounts });
         } else {
           localStorage.setItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`, JSON.stringify(updatedAccounts));
@@ -3132,7 +3163,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           serviceFee: Number(globalServiceFeeSetting) || 30,
         };
         if (isFirebaseConfigured && db) {
-          const { doc, setDoc } = await import('firebase/firestore');
           await setDoc(doc(db, 'settings', 'checkout'), payload, { merge: true });
         }
         const existing = JSON.parse(localStorage.getItem('picklepoint_checkout_settings') || '{}');
@@ -3187,7 +3217,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const payload = { serviceFee: feeNum, serviceFeeEnabled: isEnabled };
 
       if (isFirebaseConfigured && db) {
-        const { doc, setDoc } = await import('firebase/firestore');
         await setDoc(doc(db, 'settings', 'checkout'), payload, { merge: true });
       }
       const globalStr = localStorage.getItem('picklepoint_checkout_settings');
@@ -3313,7 +3342,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       };
 
       if (isFirebaseConfigured && db) {
-        const { doc, setDoc } = await import('firebase/firestore');
         await setDoc(doc(db, 'settings', 'reminders', 'users', currentUserUid), payload, { merge: true });
       }
 
@@ -3468,7 +3496,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     try {
       if (isGlobal) {
         if (isFirebaseConfigured && db) {
-          const { doc, deleteDoc } = await import('firebase/firestore');
           await deleteDoc(doc(db, 'settings', 'checkout'));
         } else {
           localStorage.removeItem('picklepoint_checkout_settings');
@@ -3479,7 +3506,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       } else {
         const updatedAccounts = personalAccounts.filter(a => a.id !== accountId);
         if (isFirebaseConfigured && db) {
-          const { doc, setDoc } = await import('firebase/firestore');
           await setDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid), { accounts: updatedAccounts });
         } else {
           localStorage.setItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`, JSON.stringify(updatedAccounts));
@@ -3696,9 +3722,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         // Mode 1: Monetary Refund with Receipt Proof
         if (isFirebaseConfigured && db) {
           try {
-            const { doc: firestoreDoc, updateDoc: firestoreUpdateDoc } = await import('firebase/firestore');
-            const bookingRef = firestoreDoc(db, 'bookings', refundModalBooking.id);
-            await firestoreUpdateDoc(bookingRef, {
+            const bookingRef = doc(db, 'bookings', refundModalBooking.id);
+            await updateDoc(bookingRef, {
               status: 'cancelled',
               paymentStatus: 'refunded',
               refundReceiptUrl: refundReceiptBase64,
@@ -3799,10 +3824,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
         if (isFirebaseConfigured && db) {
           try {
-            const { setDoc: firestoreSetDoc, doc: firestoreDoc, updateDoc: firestoreUpdateDoc } = await import('firebase/firestore');
-            await firestoreSetDoc(firestoreDoc(db, 'vouchers', voucherPayload.id), JSON.parse(JSON.stringify(voucherPayload)));
-            const bookingRef = firestoreDoc(db, 'bookings', refundModalBooking.id);
-            await firestoreUpdateDoc(bookingRef, {
+            await setDoc(doc(db, 'vouchers', voucherPayload.id), JSON.parse(JSON.stringify(voucherPayload)));
+            const bookingRef = doc(db, 'bookings', refundModalBooking.id);
+            await updateDoc(bookingRef, {
               status: 'cancelled',
               paymentStatus: 'rebooking_credit',
               refundAmount: refundAmt,
@@ -3874,9 +3898,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
         if (isFirebaseConfigured && db) {
           try {
-            const { doc: firestoreDoc, updateDoc: firestoreUpdateDoc } = await import('firebase/firestore');
-            const bookingRef = firestoreDoc(db, 'bookings', refundModalBooking.id);
-            await firestoreUpdateDoc(bookingRef, {
+            const bookingRef = doc(db, 'bookings', refundModalBooking.id);
+            await updateDoc(bookingRef, {
               status: 'cancelled',
               paymentStatus: 'cancelled_no_refund',
               refundAmount: 0,
@@ -3978,9 +4001,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     try {
       if (isFirebaseConfigured && db) {
-        const { doc: fDoc, updateDoc: fUpdateDoc } = await import('firebase/firestore');
-        const bookingRef = fDoc(db, 'bookings', targetBooking.id);
-        await fUpdateDoc(bookingRef, {
+        const bookingRef = doc(db, 'bookings', targetBooking.id);
+        await updateDoc(bookingRef, {
           status: 'cancelled',
           paymentStatus: 'failed',
           rejectionReason: finalReason,
@@ -4549,23 +4571,83 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const targetEmailLower = managerToDelete.email.toLowerCase();
       if (isFirebaseConfigured && db) {
         const currentDb = db;
+        const deletePromises: Promise<any>[] = [];
+
+        // 1. Update/Create matching user document in /users (preserve full record with role: 'player')
         const querySnapshot = await getDocs(collection(currentDb, 'users'));
+        let foundUserDoc = false;
+
         querySnapshot.forEach((docSnap) => {
           const dEmail = docSnap.data().email?.toLowerCase();
           if (dEmail === targetEmailLower || docSnap.id === managerToDelete.uid) {
-            deleteDoc(doc(currentDb, 'users', docSnap.id)).catch(() => {});
+            foundUserDoc = true;
+            deletePromises.push(
+              setDoc(doc(currentDb, 'users', docSnap.id), {
+                status: 'active',
+                role: 'player',
+                companyId: '',
+                companyName: '',
+                permissions: {},
+                isInvitedPending: false,
+                updatedAt: new Date().toISOString()
+              }, { merge: true }).catch(() => {})
+            );
           }
         });
+
+        // If no user document existed yet in /users (e.g. pending invited state), create one to preserve user data
+        if (!foundUserDoc) {
+          const userDocId = managerToDelete.uid && !managerToDelete.uid.startsWith('invite-') 
+            ? managerToDelete.uid 
+            : `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          
+          deletePromises.push(
+            setDoc(doc(currentDb, 'users', userDocId), {
+              uid: userDocId,
+              name: managerToDelete.name || 'Player',
+              email: targetEmailLower,
+              role: 'player',
+              status: 'active',
+              companyId: '',
+              companyName: '',
+              permissions: {},
+              isInvitedPending: false,
+              createdAt: new Date().toISOString()
+            }, { merge: true }).catch(() => {})
+          );
+        }
+
+        // 2. Mark matching invitations in /invitations as 'revoked' (preserve audit record in Firestore)
+        const invQuery = query(collection(currentDb, 'invitations'), where('email', '==', targetEmailLower));
+        const invSnap = await getDocs(invQuery).catch(() => null);
+        if (invSnap && !invSnap.empty) {
+          invSnap.forEach((invDoc) => {
+            deletePromises.push(
+              updateDoc(doc(currentDb, 'invitations', invDoc.id), {
+                status: 'revoked',
+                revokedAt: new Date().toISOString()
+              }).catch(() => {})
+            );
+          });
+        }
 
         if (managerToDelete.inviteToken || managerToDelete.isInvitedPending) {
           const invToken = managerToDelete.inviteToken || managerToDelete.uid?.replace('invite-', '');
           if (invToken) {
-            deleteDoc(doc(currentDb, 'invitations', invToken)).catch(() => {});
+            deletePromises.push(
+              updateDoc(doc(currentDb, 'invitations', invToken), {
+                status: 'revoked',
+                revokedAt: new Date().toISOString()
+              }).catch(() => {})
+            );
           }
         }
+
+        await Promise.all(deletePromises);
       }
 
       setUsers((prev) => prev.filter((u) => u.email.toLowerCase() !== targetEmailLower));
+      showModalAlert('Staff Member Removed', `Staff member ${managerToDelete.name || managerToDelete.email} manager privileges removed. Account updated to Player role.`, 'success');
     } catch (err) {
       console.error('Failed to remove manager:', err);
       showModalAlert('Deletion Failed', 'Failed to remove manager: ' + (err as Error).message, 'error');
@@ -4720,9 +4802,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         try {
           if (u.inviteToken && isFirebaseConfigured && db) {
             try {
-              await deleteDoc(doc(db, 'invitations', u.inviteToken));
+              await updateDoc(doc(db, 'invitations', u.inviteToken), {
+                status: 'revoked',
+                revokedAt: new Date().toISOString()
+              });
             } catch (fErr) {
-              console.error('Error deleting invitation from Firestore:', fErr);
+              console.error('Error marking invitation revoked in Firestore:', fErr);
             }
           }
 
@@ -5404,7 +5489,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setCourtPostalCode('');
     setCourtRentals([]);
     setCourtGcashAccountId('');
-    setCourtPublished(true);
+    setCourtPublished(false);
 
     setSelectedRegion('');
     setRegionName('');
@@ -6020,7 +6105,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         ? b.paymentStatus === 'pending_verification'
         : checkoutStatusFilter === 'paid'
         ? b.paymentStatus === 'paid'
-        : (b.paymentStatus === 'refunded' || b.paymentStatus === 'cancelled_no_refund' || b.paymentStatus === 'failed');
+        : (b.paymentStatus === 'refunded' || b.paymentStatus === 'cancelled_no_refund' || b.paymentStatus === 'failed' || b.paymentStatus === 'rebooking_credit');
 
     return matchesSearch && matchesCategory && matchesStatus;
   });
@@ -6054,6 +6139,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
+  const handleTabChange = (tab: AdminTab) => {
+    setActiveTab(tab);
+    if (tab === 'openplay') {
+      setSelectedEventForRegs(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col font-sans relative overflow-hidden">
       {/* Background Decorative Gradients */}
@@ -6063,7 +6155,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       {/* Desktop & Mobile Sidebar */}
       <AdminSidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         isSuperAdmin={isSuperAdmin}
         settingsSubTab={settingsSubTab}
         setSettingsSubTab={setSettingsSubTab}
@@ -6074,6 +6166,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         setView={setView}
         user={user}
         onLogout={onLogout}
+        onOpenSupportModal={() => setIsSupportModalOpen(true)}
+        onOpenClientTicketsModal={() => setIsClientTicketsModalOpen(true)}
         courtsCount={(isSuperAdmin ? courts : availableAdminCourts).length}
         bookingsCount={bookings.length}
         pendingBookingsCount={pendingBookings.length}
@@ -6100,8 +6194,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {/* Top Title Banner */}
           <div className="mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-white">
-              {activeTab === 'bookings' 
-                ? 'Reservations Dashboard' 
+              {activeTab === 'dashboard'
+                ? 'Analytics & Overview'
+                : activeTab === 'bookings' 
+                ? 'Reservations Management' 
                 : activeTab === 'courts' 
                 ? 'Courts Management' 
                 : activeTab === 'users' 
@@ -6118,10 +6214,16 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Vouchers & Discount Codes'
                 : activeTab === 'service_fee'
                 ? 'Platform Service Fee Management'
+                : activeTab === 'support'
+                ? 'Client Support Inquiries & Helpdesk'
                 : 'Checkout Settings'}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              {activeTab === 'service_fee'
+              {activeTab === 'dashboard'
+                ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
+                : activeTab === 'support'
+                ? 'Inspect, manage, and resolve support ticket concerns submitted by Client Administrators & Facility Managers.'
+                : activeTab === 'service_fee'
                 ? 'Configure global convenience & service fee per checkout, inspect fee earnings, and view revenue breakdown.'
                 : activeTab === 'openplay'
                 ? 'Create Open Play sessions, collect GCash entry fees, manage player rosters, and share direct event links.'
@@ -6167,6 +6269,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           </div>
 
           {/* Subcomponents Rendering */}
+          {activeTab === 'dashboard' && (
+            <AdminDashboardTab
+              bookings={bookings}
+              courts={courts}
+              users={users}
+              openPlayEvents={openPlayEvents}
+              onNavigateTab={(tab) => setActiveTab(tab as AdminTab)}
+              userPermissions={getUserEffectivePermissions(user as any)}
+            />
+          )}
+
           {activeTab === 'bookings' && (
             <AdminBookingsTab
               bookings={bookings}
@@ -6183,6 +6296,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onViewReceipt={(b) => setReceiptLightboxImage(b.receiptImageUrl || null)}
               onDeleteBooking={(id) => { const b = bookings.find(x => x.id === id); if (b) handleOpenDeleteBooking(b); }}
               courts={courts}
+              users={users}
+              userPermissions={getUserEffectivePermissions(user as any)}
+              onRefundBooking={(booking) => {
+                setRefundModalBooking(booking);
+                setRefundAmountInput(booking.totalCost.toString());
+                setRefundReasonInput(booking.refundRequestReason ? `Player Requested: ${booking.refundRequestReason}` : '');
+                setRefundReceiptFile(null);
+                setRefundReceiptBase64('');
+                setRefundReceiptName('');
+                setRefundError(null);
+              }}
             />
           )}
 
@@ -6194,6 +6318,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onOpenEditCourtModal={handleOpenEditCourt}
               onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
               onTogglePublishCourt={(courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); }}
+              userPermissions={getUserEffectivePermissions(user as any)}
             />
           )}
 
@@ -6218,11 +6343,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               checkoutStatusFilter={checkoutStatusFilter}
               setCheckoutStatusFilter={setCheckoutStatusFilter}
               actionLoading={actionLoading}
+              userPermissions={getUserEffectivePermissions(user as any)}
               onApproveBooking={async (booking) => {
                 setActionLoading(booking.id);
                 try {
                   if (isFirebaseConfigured && db) {
-                    const { doc, updateDoc } = await import('firebase/firestore');
                     await updateDoc(doc(db, 'bookings', booking.id), { status: 'approved', paymentStatus: 'paid' });
                   }
                   setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, status: 'approved', paymentStatus: 'paid' } : b));
@@ -6248,6 +6373,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 setRefundError(null);
               }}
               onViewReceipt={(receiptUrl) => setReceiptLightboxImage(receiptUrl)}
+              onNavigateToBookings={() => setActiveTab('bookings')}
               personalAccounts={personalAccounts}
               globalGcashName={globalGcashNameSetting}
               globalGcashNumber={globalGcashNumberSetting}
@@ -6278,6 +6404,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onRefreshEvents={fetchData}
               formatEventDateLong={formatEventDateLong}
               formatTime12h={formatTime12h}
+              userPermissions={getUserEffectivePermissions(user as any)}
             />
           )}
 
@@ -6329,7 +6456,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onDeleteShortLink={async (id) => {
                 if (isFirebaseConfigured && db) {
                   try {
-                    const { deleteDoc, doc } = await import('firebase/firestore');
                     await deleteDoc(doc(db, 'short_links', id));
                   } catch (err) {
                     console.error('Error deleting short link from Firestore:', err);
@@ -6364,6 +6490,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 setPolicyEquipment(newP.equipmentPolicy || '');
                 await handleSavePolicies();
               }}
+            />
+          )}
+
+          {activeTab === 'support' && (
+            <AdminSupportTicketsTab
+              user={user}
+              isSuperAdmin={isSuperAdmin}
             />
           )}
 
@@ -7816,7 +7949,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                 }`}>
                   <span className="text-sm font-extrabold tracking-wide">
-                    {courtPublished ? 'Published' : 'Publish'}
+                    {courtPublished ? 'Published' : 'Draft'}
                   </span>
                   <div className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -7873,42 +8006,135 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
                     Surface Type <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    required
-                    value={courtType}
-                    onChange={(e) => setCourtType(e.target.value)}
-                    className="w-full bg-slate-900 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                  >
-                    <option value="" disabled className="bg-slate-900 text-slate-400">Select Surface Type...</option>
-                    <option value="Premium Indoor Plexicushion" className="bg-slate-900 text-white">Premium Indoor Plexicushion</option>
-                    <option value="Cushioned Acrylic (Outdoor)" className="bg-slate-900 text-white">Cushioned Acrylic (Outdoor)</option>
-                    <option value="Hard Acrylic / SportMaster" className="bg-slate-900 text-white">Hard Acrylic / SportMaster</option>
-                    <option value="Interlocking Modular Polymer Tiles" className="bg-slate-900 text-white">Interlocking Modular Polymer Tiles</option>
-                    <option value="Polyurethane Rubber Court (Indoor)" className="bg-slate-900 text-white">Polyurethane Rubber Court (Indoor)</option>
-                    <option value="Polished Concrete (Indoor)" className="bg-slate-900 text-white">Polished Concrete (Indoor)</option>
-                    <option value="Painted Asphalt / Concrete (Outdoor)" className="bg-slate-900 text-white">Painted Asphalt / Concrete (Outdoor)</option>
-                    <option value="Synthetic Turf / Short Pile Grass" className="bg-slate-900 text-white">Synthetic Turf / Short Pile Grass</option>
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCourtTypeOpen(!isCourtTypeOpen);
+                        setIsCourtGcashOpen(false);
+                        setIsCourtRegionOpen(false);
+                        setIsCourtProvinceOpen(false);
+                        setIsCourtCityOpen(false);
+                        setIsCourtBarangayOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                    >
+                      <span className="truncate">
+                        {courtType || 'Select Surface Type...'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isCourtTypeOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                    </button>
+
+                    {isCourtTypeOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsCourtTypeOpen(false)} />
+                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                          {[
+                            "Premium Indoor Plexicushion",
+                            "Cushioned Acrylic (Outdoor)",
+                            "Hard Acrylic / SportMaster",
+                            "Interlocking Modular Polymer Tiles",
+                            "Polyurethane Rubber Court (Indoor)",
+                            "Polished Concrete (Indoor)",
+                            "Painted Asphalt / Concrete (Outdoor)",
+                            "Synthetic Turf / Short Pile Grass"
+                          ].map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => {
+                                setCourtType(st);
+                                setIsCourtTypeOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                courtType === st ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="truncate">{st}</span>
+                              {courtType === st && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <p className="text-[11px] text-slate-500 mt-1">Select the court surface material and playing condition.</p>
                 </div>
 
                 {/* Assign GCash Account */}
                 <div className="space-y-1.5 text-left">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    Assign GCash Payment Destination
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                    <span>Assign GCash Payment Destination</span>
+                    {courtGcashAccountId && (
+                      <span className="text-[10px] font-bold text-brand-lime uppercase">Custom Destination Active</span>
+                    )}
                   </label>
-                  <select
-                    value={courtGcashAccountId}
-                    onChange={(e) => setCourtGcashAccountId(e.target.value)}
-                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-bold"
-                  >
-                    <option value="">-- Use Default Choice --</option>
-                    {personalAccounts.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.paymentName ? `${a.paymentName} — ` : ''}{a.gcashName} ({a.gcashNumber})
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCourtGcashOpen(!isCourtGcashOpen);
+                        setIsCourtTypeOpen(false);
+                        setIsCourtRegionOpen(false);
+                        setIsCourtProvinceOpen(false);
+                        setIsCourtCityOpen(false);
+                        setIsCourtBarangayOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                    >
+                      <span className="truncate">
+                        {(() => {
+                          const found = personalAccounts.find((a) => a.id === courtGcashAccountId);
+                          if (found) {
+                            return `${found.paymentName ? `${found.paymentName} — ` : ''}${found.gcashName} (${found.gcashNumber})`;
+                          }
+                          return '-- Use Default Choice --';
+                        })()}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isCourtGcashOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                    </button>
+
+                    {isCourtGcashOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsCourtGcashOpen(false)} />
+                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCourtGcashAccountId('');
+                              setIsCourtGcashOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                              !courtGcashAccountId ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span>-- Use Default Choice --</span>
+                            {!courtGcashAccountId && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                          </button>
+                          {personalAccounts.map((a) => {
+                            const labelText = `${a.paymentName ? `${a.paymentName} — ` : ''}${a.gcashName} (${a.gcashNumber})`;
+                            const isSelected = courtGcashAccountId === a.id;
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                onClick={() => {
+                                  setCourtGcashAccountId(a.id);
+                                  setIsCourtGcashOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                  isSelected ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="truncate">{labelText}</span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-500 mt-1">
                     Select which configured GCash account receives reservation payments for this court. If none is assigned, the client owner's primary account details (or fallback) are shown.
                   </p>
@@ -8002,36 +8228,123 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 {/* Region select */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Region <span className="text-red-500">*</span></label>
-                  <select
-                    value={selectedRegion}
-                    onChange={(e) => handleRegionChange(e.target.value)}
-                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                  >
-                    <option value="">Select Region</option>
-                    {regions.map((r) => (
-                      <option key={r.code} value={r.code}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCourtRegionOpen(!isCourtRegionOpen);
+                        setIsCourtProvinceOpen(false);
+                        setIsCourtCityOpen(false);
+                        setIsCourtBarangayOpen(false);
+                        setIsCourtTypeOpen(false);
+                        setIsCourtGcashOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                    >
+                      <span className="truncate">
+                        {regions.find((r) => r.code === selectedRegion)?.name || regionName || 'Select Region'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isCourtRegionOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                    </button>
+
+                    {isCourtRegionOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsCourtRegionOpen(false)} />
+                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleRegionChange('');
+                              setIsCourtRegionOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                              !selectedRegion ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span>Select Region</span>
+                            {!selectedRegion && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                          </button>
+                          {regions.map((r) => (
+                            <button
+                              key={r.code}
+                              type="button"
+                              onClick={() => {
+                                handleRegionChange(r.code);
+                                setIsCourtRegionOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                selectedRegion === r.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="truncate">{r.name}</span>
+                              {selectedRegion === r.code && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Province select (only if provinces exist for the region) */}
                 {selectedRegion && provinces.length > 0 && (
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Province</label>
-                    <select
-                      value={selectedProvince}
-                      onChange={(e) => handleProvinceChange(e.target.value)}
-                      className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                    >
-                      <option value="">Select Province</option>
-                      {provinces.map((p) => (
-                        <option key={p.code} value={p.code}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        disabled={!selectedRegion}
+                        onClick={() => {
+                          setIsCourtProvinceOpen(!isCourtProvinceOpen);
+                          setIsCourtRegionOpen(false);
+                          setIsCourtCityOpen(false);
+                          setIsCourtBarangayOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <span className="truncate">
+                          {provinces.find((p) => p.code === selectedProvince)?.name || provinceName || 'Select Province'}
+                        </span>
+                        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isCourtProvinceOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                      </button>
+
+                      {isCourtProvinceOpen && selectedRegion && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setIsCourtProvinceOpen(false)} />
+                          <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleProvinceChange('');
+                                setIsCourtProvinceOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                !selectedProvince ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              <span>Select Province</span>
+                              {!selectedProvince && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                            </button>
+                            {provinces.map((p) => (
+                              <button
+                                key={p.code}
+                                type="button"
+                                onClick={() => {
+                                  handleProvinceChange(p.code);
+                                  setIsCourtProvinceOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                  selectedProvince === p.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="truncate">{p.name}</span>
+                                {selectedProvince === p.code && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -8040,25 +8353,68 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Municipality / City <span className="text-red-500">*</span></label>
                     {selectedRegion && cities.length > 0 ? (
-                      <select
-                        value={selectedCity}
-                        onChange={(e) => handleCityChange(e.target.value)}
-                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                      >
-                        <option value="">Select Municipality/City</option>
-                        {cities.map((c) => (
-                          <option key={c.code} value={c.code}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          disabled={!selectedRegion}
+                          onClick={() => {
+                            setIsCourtCityOpen(!isCourtCityOpen);
+                            setIsCourtRegionOpen(false);
+                            setIsCourtProvinceOpen(false);
+                            setIsCourtBarangayOpen(false);
+                          }}
+                          className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <span className="truncate">
+                            {cities.find((c) => c.code === selectedCity)?.name || cityName || 'Select Municipality/City'}
+                          </span>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isCourtCityOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                        </button>
+
+                        {isCourtCityOpen && selectedRegion && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsCourtCityOpen(false)} />
+                            <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleCityChange('');
+                                  setIsCourtCityOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                  !selectedCity ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span>Select Municipality/City</span>
+                                {!selectedCity && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                              </button>
+                              {cities.map((c) => (
+                                <button
+                                  key={c.code}
+                                  type="button"
+                                  onClick={() => {
+                                    handleCityChange(c.code);
+                                    setIsCourtCityOpen(false);
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                    selectedCity === c.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <span className="truncate">{c.name}</span>
+                                  {selectedCity === c.code && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type="text"
                         value={cityName}
                         onChange={(e) => setCityName(e.target.value)}
                         placeholder="Enter City / Municipality"
-                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
+                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all font-semibold shadow-inner"
                       />
                     )}
                   </div>
@@ -8066,25 +8422,68 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Barangay <span className="text-red-500">*</span></label>
                     {selectedCity && barangays.length > 0 ? (
-                      <select
-                        value={selectedBarangay}
-                        onChange={(e) => handleBarangayChange(e.target.value)}
-                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
-                      >
-                        <option value="">Select Barangay</option>
-                        {barangays.map((b) => (
-                          <option key={b.code} value={b.code}>
-                            {b.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          disabled={!selectedCity}
+                          onClick={() => {
+                            setIsCourtBarangayOpen(!isCourtBarangayOpen);
+                            setIsCourtRegionOpen(false);
+                            setIsCourtProvinceOpen(false);
+                            setIsCourtCityOpen(false);
+                          }}
+                          className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <span className="truncate">
+                            {barangays.find((b) => b.code === selectedBarangay)?.name || barangayName || 'Select Barangay'}
+                          </span>
+                          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isCourtBarangayOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                        </button>
+
+                        {isCourtBarangayOpen && selectedCity && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsCourtBarangayOpen(false)} />
+                            <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleBarangayChange('');
+                                  setIsCourtBarangayOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                  !selectedBarangay ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span>Select Barangay</span>
+                                {!selectedBarangay && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                              </button>
+                              {barangays.map((b) => (
+                                <button
+                                  key={b.code}
+                                  type="button"
+                                  onClick={() => {
+                                    handleBarangayChange(b.code);
+                                    setIsCourtBarangayOpen(false);
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                    selectedBarangay === b.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <span className="truncate">{b.name}</span>
+                                  {selectedBarangay === b.code && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type="text"
                         value={barangayName}
                         onChange={(e) => setBarangayName(e.target.value)}
                         placeholder="Enter Barangay"
-                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
+                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all font-semibold shadow-inner"
                       />
                     )}
                   </div>
@@ -9110,19 +9509,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   </select>
                 </div>
 
-                {/* Note / Custom Message */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Custom Invitation Note <span className="text-slate-500 font-normal">(Optional)</span>
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="e.g. Welcome to PicklePoint! Please register your facility and upload your GCash payment details."
-                    value={inviteCustomMessage}
-                    onChange={(e) => setInviteCustomMessage(e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 resize-none font-sans"
-                  />
-                </div>
 
                 {/* Security Note */}
                 <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-400 flex items-start gap-2">
@@ -9706,34 +10092,97 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 {/* Category */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">Category</label>
-                  <select
-                    value={openPlayCategory}
-                    onChange={(e) => setOpenPlayCategory(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                  >
-                    <option value="Open to All">Open to All</option>
-                    <option value="Beginner">Beginner</option>
-                    <option value="Intermediate">Intermediate</option>
-                    <option value="Advanced">Advanced</option>
-                    <option value="Doubles">Doubles</option>
-                    <option value="Singles">Singles</option>
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOpenPlayCategoryOpen(!isOpenPlayCategoryOpen);
+                        setIsOpenPlaySkillOpen(false);
+                        setIsOpenPlayGcashOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                    >
+                      <span className="truncate">
+                        {openPlayCategory || 'Open to All'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isOpenPlayCategoryOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                    </button>
+
+                    {isOpenPlayCategoryOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsOpenPlayCategoryOpen(false)} />
+                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                          {['Open to All', 'Beginner', 'Intermediate', 'Advanced', 'Doubles', 'Singles'].map((cat) => (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => {
+                                setOpenPlayCategory(cat as any);
+                                setIsOpenPlayCategoryOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                openPlayCategory === cat ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="truncate">{cat}</span>
+                              {openPlayCategory === cat && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Skill Level */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">Skill Level Rating</label>
-                  <select
-                    value={openPlaySkillLevel}
-                    onChange={(e) => setOpenPlaySkillLevel(e.target.value)}
-                    className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                  >
-                    <option value="All Skill Levels">All Skill Levels</option>
-                    <option value="2.0 - 2.5 (Beginner)">2.0 - 2.5 (Beginner)</option>
-                    <option value="3.0 - 3.5 (Intermediate)">3.0 - 3.5 (Intermediate)</option>
-                    <option value="3.5 - 4.0 (Advanced)">3.5 - 4.0 (Advanced)</option>
-                    <option value="4.0+ (Competitive / DUPR)">4.0+ (Competitive / DUPR)</option>
-                  </select>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOpenPlaySkillOpen(!isOpenPlaySkillOpen);
+                        setIsOpenPlayCategoryOpen(false);
+                        setIsOpenPlayGcashOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                    >
+                      <span className="truncate">
+                        {openPlaySkillLevel || 'All Skill Levels'}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isOpenPlaySkillOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                    </button>
+
+                    {isOpenPlaySkillOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsOpenPlaySkillOpen(false)} />
+                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                          {[
+                            'All Skill Levels',
+                            '2.0 - 2.5 (Beginner)',
+                            '3.0 - 3.5 (Intermediate)',
+                            '3.5 - 4.0 (Advanced)',
+                            '4.0+ (Competitive / DUPR)'
+                          ].map((lvl) => (
+                            <button
+                              key={lvl}
+                              type="button"
+                              onClick={() => {
+                                setOpenPlaySkillLevel(lvl);
+                                setIsOpenPlaySkillOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                openPlaySkillLevel === lvl ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="truncate">{lvl}</span>
+                              {openPlaySkillLevel === lvl && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Host Contact Phone Number */}
@@ -10015,45 +10464,181 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     <span>Payment Method / Recipient GCash Account *</span>
                     <span className="text-[10px] text-brand-lime normal-case">Loaded from Checkout Settings</span>
                   </label>
-                  <select
-                    value={openPlayGcashAccountId}
-                    onChange={(e) => setOpenPlayGcashAccountId(e.target.value)}
-                    className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
-                  >
-                    {personalAccounts.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.paymentName ? `${acc.paymentName} — ` : ''}{acc.gcashName} ({acc.gcashNumber})
-                      </option>
-                    ))}
-                    {(globalGcashNameSetting || globalGcashNumberSetting) ? (
-                      <option value="global">
-                        {globalGcashNameSetting || 'Global Account'} — ({globalGcashNumberSetting}) [Global Fallback]
-                      </option>
-                    ) : null}
-                  </select>
-                </div>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsOpenPlayGcashOpen(!isOpenPlayGcashOpen);
+                        setIsOpenPlayCategoryOpen(false);
+                        setIsOpenPlaySkillOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                    >
+                      <span className="truncate">
+                        {(() => {
+                          if (openPlayGcashAccountId === 'global') {
+                            return `${globalGcashNameSetting || 'Global Account'} — (${globalGcashNumberSetting}) [Global Fallback]`;
+                          }
+                          const found = personalAccounts.find(acc => acc.id === openPlayGcashAccountId);
+                          if (found) {
+                            return `${found.paymentName ? `${found.paymentName} — ` : ''}${found.gcashName} (${found.gcashNumber})`;
+                          }
+                          if (personalAccounts.length > 0) {
+                            const first = personalAccounts[0];
+                            return `${first.paymentName ? `${first.paymentName} — ` : ''}${first.gcashName} (${first.gcashNumber})`;
+                          }
+                          return 'Select GCash Payment Destination';
+                        })()}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform shrink-0 ${isOpenPlayGcashOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                    </button>
 
-                {/* Poster Image Upload */}
-                <div className="space-y-1.5 md:col-span-2">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">Poster Image Upload (Optional)</label>
-                  <div className="flex items-center gap-3">
-                    <label className="flex-1 px-4 py-3 rounded-xl bg-slate-900 border border-dark-border text-slate-300 text-xs font-bold hover:bg-slate-800 transition-all cursor-pointer flex items-center justify-center gap-2">
-                      <Upload className="w-4 h-4 text-brand-lime" />
-                      <span>{openPlayPosterUrl ? 'Change Event Poster' : 'Choose Image File'}</span>
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        onChange={(e) => e.target.files?.[0] && processOpenPlayPosterFile(e.target.files[0])}
-                        className="hidden" 
-                      />
-                    </label>
-
-                    {openPlayPosterUrl && (
-                      <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-700 overflow-hidden flex-shrink-0">
-                        <img src={openPlayPosterUrl} alt="Poster" className="w-full h-full object-cover" />
-                      </div>
+                    {isOpenPlayGcashOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsOpenPlayGcashOpen(false)} />
+                        <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 animate-fade-in space-y-0.5 max-h-60 overflow-y-auto custom-scrollbar">
+                          {personalAccounts.map((acc) => {
+                            const labelText = `${acc.paymentName ? `${acc.paymentName} — ` : ''}${acc.gcashName} (${acc.gcashNumber})`;
+                            const isSelected = openPlayGcashAccountId === acc.id || (!openPlayGcashAccountId && personalAccounts[0]?.id === acc.id);
+                            return (
+                              <button
+                                key={acc.id}
+                                type="button"
+                                onClick={() => {
+                                  setOpenPlayGcashAccountId(acc.id);
+                                  setIsOpenPlayGcashOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                  isSelected ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="truncate">{labelText}</span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                              </button>
+                            );
+                          })}
+                          {(globalGcashNameSetting || globalGcashNumberSetting) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenPlayGcashAccountId('global');
+                                setIsOpenPlayGcashOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
+                                openPlayGcashAccountId === 'global' ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              }`}
+                            >
+                              <span className="truncate">{globalGcashNameSetting || 'Global Account'} — ({globalGcashNumberSetting}) [Global Fallback]</span>
+                              {openPlayGcashAccountId === 'global' && <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                            </button>
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
+                </div>
+
+                {/* Poster Image Upload (Matching Court Photos Upload Style 1:1) */}
+                <div className="space-y-3 md:col-span-2 text-left">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <label className="text-xs font-extrabold text-white uppercase tracking-wider">
+                      Poster Image Upload <span className="text-slate-500 font-normal">(Optional)</span>
+                    </label>
+                    {openPlayPosterUrl && (
+                      <span className="text-[10px] font-bold text-brand-lime uppercase tracking-widest bg-brand-lime/10 px-2 py-0.5 rounded border border-brand-lime/30">
+                        Poster Attached
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Drag and Drop Zone */}
+                  <div
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPosterDragActive(true);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPosterDragActive(true);
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPosterDragActive(false);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPosterDragActive(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        processOpenPlayPosterFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`w-full flex flex-col items-center justify-center border-2 border-dashed rounded-xl py-6 px-4 cursor-pointer transition-all relative ${
+                      posterDragActive 
+                        ? 'border-brand-lime bg-brand-lime/10' 
+                        : 'border-dark-border hover:border-brand-lime hover:bg-slate-900/30'
+                    }`}
+                  >
+                    <svg className="w-8 h-8 text-slate-400 mb-2 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <span className="text-xs font-bold text-slate-300 text-center">Drag & Drop Event Poster image here</span>
+                    <span className="text-[11px] text-slate-500 mt-0.5 mb-2.5">Or choose an image file from your device</span>
+                    
+                    <label className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-bold hover:bg-slate-750 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm">
+                      <Upload className="w-3.5 h-3.5 text-brand-lime" />
+                      <span>{openPlayPosterUrl ? 'Change Poster File' : 'Browse Poster File'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => e.target.files?.[0] && processOpenPlayPosterFile(e.target.files[0])}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Poster Preview Card */}
+                  {openPlayPosterUrl && (
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">Active Event Poster Preview</span>
+                      <div className="relative group rounded-xl overflow-hidden border border-brand-lime ring-2 ring-brand-lime/25 shadow-lg max-w-sm aspect-video bg-slate-950 flex items-center justify-center transition-all">
+                        <img src={openPlayPosterUrl} alt="Event Poster Preview" className="w-full h-full object-cover select-none" />
+                        
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2.5">
+                          <div className="flex justify-between items-center w-full">
+                            <span className="text-[10px] font-extrabold uppercase bg-brand-lime text-dark-bg px-2 py-0.5 rounded">
+                              Event Banner
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOpenPlayPosterUrl('')}
+                              className="p-1 rounded bg-red-950/85 border border-red-900/30 text-red-400 hover:bg-red-600 hover:text-white cursor-pointer transition-all ml-auto"
+                              title="Remove Poster"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          
+                          <div className="mt-auto">
+                            <label className="w-full py-1.5 px-3 bg-slate-900/90 border border-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5">
+                              <Upload className="w-3 h-3 text-brand-lime" />
+                              <span>Upload Different Poster</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => e.target.files?.[0] && processOpenPlayPosterFile(e.target.files[0])}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Description & Venue Rules */}
@@ -11496,18 +12081,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
             <form onSubmit={handleSendInviteUser} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Recipient Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={inviteNameInput}
-                  onChange={(e) => setInviteNameInput(e.target.value)}
-                  placeholder="e.g. John Doe"
-                  className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime font-sans"
-                />
-              </div>
-
-              <div>
                 <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Recipient Email Address *</label>
                 <input
                   type="email"
@@ -11562,16 +12135,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Custom Message / Welcome Note (Optional)</label>
-                <textarea
-                  rows={2}
-                  value={inviteCustomMessage}
-                  onChange={(e) => setInviteCustomMessage(e.target.value)}
-                  placeholder="Welcome to Book Picklecourt! Click the link above to complete your registration."
-                  className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-brand-lime resize-none"
-                />
-              </div>
 
               <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
                 <button
@@ -11614,6 +12177,21 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       {/* Global Custom Modal Alert */}
       <AdminModalAlert alert={modalAlert} onClose={() => setModalAlert((prev) => ({ ...prev, open: false }))} />
+
+      {/* Contact Support Modal (Client Admin & Manager) */}
+      <AdminContactSupportModal
+        isOpen={isSupportModalOpen}
+        onClose={() => setIsSupportModalOpen(false)}
+        user={user}
+      />
+
+      {/* Client Admin & Manager Support Tickets History Modal */}
+      <AdminClientTicketsModal
+        isOpen={isClientTicketsModalOpen}
+        onClose={() => setIsClientTicketsModalOpen(false)}
+        user={user}
+        onOpenSubmitModal={() => setIsSupportModalOpen(true)}
+      />
     </div>
   );
 }

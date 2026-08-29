@@ -13,5 +13,26 @@ export default defineConfig(({ mode }) => {
       port: port,
       strictPort: false, // If the port is already in use, Vite automatically tries the next available port (e.g. 5174, 5175)
     },
+    build: {
+      chunkSizeWarningLimit: 1000,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules/firebase')) {
+              return 'vendor-firebase';
+            }
+            if (id.includes('node_modules/lucide-react')) {
+              return 'vendor-icons';
+            }
+            if (id.includes('node_modules/leaflet')) {
+              return 'vendor-leaflet';
+            }
+            if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+              return 'vendor-react';
+            }
+          },
+        },
+      },
+    },
   };
 });

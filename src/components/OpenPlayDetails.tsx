@@ -181,13 +181,17 @@ export const calculateEventDuration = (startTime?: string, endTime?: string): st
 
 export const formatTime12h = (timeStr?: string): string => {
   if (!timeStr) return '';
-  const match12 = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (match12) return `${match12[1]}:${match12[2]} ${match12[3].toUpperCase()}`;
+  const trimmed = timeStr.trim();
+  const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (match12) {
+    const h = parseInt(match12[1], 10);
+    return `${h}:${match12[2]} ${match12[3].toUpperCase()}`;
+  }
   
   let h = 0;
   let m = 0;
-  if (timeStr.includes(':')) {
-    const parts = timeStr.trim().split(':');
+  if (trimmed.includes(':')) {
+    const parts = trimmed.split(':');
     h = parseInt(parts[0], 10) || 0;
     m = parseInt(parts[1]?.substring(0, 2) || '0', 10) || 0;
   }

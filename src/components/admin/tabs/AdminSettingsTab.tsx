@@ -38,6 +38,7 @@ import {
   type Company,
   type DailyOperatingHoursMap,
   type CourtPolicies,
+  getUserEffectivePermissions,
   DAYS_OF_WEEK,
   OPERATING_TIME_OPTIONS
 } from '../adminTypes';
@@ -296,22 +297,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
     setEditManagerRole(currentRole);
     setEditManagerStatus((m.status as any) || 'active');
 
-    const defaultPerms: UserPermissions = currentRole === 'editor' ? {
-      canManageBookings: true,
-      canManageCourts: false,
-      canManageOpenPlay: true,
-      canManageVouchers: false,
-      canViewFinancials: false,
-      canManageTeam: false,
-    } : {
-      canManageBookings: true,
-      canManageCourts: true,
-      canManageOpenPlay: true,
-      canManageVouchers: true,
-      canViewFinancials: false,
-      canManageTeam: false,
-    };
-
+    const defaultPerms = getUserEffectivePermissions({ role: currentRole });
     setEditManagerPermissions(m.permissions ? { ...defaultPerms, ...m.permissions } : defaultPerms);
   };
 
@@ -542,7 +528,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     teamMembers.map((m, idx) => {
                       const isOwner = m.role === 'client_admin';
                       const isEditorRole = m.role === 'editor';
-                      const perms = m.permissions || (isEditorRole ? { canManageBookings: true, canManageOpenPlay: true } : { canManageBookings: true, canManageCourts: true, canManageOpenPlay: true, canManageVouchers: true });
+                      const perms = getUserEffectivePermissions(m);
 
                       return (
                         <tr key={m.uid || m.email || idx} className="hover:bg-slate-800/40 transition-colors">
@@ -579,6 +565,9 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                               )}
                               {perms.canViewFinancials && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300">Financials</span>
+                              )}
+                              {perms.canManageTeam && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/20 text-purple-300">Team</span>
                               )}
                             </div>
                           </td>

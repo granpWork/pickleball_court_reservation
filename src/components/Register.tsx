@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, ShieldCheck, Loader2 } from 'lucide-react';
 import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
-import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut } from 'firebase/auth';
+import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut, signInWithRedirect } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
@@ -62,6 +62,14 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
         if (!inviteData) {
           setInvalidInviteReason('This invitation link is invalid or does not exist.');
+          setIsVerifiedInvite(false);
+          setInviteTokenValidating(false);
+          return;
+        }
+
+        // Check if revoked or cancelled
+        if (inviteData.status === 'revoked' || inviteData.status === 'cancelled') {
+          setInvalidInviteReason('This invitation has been revoked by the facility administrator.');
           setIsVerifiedInvite(false);
           setInviteTokenValidating(false);
           return;
@@ -353,7 +361,6 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
         if (firebaseError.code === 'auth/popup-blocked') {
           try {
-            const { signInWithRedirect } = await import('firebase/auth');
             await signInWithRedirect(auth, googleProvider);
             return;
           } catch (redirectErr) {

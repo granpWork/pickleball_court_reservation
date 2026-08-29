@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
-import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs, updateDoc } from 'firebase/firestore';
 import type { OpenPlayRegistration } from './OpenPlayDetails';
 
 interface Booking {
@@ -389,8 +389,7 @@ export default function Profile({ user, setView, onLogout }: ProfileProps) {
     try {
       if (isFirebaseConfigured && db) {
         try {
-          const { updateDoc, doc: firestoreDoc } = await import('firebase/firestore');
-          const bookingRef = firestoreDoc(db, 'bookings', refundModalBooking.id);
+          const bookingRef = doc(db, 'bookings', refundModalBooking.id);
           await updateDoc(bookingRef, {
             refundRequested: true,
             refundRequestReason: fullReason,

@@ -12,7 +12,7 @@ import {
   EyeOff,
   X
 } from 'lucide-react';
-import { type Court } from '../adminTypes';
+import { type Court, type UserPermissions } from '../adminTypes';
 
 interface AdminCourtsTabProps {
   courts: Court[];
@@ -30,6 +30,7 @@ interface AdminCourtsTabProps {
   onOpenEditCourtModal: (court: Court) => void;
   onDeleteCourt: (courtId: string) => void;
   onTogglePublishCourt?: (courtId: string, currentPublished: boolean) => void;
+  userPermissions?: UserPermissions;
 }
 
 export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
@@ -39,6 +40,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   onOpenEditCourtModal,
   onDeleteCourt,
   onTogglePublishCourt,
+  userPermissions,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -107,13 +109,15 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
           </div>
 
           {/* Lime Green Create Court Button */}
-          <button
-            onClick={onOpenCreateCourtModal}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10"
-          >
-            <Plus className="w-4 h-4 text-dark-bg" />
-            <span>Create Court</span>
-          </button>
+          {userPermissions?.canManageCourts !== false && (
+            <button
+              onClick={onOpenCreateCourtModal}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10"
+            >
+              <Plus className="w-4 h-4 text-dark-bg" />
+              <span>Create Court</span>
+            </button>
+          )}
         </div>
       </div>
 

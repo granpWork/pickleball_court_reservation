@@ -86,6 +86,43 @@ export interface UserPermissions {
   canManageTeam?: boolean;
 }
 
+export function getUserEffectivePermissions(user?: { role?: string; permissions?: UserPermissions } | null): UserPermissions {
+  const role = user?.role;
+  const customPerms = user?.permissions || {};
+
+  if (role === 'super_admin' || role === 'client_admin') {
+    return {
+      canManageBookings: true,
+      canManageCourts: true,
+      canManageOpenPlay: true,
+      canManageVouchers: true,
+      canViewFinancials: true,
+      canManageTeam: true,
+    };
+  }
+
+  if (role === 'editor') {
+    return {
+      canManageBookings: customPerms.canManageBookings ?? true,
+      canManageCourts: customPerms.canManageCourts ?? false,
+      canManageOpenPlay: customPerms.canManageOpenPlay ?? true,
+      canManageVouchers: customPerms.canManageVouchers ?? false,
+      canViewFinancials: customPerms.canViewFinancials ?? false,
+      canManageTeam: customPerms.canManageTeam ?? false,
+    };
+  }
+
+  // Manager or default staff role
+  return {
+    canManageBookings: customPerms.canManageBookings ?? true,
+    canManageCourts: customPerms.canManageCourts ?? true,
+    canManageOpenPlay: customPerms.canManageOpenPlay ?? true,
+    canManageVouchers: customPerms.canManageVouchers ?? true,
+    canViewFinancials: customPerms.canViewFinancials ?? true,
+    canManageTeam: customPerms.canManageTeam ?? false,
+  };
+}
+
 export interface UserAccount {
   uid?: string;
   name: string;
@@ -236,7 +273,25 @@ export interface ShortLink {
   clickCount: number;
 }
 
-export type AdminTab = 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener';
+export interface SupportTicket {
+  id: string;
+  ticketId: string;
+  senderName: string;
+  senderEmail: string;
+  senderRole?: string;
+  facilityName?: string;
+  category: 'technical' | 'billing' | 'courts' | 'permissions' | 'feature' | 'general';
+  priority: 'low' | 'medium' | 'urgent';
+  subject: string;
+  message: string;
+  status: 'new' | 'in_progress' | 'resolved';
+  submittedAt: string;
+  adminNotes?: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+}
+
+export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support';
 export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee';
 
 export const SLOTS = [
@@ -322,24 +377,78 @@ export const getBookingColorTheme = (bookingKey: string) => {
   return BOOKING_COLOR_THEMES[index];
 };
 
-export const isPastBookingDate = (dateStr: string): boolean => {
-  if (!dateStr) return false;
+export type BookingScheduleState = 'upcoming' | 'in_progress' | 'completed';
+
+export const getBookingScheduleState = (dateStr: string, slots?: string[]): BookingScheduleState => {
+  if (!dateStr) return 'upcoming';
   const parts = dateStr.split('-');
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return 'upcoming';
   const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10);
   const day = parseInt(parts[2], 10);
-  if (!year || !month || !day) return false;
+  if (!year || !month || !day) return 'upcoming';
 
-  const today = new Date();
-  const currentYear = today.getFullYear();
-  const currentMonth = today.getMonth() + 1;
-  const currentDay = today.getDate();
+  const now = new Date();
+  const bookingDateStart = new Date(year, month - 1, day, 0, 0, 0);
+  const bookingDateEnd = new Date(year, month - 1, day, 23, 59, 59);
 
-  const bookingEnd = new Date(year, month - 1, day, 23, 59, 59);
-  const todayStart = new Date(currentYear, currentMonth - 1, currentDay, 0, 0, 0);
+  if (now < bookingDateStart) {
+    return 'upcoming';
+  }
 
-  return bookingEnd < todayStart;
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  if (bookingDateEnd < todayStart) {
+    return 'completed';
+  }
+
+  // Date is TODAY: evaluate time slots if provided
+  if (!slots || slots.length === 0) {
+    return 'upcoming';
+  }
+
+  const parseSlotHour = (sStr: string): { start: number; end: number } => {
+    const parts = sStr.split(' - ');
+    const parseSingleHour = (t: string) => {
+      const match = t.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+      if (match) {
+        let h = parseInt(match[1], 10);
+        const ampm = match[3]?.toUpperCase();
+        if (ampm === 'PM' && h < 12) h += 12;
+        if (ampm === 'AM' && h === 12) h = 0;
+        return h;
+      }
+      return 0;
+    };
+    if (parts.length === 2) {
+      const s = parseSingleHour(parts[0]);
+      const e = parseSingleHour(parts[1]);
+      return { start: s, end: e || s + 1 };
+    }
+    const h = parseSingleHour(sStr);
+    return { start: h, end: h + 1 };
+  };
+
+  const currentHour = now.getHours() + now.getMinutes() / 60;
+  let minStart = 24;
+  let maxEnd = 0;
+
+  for (const slot of slots) {
+    const { start, end } = parseSlotHour(slot);
+    if (start < minStart) minStart = start;
+    if (end > maxEnd) maxEnd = end;
+  }
+
+  if (currentHour < minStart) {
+    return 'upcoming';
+  }
+  if (currentHour >= maxEnd) {
+    return 'completed';
+  }
+  return 'in_progress';
+};
+
+export const isPastBookingDate = (dateStr: string, slots?: string[]): boolean => {
+  return getBookingScheduleState(dateStr, slots) === 'completed';
 };
 
 export const REGIONS_FALLBACK = [
