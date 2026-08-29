@@ -51,8 +51,8 @@ function App() {
       return 'admin';
     }
 
-    // Check cached admin/manager session before defaulting to 'landing' on root path '/'
-    if (typeof localStorage !== 'undefined') {
+    // Check cached admin/manager session before defaulting to 'landing' ONLY on root path '/'
+    if (typeof localStorage !== 'undefined' && window.location.pathname === '/') {
       try {
         const saved = localStorage.getItem('picklepoint_session');
         if (saved) {
@@ -326,6 +326,10 @@ function App() {
       setView('profile');
       return;
     }
+    if (params.get('view') === 'privacy' || window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy') {
+      setView('privacy');
+      return;
+    }
 
     if (selectedCourtId) {
       setView('details');
@@ -573,10 +577,15 @@ function App() {
               setCheckoutDetails(null);
               setView('client_onboarding');
             } else if (isAdmin) {
-              if (window.location.search.includes('inviteToken') || window.location.pathname === '/register' || window.location.pathname === '/login') {
-                window.history.pushState({}, '', '/');
+              const isPrivacyRoute = window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy' || new URLSearchParams(window.location.search).get('view') === 'privacy';
+              if (isPrivacyRoute) {
+                setView('privacy');
+              } else {
+                if (window.location.search.includes('inviteToken') || window.location.pathname === '/register' || window.location.pathname === '/login') {
+                  window.history.pushState({}, '', '/');
+                }
+                setView('admin');
               }
-              setView('admin');
             } else {
               restoreSessionView();
             }
