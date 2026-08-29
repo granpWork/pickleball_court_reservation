@@ -2891,18 +2891,67 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       // 4. Fetch GCash checkout settings (both personal and global fallback)
       if (isFirebaseConfigured && db) {
         try {
-          // Fetch personal GCash details list
+          // Fetch personal or facility GCash details list
           try {
+            let accountsToLoad: GcashAccount[] = [];
+
+            // 1. Try reading currentUserUid document directly
             const personalSnap = await getDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid));
-            if (personalSnap.exists()) {
-              const data = personalSnap.data();
-              setPersonalAccounts(data.accounts || []);
+            if (personalSnap.exists() && personalSnap.data().accounts && personalSnap.data().accounts.length > 0) {
+              accountsToLoad = personalSnap.data().accounts;
             } else {
               const localStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`);
-              setPersonalAccounts(localStr ? JSON.parse(localStr) : []);
+              if (localStr) {
+                try { accountsToLoad = JSON.parse(localStr); } catch (e) {}
+              }
             }
+
+            // 2. If no accounts found for currentUserUid (e.g. user is Manager or Editor), resolve facility owner (Client Admin)
+            if (accountsToLoad.length === 0) {
+              const targetCompanyId = (user as any)?.companyId || myCompany?.id;
+              const targetCompanyEmail = myCompany?.clientAdminEmail;
+
+              const facilityOwnerUser = loadedUsers.find(
+                (u) =>
+                  (u.role === 'client_admin' || u.role === 'super_admin') &&
+                  (u.companyId === targetCompanyId || (targetCompanyEmail && u.email?.toLowerCase() === targetCompanyEmail.toLowerCase()))
+              );
+
+              const targetOwnerUid = facilityOwnerUser?.uid || (myCompany as any)?.ownerId;
+
+              if (targetOwnerUid && targetOwnerUid !== currentUserUid) {
+                const ownerSnap = await getDoc(doc(db, 'settings', 'checkout', 'users', targetOwnerUid));
+                if (ownerSnap.exists() && ownerSnap.data().accounts && ownerSnap.data().accounts.length > 0) {
+                  accountsToLoad = ownerSnap.data().accounts;
+                } else {
+                  const ownerLocalStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${targetOwnerUid}`);
+                  if (ownerLocalStr) {
+                    try { accountsToLoad = JSON.parse(ownerLocalStr); } catch (e) {}
+                  }
+                }
+              }
+            }
+
+            // 3. Fallback: query /settings/checkout/users collection for any document matching companyId
+            if (accountsToLoad.length === 0 && ((user as any)?.companyId || myCompany?.id)) {
+              try {
+                const targetCompId = (user as any)?.companyId || myCompany?.id;
+                const companyAccountsQuery = query(
+                  collection(db, 'settings', 'checkout', 'users'),
+                  where('companyId', '==', targetCompId)
+                );
+                const compAccSnap = await getDocs(companyAccountsQuery);
+                if (!compAccSnap.empty && compAccSnap.docs[0].data().accounts) {
+                  accountsToLoad = compAccSnap.docs[0].data().accounts;
+                }
+              } catch (cErr) {
+                console.warn('Company checkout query fallback error:', cErr);
+              }
+            }
+
+            setPersonalAccounts(accountsToLoad);
           } catch (pErr) {
-            console.warn('Failed to read personal settings from Firestore:', pErr);
+            console.warn('Failed to read personal/facility settings from Firestore:', pErr);
             const localStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`);
             setPersonalAccounts(localStr ? JSON.parse(localStr) : []);
           }
@@ -2944,8 +2993,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           console.error('Error fetching checkout settings:', err);
         }
       } else {
-        // LocalStorage fallback for personal settings list
-        const personalStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`);
+        // LocalStorage fallback for personal/facility settings list
+        let personalStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`);
+        if (!personalStr) {
+          const targetCompanyId = (user as any)?.companyId || myCompany?.id;
+          const facilityOwnerUser = loadedUsers.find(
+            (u) => (u.role === 'client_admin' || u.role === 'super_admin') && (u.companyId === targetCompanyId)
+          );
+          if (facilityOwnerUser?.uid) {
+            personalStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${facilityOwnerUser.uid}`);
+          }
+        }
         if (personalStr) {
           setPersonalAccounts(JSON.parse(personalStr) as GcashAccount[]);
         } else {
@@ -3148,7 +3206,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
 
         if (isFirebaseConfigured && db) {
-          await setDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid), { accounts: updatedAccounts });
+          const compId = (user as any)?.companyId || myCompany?.id || '';
+          await setDoc(doc(db, 'settings', 'checkout', 'users', currentUserUid), {
+            accounts: updatedAccounts,
+            companyId: compId,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
         } else {
           localStorage.setItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`, JSON.stringify(updatedAccounts));
         }
