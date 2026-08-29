@@ -4,8 +4,8 @@ import { Menu, X, ChevronRight, User, Trophy, Flame } from 'lucide-react';
 interface HeaderProps {
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
   onLogout: () => void;
-  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding') => void;
-  currentView?: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding';
+  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy') => void;
+  currentView?: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy';
 }
 
 export default function Header({ user, onLogout, setView, currentView = 'landing' }: HeaderProps) {

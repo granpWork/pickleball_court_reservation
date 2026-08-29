@@ -13,6 +13,7 @@ import OpenPlayPage from './components/OpenPlayPage';
 import Bootcamp from './components/Bootcamp';
 import Profile from './components/Profile';
 import ClientAdminOnboarding from './components/ClientAdminOnboarding';
+import PrivacyPolicy from './components/PrivacyPolicy';
 import { auth, db, isFirebaseConfigured } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc, increment, deleteDoc } from 'firebase/firestore';
@@ -20,8 +21,11 @@ import { sendRegistrationConfirmationEmail } from './services/emailService';
 import { AlertCircle, Loader2 } from 'lucide-react';
 
 function App() {
-  const [currentView, setView] = useState<'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding'>(() => {
+  const [currentView, setView] = useState<'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy'>(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'privacy' || window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy') {
+      return 'privacy';
+    }
     if (params.get('view') === 'register' || params.get('inviteToken') || window.location.pathname === '/register') {
       return 'register';
     }
@@ -89,7 +93,7 @@ function App() {
     return u.role === 'client_admin' && (!u.companyId || (u as any).needsOnboarding === true);
   };
 
-  const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding') => {
+  const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy') => {
     setOpenPlayEventId(null);
     if (isUserUnonboardedClientAdmin(user) && nextView !== 'client_onboarding' && nextView !== 'login' && nextView !== 'register') {
       if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
@@ -1064,7 +1068,20 @@ function App() {
         </main>
 
         {/* Footer Branding & Newsletter */}
-        <Footer />
+        <Footer setView={handleSetView} />
+        {renderDeactivatedModal()}
+      </div>
+    );
+  }
+
+  if (currentView === 'privacy') {
+    return (
+      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
+        <main className="flex-grow pt-16">
+          <PrivacyPolicy onBack={() => handleSetView('landing')} />
+        </main>
+        <Footer setView={handleSetView} />
         {renderDeactivatedModal()}
       </div>
     );
@@ -1084,7 +1101,7 @@ function App() {
       </main>
 
       {/* Footer Branding & Newsletter */}
-      <Footer />
+      <Footer setView={handleSetView} />
       {renderDeactivatedModal()}
     </div>
   );

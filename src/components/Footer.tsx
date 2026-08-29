@@ -1,7 +1,11 @@
-import { Send, Mail } from 'lucide-react';
 import { useState } from 'react';
+import { Send, Mail } from 'lucide-react';
 
-export default function Footer() {
+interface FooterProps {
+  setView?: (view: any) => void;
+}
+
+export default function Footer({ setView }: FooterProps = {}) {
   const [email, setEmail] = useState('');
   const [subscribed, setSubscribed] = useState(false);
 
@@ -157,9 +161,20 @@ export default function Footer() {
         <div className="border-t border-dark-border pt-8 mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm font-normal">
           <p>© {new Date().getFullYear()} Book Picklecourt Inc. All rights reserved.</p>
           <div className="flex gap-6">
-            <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-white transition-colors">Terms of Service</a>
-            <a href="#" className="hover:text-white transition-colors">Cookie Preferences</a>
+            <a 
+              href="/privacy" 
+              onClick={(e) => {
+                if (setView) {
+                  e.preventDefault();
+                  setView('privacy');
+                }
+              }} 
+              className="hover:text-white transition-colors"
+            >
+              Privacy Policy
+            </a>
+            <a href="/privacy" onClick={(e) => { if (setView) { e.preventDefault(); setView('privacy'); } }} className="hover:text-white transition-colors">Terms of Service</a>
+            <a href="/privacy" onClick={(e) => { if (setView) { e.preventDefault(); setView('privacy'); } }} className="hover:text-white transition-colors">Cookie Preferences</a>
           </div>
         </div>
       </div>
