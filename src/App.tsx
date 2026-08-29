@@ -568,8 +568,10 @@ function App() {
               sessionStorage.removeItem('picklepoint_checkout_details');
               setCheckoutDetails(null);
               setView('client_onboarding');
-            } else if (isAdmin && window.location.pathname === '/pickle-admin') {
-              window.history.pushState({}, '', '/pickle-admin');
+            } else if (isAdmin) {
+              if (window.location.search.includes('inviteToken') || window.location.pathname === '/register' || window.location.pathname === '/login') {
+                window.history.pushState({}, '', '/');
+              }
               setView('admin');
             } else {
               restoreSessionView();

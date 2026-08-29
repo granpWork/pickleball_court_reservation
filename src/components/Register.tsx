@@ -7,7 +7,7 @@ import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
 interface RegisterProps {
   setView: (view: 'landing' | 'login' | 'register' | 'client_onboarding') => void;
-  onLoginSuccess: (user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean; needsOnboarding?: boolean }) => void;
+  onLoginSuccess: (user: { uid?: string; name: string; email: string; role?: string; companyId?: string; companyName?: string; permissions?: any; isAdmin?: boolean; needsOnboarding?: boolean }) => void;
   invitationNotice?: { email: string; company?: string } | null;
 }
 
@@ -30,6 +30,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
   const [isVerifiedInvite, setIsVerifiedInvite] = useState(false);
   const [invalidInviteReason, setInvalidInviteReason] = useState<string | null>(null);
   const [invitedRole, setInvitedRole] = useState<'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player' | null>(null);
+  const [verifiedInviteData, setVerifiedInviteData] = useState<any>(null);
 
   useEffect(() => {
     const validateInviteToken = async () => {
@@ -101,8 +102,9 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
         // Valid invite
         setIsVerifiedInvite(true);
+        setVerifiedInviteData(inviteData);
         if (inviteData.role) {
-          setInvitedRole(inviteData.role);
+          setInvitedRole(inviteData.role as any);
         }
         setEmail(inviteData.email || '');
         if (inviteData.name) {
@@ -124,18 +126,18 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       try {
         await updateDoc(doc(db, 'invitations', token), {
           status: 'used',
-          usedAt: new Date().toISOString(),
+          usedAt: new Date().toISOString()
         });
-      } catch (e) {
-        console.warn('Could not update invitation status in Firestore:', e);
+      } catch (fErr) {
+        console.warn('Could not mark invitation used in Firestore:', fErr);
       }
     }
 
-    const localInvsStr = localStorage.getItem('picklepoint_invitations');
-    if (localInvsStr) {
+    const invStr = localStorage.getItem('picklepoint_invitations');
+    if (invStr) {
       try {
-        const localInvs = JSON.parse(localInvsStr);
-        const updated = localInvs.map((inv: { token?: string; [key: string]: unknown }) =>
+        const localInvs = JSON.parse(invStr);
+        const updated = localInvs.map((inv: any) =>
           inv.token === token ? { ...inv, status: 'used', usedAt: new Date().toISOString() } : inv
         );
         localStorage.setItem('picklepoint_invitations', JSON.stringify(updated));
@@ -171,14 +173,9 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
     setLoading(true);
 
-    const isClientAdminInvite = isVerifiedInvite || !!inviteTokenParam;
-    const finalRole = invitedRole
-      ? invitedRole
-      : isClientAdminInvite
-      ? 'client_admin'
-      : email.toLowerCase() === 'admin@picklepoint.com'
-      ? 'super_admin'
-      : 'player';
+    const urlRole = (new URLSearchParams(window.location.search).get('role') as any) || null;
+    const finalRole = invitedRole || verifiedInviteData?.role || urlRole || (email.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player');
+    const isClientAdminInvite = finalRole === 'client_admin';
 
     if (isFirebaseConfigured && auth) {
       try {
@@ -194,8 +191,11 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
               name: name,
               email: fbUser.email || '',
               role: finalRole,
+              companyId: verifiedInviteData?.companyId || '',
+              companyName: verifiedInviteData?.company || '',
+              permissions: verifiedInviteData?.permissions || undefined,
               status: 'active',
-              needsOnboarding: finalRole === 'client_admin',
+              needsOnboarding: isClientAdminInvite,
               createdAt: new Date().toISOString()
             });
           } catch (e) {
@@ -222,7 +222,10 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: name,
           email: fbUser.email || '',
           role: finalRole,
-          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
+          companyId: verifiedInviteData?.companyId || '',
+          companyName: verifiedInviteData?.company || '',
+          permissions: verifiedInviteData?.permissions,
+          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,
         });
         setLoading(false);
@@ -240,7 +243,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       // Simulate network latency for mock auth
       setTimeout(async () => {
         const usersStr = localStorage.getItem('picklepoint_users');
-        const users = (usersStr ? JSON.parse(usersStr) : []) as { name: string; email: string; password?: string; role?: string; needsOnboarding?: boolean }[];
+        const users = (usersStr ? JSON.parse(usersStr) : []) as { name: string; email: string; password?: string; role?: string; needsOnboarding?: boolean; companyId?: string; companyName?: string }[];
 
         const userExists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
 
@@ -250,7 +253,16 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           return;
         }
 
-        const newUser = { name, email, password, role: finalRole, needsOnboarding: isClientAdminInvite, status: 'active' };
+        const newUser = { 
+          name, 
+          email, 
+          password, 
+          role: finalRole, 
+          companyId: verifiedInviteData?.companyId || '',
+          companyName: verifiedInviteData?.company || '',
+          needsOnboarding: isClientAdminInvite, 
+          status: 'active' 
+        };
         users.push(newUser);
         localStorage.setItem('picklepoint_users', JSON.stringify(users));
 
@@ -271,7 +283,10 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: name,
           email: email,
           role: finalRole,
-          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
+          companyId: verifiedInviteData?.companyId || '',
+          companyName: verifiedInviteData?.company || '',
+          permissions: verifiedInviteData?.permissions,
+          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,
         });
         setLoading(false);
