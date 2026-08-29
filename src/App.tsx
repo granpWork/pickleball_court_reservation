@@ -246,6 +246,12 @@ function App() {
       return;
     }
 
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'privacy' || window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy') {
+      setView('privacy');
+      return;
+    }
+
     // 1. Explicit admin route check
     if (window.location.pathname === '/pickle-admin') {
       sessionStorage.removeItem('picklepoint_checkout_details');
@@ -266,8 +272,6 @@ function App() {
         sessionStorage.removeItem('picklepoint_checkout_details');
       }
     }
-
-    const params = new URLSearchParams(window.location.search);
 
     // PRIORITY CHECK: If URL contains inviteToken, always load the invitation registration view
     if (params.get('inviteToken')) {
@@ -373,6 +377,8 @@ function App() {
       setView('bootcamp');
     } else if (params.get('view') === 'profile' || window.location.pathname === '/profile') {
       setView('profile');
+    } else if (params.get('view') === 'privacy' || window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy') {
+      setView('privacy');
     }
   }, []);
 
