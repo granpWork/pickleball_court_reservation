@@ -184,7 +184,6 @@ export interface Company {
   bookingLeadTimeMinutes?: number;
   operatingHours?: DailyOperatingHoursMap;
   subdomain?: string;
-  ownerId?: string;
 }
 
 export interface RentalItem {
