@@ -1305,7 +1305,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
 
         setOpenPlayEvents(prev => [...prev, ...newEventsBatch]);
-        setAdminOpenPlayFilter('all');
+      setAdminOpenPlayFilter('upcoming');
         setOpenPlayModalOpen(false);
       } catch (err) {
         console.error('Failed to save recurring events:', err);
@@ -1425,7 +1425,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       } else {
         setOpenPlayEvents(prev => [...prev, payload]);
       }
-      setAdminOpenPlayFilter('all');
+      setAdminOpenPlayFilter('upcoming');
       setOpenPlayModalOpen(false);
       setEditingOpenPlay(null);
     } catch (err) {

@@ -114,7 +114,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
   userPermissions: _userPermissions,
 }) => {
   // Session List Filter & View Mode state
-  const [adminOpenPlayFilter, setAdminOpenPlayFilter] = useState<'all' | 'upcoming' | 'expired'>('all');
+  const [adminOpenPlayFilter, setAdminOpenPlayFilter] = useState<'upcoming' | 'all' | 'expired'>('upcoming');
   const [adminOpenPlayViewMode, setAdminOpenPlayViewMode] = useState<'cards' | 'history'>('cards');
   const [copiedShareLink, setCopiedShareLink] = useState<string | null>(null);
 
@@ -253,12 +253,24 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
   const activeAdminEvents = events.filter(e => !isEventConcluded(e) && e.status !== 'cancelled');
   const expiredAdminEvents = events.filter(e => isEventConcluded(e));
 
-  const displayedAdminEvents = events.filter(event => {
-    const isConcluded = isEventConcluded(event);
-    if (adminOpenPlayFilter === 'upcoming') return !isConcluded;
-    if (adminOpenPlayFilter === 'expired') return isConcluded;
-    return true;
-  });
+  const displayedAdminEvents = events
+    .filter(event => {
+      const isConcluded = isEventConcluded(event);
+      if (adminOpenPlayFilter === 'upcoming') return !isConcluded;
+      if (adminOpenPlayFilter === 'expired') return isConcluded;
+      return true;
+    })
+    .sort((a, b) => {
+      const aConcluded = isEventConcluded(a);
+      const bConcluded = isEventConcluded(b);
+      if (aConcluded !== bConcluded) {
+        return aConcluded ? 1 : -1; // Active / not expired events first
+      }
+      if (!aConcluded) {
+        return (a.eventDate || '').localeCompare(b.eventDate || '');
+      }
+      return (b.eventDate || '').localeCompare(a.eventDate || '');
+    });
 
   return (
     <div className="text-left">
@@ -299,8 +311,8 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
             {/* Filter Tabs */}
             <div className="flex flex-wrap items-center gap-2">
               {[
-                { id: 'all', label: 'All Sessions', count: events.length },
                 { id: 'upcoming', label: 'Active / Upcoming', count: activeAdminEvents.length },
+                { id: 'all', label: 'All Sessions', count: events.length },
                 { id: 'expired', label: 'Concluded / Expired History', count: expiredAdminEvents.length },
               ].map(tab => (
                 <button
