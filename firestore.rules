@@ -104,13 +104,11 @@ service cloud.firestore {
     // 7. Open Play Events & Registrations
     // ==========================================
     match /openplay_events/{eventId} {
-      allow read, create, update: if true;
-      allow delete: if isAdmin() || isAuthenticated();
+      allow read, write: if true;
     }
 
     match /openplay_registrations/{registrationId} {
-      allow read, create, update: if true;
-      allow delete: if isAdmin() || isAuthenticated();
+      allow read, write: if true;
     }
 
     // ==========================================

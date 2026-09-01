@@ -18,6 +18,7 @@ import { type AdminTab, type AdminSettingsSubTab, type ShortLink, type UserPermi
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
+import { AdminManualBookingModal } from './admin/modals/AdminManualBookingModal';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { InteractiveMapPicker } from './InteractiveMapPicker';
 import {
@@ -411,7 +412,7 @@ const REGIONS_FALLBACK = [
 ];
 
 interface AdminDashboardProps {
-  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile') => void;
+  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | any) => void;
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean; companyId?: string; needsOnboarding?: boolean } | null;
   onLogout: () => void;
 }
@@ -462,6 +463,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return 'bookings';
   });
 
+  const [courtsResetKey, setCourtsResetKey] = useState<number>(0);
+
   useEffect(() => {
     try {
       sessionStorage.setItem('picklepoint_admin_active_tab', activeTab);
@@ -508,6 +511,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [shortLinks, setShortLinks] = useState<ShortLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [isManualBookingModalOpen, setIsManualBookingModalOpen] = useState(false);
+  const [isSubmittingManualBooking, setIsSubmittingManualBooking] = useState(false);
   
   // Checkout Settings states
   interface GcashAccount {
@@ -599,6 +604,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [rejectSendEmail, setRejectSendEmail] = useState<boolean>(true);
   const [rejectCheckoutSubmitting, setRejectCheckoutSubmitting] = useState<boolean>(false);
   const [rejectSuccessAlert, setRejectSuccessAlert] = useState<string | null>(null);
+
+  // Approve Checkout Modal States
+  const [approveCheckoutModalBooking, setApproveCheckoutModalBooking] = useState<Booking | null>(null);
+  const [approveGcashRef, setApproveGcashRef] = useState<string>('');
+  const [approveReceiptBase64, setApproveReceiptBase64] = useState<string>('');
+  const [approvePaymentNotes, setApprovePaymentNotes] = useState<string>('');
+  const [approveSubmitting, setApproveSubmitting] = useState<boolean>(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
   
   // Search and Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -1375,7 +1388,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       createdByUid: currentUserUid,
       createdByEmail: currentUserEmail,
       createdAt: editingOpenPlay ? editingOpenPlay.createdAt : new Date().toISOString(),
-      status: isPast ? 'expired' : openPlayStatusSetting,
+      status: openPlayStatusSetting === 'draft' ? 'draft' : (isPast ? 'expired' : openPlayStatusSetting),
       courtIds: finalCourtIds,
       courtNames: selectedCourtNames,
       isRecurring: editingOpenPlay?.isRecurring || isRecurringEnabled,
@@ -1398,8 +1411,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
       let localEvents = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
-      if (editingOpenPlay) {
-        localEvents = localEvents.map(e => e.id === eventId ? payload : e);
+      const existingIdx = localEvents.findIndex(e => e.id === eventId);
+      if (existingIdx >= 0) {
+        localEvents[existingIdx] = payload;
       } else {
         localEvents.push(payload);
       }
@@ -1443,11 +1457,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         await setDoc(doc(db, 'openplay_events', event.id), updatedPayload, { merge: true });
       }
       const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-      if (localStr) {
-        const localEvs = JSON.parse(localStr).map((e: any) => e.id === event.id ? updatedPayload : e);
-        try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
-        try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
+      let localEvs = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
+      const existingIdx = localEvs.findIndex((e: any) => e.id === event.id);
+      if (existingIdx >= 0) {
+        localEvs[existingIdx] = updatedPayload;
+      } else {
+        localEvs.push(updatedPayload);
       }
+      try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
+      try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
       setOpenPlayEvents(prev => prev.map(e => e.id === event.id ? updatedPayload : e));
     } catch (err) {
       console.error('Failed to update event status:', err);
@@ -1884,6 +1902,64 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       console.error('Failed to cancel booking:', err);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleCreateManualBooking = async (bookingData: Partial<Booking>) => {
+    setIsSubmittingManualBooking(true);
+    try {
+      const fullBooking: Booking = {
+        id: bookingData.id || `bk_manual_${Date.now()}`,
+        bookingId: bookingData.bookingId || `BK-WALKIN-${Math.floor(100000 + Math.random() * 900000)}`,
+        type: 'court',
+        companyId: bookingData.companyId || currentCompany?.id || '',
+        courtId: bookingData.courtId!,
+        courtName: bookingData.courtName || 'Court',
+        courtType: bookingData.courtType || 'Standard Court',
+        date: bookingData.date!,
+        slots: bookingData.slots || [],
+        totalCost: bookingData.totalCost || 0,
+        status: (bookingData.status as any) || 'approved',
+        paymentMethod: bookingData.paymentMethod || 'cash',
+        paymentStatus: bookingData.paymentStatus || 'paid',
+        user: bookingData.user || { name: 'Walk-in Guest', email: 'walkin@bookpicklecourt.com' },
+        userName: bookingData.userName || bookingData.user?.name || 'Walk-in Guest',
+        userEmail: bookingData.userEmail || bookingData.user?.email || 'walkin@bookpicklecourt.com',
+        userPhone: bookingData.userPhone || bookingData.user?.phone || '',
+        createdAt: bookingData.createdAt || new Date().toISOString(),
+        bookingReference: bookingData.bookingReference || `WALKIN-${Date.now().toString().slice(-6)}`,
+      };
+
+      if (isFirebaseConfigured && db) {
+        try {
+          await setDoc(doc(db, 'bookings', fullBooking.id), JSON.parse(JSON.stringify(fullBooking)));
+          console.log('✅ [Manual Booking] Successfully saved to Firestore:', fullBooking.id);
+        } catch (cloudErr) {
+          console.warn('⚠️ Firestore manual booking save failed, caching locally:', cloudErr);
+        }
+      }
+
+      const updatedBookings = [fullBooking, ...bookings];
+      setBookings(updatedBookings);
+
+      try {
+        localStorage.setItem('picklepoint_bookings', JSON.stringify(updatedBookings));
+        sessionStorage.setItem('picklepoint_bookings', JSON.stringify(updatedBookings));
+      } catch (e) {
+        console.warn('Failed to update local storage for manual booking:', e);
+      }
+
+      showModalAlert(
+        'Reservation Created!',
+        `Manual reservation for ${fullBooking.userName} (${fullBooking.courtName} - ${fullBooking.date}) has been successfully created.`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Failed to create manual booking:', err);
+      showModalAlert('Booking Failed', 'Failed to create manual booking: ' + (err as Error).message, 'error');
+      throw err;
+    } finally {
+      setIsSubmittingManualBooking(false);
     }
   };
 
@@ -2442,29 +2518,39 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     // --- Independent OpenPlay Fetch (runs regardless of other fetch failures) ---
     (async () => {
-      let loadedOpenPlayEvents: OpenPlayEvent[] = [];
+      const eventsMap = new Map<string, OpenPlayEvent>();
+
+      // 1. Pre-load local events into map
+      const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+      if (localStr) {
+        try {
+          const localEventsRaw = JSON.parse(localStr);
+          localEventsRaw.forEach((e: any) => {
+            const normalized = normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e);
+            if (normalized.id) eventsMap.set(normalized.id, normalized);
+          });
+        } catch (e) {}
+      }
+
+      // 2. Fetch cloud events and merge into map
       if (isFirebaseConfigured && db) {
         try {
           const eventsSnap = await getDocs(collection(db, 'openplay_events'));
           eventsSnap.forEach((dSnap) => {
-            loadedOpenPlayEvents.push(normalizeOpenPlayEvent(dSnap.id, dSnap.data()));
+            const cloudEvent = normalizeOpenPlayEvent(dSnap.id, dSnap.data());
+            eventsMap.set(cloudEvent.id, cloudEvent);
           });
-          try {
-            localStorage.setItem('picklepoint_openplay_events', JSON.stringify(loadedOpenPlayEvents));
-            sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(loadedOpenPlayEvents));
-          } catch (e) {}
         } catch (err) {
           console.warn('Firestore openplay_events fetch error, loading local fallback:', err);
-          const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-          const localEventsRaw = localEventsStr ? JSON.parse(localEventsStr) : [];
-          loadedOpenPlayEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
         }
-      } else {
-        const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-        const localEventsRaw = localEventsStr ? JSON.parse(localEventsStr) : [];
-        loadedOpenPlayEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
       }
-      setOpenPlayEvents(loadedOpenPlayEvents);
+
+      const mergedEvents = Array.from(eventsMap.values());
+      try {
+        localStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
+        sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
+      } catch (e) {}
+      setOpenPlayEvents(mergedEvents);
     })();
 
     // --- Independent OpenPlay Registrations Fetch (runs regardless of other fetch failures) ---
@@ -3697,6 +3783,83 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       console.error('Failed to update booking status:', err);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleApproveReceiptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || !files[0]) return;
+
+    const file = files[0];
+    if (!file.type.startsWith('image/')) {
+      setApproveError('Please select a valid image file (PNG, JPG, JPEG, WEBP).');
+      return;
+    }
+
+    setApproveError(null);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setApproveReceiptBase64(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleConfirmApproveCheckout = async () => {
+    if (!approveCheckoutModalBooking) return;
+    setApproveSubmitting(true);
+    setApproveError(null);
+
+    try {
+      const updatedFields: Partial<Booking> = {
+        status: 'approved',
+        paymentStatus: 'paid',
+      };
+
+      if (approveGcashRef.trim()) {
+        updatedFields.gcashReferenceNumber = approveGcashRef.trim();
+      }
+      if (approveReceiptBase64.trim()) {
+        updatedFields.receiptImageUrl = approveReceiptBase64.trim();
+        (updatedFields as any).receiptUrl = approveReceiptBase64.trim();
+        (updatedFields as any).paymentReceiptUrl = approveReceiptBase64.trim();
+      }
+      if (approvePaymentNotes.trim()) {
+        (updatedFields as any).adminApprovalNotes = approvePaymentNotes.trim();
+      }
+
+      if (isFirebaseConfigured && db) {
+        try {
+          await updateDoc(doc(db, 'bookings', approveCheckoutModalBooking.id), updatedFields);
+        } catch (cloudErr) {
+          console.warn('Firestore approve write failed, updating local state:', cloudErr);
+        }
+      }
+
+      // Sync Local Storage
+      const bStr = localStorage.getItem('picklepoint_bookings');
+      if (bStr) {
+        const localB = JSON.parse(bStr) as Booking[];
+        const updated = localB.map((b) => (b.id === approveCheckoutModalBooking.id ? { ...b, ...updatedFields } : b));
+        localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
+      }
+
+      // Sync Component State
+      setBookings((prev) =>
+        prev.map((b) => (b.id === approveCheckoutModalBooking.id ? { ...b, ...updatedFields } : b))
+      );
+
+      const approvedBookingRef = approveCheckoutModalBooking.bookingReference || approveCheckoutModalBooking.id;
+      setApproveCheckoutModalBooking(null);
+      showModalAlert(
+        'Payment Approved!',
+        `Reservation #${approvedBookingRef} has been successfully approved and marked as Paid!`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Failed to approve checkout payment:', err);
+      setApproveError(err?.message || 'Failed to approve payment. Please try again.');
+    } finally {
+      setApproveSubmitting(false);
     }
   };
 
@@ -6128,7 +6291,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   });
 
   const pendingVerificationCount = bookings.filter(
-    (b) => b.paymentStatus === 'pending_verification'
+    (b) => b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending'
   ).length;
 
   const checkoutBookings = bookings.filter(
@@ -6154,14 +6317,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         ? isOpenPlay
         : !isOpenPlay;
 
+    const isPending = b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending';
+    const isPaid = b.paymentStatus === 'paid' || b.paymentStatus === 'completed' || b.status === 'approved';
+
     const matchesStatus =
       checkoutStatusFilter === 'all'
         ? true
         : checkoutStatusFilter === 'pending'
-        ? b.paymentStatus === 'pending_verification'
+        ? isPending
         : checkoutStatusFilter === 'paid'
-        ? b.paymentStatus === 'paid'
-        : (b.paymentStatus === 'refunded' || b.paymentStatus === 'cancelled_no_refund' || b.paymentStatus === 'failed' || b.paymentStatus === 'rebooking_credit');
+        ? isPaid
+        : (b.paymentStatus === 'refunded' || b.paymentStatus === 'cancelled_no_refund' || b.paymentStatus === 'failed' || b.paymentStatus === 'rebooking_credit' || b.status === 'cancelled');
 
     return matchesSearch && matchesCategory && matchesStatus;
   });
@@ -6196,6 +6362,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleTabChange = (tab: AdminTab) => {
+    if (tab === 'courts') {
+      setCourtsResetKey((prev) => prev + 1);
+    }
     setActiveTab(tab);
     if (tab === 'openplay') {
       setSelectedEventForRegs(null);
@@ -6351,9 +6520,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onOpenCancelModal={handlePromptCancelBooking}
               onViewReceipt={(b) => setReceiptLightboxImage(b.receiptImageUrl || null)}
               onDeleteBooking={(id) => { const b = bookings.find(x => x.id === id); if (b) handleOpenDeleteBooking(b); }}
-              courts={courts}
+              courts={isSuperAdmin ? courts : availableAdminCourts}
               users={users}
               userPermissions={getUserEffectivePermissions(user as any)}
+              onOpenManualBookingModal={() => setIsManualBookingModalOpen(true)}
               onRefundBooking={(booking) => {
                 setRefundModalBooking(booking);
                 setRefundAmountInput(booking.totalCost.toString());
@@ -6368,12 +6538,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'courts' && (
             <AdminCourtsTab
+              key={courtsResetKey}
               courts={isSuperAdmin ? courts : availableAdminCourts}
               myCompany={currentCompany}
               onOpenCreateCourtModal={() => { setEditingCourt(null); setCourtModalOpen(true); }}
               onOpenEditCourtModal={handleOpenEditCourt}
               onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
               onTogglePublishCourt={(courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); }}
+              onOpenManualBookingModal={() => setIsManualBookingModalOpen(true)}
+              bookings={bookings}
               userPermissions={getUserEffectivePermissions(user as any)}
             />
           )}
@@ -6400,18 +6573,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               setCheckoutStatusFilter={setCheckoutStatusFilter}
               actionLoading={actionLoading}
               userPermissions={getUserEffectivePermissions(user as any)}
-              onApproveBooking={async (booking) => {
-                setActionLoading(booking.id);
-                try {
-                  if (isFirebaseConfigured && db) {
-                    await updateDoc(doc(db, 'bookings', booking.id), { status: 'approved', paymentStatus: 'paid' });
-                  }
-                  setBookings(prev => prev.map(b => b.id === booking.id ? { ...b, status: 'approved', paymentStatus: 'paid' } : b));
-                } catch (err) {
-                  console.error('Failed to approve checkout payment:', err);
-                } finally {
-                  setActionLoading(null);
-                }
+              onApproveBooking={(booking) => {
+                setApproveCheckoutModalBooking(booking);
+                setApproveGcashRef(booking.gcashReferenceNumber || '');
+                setApproveReceiptBase64(booking.receiptImageUrl || (booking as any).receiptUrl || (booking as any).paymentReceiptUrl || '');
+                setApprovePaymentNotes('');
+                setApproveError(null);
               }}
               onRejectBooking={(booking) => {
                 setRejectCheckoutModalBooking(booking);
@@ -7099,6 +7266,175 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <>
                     <XCircle className="w-4 h-4" />
                     Confirm Cancellation (No Refund)
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* APPROVE CHECKOUT PAYMENT MODAL OVERLAY */}
+      {approveCheckoutModalBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
+          <div className="glass-panel border border-brand-lime/40 rounded-3xl p-6 sm:p-8 max-w-lg w-full text-left space-y-5 shadow-2xl relative animate-scale-up my-8 bg-dark-bg/95">
+            {/* Header */}
+            <div className="flex justify-between items-start pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0 shadow-sm">
+                  <CheckCircle2 className="w-6 h-6 text-brand-lime" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white tracking-tight">
+                    Approve Payment & Confirm Reservation
+                  </h3>
+                  <p className="text-xs text-brand-lime/90 font-semibold mt-0.5">
+                    Booking #{approveCheckoutModalBooking.bookingReference || approveCheckoutModalBooking.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setApproveCheckoutModalBooking(null)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Error Alert */}
+            {approveError && (
+              <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-900/50 text-red-300 text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <span>{approveError}</span>
+              </div>
+            )}
+
+            {/* Reservation Summary Details Box */}
+            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-400">Court / Venue:</span>
+                <span className="font-bold text-white text-right truncate max-w-[220px]">
+                  {approveCheckoutModalBooking.courtName}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-400">Customer:</span>
+                <span className="font-bold text-slate-200">
+                  {approveCheckoutModalBooking.user?.name || approveCheckoutModalBooking.userName || 'Valued Player'} ({approveCheckoutModalBooking.user?.email || approveCheckoutModalBooking.userEmail || 'N/A'})
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
+                <span className="text-slate-400">Schedule:</span>
+                <span className="font-semibold text-slate-300">
+                  {approveCheckoutModalBooking.date} &bull; {approveCheckoutModalBooking.slots?.join(', ')}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-400">Total Amount Due:</span>
+                <span className="font-black text-brand-lime text-sm">
+                  ₱{approveCheckoutModalBooking.totalCost?.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            {/* Approval Inputs */}
+            <div className="space-y-4 text-xs">
+              {/* Reference Number Field */}
+              <div>
+                <label className="block text-slate-300 font-extrabold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-brand-lime" />
+                  <span>GCash / Bank Reference Number (Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={approveGcashRef}
+                  onChange={(e) => setApproveGcashRef(e.target.value)}
+                  placeholder="e.g. 10023456789 (From receipt screenshot)"
+                  className="w-full bg-slate-900 border border-slate-800 text-white font-mono font-bold rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-lime"
+                />
+              </div>
+
+              {/* Upload Proof of Payment Screenshot */}
+              <div>
+                <label className="block text-slate-300 font-extrabold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-brand-lime" />
+                  <span>Attach / Upload Proof of Payment Receipt</span>
+                </label>
+
+                {approveReceiptBase64 ? (
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900 p-2 space-y-2">
+                    <img
+                      src={approveReceiptBase64}
+                      alt="Proof of Payment"
+                      className="max-h-40 w-full object-contain rounded-xl bg-black/40"
+                    />
+                    <div className="flex items-center justify-between px-2 text-[11px]">
+                      <span className="text-slate-400 font-medium">Receipt Screenshot Attached</span>
+                      <button
+                        type="button"
+                        onClick={() => setApproveReceiptBase64('')}
+                        className="text-red-400 hover:text-red-300 font-bold cursor-pointer"
+                      >
+                        Remove / Change Image
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-slate-700 hover:border-brand-lime/60 rounded-2xl cursor-pointer bg-slate-900/40 hover:bg-slate-900/80 transition-all text-center group">
+                    <Upload className="w-6 h-6 text-slate-500 group-hover:text-brand-lime transition-colors mb-1.5" />
+                    <span className="text-xs font-bold text-slate-300 group-hover:text-white">Click to upload payment receipt screenshot</span>
+                    <span className="text-[10px] text-slate-500 mt-0.5">PNG, JPG, WEBP formats accepted</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleApproveReceiptChange}
+                      className="hidden"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {/* Internal Staff Approval Notes */}
+              <div>
+                <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                  Internal Approval Notes (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={approvePaymentNotes}
+                  onChange={(e) => setApprovePaymentNotes(e.target.value)}
+                  placeholder="e.g. Verified payment received by reception staff"
+                  className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-brand-lime"
+                />
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setApproveCheckoutModalBooking(null)}
+                disabled={approveSubmitting}
+                className="flex-1 py-3 rounded-xl bg-slate-900 text-slate-300 font-bold text-xs hover:bg-slate-800 transition-all cursor-pointer border border-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={approveSubmitting}
+                onClick={handleConfirmApproveCheckout}
+                className="flex-1 py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/20 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {approveSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-dark-bg" />
+                    <span>Approving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 stroke-[3]" />
+                    <span>Confirm & Mark Paid</span>
                   </>
                 )}
               </button>
@@ -9987,7 +10323,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
               <div className="flex items-center gap-3 flex-shrink-0">
                 {/* Draft vs Live Switch Toggle Beside Close Button */}
-                <div className="flex items-center gap-2.5 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-2xl shadow-inner">
+                <div
+                  onClick={() => setOpenPlayStatusSetting(prev => prev === 'draft' ? 'active' : 'draft')}
+                  className="flex items-center gap-2.5 bg-slate-900/90 border border-slate-800 px-3 py-1.5 rounded-2xl shadow-inner cursor-pointer select-none hover:border-slate-700 transition-all"
+                  title={openPlayStatusSetting === 'draft' ? 'Click to Publish Event Live' : 'Click to Save as Draft (Hidden)'}
+                >
                   <span className={`text-[10px] font-black uppercase tracking-wider ${
                     openPlayStatusSetting === 'draft' ? 'text-amber-400' : 'text-slate-400'
                   }`}>
@@ -9996,11 +10336,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                   <button
                     type="button"
-                    onClick={() => setOpenPlayStatusSetting(prev => prev === 'draft' ? 'active' : 'draft')}
+                    onClick={(e) => { e.stopPropagation(); setOpenPlayStatusSetting(prev => prev === 'draft' ? 'active' : 'draft'); }}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all cursor-pointer border ${
                       openPlayStatusSetting === 'active' ? 'bg-brand-lime border-brand-lime shadow-[0_0_10px_rgba(181,245,41,0.3)]' : 'bg-slate-950 border-slate-700'
                     }`}
-                    title={openPlayStatusSetting === 'draft' ? 'Click to Publish Event Live' : 'Click to Save as Draft (Hidden)'}
                   >
                     <span
                       className={`inline-block h-4 w-4 transform rounded-full transition-transform ${
@@ -12247,6 +12586,16 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         onClose={() => setIsClientTicketsModalOpen(false)}
         user={user}
         onOpenSubmitModal={() => setIsSupportModalOpen(true)}
+      />
+
+      {/* Manual Booking Modal for Client Admin & Manager */}
+      <AdminManualBookingModal
+        isOpen={isManualBookingModalOpen}
+        onClose={() => setIsManualBookingModalOpen(false)}
+        courts={isSuperAdmin ? courts : availableAdminCourts}
+        existingBookings={bookings}
+        onSaveBooking={handleCreateManualBooking}
+        isSubmitting={isSubmittingManualBooking}
       />
     </div>
   );

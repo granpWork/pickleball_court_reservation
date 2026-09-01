@@ -10,9 +10,11 @@ import {
   LayoutGrid,
   Eye,
   EyeOff,
-  X
+  X,
+  ExternalLink,
 } from 'lucide-react';
-import { type Court, type UserPermissions } from '../adminTypes';
+import { type Court, type UserPermissions, type Booking } from '../adminTypes';
+import { AdminCourtDetails } from './AdminCourtDetails';
 
 interface AdminCourtsTabProps {
   courts: Court[];
@@ -30,6 +32,9 @@ interface AdminCourtsTabProps {
   onOpenEditCourtModal: (court: Court) => void;
   onDeleteCourt: (courtId: string) => void;
   onTogglePublishCourt?: (courtId: string, currentPublished: boolean) => void;
+  onSelectCourtDetails?: (courtId: string) => void;
+  onOpenManualBookingModal?: () => void;
+  bookings?: Booking[];
   userPermissions?: UserPermissions;
 }
 
@@ -40,10 +45,32 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   onOpenEditCourtModal,
   onDeleteCourt,
   onTogglePublishCourt,
+  onSelectCourtDetails: _onSelectCourtDetails,
+  onOpenManualBookingModal,
+  bookings = [],
   userPermissions,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedCourtForDetails, setSelectedCourtForDetails] = useState<Court | null>(null);
+
+  const handleSelectCourt = (court: Court) => {
+    setSelectedCourtForDetails(court);
+  };
+
+  if (selectedCourtForDetails) {
+    return (
+      <AdminCourtDetails
+        court={selectedCourtForDetails}
+        onBack={() => setSelectedCourtForDetails(null)}
+        onOpenEditCourtModal={onOpenEditCourtModal}
+        onDeleteCourt={onDeleteCourt}
+        onTogglePublishCourt={onTogglePublishCourt}
+        onOpenManualBookingModal={onOpenManualBookingModal}
+        bookings={bookings}
+      />
+    );
+  }
 
   const filteredCourts = courts.filter((c) => {
     if (!searchQuery.trim()) return true;
@@ -154,13 +181,17 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                 key={c.id}
                 className="glass-panel border border-slate-800 rounded-3xl overflow-hidden hover:border-slate-700 transition-all flex flex-col justify-between group shadow-xl bg-slate-950/60"
               >
-                <div>
+                <div
+                  onClick={() => handleSelectCourt(c)}
+                  className="cursor-pointer group/card"
+                  title="Click to view court details"
+                >
                   {/* Poster Image Container */}
                   <div className="relative w-full aspect-[16/9] bg-slate-900 overflow-hidden">
                     <img
                       src={defaultImg}
                       alt={c.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-cover group-hover/card:scale-105 transition-transform duration-500"
                     />
 
                     {/* Top Left Badge: Draft / Published */}
@@ -184,7 +215,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
 
                   {/* Card Content Body */}
                   <div className="p-5 space-y-2">
-                    <h3 className="text-lg font-extrabold text-white group-hover:text-brand-lime transition-colors">
+                    <h3 className="text-lg font-extrabold text-white group-hover/card:text-brand-lime transition-colors">
                       {c.name}
                     </h3>
 
@@ -208,6 +239,16 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                   </span>
 
                   <div className="flex items-center space-x-2">
+                    {/* View Court Details Page Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectCourt(c)}
+                      className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-brand-lime hover:text-white hover:border-brand-lime transition-all cursor-pointer"
+                      title="View Court Details Page"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </button>
+
                     {/* Eye / EyeOff Toggle Publish Button */}
                     {onTogglePublishCourt && (
                       <button
@@ -264,7 +305,11 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                   const isPublished = c.published !== false;
                   return (
                     <tr key={c.id} className="hover:bg-slate-900/40 transition-colors">
-                      <td className="py-4 px-6 font-bold text-white">
+                      <td
+                        className="py-4 px-6 font-bold text-white cursor-pointer group/row"
+                        onClick={() => handleSelectCourt(c)}
+                        title="Click to view court details"
+                      >
                         <div className="flex items-center space-x-3">
                           <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-800 overflow-hidden flex-shrink-0">
                             <img
@@ -274,7 +319,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                             />
                           </div>
                           <div>
-                            <div className="font-extrabold text-white text-sm">{c.name}</div>
+                            <div className="font-extrabold text-white text-sm group-hover/row:text-brand-lime transition-colors">{c.name}</div>
                             <div className="text-slate-400 text-[11px] font-normal">{c.location || 'Venue Location'}</div>
                           </div>
                         </div>
@@ -298,6 +343,14 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
 
                       <td className="py-4 px-6 text-right">
                         <div className="flex items-center justify-end space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectCourt(c)}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-brand-lime hover:text-white transition-all cursor-pointer"
+                            title="View Court Details Page"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </button>
                           {onTogglePublishCourt && (
                             <button
                               type="button"

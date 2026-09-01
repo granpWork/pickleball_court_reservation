@@ -302,7 +302,7 @@ export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => 
   const isPast = isEventExpired(eventDate, endTime);
 
   let effectiveStatus: 'draft' | 'active' | 'completed' | 'cancelled' | 'expired' = data.status || (isPast ? 'expired' : 'active');
-  if (isPast && (effectiveStatus === 'active' || effectiveStatus === 'draft')) {
+  if (isPast && effectiveStatus === 'active') {
     effectiveStatus = 'expired';
   } else if (!isPast && effectiveStatus === 'expired') {
     effectiveStatus = data.status || 'active';

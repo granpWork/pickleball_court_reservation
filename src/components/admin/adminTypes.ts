@@ -256,9 +256,11 @@ export interface AdminUser {
 }
 
 export interface AdminDashboardProps {
-  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile') => void;
+  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | any) => void;
   user: AdminUser | null;
   onLogout: () => void;
+  onSelectCourt?: (courtId: string) => void;
+  setSelectedCourtId?: (courtId: string) => void;
 }
 
 export interface ShortLink {

@@ -79,7 +79,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
 
   // Compute counts for verification queue badges
   const pendingQueueCount = checkouts.filter(
-    (b) => b.paymentStatus === 'pending_verification'
+    (b) => b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending'
   ).length;
 
   const displayCheckouts = filteredCheckouts.filter((b) => {
@@ -398,7 +398,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                             </button>
                           )}
 
-                          {booking.paymentStatus === 'pending_verification' && (
+                          {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
                             <>
                               <button
                                 type="button"
@@ -417,7 +417,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                             </>
                           )}
 
-                          {booking.paymentStatus === 'paid' && (
+                          {(booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
                             <button
                               type="button"
                               onClick={() => onRefundBooking(booking)}
@@ -562,7 +562,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                   : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
                               }`}
                             >
-                              {booking.paymentStatus === 'pending_verification'
+                              {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending')
                                 ? 'Pending Review'
                                 : booking.paymentStatus === 'refunded'
                                 ? `Refunded (${booking.refundAmount ? `₱${booking.refundAmount}` : 'Full'})`
@@ -595,7 +595,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                     </button>
                                   )}
 
-                                  {booking.paymentStatus === 'pending_verification' && (
+                                  {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
                                     <>
                                       <button
                                         onClick={() => onApproveBooking(booking)}
@@ -613,7 +613,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                       </button>
                                     </>
                                   )}
-                                  {booking.paymentStatus === 'paid' && (
+                                  {(booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
                                     <button
                                       onClick={() => onRefundBooking(booking)}
                                       title="Issue Refund & Upload Receipt"

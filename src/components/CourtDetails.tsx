@@ -812,12 +812,16 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
           <button
             onClick={() => {
               setSelectedCourtId('');
-              setView('landing');
+              if (user?.isAdmin || user?.role === 'client_admin' || user?.role === 'manager' || user?.role === 'super_admin') {
+                setView('admin');
+              } else {
+                setView('landing');
+              }
             }}
             className="inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-brand-lime transition-all cursor-pointer group"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-            <span>Back to Venues</span>
+            <span>{user?.isAdmin || user?.role === 'client_admin' || user?.role === 'manager' || user?.role === 'super_admin' ? 'Back to Admin Dashboard' : 'Back to Venues'}</span>
           </button>
 
           <div className="flex items-center gap-2">

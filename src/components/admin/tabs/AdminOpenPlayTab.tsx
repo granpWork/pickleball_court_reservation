@@ -187,6 +187,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
 
   // Filter helper for expired/concluded events
   const isEventConcluded = (e: OpenPlayEvent) => {
+    if (e.status === 'draft') return false;
     return isEventExpired(e.eventDate, e.endTime) || e.status === 'expired' || e.status === 'completed';
   };
 

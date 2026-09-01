@@ -16,6 +16,7 @@ import {
   Users,
   SlidersHorizontal,
   Trophy,
+  Plus,
 } from 'lucide-react';
 import { type Booking, type UserPermissions, getBookingScheduleState } from '../adminTypes';
 
@@ -34,7 +35,8 @@ interface AdminBookingsTabProps {
   onViewReceipt: (booking: Booking) => void;
   onDeleteBooking?: (bookingId: string) => void;
   onRefundBooking?: (booking: Booking) => void;
-  courts?: { id: string; name: string }[];
+  onOpenManualBookingModal?: () => void;
+  courts?: any[];
   users?: { id?: string; uid?: string; name?: string; email?: string; photoUrl?: string; avatarUrl?: string; role?: string }[];
   userPermissions?: UserPermissions;
 }
@@ -54,6 +56,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   onViewReceipt,
   onDeleteBooking: _onDeleteBooking,
   onRefundBooking,
+  onOpenManualBookingModal,
   courts = [],
   users = [],
   userPermissions: _userPermissions,
@@ -261,6 +264,18 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+          {onOpenManualBookingModal && (
+            <button
+              type="button"
+              onClick={onOpenManualBookingModal}
+              className="px-4 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-brand-lime/10 shrink-0"
+              title="Create a manual / walk-in reservation"
+            >
+              <Plus className="w-4 h-4 text-dark-bg stroke-[3]" />
+              <span>Manual Booking</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setIsFilterModalOpen(true)}
@@ -929,22 +944,47 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   <Calendar className="w-3.5 h-3.5 text-brand-lime" />
                   <span>Specific Match Date</span>
                 </label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={selectedBookingDate}
-                    onChange={(e) => setSelectedBookingDate(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 hover:border-brand-lime/50 text-xs font-bold text-white rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-lime/30 cursor-pointer transition-all [color-scheme:dark]"
-                  />
-                  {selectedBookingDate && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedBookingDate('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-semibold"
-                    >
-                      Clear
-                    </button>
-                  )}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={selectedBookingDate}
+                      onChange={(e) => setSelectedBookingDate(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700/80 hover:border-brand-lime/50 text-xs font-bold text-white rounded-xl focus:outline-none focus:ring-1 focus:ring-brand-lime/30 cursor-pointer transition-all [color-scheme:dark]"
+                    />
+                    {selectedBookingDate && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBookingDate('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-semibold"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Quick Date Selection Chips */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
+                    {[
+                      { label: 'All Dates', value: '' },
+                      { label: 'Today', value: new Date().toISOString().split('T')[0] },
+                      { label: 'Tomorrow', value: new Date(Date.now() + 86400000).toISOString().split('T')[0] },
+                      { label: 'Yesterday', value: new Date(Date.now() - 86400000).toISOString().split('T')[0] },
+                    ].map((qd) => (
+                      <button
+                        key={qd.label}
+                        type="button"
+                        onClick={() => setSelectedBookingDate(qd.value)}
+                        className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold whitespace-nowrap transition-all cursor-pointer shrink-0 border ${
+                          selectedBookingDate === qd.value
+                            ? 'bg-brand-lime text-dark-bg border-brand-lime font-black shadow-sm'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {qd.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
