@@ -18,7 +18,8 @@ import {
   Repeat,
   FileCode,
   QrCode,
-  ExternalLink
+  ExternalLink,
+  UserPlus,
 } from 'lucide-react';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { OpenPlayJsonModal } from '../modals/OpenPlayJsonModal';
@@ -89,6 +90,7 @@ interface AdminOpenPlayTabProps {
   onToggleStatus?: (event: OpenPlayEvent) => void;
   onExportRoster?: (event: OpenPlayEvent) => void;
   onViewReceipt?: (receiptUrl: string) => void;
+  onOpenManualBookingModal?: (event: OpenPlayEvent) => void;
   onRefreshEvents?: () => void;
   formatEventDateLong?: (dateStr: string) => string;
   formatTime12h?: (timeStr: string) => string;
@@ -108,6 +110,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
   onToggleStatus,
   onExportRoster,
   onViewReceipt,
+  onOpenManualBookingModal,
   onRefreshEvents,
   formatEventDateLong = (d) => d,
   formatTime12h = (t) => t,
@@ -187,7 +190,6 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
 
   // Filter helper for expired/concluded events
   const isEventConcluded = (e: OpenPlayEvent) => {
-    if (e.status === 'draft') return false;
     return isEventExpired(e.eventDate, e.endTime) || e.status === 'expired' || e.status === 'completed';
   };
 
@@ -286,6 +288,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           onToggleStatus={onToggleStatus}
           onExportRoster={onExportRoster}
           onViewReceipt={onViewReceipt}
+          onOpenManualBookingModal={onOpenManualBookingModal}
           onOpenQrModal={handleOpenQrForEvent}
           onOpenJsonModal={handleOpenJsonForEvent}
           formatEventDateLong={formatEventDateLong}
@@ -318,12 +321,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => {
-                    setAdminOpenPlayFilter(tab.id as any);
-                    if (tab.id === 'expired') {
-                      setAdminOpenPlayViewMode('history');
-                    }
-                  }}
+                  onClick={() => setAdminOpenPlayFilter(tab.id as any)}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                     adminOpenPlayFilter === tab.id
                       ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
@@ -653,7 +651,23 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                     </div>
 
                     <div className="pt-3 border-t border-dark-border/40 flex flex-col gap-2 mt-auto">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {onOpenManualBookingModal && (
+                          <button
+                            type="button"
+                            disabled={isExpired || event.status === 'expired'}
+                            onClick={(e) => { e.stopPropagation(); onOpenManualBookingModal(event); }}
+                            className={`py-2 px-3 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
+                              isExpired || event.status === 'expired'
+                                ? 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
+                                : 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg cursor-pointer'
+                            }`}
+                            title={isExpired || event.status === 'expired' ? "Cannot add player to an expired event session" : "Manually add walk-in or cash player"}
+                          >
+                            <UserPlus className="w-3.5 h-3.5" /> + Add Player
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           onClick={(e) => handleOpenPublicDetails(event.id, e)}

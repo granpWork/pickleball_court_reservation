@@ -19,6 +19,7 @@ import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminM
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
 import { AdminManualBookingModal } from './admin/modals/AdminManualBookingModal';
+import { AdminManualOpenPlayBookingModal } from './admin/modals/AdminManualOpenPlayBookingModal';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { InteractiveMapPicker } from './InteractiveMapPicker';
 import {
@@ -917,6 +918,40 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       } catch (e) {}
     }
   }, [openPlayEvents]);
+
+  const [manualOpenPlayModalState, setManualOpenPlayModalState] = useState<{
+    isOpen: boolean;
+    event: OpenPlayEvent | null;
+  }>({
+    isOpen: false,
+    event: null,
+  });
+
+  const handleSaveManualOpenPlayRegistration = async (payload: any) => {
+    let regId = `reg_manual_${Date.now()}`;
+    if (isFirebaseConfigured && db) {
+      const regDocRef = doc(collection(db, 'openplay_registrations'));
+      regId = regDocRef.id;
+    }
+    const finalPayload = { ...payload, id: regId };
+
+    try {
+      if (isFirebaseConfigured && db) {
+        await setDoc(doc(db, 'openplay_registrations', regId), finalPayload);
+      }
+      const localStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
+      let localRegs = localStr ? JSON.parse(localStr) as OpenPlayRegistration[] : [];
+      localRegs.push(finalPayload);
+      try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(localRegs)); } catch (e) {}
+      try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(localRegs)); } catch (e) {}
+
+      setOpenPlayRegistrations(prev => [...prev, finalPayload]);
+    } catch (err: any) {
+      console.error('Failed to save manual open play registration:', err);
+      throw new Error(err?.message || 'Failed to save manual registration.');
+    }
+  };
+
   const [rosterModalViewMode, setRosterModalViewMode] = useState<'cards' | 'list' | 'table'>('cards');
   const [rosterSearchQuery, setRosterSearchQuery] = useState('');
   const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest'>('all');
@@ -6588,7 +6623,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
               onTogglePublishCourt={(courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); }}
               onOpenManualBookingModal={() => setIsManualBookingModalOpen(true)}
-              bookings={bookings}
               userPermissions={getUserEffectivePermissions(user as any)}
             />
           )}
@@ -6666,6 +6700,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onToggleStatus={handleToggleEventStatus}
               onExportRoster={handleExportOpenPlayRoster}
               onViewReceipt={(receiptUrl) => setReceiptLightboxImage(receiptUrl)}
+              onOpenManualBookingModal={(ev) => setManualOpenPlayModalState({ isOpen: true, event: ev })}
               onRefreshEvents={fetchData}
               formatEventDateLong={formatEventDateLong}
               formatTime12h={formatTime12h}
@@ -12638,6 +12673,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         existingBookings={bookings}
         onSaveBooking={handleCreateManualBooking}
         isSubmitting={isSubmittingManualBooking}
+      />
+
+      {/* Manual Open Play Booking Modal */}
+      <AdminManualOpenPlayBookingModal
+        isOpen={manualOpenPlayModalState.isOpen}
+        onClose={() => setManualOpenPlayModalState({ isOpen: false, event: null })}
+        event={manualOpenPlayModalState.event}
+        currentRegistrations={openPlayRegistrations}
+        onSaveManualBooking={handleSaveManualOpenPlayRegistration}
+        formatEventDateLong={formatEventDateLong}
+        formatTime12h={formatTime12h}
       />
     </div>
   );

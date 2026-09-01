@@ -13,7 +13,7 @@ import {
   X,
   ExternalLink,
 } from 'lucide-react';
-import { type Court, type UserPermissions, type Booking } from '../adminTypes';
+import { type Court, type UserPermissions } from '../adminTypes';
 import { AdminCourtDetails } from './AdminCourtDetails';
 
 interface AdminCourtsTabProps {
@@ -34,7 +34,6 @@ interface AdminCourtsTabProps {
   onTogglePublishCourt?: (courtId: string, currentPublished: boolean) => void;
   onSelectCourtDetails?: (courtId: string) => void;
   onOpenManualBookingModal?: () => void;
-  bookings?: Booking[];
   userPermissions?: UserPermissions;
 }
 
@@ -47,7 +46,6 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   onTogglePublishCourt,
   onSelectCourtDetails: _onSelectCourtDetails,
   onOpenManualBookingModal,
-  bookings = [],
   userPermissions,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,7 +65,6 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
         onDeleteCourt={onDeleteCourt}
         onTogglePublishCourt={onTogglePublishCourt}
         onOpenManualBookingModal={onOpenManualBookingModal}
-        bookings={bookings}
       />
     );
   }

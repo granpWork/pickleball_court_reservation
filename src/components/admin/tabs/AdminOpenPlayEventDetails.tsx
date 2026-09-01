@@ -37,7 +37,8 @@ import {
   Ban,
   Maximize2,
   Bell,
-  Clock
+  Clock,
+  UserPlus,
 } from 'lucide-react';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { type OpenPlayRegistrationItem } from './AdminOpenPlayTab';
@@ -65,6 +66,7 @@ interface AdminOpenPlayEventDetailsProps {
   onCancelEvent?: (eventId: string, reason: string, notifyEmails: boolean) => void;
   onExportRoster?: (event: OpenPlayEvent) => void;
   onViewReceipt?: (receiptUrl: string) => void;
+  onOpenManualBookingModal?: (event: OpenPlayEvent) => void;
   onOpenQrModal: (event: OpenPlayEvent) => void;
   onOpenJsonModal: (event: OpenPlayEvent) => void;
   formatEventDateLong?: (dateStr: string) => string;
@@ -100,6 +102,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   onCancelEvent,
   onExportRoster,
   onViewReceipt,
+  onOpenManualBookingModal,
   onOpenQrModal,
   onOpenJsonModal,
   formatEventDateLong = (d) => d,
@@ -780,6 +783,23 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
           {/* Action Toolbar Row next to Copy Shareable Link */}
           <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-800 text-xs mt-auto">
+            {onOpenManualBookingModal && (
+              <button
+                type="button"
+                disabled={isEventExpired || event.status === 'expired'}
+                onClick={() => onOpenManualBookingModal(event)}
+                className={`py-2 px-3.5 rounded-2xl transition-all text-xs font-black flex items-center gap-1.5 shadow-lg ${
+                  isEventExpired || event.status === 'expired'
+                    ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
+                    : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-brand-lime/20'
+                }`}
+                title={isEventExpired || event.status === 'expired' ? "Cannot add player to an expired event session" : "Manually add walk-in or cash player registration"}
+              >
+                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' ? 'text-slate-500' : 'text-dark-bg'}`} />
+                <span>+ Add Player (Manual)</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setIsReminderModalOpen(true)}
@@ -1027,6 +1047,23 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
           {/* Bulk Attendance Controls */}
           <div className="flex items-center gap-2 flex-wrap">
+            {onOpenManualBookingModal && (
+              <button
+                type="button"
+                disabled={isEventExpired || event.status === 'expired'}
+                onClick={() => onOpenManualBookingModal(event)}
+                className={`px-3.5 py-2 rounded-xl transition-all font-black text-xs flex items-center gap-1.5 ${
+                  isEventExpired || event.status === 'expired'
+                    ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
+                    : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-md'
+                }`}
+                title={isEventExpired || event.status === 'expired' ? "Cannot add player to an expired event session" : "Manually add walk-in or cash player registration"}
+              >
+                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' ? 'text-slate-500' : 'text-dark-bg'}`} />
+                <span>+ Add Player (Manual)</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => markAllAttendeesPresent(filteredAttendees.map((a) => a.id))}

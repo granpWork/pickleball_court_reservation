@@ -14,11 +14,10 @@ import {
   FileText,
   CloudRain,
   Package,
-  Calendar,
   Navigation,
   Sparkles,
 } from 'lucide-react';
-import { type Court, type Booking } from '../adminTypes';
+import { type Court } from '../adminTypes';
 
 interface AdminCourtDetailsProps {
   court: Court;
@@ -27,7 +26,6 @@ interface AdminCourtDetailsProps {
   onDeleteCourt?: (courtId: string) => void;
   onTogglePublishCourt?: (courtId: string, currentPublished: boolean) => void;
   onOpenManualBookingModal?: () => void;
-  bookings?: Booking[];
 }
 
 export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
@@ -37,7 +35,6 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
   onDeleteCourt,
   onTogglePublishCourt,
   onOpenManualBookingModal,
-  bookings = [],
 }) => {
   const images = Array.isArray(court.images) && court.images.length > 0
     ? court.images.filter(Boolean)
@@ -48,9 +45,6 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
   const isPublished = court.published !== false;
   const minPrice = Math.min(court.dayPrice || 120, court.nightPrice || 200);
   const maxPrice = Math.max(court.dayPrice || 120, court.nightPrice || 200);
-
-  // Filter bookings for this court
-  const courtBookings = bookings.filter((b) => b.courtId === court.id && b.status !== 'cancelled');
 
   const fullLocation = [
     court.addressLine1,
@@ -339,69 +333,6 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
           </div>
         </div>
       )}
-
-      {/* Recent Reservations on this Court */}
-      <div className="glass-panel border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-brand-lime" />
-            <span>Court Reservations ({courtBookings.length})</span>
-          </h3>
-
-          {onOpenManualBookingModal && (
-            <button
-              type="button"
-              onClick={onOpenManualBookingModal}
-              className="text-xs font-bold text-brand-lime hover:underline cursor-pointer flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Walk-in Booking</span>
-            </button>
-          )}
-        </div>
-
-        {courtBookings.length === 0 ? (
-          <p className="text-xs text-slate-500 py-6 text-center italic border border-dashed border-slate-800 rounded-2xl">
-            No active reservations recorded on this court yet.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-extrabold uppercase tracking-wider">
-                  <th className="py-3 px-4">Ref & Date</th>
-                  <th className="py-3 px-4">Time Slots</th>
-                  <th className="py-3 px-4">Customer Name</th>
-                  <th className="py-3 px-4">Payment</th>
-                  <th className="py-3 px-4 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {courtBookings.slice(0, 10).map((b) => (
-                  <tr key={b.id} className="hover:bg-slate-900/40">
-                    <td className="py-3 px-4 font-mono font-bold text-white">
-                      {b.bookingReference || b.id.substring(0, 8).toUpperCase()}
-                      <div className="text-[11px] text-slate-400 font-normal">{b.date}</div>
-                    </td>
-                    <td className="py-3 px-4 font-medium text-slate-300">
-                      {Array.isArray(b.slots) ? b.slots.join(', ') : '1 Slot'}
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-white">
-                      {b.user?.name || b.userName || 'Guest Player'}
-                    </td>
-                    <td className="py-3 px-4 uppercase text-[10px] font-bold text-emerald-400">
-                      {b.paymentMethod || 'Cash'}
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-brand-lime text-right">
-                      ₱{b.totalCost}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 };
