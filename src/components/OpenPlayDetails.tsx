@@ -20,6 +20,8 @@ import {
   Repeat,
   UserPlus,
   Award,
+  EyeOff,
+  Globe,
 } from 'lucide-react';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -1030,8 +1032,24 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                 {/* Title Header Row with Book Now Button Opposite Title */}
                 <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
                   <div>
-                    <div className="flex items-center gap-2 text-xs font-extrabold text-brand-lime uppercase tracking-widest mb-1.5">
-                      <Trophy className="w-4 h-4" /> Open Play Event
+                    <div className="flex flex-wrap items-center gap-2.5 text-xs font-extrabold uppercase tracking-widest mb-1.5">
+                      <div className="flex items-center gap-1.5 text-brand-lime">
+                        <Trophy className="w-4 h-4" /> Open Play Event
+                      </div>
+
+                      {event.status === 'draft' ? (
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                          <EyeOff className="w-3 h-3 text-amber-400" /> Draft (Hidden)
+                        </span>
+                      ) : isExpired || event.status === 'expired' ? (
+                        <span className="px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                          ⏰ Expired / Concluded
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                          <Globe className="w-3 h-3 text-brand-lime" /> Live (Published)
+                        </span>
+                      )}
                     </div>
 
                     <h1 className="text-2xl md:text-4xl font-extrabold text-white leading-tight">{event.title}</h1>
@@ -1128,9 +1146,9 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                           </div>
                           <div>
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Venue Location</div>
-                            <div className="text-xs font-extrabold text-white">{primary}</div>
+                            <div className="text-xs sm:text-sm font-normal text-white mt-0.5">{primary}</div>
                             {secondary && (
-                              <div className="text-xs font-semibold text-brand-emerald/90 mt-0.5">{secondary}</div>
+                              <div className="text-xs font-normal text-brand-emerald mt-0.5">{secondary}</div>
                             )}
                           </div>
                         </div>

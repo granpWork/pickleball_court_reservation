@@ -512,41 +512,41 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       )}
 
       {/* Top Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-dark-border">
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01]"
-          >
-            <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Sessions
-          </button>
+      <div className="flex items-center justify-between gap-4 pb-4 border-b border-dark-border">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01]"
+        >
+          <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Sessions
+        </button>
 
-          <div className="flex items-center gap-2">
-            {isEventExpired || event.status === 'expired' ? (
-              <span className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
-                ⏰ Expired / Concluded
-              </span>
-            ) : event.status === 'draft' ? (
-              <button
-                type="button"
-                onClick={() => onToggleStatus && onToggleStatus(event)}
-                className="px-3 py-1 rounded-full bg-amber-500/30 border border-amber-500/60 text-amber-300 text-[10px] font-black uppercase tracking-wider hover:bg-amber-500/50 transition-all cursor-pointer flex items-center gap-1"
-                title="Click to Publish Event Live"
-              >
-                <EyeOff className="w-3 h-3 text-amber-400" /> Draft (Hidden)
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => onToggleStatus && onToggleStatus(event)}
-                className="px-3 py-1 rounded-full bg-brand-lime text-dark-bg text-[10px] font-black uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                title="Click to Switch to Draft Mode"
-              >
-                <Globe className="w-3 h-3 text-dark-bg" /> Live (Published)
-              </button>
-            )}
-          </div>
+        <div className="flex items-center gap-2 ml-auto">
+          {event.status === 'draft' ? (
+            <button
+              type="button"
+              onClick={() => onToggleStatus && onToggleStatus(event)}
+              className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="Click to Publish Event Live"
+            >
+              <EyeOff className="w-4 h-4 text-amber-400" />
+              <h2 className="text-xs md:text-sm font-black uppercase tracking-wider text-amber-300 inline">DRAFT</h2>
+            </button>
+          ) : isEventExpired || event.status === 'expired' ? (
+            <span className="px-4 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-xs font-black uppercase tracking-wider">
+              ⏰ EXPIRED / CONCLUDED
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onToggleStatus && onToggleStatus(event)}
+              className="px-4 py-1.5 rounded-full bg-brand-lime/20 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime/30 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="Click to Switch to Draft Mode"
+            >
+              <Globe className="w-4 h-4 text-brand-lime" />
+              <h2 className="text-xs md:text-sm font-black uppercase tracking-wider text-brand-lime inline">LIVE</h2>
+            </button>
+          )}
         </div>
       </div>
 
@@ -704,9 +704,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 <Calendar className="w-5 h-5 text-brand-lime flex-shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
                   <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Date & Schedule</div>
-                  <div className="font-semibold text-white text-sm md:text-[15px] break-words mt-0.5 space-y-0.5">
+                  <div className="font-normal text-white text-base md:text-[17px] break-words mt-0.5 space-y-0.5">
                     <div>{formatEventDateLong(event.eventDate)}</div>
-                    <div className="text-brand-lime font-mono text-xs md:text-sm">
+                    <div className="text-brand-lime font-mono text-sm md:text-base font-normal">
                       {formatTime12h(event.startTime)} - {formatTime12h(event.endTime)}
                     </div>
                   </div>
@@ -719,7 +719,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                   <MapPin className="w-5 h-5 text-brand-emerald flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Venue Location</div>
-                    <div className="font-semibold text-white text-sm md:text-[15px] break-words leading-snug mt-0.5">
+                    <div className="font-normal text-white text-base md:text-[17px] break-words leading-snug mt-0.5">
                       {event.location}
                     </div>
                   </div>
@@ -732,7 +732,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                   <Building2 className="w-5 h-5 text-brand-lime flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Assigned Courts</div>
-                    <div className="font-semibold text-white text-sm md:text-[15px] break-words mt-0.5">
+                    <div className="font-normal text-white text-base md:text-[17px] break-words mt-0.5">
                       {event.courtNames.length} {event.courtNames.length === 1 ? 'Court' : 'Courts'}: {event.courtNames.join(', ')}
                     </div>
                   </div>
@@ -744,7 +744,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 <Users className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
                   <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Capacity & Skill Level</div>
-                  <div className="font-semibold text-white text-sm md:text-[15px] break-words mt-0.5">
+                  <div className="font-normal text-white text-base md:text-[17px] break-words mt-0.5">
                     {maxCapacity} Max Players • {event.skillLevel || 'All Skill Levels'}
                   </div>
                 </div>
@@ -756,7 +756,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                   <Phone className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Host Contact</div>
-                    <div className="font-semibold text-white text-sm md:text-[15px] break-words mt-0.5">
+                    <div className="font-normal text-white text-base md:text-[17px] break-words mt-0.5">
                       {event.hostPhone}
                     </div>
                   </div>
@@ -769,7 +769,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                   <CreditCard className="w-5 h-5 text-brand-emerald flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs text-slate-400 font-semibold uppercase tracking-wider">GCash Account</div>
-                    <div className="font-semibold text-white text-sm md:text-[15px] break-words mt-0.5">
+                    <div className="font-normal text-white text-base md:text-[17px] break-words mt-0.5">
                       {event.gcashName ? `${event.gcashName} (` : ''}{event.gcashNumber}{event.gcashName ? ')' : ''}
                     </div>
                   </div>
@@ -1139,7 +1139,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
               <p className="font-bold text-white text-sm">No players registered yet matching filter.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
               {filteredAttendees.map((att, idx) => {
                 const isApproved = att.status === 'approved' || att.paymentStatus === 'paid';
                 const isPending = att.paymentStatus === 'pending_verification';
@@ -1180,21 +1180,21 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                           />
                         </div>
                         <div className="min-w-0 flex-1 text-left">
-                          <div className="font-extrabold text-sm text-white truncate">{att.name}</div>
+                          <div className="font-normal text-base md:text-lg text-white truncate">{att.name}</div>
                           {att.hostName && (
-                            <div className="text-[11px] text-purple-300 font-semibold truncate">
-                              Host: <strong className="text-white">{att.hostName}</strong>
+                            <div className="text-xs text-purple-300 font-normal truncate">
+                              Host: <span className="text-white font-normal">{att.hostName}</span>
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="text-xs text-slate-400 truncate mt-1 flex items-center gap-1">
-                        <Mail className="w-3 h-3 text-slate-500 flex-shrink-0" /> {att.email}
+                      <div className="text-sm text-slate-300 truncate mt-1 flex items-center gap-1.5 font-normal">
+                        <Mail className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" /> {att.email}
                       </div>
                       {att.phone && (
-                        <div className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1">
-                          <Phone className="w-3 h-3 text-slate-500 flex-shrink-0" /> {att.phone}
+                        <div className="text-sm text-slate-300 truncate mt-0.5 flex items-center gap-1.5 font-normal">
+                          <Phone className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" /> {att.phone}
                         </div>
                       )}
                     </div>
@@ -1271,7 +1271,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                       />
                     </div>
                     <div>
-                      <div className="font-extrabold text-white text-sm flex items-center gap-2">
+                      <div className="font-normal text-white text-base md:text-lg flex items-center gap-2">
                         <span>{att.name}</span>
                         <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
                           att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime' : 'bg-purple-950/40 text-purple-300'
@@ -1279,7 +1279,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                           {att.type === 'primary' ? 'Primary' : `Guest (${att.hostName})`}
                         </span>
                       </div>
-                      <div className="text-slate-400 text-[11px] mt-0.5">{att.email} • {att.phone || 'No phone'}</div>
+                      <div className="text-slate-300 text-xs md:text-sm mt-0.5">{att.email} • {att.phone || 'No phone'}</div>
                     </div>
                   </div>
 
@@ -1335,7 +1335,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     <th className="py-4 px-4 text-center">Attendance</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800/60 text-xs">
+                <tbody className="divide-y divide-slate-800/60 text-xs md:text-sm">
                   {filteredAttendees.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-8 text-center text-slate-500 italic">
@@ -1363,7 +1363,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                 />
                               </div>
                               <div>
-                                <div className="font-extrabold text-white text-sm flex items-center gap-2">
+                                <div className="font-normal text-white text-base md:text-lg flex items-center gap-2">
                                   <span>{att.name}</span>
                                   <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
                                     att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/30' : 'bg-purple-950/40 text-purple-300 border border-purple-800/50'
@@ -1371,13 +1371,13 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                     {att.type === 'primary' ? 'Primary' : `Guest (${att.hostName})`}
                                   </span>
                                 </div>
-                                {att.hostName && <div className="text-[11px] text-purple-300">Host: <strong className="text-white">{att.hostName}</strong></div>}
+                                {att.hostName && <div className="text-xs text-purple-300 font-normal">Host: <span className="text-white font-normal">{att.hostName}</span></div>}
                               </div>
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 text-slate-300">
+                          <td className="py-3.5 px-4 text-slate-300 text-xs md:text-sm">
                             <div>{att.email}</div>
-                            <div className="text-slate-500 text-[11px]">{att.phone || 'No phone'}</div>
+                            <div className="text-slate-500 text-xs">{att.phone || 'No phone'}</div>
                           </td>
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-2">

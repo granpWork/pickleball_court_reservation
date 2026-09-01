@@ -443,12 +443,14 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                               className="flex items-center gap-2 cursor-pointer hover:text-brand-lime transition-colors group/tbl"
                               title="Click to view Admin Event Details Page"
                             >
-                              <span>{event.title}</span>
-                              {isExpired ? (
-                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">Expired</span>
+                              {event.status === 'draft' ? (
+                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">Draft</span>
+                              ) : isExpired ? (
+                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-slate-800 text-slate-400 border border-slate-700">Expired</span>
                               ) : (
                                 <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-brand-lime/20 text-brand-lime border border-brand-lime/30">Active</span>
                               )}
+                              <span>{event.title}</span>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-cyan-300 font-medium">{event.category || 'Open Play'}</td>
@@ -550,53 +552,59 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Open Play Event</span>
                           </div>
                         )}
+                      </div>
 
-                        <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 flex-wrap">
-                          {isExpired ? (
-                            <div className="px-2.5 py-0.5 rounded-full bg-amber-500/90 backdrop-blur-md border border-amber-400/50 text-dark-bg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
-                              <span>⏰ EXPIRED / CONCLUDED</span>
-                            </div>
-                          ) : event.status === 'draft' ? (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onToggleStatus && onToggleStatus(event); }}
-                              title="Click to Publish Event Live for Public Bookings"
-                              className="px-2.5 py-0.5 rounded-full bg-amber-500/30 hover:bg-amber-500/50 backdrop-blur-md border border-amber-500/60 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm cursor-pointer transition-all"
-                            >
-                              <EyeOff className="w-3 h-3 text-amber-400" />
-                              <span>DRAFT (HIDDEN)</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onToggleStatus && onToggleStatus(event); }}
-                              title="Click to Switch to Draft (Hide from Public View)"
-                              className="px-2.5 py-0.5 rounded-full bg-brand-lime hover:bg-[#a6e224] backdrop-blur-md text-dark-bg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm cursor-pointer transition-all"
-                            >
-                              <Globe className="w-3 h-3 text-dark-bg" />
-                              <span>LIVE (PUBLISHED)</span>
-                            </button>
-                          )}
-
-                          {isFull && !isExpired && (
-                            <div className="px-2.5 py-0.5 rounded-full bg-red-600/90 backdrop-blur-md border border-red-400/50 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm animate-pulse">
-                              <span>🚫 FULLY BOOKED</span>
-                            </div>
-                          )}
-
-                          <div className="px-2 py-0.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700 text-slate-200 text-[10px] font-extrabold uppercase tracking-wider">
-                            {event.category || 'Open Play'}
+                      {/* Clean High-Contrast Tags Row Above Title Header */}
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+                        {/* Status Tag */}
+                        {event.status === 'draft' ? (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onToggleStatus && onToggleStatus(event); }}
+                            title="Click to Publish Event Live for Public Bookings"
+                            className="px-2.5 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm cursor-pointer transition-all"
+                          >
+                            <EyeOff className="w-3 h-3 text-amber-400" />
+                            <h2 className="text-[10px] font-black uppercase tracking-wider text-amber-300 inline">DRAFT</h2>
+                          </button>
+                        ) : isExpired ? (
+                          <div className="px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                            <span>⏰ EXPIRED / CONCLUDED</span>
                           </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onToggleStatus && onToggleStatus(event); }}
+                            title="Click to Switch to Draft (Hide from Public View)"
+                            className="px-2.5 py-0.5 rounded-full bg-brand-lime/20 hover:bg-brand-lime/30 border border-brand-lime/40 text-brand-lime text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm cursor-pointer transition-all"
+                          >
+                            <Globe className="w-3 h-3 text-brand-lime" />
+                            <h2 className="text-[10px] font-black uppercase tracking-wider text-brand-lime inline">LIVE</h2>
+                          </button>
+                        )}
 
-                          {event.isRecurring && (
-                            <div className="px-2 py-0.5 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                              <Repeat className="w-2.5 h-2.5" />
-                              <span>Recurring</span>
-                            </div>
-                          )}
+                        {/* Category Tag */}
+                        <div className="px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-cyan-300 text-[10px] font-extrabold uppercase tracking-wider">
+                          {event.category || 'Open Play'}
                         </div>
 
-                        <div className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-700 text-white font-mono font-bold text-[11px]">
+                        {/* Capacity Tag */}
+                        {isFull && !isExpired && (
+                          <div className="px-2.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm animate-pulse">
+                            <span>🚫 FULLY BOOKED</span>
+                          </div>
+                        )}
+
+                        {/* Recurring Tag */}
+                        {event.isRecurring && (
+                          <div className="px-2.5 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                            <Repeat className="w-2.5 h-2.5" />
+                            <span>Recurring</span>
+                          </div>
+                        )}
+
+                        {/* Price Badge */}
+                        <div className="ml-auto px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-white font-mono font-bold text-[11px] shadow-sm">
                           {event.registrationFee && event.registrationFee > 0 ? `₱${event.registrationFee}` : 'FREE'}
                         </div>
                       </div>

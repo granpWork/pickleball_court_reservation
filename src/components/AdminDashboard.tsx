@@ -880,6 +880,43 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [editingOpenPlay, setEditingOpenPlay] = useState<OpenPlayEvent | null>(null);
   const [registrationsModalOpen, setRegistrationsModalOpen] = useState(false);
   const [selectedEventForRegs, setSelectedEventForRegs] = useState<OpenPlayEvent | null>(null);
+
+  const handleSetSelectedEventForRegs = (event: OpenPlayEvent | null) => {
+    setSelectedEventForRegs(event);
+    if (event) {
+      try { sessionStorage.setItem('picklepoint_selected_openplay_event_id', event.id); } catch (e) {}
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('openplay_event', event.id);
+        window.history.replaceState(null, '', url.toString());
+      } catch (e) {}
+    } else {
+      try { sessionStorage.removeItem('picklepoint_selected_openplay_event_id'); } catch (e) {}
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('openplay_event');
+        window.history.replaceState(null, '', url.toString());
+      } catch (e) {}
+    }
+  };
+
+  // Auto-restore selected Open Play event details view on page refresh
+  useEffect(() => {
+    if (openPlayEvents.length > 0 && !selectedEventForRegs) {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const paramId = urlParams.get('openplay_event') || urlParams.get('eventId') || urlParams.get('event');
+        const savedId = paramId || sessionStorage.getItem('picklepoint_selected_openplay_event_id');
+
+        if (savedId) {
+          const matched = openPlayEvents.find(e => e.id === savedId);
+          if (matched) {
+            setSelectedEventForRegs(matched);
+          }
+        }
+      } catch (e) {}
+    }
+  }, [openPlayEvents]);
   const [rosterModalViewMode, setRosterModalViewMode] = useState<'cards' | 'list' | 'table'>('cards');
   const [rosterSearchQuery, setRosterSearchQuery] = useState('');
   const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest'>('all');
@@ -1425,6 +1462,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       } else {
         setOpenPlayEvents(prev => [...prev, payload]);
       }
+      if (selectedEventForRegs && selectedEventForRegs.id === eventId) {
+        setSelectedEventForRegs(payload);
+      }
       setAdminOpenPlayFilter('upcoming');
       setOpenPlayModalOpen(false);
       setEditingOpenPlay(null);
@@ -1444,8 +1484,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleToggleEventStatus = async (event: OpenPlayEvent) => {
-    const isPast = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired' || event.status === 'completed';
-    const newStatus = event.status === 'draft' ? (isPast ? 'expired' : 'active') : 'draft';
+    const newStatus = event.status === 'draft' ? 'active' : 'draft';
     const updatedPayload: OpenPlayEvent = {
       ...event,
       status: newStatus,
@@ -1467,6 +1506,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
       try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
       setOpenPlayEvents(prev => prev.map(e => e.id === event.id ? updatedPayload : e));
+      if (selectedEventForRegs && selectedEventForRegs.id === event.id) {
+        setSelectedEventForRegs(updatedPayload);
+      }
     } catch (err) {
       console.error('Failed to update event status:', err);
     } finally {
@@ -6615,7 +6657,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               events={openPlayEvents}
               openPlayRegistrations={openPlayRegistrations}
               selectedEventForRegs={selectedEventForRegs}
-              setSelectedEventForRegs={setSelectedEventForRegs}
+              setSelectedEventForRegs={handleSetSelectedEventForRegs}
               onOpenCreateModal={handleOpenCreateOpenPlay}
               onOpenEditModal={handleOpenEditOpenPlay}
               onDeleteEvent={(id) => { const ev = openPlayEvents.find(x => x.id === id); if (ev) setDeletingOpenPlayEvent(ev); }}
