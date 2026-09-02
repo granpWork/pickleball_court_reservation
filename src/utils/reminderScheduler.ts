@@ -21,7 +21,8 @@ export function getScheduledReminders(): ScheduledReminderJob[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? JSON.parse(saved) : [];
-  } catch (e) {
+  } catch (err) {
+    console.warn('Failed to load scheduled reminders from localStorage:', err);
     return [];
   }
 }
@@ -29,7 +30,9 @@ export function getScheduledReminders(): ScheduledReminderJob[] {
 export function saveScheduledReminders(jobs: ScheduledReminderJob[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs));
-  } catch (e) {}
+  } catch (err) {
+    console.warn('Failed to save scheduled reminders to localStorage:', err);
+  }
 }
 
 export function getScheduledReminderForEvent(eventId: string): ScheduledReminderJob | undefined {
@@ -68,7 +71,8 @@ export function calculateTargetSendTime(
       formattedTime,
       isPast,
     };
-  } catch (e) {
+  } catch (err) {
+    console.warn('Failed to calculate target send time:', err);
     return {
       targetTimestamp: Date.now(),
       formattedTime: 'Immediately',

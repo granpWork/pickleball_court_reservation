@@ -44,24 +44,14 @@ function App() {
     if (params.get('view') === 'profile' || window.location.pathname === '/profile') {
       return 'profile';
     }
-    if (window.location.pathname === '/checkout' || params.get('view') === 'checkout') {
+    if (params.get('view') === 'details' || params.get('courtId') || params.get('court_id') || params.get('court') || window.location.pathname.startsWith('/court')) {
+      return 'details';
+    }
+    if (params.get('view') === 'checkout' || window.location.pathname === '/checkout') {
       return 'checkout';
     }
     if (window.location.pathname === '/pickle-admin' || params.get('view') === 'admin') {
       return 'admin';
-    }
-
-    // Check cached admin/manager session before defaulting to 'landing' ONLY on root path '/'
-    if (typeof localStorage !== 'undefined' && window.location.pathname === '/') {
-      try {
-        const saved = localStorage.getItem('picklepoint_session');
-        if (saved) {
-          const u = JSON.parse(saved);
-          if (u && (u.isAdmin || u.role === 'client_admin' || u.role === 'super_admin' || u.role === 'manager' || u.role === 'editor')) {
-            return 'admin';
-          }
-        }
-      } catch (e) {}
     }
 
     return 'landing';
@@ -75,22 +65,28 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     return params.get('eventId') || params.get('openplay') || null;
   });
+  const [landingSearchDate, setLandingSearchDate] = useState<string>('');
   const [selectedCourtId, setSelectedCourtIdState] = useState<string>(() => {
-    return sessionStorage.getItem('picklepoint_active_court_id') || localStorage.getItem('picklepoint_pending_court_id') || '';
+    const params = new URLSearchParams(window.location.search);
+    const urlCourtId = params.get('courtId') || params.get('court_id') || params.get('court');
+    return urlCourtId || sessionStorage.getItem('picklepoint_active_court_id') || localStorage.getItem('picklepoint_pending_court_id') || '';
   });
 
-  const setSelectedCourtId = (id: string) => {
+  const setSelectedCourtId = (id: string, targetDate?: string) => {
     if (id) {
       sessionStorage.setItem('picklepoint_active_court_id', id);
     } else {
       sessionStorage.removeItem('picklepoint_active_court_id');
     }
     setSelectedCourtIdState(id);
+    if (targetDate !== undefined) {
+      setLandingSearchDate(targetDate);
+    }
   };
 
   const isUserUnonboardedClientAdmin = (u?: { role?: string; companyId?: string; needsOnboarding?: boolean } | null) => {
     if (!u) return false;
-    return u.role === 'client_admin' && (!u.companyId || (u as any).needsOnboarding === true);
+    return u.role === 'client_admin' && (!u.companyId || u.needsOnboarding === true);
   };
 
   const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy') => {
@@ -193,7 +189,9 @@ function App() {
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {}
+      } catch (err) {
+        console.warn('Failed to parse checkout details from sessionStorage:', err);
+      }
     }
     return null;
   });
@@ -201,7 +199,8 @@ function App() {
     try {
       const saved = localStorage.getItem('picklepoint_session');
       return saved ? JSON.parse(saved) : null;
-    } catch (e) {
+    } catch (err) {
+      console.warn('Failed to parse user session from localStorage:', err);
       return null;
     }
   });
@@ -252,6 +251,15 @@ function App() {
       return;
     }
 
+    if (params.get('view') === 'details' || params.get('courtId') || params.get('court_id') || params.get('court')) {
+      const targetCourtId = params.get('courtId') || params.get('court_id') || params.get('court');
+      if (targetCourtId) {
+        setSelectedCourtId(targetCourtId);
+      }
+      setView('details');
+      return;
+    }
+
     // 1. Explicit admin route check
     if (window.location.pathname === '/pickle-admin') {
       sessionStorage.removeItem('picklepoint_checkout_details');
@@ -284,14 +292,12 @@ function App() {
       return;
     }
 
-    // 3. If on root path "/" without explicit view query params, direct admins/managers to admin dashboard, players to landing page
-    if (window.location.pathname === '/' && !params.get('view') && !params.get('openplay') && !params.get('eventId') && !params.get('court') && !params.get('ref')) {
-      if (user && (user.isAdmin || user.role === 'super_admin' || user.role === 'client_admin' || user.role === 'manager')) {
-        setView('admin');
+    // 3. If on root path "/" or view=landing, keep view as landing page
+    if (window.location.pathname === '/' || params.get('view') === 'landing') {
+      if (!params.get('view') || params.get('view') === 'landing') {
+        setView('landing');
         return;
       }
-      setView('landing');
-      return;
     }
 
     // 4. URL view parameters for unauthenticated visitors vs logged-in users
@@ -584,13 +590,17 @@ function App() {
               setView('client_onboarding');
             } else if (isAdmin) {
               const isPrivacyRoute = window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy' || new URLSearchParams(window.location.search).get('view') === 'privacy';
+              const isAdminRoute = window.location.pathname === '/pickle-admin' || new URLSearchParams(window.location.search).get('view') === 'admin';
+
               if (isPrivacyRoute) {
                 setView('privacy');
-              } else {
+              } else if (isAdminRoute) {
                 if (window.location.search.includes('inviteToken') || window.location.pathname === '/register' || window.location.pathname === '/login') {
-                  window.history.pushState({}, '', '/');
+                  window.history.pushState({}, '', '/pickle-admin');
                 }
                 setView('admin');
+              } else {
+                restoreSessionView();
               }
             } else {
               restoreSessionView();
@@ -610,8 +620,11 @@ function App() {
           }
         } else {
           setUser(null);
+          localStorage.removeItem('picklepoint_session');
           if (window.location.pathname === '/pickle-admin') {
             setView('login');
+          } else if (currentView === 'admin' || currentView === 'profile' || currentView === 'checkout') {
+            setView('landing');
           } else {
             restoreSessionView();
           }
@@ -797,20 +810,25 @@ function App() {
   };
 
   const handleLogout = async () => {
+    setUser(null);
+    setSelectedCourtId('');
+    localStorage.removeItem('picklepoint_session');
+    localStorage.removeItem('picklepoint_pending_court_id');
+    sessionStorage.removeItem('picklepoint_active_court_id');
+    sessionStorage.removeItem('picklepoint_checkout_details');
+    sessionStorage.clear();
+
     if (isFirebaseConfigured && auth) {
       try {
         await signOut(auth);
       } catch (err) {
         console.error('Error signing out:', err);
       }
-    } else {
-      localStorage.removeItem('picklepoint_session');
     }
-    setUser(null);
-    setSelectedCourtId('');
-    sessionStorage.removeItem('picklepoint_active_court_id');
-    localStorage.removeItem('picklepoint_pending_court_id');
-    window.history.pushState({}, '', '/');
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', '/');
+    }
     setView('landing');
   };
 
@@ -930,6 +948,28 @@ function App() {
   }
 
   if (currentView === 'admin') {
+    const isAuthorized = user && (user.isAdmin || user.role === 'client_admin' || user.role === 'super_admin' || user.role === 'manager' || user.role === 'editor');
+    
+    if (!isAuthorized) {
+      if (authLoading) {
+        return (
+          <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col items-center justify-center">
+            <span className="w-10 h-10 border-4 border-slate-800 border-t-brand-lime rounded-full animate-spin mb-4"></span>
+            <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Verifying permissions...</p>
+          </div>
+        );
+      }
+      // If user specifically requested /pickle-admin URL, render Login; otherwise fall back to landing page
+      if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
+        return <Login setView={handleSetView} onLoginSuccess={handleLoginSuccess} invitationNotice={invitationNotice} />;
+      }
+      if (typeof window !== 'undefined' && window.location.search) {
+        window.history.pushState({}, '', '/');
+      }
+      setView('landing');
+      return null;
+    }
+
     return (
       <>
         <AdminDashboard setView={handleSetView} user={user} onLogout={handleLogout} />
@@ -1057,6 +1097,7 @@ function App() {
         <main className="flex-grow">
           <CourtDetails
             courtId={selectedCourtId}
+            initialSelectedDate={landingSearchDate}
             setView={handleSetView}
             user={user}
             setSelectedCourtId={setSelectedCourtId}
@@ -1112,6 +1153,8 @@ function App() {
         <Hero
           setView={setView}
           setSelectedCourtId={setSelectedCourtId}
+          searchDate={landingSearchDate}
+          setSearchDate={setLandingSearchDate}
         />
       </main>
 

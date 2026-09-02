@@ -220,6 +220,9 @@ export interface Court {
   ownerPhone?: string;
   createdAt?: string;
   location?: string;
+  streetAddress?: string;
+  address?: string;
+  imageUrl?: string;
   mapUrl?: string;
   images?: string[];
   addressLine1?: string;
@@ -234,6 +237,8 @@ export interface Court {
   rentals?: RentalItem[];
   gcashAccountId?: string;
   published?: boolean;
+  isPublished?: boolean;
+  status?: string;
   policies?: CourtPolicies;
   latitude?: number;
   longitude?: number;

@@ -10,6 +10,8 @@ import {
   DAYS_OF_WEEK,
   MASTER_SLOTS,
   getScheduleForDate,
+  generateTimeSlots,
+  formatHourTo12h,
 } from '../utils/timeSlotUtils';
 
 interface RentalItem {
@@ -78,16 +80,23 @@ interface Court {
 
 interface CourtDetailsProps {
   courtId: string;
-  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup') => void;
+  initialSelectedDate?: string;
+  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy') => void;
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
-  setSelectedCourtId: (id: string) => void;
+  setSelectedCourtId: (id: string, targetDate?: string) => void;
   setCheckoutDetails: (details: any) => void;
 }
 
-export default function CourtDetails({ courtId, setView, user, setSelectedCourtId, setCheckoutDetails }: CourtDetailsProps) {
+export default function CourtDetails({ courtId, initialSelectedDate, setView, user, setSelectedCourtId, setCheckoutDetails }: CourtDetailsProps) {
   const [court, setCourt] = useState<Court | null>(null);
   const [loadingCourt, setLoadingCourt] = useState(true);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState(initialSelectedDate || '');
+
+  useEffect(() => {
+    if (initialSelectedDate !== undefined) {
+      setSelectedDate(initialSelectedDate);
+    }
+  }, [initialSelectedDate]);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [selectedRentals, setSelectedRentals] = useState<{[rentalId: string]: number}>({});
   const [bookingConfirmed] = useState(false);
@@ -440,9 +449,25 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
       return;
     }
 
+    const isSameDateStr = (d1?: string, d2?: string): boolean => {
+      if (!d1 || !d2) return false;
+      const clean1 = String(d1).trim().split('T')[0];
+      const clean2 = String(d2).trim().split('T')[0];
+      if (clean1 === clean2) return true;
+
+      const p1 = clean1.split('-').map((n) => parseInt(n, 10));
+      const p2 = clean2.split('-').map((n) => parseInt(n, 10));
+      if (p1.length === 3 && p2.length === 3 && !isNaN(p1[0]) && !isNaN(p2[0])) {
+        return p1[0] === p2[0] && p1[1] === p2[1] && p1[2] === p2[2];
+      }
+      return false;
+    };
+
     const parseTimeHour = (timeStr?: string): number => {
       if (!timeStr) return 0;
-      const trimmed = timeStr.trim();
+      const trimmed = String(timeStr).trim();
+
+      // 1. Check hh:mm AM/PM or h:mm AM/PM
       const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
       if (match12) {
         let h = parseInt(match12[1], 10);
@@ -451,6 +476,18 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
         if (!pm && h === 12) h = 0;
         return h;
       }
+
+      // 2. Check 6pm / 9am / 18pm short formats
+      const matchShort = trimmed.match(/^(\d{1,2})\s*(AM|PM)$/i);
+      if (matchShort) {
+        let h = parseInt(matchShort[1], 10);
+        const pm = matchShort[2].toUpperCase() === 'PM';
+        if (pm && h < 12) h += 12;
+        if (!pm && h === 12) h = 0;
+        return h;
+      }
+
+      // 3. Check 24-hour hh:mm or h:mm
       if (trimmed.includes(':')) {
         const parts = trimmed.split(':');
         let h = parseInt(parts[0], 10) || 0;
@@ -458,6 +495,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
         if (trimmed.toLowerCase().includes('am') && h === 12) h = 0;
         return h;
       }
+
       return parseInt(trimmed, 10) || 0;
     };
 
@@ -468,6 +506,42 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
       const openPlayBlocks: Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }> = {};
       const currentUserEmail = user?.email?.toLowerCase();
       const currentUserUid = user?.uid;
+
+      // Helper to process an Open Play event for slot blocking
+      const processOpenPlayEvent = (ev: any, docId: string) => {
+        if (!ev || ev.status === 'cancelled') return;
+        const evDate = ev.eventDate || ev.date;
+        if (!isSameDateStr(evDate, selectedDate)) return;
+
+        const isCourtMatch =
+          !ev.courtIds ||
+          !Array.isArray(ev.courtIds) ||
+          ev.courtIds.length === 0 ||
+          ev.courtIds.some((cid: any) => String(cid) === String(court.id)) ||
+          String(ev.courtId) === String(court.id) ||
+          (Array.isArray(ev.courtNames) && court.name && ev.courtNames.includes(court.name)) ||
+          (ev.companyId && court.companyId && String(ev.companyId) === String(court.companyId));
+
+        if (isCourtMatch) {
+          const startH = parseTimeHour(ev.startTime);
+          let endH = parseTimeHour(ev.endTime);
+          if (endH <= startH && (endH === 0 || endH <= 5)) {
+            endH = 24;
+          }
+
+          MASTER_SLOTS.forEach((s) => {
+            if (s.startHour >= startH && s.startHour < endH) {
+              openPlayBlocks[s.time] = {
+                eventId: docId || ev.id,
+                title: ev.title || 'Open Play Session',
+                category: ev.category || 'Open Play',
+                startTime: ev.startTime || '13:00',
+                endTime: ev.endTime || '19:00',
+              };
+            }
+          });
+        }
+      };
 
       if (isFirebaseConfigured && db) {
         try {
@@ -499,36 +573,30 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
           console.error('Error fetching bookings:', err);
         }
 
-        // Fetch active Open Play events on selectedDate to prevent time overlaps
+        // 1. Fetch Open Play from Firestore
         try {
-          const opQuery = query(collection(db, 'openplay_events'), where('eventDate', '==', selectedDate));
-          const opSnap = await getDocs(opQuery);
+          const opSnap = await getDocs(collection(db, 'openplay_events'));
           opSnap.forEach((docSnap) => {
-            const ev = docSnap.data();
-            if (ev.status !== 'cancelled' && ev.status !== 'draft') {
-              const isCourtMatch = !ev.courtIds || ev.courtIds.length === 0 || ev.courtIds.includes(court.id);
-              if (isCourtMatch) {
-                const startH = parseTimeHour(ev.startTime);
-                const endH = parseTimeHour(ev.endTime);
-                MASTER_SLOTS.forEach((s) => {
-                  if (s.startHour >= startH && s.startHour < endH) {
-                    openPlayBlocks[s.time] = {
-                      eventId: docSnap.id,
-                      title: ev.title || 'Open Play Session',
-                      category: ev.category || 'Open Play',
-                      startTime: ev.startTime || '13:00',
-                      endTime: ev.endTime || '19:00',
-                    };
-                  }
-                });
-              }
-            }
+            processOpenPlayEvent(docSnap.data(), docSnap.id);
           });
         } catch (e) {
           console.warn('Error fetching Open Play events for court availability:', e);
         }
+
+        // 2. Also check LocalStorage / SessionStorage fallback
+        try {
+          const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+          if (opStr) {
+            const localEvents = JSON.parse(opStr);
+            if (Array.isArray(localEvents)) {
+              localEvents.forEach((ev: any) => {
+                processOpenPlayEvent(ev, ev.id);
+              });
+            }
+          }
+        } catch (e) {}
       } else {
-        // LocalStorage fallback
+        // LocalStorage fallback for Bookings
         try {
           const bookingsStr = localStorage.getItem('picklepoint_bookings');
           const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
@@ -555,30 +623,14 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
 
         // LocalStorage fallback for Open Play events
         try {
-          const opStr = localStorage.getItem('picklepoint_openplay_events');
+          const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
           if (opStr) {
             const localEvents = JSON.parse(opStr);
-            localEvents.forEach((ev: any) => {
-              const evDate = ev.eventDate || ev.date;
-              if (evDate === selectedDate && ev.status !== 'cancelled' && ev.status !== 'draft') {
-                const isCourtMatch = !ev.courtIds || ev.courtIds.length === 0 || ev.courtIds.includes(court.id);
-                if (isCourtMatch) {
-                  const startH = parseTimeHour(ev.startTime);
-                  const endH = parseTimeHour(ev.endTime);
-                  MASTER_SLOTS.forEach((s) => {
-                    if (s.startHour >= startH && s.startHour < endH) {
-                      openPlayBlocks[s.time] = {
-                        eventId: ev.id,
-                        title: ev.title || 'Open Play Session',
-                        category: ev.category || 'Open Play',
-                        startTime: ev.startTime || '13:00',
-                        endTime: ev.endTime || '19:00',
-                      };
-                    }
-                  });
-                }
-              }
-            });
+            if (Array.isArray(localEvents)) {
+              localEvents.forEach((ev: any) => {
+                processOpenPlayEvent(ev, ev.id);
+              });
+            }
           }
         } catch (e) {}
       }
@@ -596,8 +648,32 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
   const effectiveOperatingHours = court?.operatingHours || hostDetails?.operatingHours || DEFAULT_OPERATING_HOURS;
 
   const currentSchedule = useMemo(() => {
-    return getScheduleForDate(selectedDate, effectiveOperatingHours);
-  }, [selectedDate, effectiveOperatingHours]);
+    const baseSched = getScheduleForDate(selectedDate, effectiveOperatingHours);
+    if (!baseSched || baseSched.isDayOff) return baseSched;
+
+    // Check if any Open Play block extends past baseSched.closeHour
+    let maxHour = baseSched.closeHour;
+    Object.keys(openPlayBlockedSlots).forEach((slotTime) => {
+      const slotObj = MASTER_SLOTS.find((s) => s.time === slotTime);
+      if (slotObj && slotObj.startHour + 1 > maxHour) {
+        maxHour = slotObj.startHour + 1;
+      }
+    });
+
+    if (maxHour > baseSched.closeHour) {
+      const extendedSlots = generateTimeSlots(baseSched.openHour, maxHour);
+      return {
+        ...baseSched,
+        closeHour: maxHour,
+        closeTime: formatHourTo12h(maxHour),
+        slots: extendedSlots,
+        morningSlots: extendedSlots.filter((s) => s.startHour < 12),
+        afternoonSlots: extendedSlots.filter((s) => s.startHour >= 12),
+      };
+    }
+
+    return baseSched;
+  }, [selectedDate, effectiveOperatingHours, openPlayBlockedSlots]);
 
   const isSelectedDateDayOff = currentSchedule.isDayOff;
 
@@ -1406,16 +1482,16 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
 
             {/* Right Column: Time Scheduler Panel */}
             <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-[96px]">
-              <div className="glass-panel rounded-3xl p-6 space-y-6 border border-slate-800 shadow-2xl">
+              <div className="glass-panel rounded-3xl p-6 sm:p-7 space-y-6 border border-slate-800 shadow-2xl">
                 <div className="pb-4 border-b border-slate-800">
-                  <h3 className="text-lg font-bold text-white">Reserve Court</h3>
-                  <p className="text-xs text-slate-400 mt-1">Select date and select preferred time slots to checkout.</p>
+                  <h3 className="text-xl font-extrabold text-white">Reserve Court</h3>
+                  <p className="text-sm text-slate-300 mt-1">Select date and preferred time slots to checkout.</p>
                 </div>
 
                 {/* Date Selection */}
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-brand-lime" /> Choose Date
+                  <label className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-brand-lime" /> Choose Date
                   </label>
                   <input
                     type="date"
@@ -1436,35 +1512,67 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                       setSelectedDate(e.target.value);
                       setSelectedSlots([]);
                     }}
-                    className="w-full bg-slate-900 border border-slate-800 text-slate-300 rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-medium"
+                    className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-3.5 text-base focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-bold"
                     style={{ colorScheme: 'dark' }}
                   />
                 </div>
+
+                {/* Open Play Alert Banner if an Open Play session exists on this court & date */}
+                {selectedDate && Object.keys(openPlayBlockedSlots).length > 0 && (() => {
+                  const firstBlock = Object.values(openPlayBlockedSlots)[0];
+                  return (
+                    <div className="p-4 border border-purple-800/80 rounded-2xl bg-purple-950/40 text-purple-200 space-y-2.5 animate-fade-in shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-black uppercase tracking-wider text-purple-300 flex items-center gap-2 font-sans">
+                          <Trophy className="w-4.5 h-4.5 text-purple-400" /> Open Play Session Scheduled
+                        </span>
+                        <span className="text-xs font-extrabold px-2.5 py-0.5 rounded bg-purple-900/80 border border-purple-700/60 text-purple-200">
+                          Court Locked
+                        </span>
+                      </div>
+                      <p className="text-sm text-purple-200/95 font-medium leading-relaxed">
+                        <strong className="text-white">{firstBlock.title}</strong> is hosted on this court from{' '}
+                        <span className="text-purple-300 font-bold font-sans">{formatTime12h(firstBlock.startTime)}</span> to{' '}
+                        <span className="text-purple-300 font-bold font-sans">{formatTime12h(firstBlock.endTime)}</span>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.location.href = `/?openplay=${firstBlock.eventId}`;
+                        }}
+                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer font-sans"
+                      >
+                        <Trophy className="w-4 h-4" />
+                        <span>View & Join Open Play Session</span>
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Availability Slot check */}
                 {!selectedDate ? (
                   <div className="p-8 border border-dashed border-slate-850 rounded-2xl bg-slate-950/20 text-center flex flex-col items-center justify-center min-h-[220px]">
                     <Calendar className="w-10 h-10 text-brand-lime/40 mb-3 animate-pulse" />
-                    <h4 className="text-xs font-bold text-white mb-1">Check Availability</h4>
-                    <p className="text-xs text-slate-400 max-w-[220px] leading-relaxed">
+                    <h4 className="text-sm font-bold text-white mb-1">Check Availability</h4>
+                    <p className="text-sm text-slate-300 max-w-[240px] leading-relaxed">
                       Please select a booking date above to view real-time court availability.
                     </p>
                   </div>
                 ) : !user ? (
                   <div className="p-6 border border-slate-850 rounded-2xl bg-slate-900/40 text-center flex flex-col items-center justify-center min-h-[220px] relative overflow-hidden">
                     <Lock className="w-10 h-10 text-brand-lime/60 mb-3 animate-pulse" />
-                    <h4 className="text-xs font-bold text-white mb-1">Authentication Required</h4>
-                    <p className="text-xs text-slate-400 max-w-[240px] leading-relaxed mb-4">
-                      Sign in or create a player profile to view available slots for <span className="text-brand-lime font-medium">{formatDate(selectedDate)}</span> and book.
+                    <h4 className="text-sm font-bold text-white mb-1">Authentication Required</h4>
+                    <p className="text-sm text-slate-300 max-w-[260px] leading-relaxed mb-4">
+                      Sign in or create a player profile to view available slots for <span className="text-brand-lime font-bold">{formatDate(selectedDate)}</span> and book.
                     </p>
-                    <div className="flex gap-2.5 w-full max-w-[260px]">
+                    <div className="flex gap-2.5 w-full max-w-[280px]">
                       <button
                         onClick={() => {
                           localStorage.setItem('picklepoint_pending_court_id', court.id);
                           localStorage.setItem('picklepoint_pending_date', selectedDate);
                           setView('login');
                         }}
-                        className="flex-1 py-2.5 rounded-lg text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md font-sans"
+                        className="flex-1 py-3 rounded-xl text-sm font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md font-sans"
                       >
                         Sign In
                       </button>
@@ -1474,7 +1582,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                           localStorage.setItem('picklepoint_pending_date', selectedDate);
                           setView('register');
                         }}
-                        className="flex-1 py-2.5 rounded-lg text-xs font-bold text-white border border-slate-800 hover:bg-slate-850 transition-all cursor-pointer font-sans"
+                        className="flex-1 py-3 rounded-xl text-sm font-bold text-white border border-slate-800 hover:bg-slate-850 transition-all cursor-pointer font-sans"
                       >
                         Register
                       </button>
@@ -1486,8 +1594,8 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                       <Clock className="w-7 h-7" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-white mb-1">Venue Closed ({isSelectedDateDayOff ? 'Day Off' : 'No Slots Scheduled'})</h4>
-                      <p className="text-xs text-slate-400 max-w-[260px] leading-relaxed">
+                      <h4 className="text-base font-bold text-white mb-1">Venue Closed ({isSelectedDateDayOff ? 'Day Off' : 'No Slots Scheduled'})</h4>
+                      <p className="text-sm text-slate-300 max-w-[280px] leading-relaxed">
                         {isSelectedDateDayOff
                           ? `The venue is closed on ${currentSchedule.dayKey ? currentSchedule.dayKey.charAt(0).toUpperCase() + currentSchedule.dayKey.slice(1) + 's' : 'this date'} (Day Off). Please select another date to reserve a court.`
                           : 'No operating hours are scheduled for this date. Please choose another date.'}
@@ -1497,13 +1605,13 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                 ) : (
                   <div className="space-y-4 animate-fade-in">
                     <div className="flex justify-between items-center">
-                      <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-brand-lime" /> Select Time Slot (1 Hour)
+                      <label className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-brand-lime" /> Select Time Slot (1 Hour)
                       </label>
                       {selectedSlots.length > 0 && (
                         <button
                           onClick={() => setSelectedSlots([])}
-                          className="text-xs font-bold text-slate-500 hover:text-brand-lime transition-colors cursor-pointer font-sans"
+                          className="text-xs font-bold text-slate-400 hover:text-brand-lime transition-colors cursor-pointer font-sans"
                         >
                           Clear Selection
                         </button>
@@ -1516,17 +1624,17 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                         <span className="text-xs text-slate-400 font-bold uppercase tracking-wider animate-pulse">Checking availability...</span>
                       </div>
                     ) : (
-                      <div className="space-y-4 max-h-[280px] overflow-y-auto pr-1">
+                      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
                         {/* AM (Morning) Section */}
                         {currentSchedule.morningSlots.length > 0 && (
                           <div className="space-y-2">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800/60">
+                              <span className="text-xs font-extrabold text-slate-300 uppercase tracking-wider bg-slate-900/90 px-2.5 py-1 rounded border border-slate-800">
                                 AM (Morning)
                               </span>
-                              <div className="h-[1px] bg-slate-800/50 flex-1"></div>
+                              <div className="h-[1px] bg-slate-800/60 flex-1"></div>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-2.5">
                               {currentSchedule.morningSlots.map((slot, idx) => {
                                 const price = getSlotPrice(slot.startHour);
                                 const isSelected = selectedSlots.includes(slot.time);
@@ -1553,7 +1661,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                       handleToggleSlot(slot.time);
                                     }}
                                     title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : '')}
-                                    className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
+                                    className={`py-3 px-3.5 rounded-xl border text-left text-sm font-bold transition-all relative flex justify-between items-center ${
                                       openPlayInfo
                                         ? 'bg-purple-950/40 border-purple-800/60 text-purple-200 cursor-pointer hover:border-purple-600 shadow-sm'
                                         : isPlayerConflict
@@ -1561,12 +1669,12 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                         : isSlotDisabled
                                         ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
                                         : isSelected
-                                        ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans'
-                                        : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
+                                        ? 'bg-brand-lime text-dark-bg border-brand-lime font-black font-sans'
+                                        : 'bg-dark-bg/60 border-slate-800 text-slate-200 hover:bg-slate-850'
                                     }`}
                                   >
                                     <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-extrabold ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
+                                    <span className={`text-xs font-black ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/90 font-sans' : 'text-brand-lime'}`}>
                                       {openPlayInfo ? '🏆 Open Play' : isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
                                     </span>
                                   </button>
@@ -1585,12 +1693,12 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                         {currentSchedule.afternoonSlots.length > 0 && (
                           <div className="space-y-2">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800/60">
+                              <span className="text-xs font-extrabold text-slate-300 uppercase tracking-wider bg-slate-900/90 px-2.5 py-1 rounded border border-slate-800">
                                 PM (Afternoon/Evening)
                               </span>
-                              <div className="h-[1px] bg-slate-800/50 flex-1"></div>
+                              <div className="h-[1px] bg-slate-800/60 flex-1"></div>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-2.5">
                               {currentSchedule.afternoonSlots.map((slot, idx) => {
                                 const price = getSlotPrice(slot.startHour);
                                 const isSelected = selectedSlots.includes(slot.time);
@@ -1617,7 +1725,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                       handleToggleSlot(slot.time);
                                     }}
                                     title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : '')}
-                                    className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
+                                    className={`py-3 px-3.5 rounded-xl border text-left text-sm font-bold transition-all relative flex justify-between items-center ${
                                       openPlayInfo
                                         ? 'bg-purple-950/40 border-purple-800/60 text-purple-200 cursor-pointer hover:border-purple-600 shadow-sm'
                                         : isPlayerConflict
@@ -1625,12 +1733,12 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                         : isSlotDisabled
                                         ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
                                         : isSelected
-                                        ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans'
-                                        : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
+                                        ? 'bg-brand-lime text-dark-bg border-brand-lime font-black font-sans'
+                                        : 'bg-dark-bg/60 border-slate-800 text-slate-200 hover:bg-slate-850'
                                     }`}
                                   >
                                     <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-extrabold ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/85 font-sans' : 'text-brand-lime'}`}>
+                                    <span className={`text-xs font-black ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/90 font-sans' : 'text-brand-lime'}`}>
                                       {openPlayInfo ? '🏆 Open Play' : isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
                                     </span>
                                   </button>
@@ -1644,13 +1752,13 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
 
                     {/* Equipment Rentals Add-ons */}
                     {court.rentals && court.rentals.filter(r => r.enabled).length > 0 && (
-                      <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-inner transition-all">
+                      <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4.5 space-y-3.5 shadow-inner transition-all">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2.5">
-                            <span className="w-6 h-6 rounded-lg bg-brand-lime/10 flex items-center justify-center text-xs">🏓</span>
+                          <div className="flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-lg bg-brand-lime/10 flex items-center justify-center text-sm">🏓</span>
                             <div>
-                              <span className="text-xs font-bold text-slate-200 block">Need Equipment Rentals?</span>
-                              <span className="text-[10px] text-slate-400 block font-normal">Paddles, Balls & Gear Add-ons</span>
+                              <span className="text-sm font-bold text-slate-200 block">Need Equipment Rentals?</span>
+                              <span className="text-xs text-slate-300 block font-normal">Paddles, Balls & Gear Add-ons</span>
                             </div>
                           </div>
 
@@ -1680,7 +1788,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
 
                         {/* Expandable Equipment List */}
                         {isEquipmentRentalEnabled && (
-                          <div className="space-y-2.5 pt-3 border-t border-slate-800/60 animate-fade-in">
+                          <div className="space-y-3 pt-3 border-t border-slate-800/60 animate-fade-in">
                             {court.rentals.filter(r => r.enabled).map((item) => {
                               const qty = selectedRentals[item.id] || 0;
                               const itemCost = qty > 0 ? getRentalItemCost(item, qty) : 0;
@@ -1693,7 +1801,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                     setRentalActiveImageIndex(0);
                                     setIsRentalZoomed(false);
                                   }}
-                                  className={`flex items-center gap-3.5 p-3 rounded-xl border transition-all duration-300 cursor-pointer ${
+                                  className={`flex items-center gap-3.5 p-3.5 rounded-xl border transition-all duration-300 cursor-pointer ${
                                     isSelected 
                                       ? 'border-brand-lime/40 bg-brand-lime/[0.04] shadow-[0_0_12px_rgba(163,230,53,0.06)]' 
                                       : 'border-slate-800/80 bg-slate-950/20 hover:border-slate-750 hover:bg-slate-900/40'
@@ -1715,17 +1823,17 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                   {/* Item Info */}
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-1 mb-0.5">
-                                      <h5 className="text-xs font-bold text-white truncate">{item.name}</h5>
+                                      <h5 className="text-sm font-bold text-white truncate">{item.name}</h5>
                                     </div>
-                                    <p className="text-[10px] text-slate-400 line-clamp-1 mb-1.5">{item.description || 'Quality court equipment'}</p>
-                                    <div className="text-[11px] font-extrabold text-brand-lime">
-                                      ₱{item.price} <span className="text-[9.5px] font-normal text-slate-400">/{item.pricingType === 'per_hour' ? 'hr' : 'item'}</span>
+                                    <p className="text-xs text-slate-300 line-clamp-1 mb-1.5">{item.description || 'Quality court equipment'}</p>
+                                    <div className="text-xs font-black text-brand-lime">
+                                      ₱{item.price} <span className="text-xs font-normal text-slate-400">/{item.pricingType === 'per_hour' ? 'hr' : 'item'}</span>
                                     </div>
                                   </div>
 
                                   {/* Quantity Controls & Subtotal */}
                                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                    <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 shadow-inner">
+                                    <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg p-1 shadow-inner">
                                       <button
                                         type="button"
                                         disabled={qty <= 0}
@@ -1733,7 +1841,7 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                           const nextQty = Math.max(0, qty - 1);
                                           setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
                                         }}
-                                        className="w-5 h-5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                        className="w-6 h-6 rounded bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                                       >
                                         -
                                       </button>
@@ -1745,18 +1853,18 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                                           const nextQty = Math.min(item.quantity, qty + 1);
                                           setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
                                         }}
-                                        className="w-5 h-5 rounded bg-slate-900 border border-slate-800 text-brand-lime font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                        className="w-6 h-6 rounded bg-slate-900 border border-slate-800 text-brand-lime font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                                       >
                                         +
                                       </button>
                                     </div>
                                     
                                     {/* Availability / Subtotal */}
-                                    <div className="text-[8px] font-semibold text-slate-500 uppercase tracking-widest mr-1">
+                                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">
                                       {isSelected ? (
-                                        <span className="text-brand-lime/90 font-bold">Total: ₱{itemCost}</span>
+                                        <span className="text-brand-lime font-bold">Total: ₱{itemCost}</span>
                                       ) : (
-                                        <span>Available: {item.quantity}</span>
+                                        <span>Avail: {item.quantity}</span>
                                       )}
                                     </div>
                                   </div>
@@ -1769,27 +1877,27 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                     )}
 
                     {error && (
-                      <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                      <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2 font-medium">
+                        <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
                         {error}
                       </div>
                     )}
 
                     {/* Cost Breakdown */}
                     {selectedSlots.length > 0 && (
-                      <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-3 space-y-1.5 text-xs">
-                        <div className="flex justify-between text-slate-400">
+                      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 text-sm">
+                        <div className="flex justify-between text-slate-300 font-medium">
                           <span>Court ({selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''})</span>
                           <span className="font-bold text-white font-sans">₱{totalSlotsCost}</span>
                         </div>
                         {totalRentalsCost > 0 && (
-                          <div className="flex justify-between text-slate-400">
+                          <div className="flex justify-between text-slate-300 font-medium">
                             <span>Equipment rentals</span>
                             <span className="font-bold text-white font-sans">₱{totalRentalsCost}</span>
                           </div>
                         )}
-                        <div className="flex justify-between font-bold pt-1 border-t border-slate-800">
-                          <span className="text-slate-300">Total</span>
+                        <div className="flex justify-between font-extrabold text-base pt-2 border-t border-slate-800">
+                          <span className="text-slate-200">Total Amount</span>
                           <span className="text-brand-lime font-sans">₱{totalCost}</span>
                         </div>
                       </div>
@@ -1799,10 +1907,10 @@ export default function CourtDetails({ courtId, setView, user, setSelectedCourtI
                       <button
                         disabled={selectedSlots.length === 0}
                         onClick={handleProceedToCheckout}
-                        className={`w-full py-3.5 rounded-xl text-sm font-bold text-center flex items-center justify-center gap-2 transition-all duration-300 ${
+                        className={`w-full py-4 rounded-xl text-base font-extrabold text-center flex items-center justify-center gap-2 transition-all duration-300 ${
                           selectedSlots.length > 0
                             ? 'bg-brand-lime text-dark-bg shadow-lg shadow-brand-lime/15 hover:scale-[1.01] cursor-pointer'
-                            : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                            : 'bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-700'
                         }`}
                       >
                         {selectedSlots.length > 0

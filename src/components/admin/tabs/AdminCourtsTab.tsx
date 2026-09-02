@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   Edit2,
@@ -12,20 +12,29 @@ import {
   EyeOff,
   X,
   ExternalLink,
+  QrCode,
+  Check,
+  Share2,
 } from 'lucide-react';
-import { type Court, type UserPermissions } from '../adminTypes';
+import { type Court, type Booking, type UserPermissions, type GcashAccount } from '../adminTypes';
+import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { AdminCourtDetails } from './AdminCourtDetails';
+import { CourtQrModal } from '../modals/CourtQrModal';
 
 interface AdminCourtsTabProps {
   courts: Court[];
+  bookings?: Booking[];
+  openPlayEvents?: OpenPlayEvent[];
   myCompany?: {
-    name?: string;
+    id: string;
+    name: string;
     address?: string;
     addressLine1?: string;
     barangay?: string;
-    city?: string;
+    municipality?: string;
     province?: string;
     region?: string;
+    country?: string;
     postalCode?: string;
   } | null;
   onOpenCreateCourtModal: () => void;
@@ -34,11 +43,14 @@ interface AdminCourtsTabProps {
   onTogglePublishCourt?: (courtId: string, currentPublished: boolean) => void;
   onSelectCourtDetails?: (courtId: string) => void;
   onOpenManualBookingModal?: () => void;
+  gcashAccounts?: GcashAccount[];
   userPermissions?: UserPermissions;
 }
 
 export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   courts,
+  bookings = [],
+  openPlayEvents = [],
   myCompany: _myCompany,
   onOpenCreateCourtModal,
   onOpenEditCourtModal,
@@ -46,26 +58,122 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   onTogglePublishCourt,
   onSelectCourtDetails: _onSelectCourtDetails,
   onOpenManualBookingModal,
+  gcashAccounts = [],
   userPermissions,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCourtForDetails, setSelectedCourtForDetails] = useState<Court | null>(null);
+  const [qrModalState, setQrModalState] = useState<{ isOpen: boolean; court: Court | null }>({ isOpen: false, court: null });
+  const [copiedCourtId, setCopiedCourtId] = useState<string | null>(null);
+
+  const handleCopyShareLink = (courtId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const url = `${origin}/?view=details&courtId=${courtId}`;
+    navigator.clipboard.writeText(url);
+    setCopiedCourtId(courtId);
+    setTimeout(() => setCopiedCourtId(null), 2500);
+  };
+
+  const handleOpenQrModal = (court: Court, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setQrModalState({ isOpen: true, court });
+  };
+
+  const handleSetSelectedCourt = (court: Court | null) => {
+    setSelectedCourtForDetails(court);
+    if (court) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('court_id', court.id);
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    } else {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('court_id');
+        url.searchParams.delete('courtId');
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    }
+  };
+
+  // Restore selected court details view on initial load ONLY if court_id is in URL, and handle popstate back button
+  useEffect(() => {
+    if (courts.length > 0 && !selectedCourtForDetails) {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const paramId = urlParams.get('court_id') || urlParams.get('courtId');
+        if (paramId) {
+          const matched = courts.find(c => c.id === paramId);
+          if (matched) {
+            setSelectedCourtForDetails(matched);
+          }
+        }
+      } catch (e) {}
+    }
+  }, [courts, selectedCourtForDetails]);
+
+  useEffect(() => {
+    const syncStateFromUrl = () => {
+      if (courts.length > 0) {
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const paramId = urlParams.get('court_id') || urlParams.get('courtId');
+          if (paramId) {
+            const matched = courts.find(c => c.id === paramId);
+            if (matched) {
+              setSelectedCourtForDetails(matched);
+              return;
+            }
+          }
+          setSelectedCourtForDetails(null);
+        } catch (e) {}
+      }
+    };
+
+    window.addEventListener('popstate', syncStateFromUrl);
+    return () => window.removeEventListener('popstate', syncStateFromUrl);
+  }, [courts]);
+
+  // Keep selectedCourtForDetails in sync with updated court object props
+  useEffect(() => {
+    if (selectedCourtForDetails) {
+      const updated = courts.find(c => c.id === selectedCourtForDetails.id);
+      if (updated && updated !== selectedCourtForDetails) {
+        setSelectedCourtForDetails(updated);
+      }
+    }
+  }, [courts, selectedCourtForDetails]);
 
   const handleSelectCourt = (court: Court) => {
-    setSelectedCourtForDetails(court);
+    handleSetSelectedCourt(court);
   };
 
   if (selectedCourtForDetails) {
     return (
-      <AdminCourtDetails
-        court={selectedCourtForDetails}
-        onBack={() => setSelectedCourtForDetails(null)}
-        onOpenEditCourtModal={onOpenEditCourtModal}
-        onDeleteCourt={onDeleteCourt}
-        onTogglePublishCourt={onTogglePublishCourt}
-        onOpenManualBookingModal={onOpenManualBookingModal}
-      />
+      <>
+        <AdminCourtDetails
+          court={selectedCourtForDetails}
+          bookings={bookings}
+          openPlayEvents={openPlayEvents}
+          onBack={() => handleSetSelectedCourt(null)}
+          onOpenEditCourtModal={onOpenEditCourtModal}
+          onDeleteCourt={onDeleteCourt}
+          onTogglePublishCourt={onTogglePublishCourt}
+          onOpenManualBookingModal={onOpenManualBookingModal}
+          onCopyShareLink={(courtId) => handleCopyShareLink(courtId)}
+          onOpenQrModal={(court) => handleOpenQrModal(court)}
+          gcashAccounts={gcashAccounts}
+        />
+
+        <CourtQrModal
+          isOpen={qrModalState.isOpen}
+          onClose={() => setQrModalState({ isOpen: false, court: null })}
+          court={qrModalState.court}
+        />
+      </>
     );
   }
 
@@ -78,6 +186,8 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
       (c.location && c.location.toLowerCase().includes(q))
     );
   });
+
+  const DEFAULT_COURT_IMAGE = 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=800&auto=format&fit=crop';
 
   return (
     <div className="space-y-6 animate-fade-in text-left">
@@ -153,13 +263,23 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
           <p className="text-xs text-slate-400 mb-6">
             {searchQuery ? `No court listings match "${searchQuery}".` : 'Click "Create Court" above to add your facility court listings.'}
           </p>
-          <button
-            onClick={onOpenCreateCourtModal}
-            className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] transition-all cursor-pointer shadow-md"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create First Court</span>
-          </button>
+          {searchQuery ? (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-800 text-white font-extrabold text-xs hover:bg-slate-700 transition-all cursor-pointer shadow-md"
+            >
+              <X className="w-4 h-4" />
+              <span>Clear Search Filter</span>
+            </button>
+          ) : (
+            <button
+              onClick={onOpenCreateCourtModal}
+              className="inline-flex items-center space-x-2 px-4 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] transition-all cursor-pointer shadow-md"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create First Court</span>
+            </button>
+          )}
         </div>
       ) : viewMode === 'grid' ? (
         /* GRID CARDS VIEW */
@@ -168,10 +288,12 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
             const defaultImg =
               c.images && c.images.length > 0
                 ? c.images[0]
-                : 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=800&auto=format&fit=crop';
+                : DEFAULT_COURT_IMAGE;
             const isPublished = c.published !== false;
-            const minPrice = Math.min(c.dayPrice || 120, c.nightPrice || 200);
-            const maxPrice = Math.max(c.dayPrice || 120, c.nightPrice || 200);
+            const dayRate = c.dayPrice || 0;
+            const nightRate = c.nightPrice || 0;
+            const minPrice = dayRate && nightRate ? Math.min(dayRate, nightRate) : (dayRate || nightRate || 0);
+            const maxPrice = Math.max(dayRate, nightRate);
 
             return (
               <div
@@ -188,16 +310,17 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                     <img
                       src={defaultImg}
                       alt={c.name}
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_COURT_IMAGE; }}
                       className="w-full h-full object-cover group-hover/card:scale-105 transition-transform duration-500"
                     />
 
                     {/* Top Left Badge: Draft / Published */}
                     <div className="absolute top-3 left-3">
                       <span
-                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-md ${
+                        className={`px-3 py-1 rounded-full text-xs font-normal uppercase tracking-wider shadow-md ${
                           isPublished
-                            ? 'bg-emerald-500 text-dark-bg font-black'
-                            : 'bg-amber-400 text-dark-bg font-black'
+                            ? 'bg-emerald-500 text-dark-bg font-normal'
+                            : 'bg-amber-400 text-dark-bg font-normal'
                         }`}
                       >
                         {isPublished ? 'Published' : 'Draft'}
@@ -205,23 +328,23 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                     </div>
 
                     {/* Bottom Right Rate Badge */}
-                    <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-700 text-brand-lime font-mono font-black text-xs shadow-md">
+                    <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-700 text-brand-lime font-mono font-normal text-xs shadow-md">
                       {minPrice === maxPrice ? `₱${minPrice}/hr` : `₱${minPrice} - ₱${maxPrice}/hr`}
                     </div>
                   </div>
 
                   {/* Card Content Body */}
                   <div className="p-5 space-y-2">
-                    <h3 className="text-lg font-extrabold text-white group-hover/card:text-brand-lime transition-colors">
+                    <h3 className="text-lg font-normal text-white group-hover/card:text-brand-lime transition-colors">
                       {c.name}
                     </h3>
 
-                    <p className="text-xs text-slate-400 font-semibold">
+                    <p className="text-xs text-slate-400 font-normal">
                       {c.type || 'Painted Asphalt / Concrete (Outdoor)'}
                     </p>
 
                     {(c.location || c.companyAddress) && (
-                      <p className="text-xs text-slate-300 font-medium flex items-center gap-1 pt-1">
+                      <p className="text-xs text-slate-300 font-normal flex items-center gap-1 pt-1">
                         <MapPin className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                         <span className="truncate">{c.location || c.companyAddress}</span>
                       </p>
@@ -231,11 +354,33 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
 
                 {/* Footer Actions Row */}
                 <div className="px-5 py-3.5 border-t border-slate-800/80 flex items-center justify-between mt-auto">
-                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  <span className="text-xs font-normal text-slate-500 uppercase tracking-widest">
                     ACTIONS
                   </span>
 
                   <div className="flex items-center space-x-2">
+                    {/* Copy Shareable Link */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopyShareLink(c.id, e)}
+                      className={`p-2 rounded-xl bg-slate-900 border border-slate-800 transition-all cursor-pointer ${
+                        copiedCourtId === c.id ? 'text-emerald-400 border-emerald-500/40' : 'text-slate-400 hover:text-brand-lime hover:border-slate-700'
+                      }`}
+                      title={copiedCourtId === c.id ? 'Link Copied!' : 'Share Court Link'}
+                    >
+                      {copiedCourtId === c.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-brand-lime" />}
+                    </button>
+
+                    {/* QR Code Modal Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenQrModal(c, e)}
+                      className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-brand-lime hover:text-white hover:border-brand-lime transition-all cursor-pointer"
+                      title="View & Download Court QR Code"
+                    >
+                      <QrCode className="w-4 h-4" />
+                    </button>
+
                     {/* View Court Details Page Button */}
                     <button
                       type="button"
@@ -342,6 +487,24 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                         <div className="flex items-center justify-end space-x-2">
                           <button
                             type="button"
+                            onClick={(e) => handleCopyShareLink(c.id, e)}
+                            className={`p-2 rounded-xl bg-slate-900 border border-slate-800 transition-all cursor-pointer ${
+                              copiedCourtId === c.id ? 'text-emerald-400 border-emerald-500/40' : 'text-slate-400 hover:text-brand-lime'
+                            }`}
+                            title={copiedCourtId === c.id ? 'Link Copied!' : 'Share Court Link'}
+                          >
+                            {copiedCourtId === c.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4 text-brand-lime" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenQrModal(c, e)}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-brand-lime hover:text-white transition-all cursor-pointer"
+                            title="View & Download Court QR Code"
+                          >
+                            <QrCode className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleSelectCourt(c)}
                             className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-brand-lime hover:text-white transition-all cursor-pointer"
                             title="View Court Details Page"
@@ -384,6 +547,13 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Shareable Court QR Code Modal */}
+      <CourtQrModal
+        isOpen={qrModalState.isOpen}
+        onClose={() => setQrModalState({ isOpen: false, court: null })}
+        court={qrModalState.court}
+      />
     </div>
   );
 };

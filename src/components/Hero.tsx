@@ -55,14 +55,15 @@ export interface VenueGroup {
 
 interface HeroProps {
   setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp') => void;
-  setSelectedCourtId: (id: string) => void;
+  setSelectedCourtId: (id: string, targetDate?: string) => void;
+  searchDate: string;
+  setSearchDate: (date: string) => void;
 }
 
-export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
+export default function Hero({ setView, setSelectedCourtId, searchDate, setSearchDate }: HeroProps) {
   const [courts, setCourts] = useState<Court[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchDate, setSearchDate] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [calendarViewDate, setCalendarViewDate] = useState(() => new Date());
@@ -924,7 +925,7 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
                     tabIndex={0}
                     onClick={() => {
                       if (v.courts.length > 0) {
-                        setSelectedCourtId(v.courts[0].id);
+                        setSelectedCourtId(v.courts[0].id, searchDate);
                         setView('details');
                       }
                     }}
@@ -932,7 +933,7 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         if (v.courts.length > 0) {
-                          setSelectedCourtId(v.courts[0].id);
+                          setSelectedCourtId(v.courts[0].id, searchDate);
                           setView('details');
                         }
                       }
@@ -1051,7 +1052,7 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
                     tabIndex={0}
                     onClick={() => {
                       if (v.courts.length > 0) {
-                        setSelectedCourtId(v.courts[0].id);
+                        setSelectedCourtId(v.courts[0].id, searchDate);
                         setView('details');
                       }
                     }}
@@ -1059,7 +1060,7 @@ export default function Hero({ setView, setSelectedCourtId }: HeroProps) {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         if (v.courts.length > 0) {
-                          setSelectedCourtId(v.courts[0].id);
+                          setSelectedCourtId(v.courts[0].id, searchDate);
                           setView('details');
                         }
                       }

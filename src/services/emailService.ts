@@ -1566,7 +1566,7 @@ export const sendOpenPlayGameReminderEmail = async (
 ): Promise<{ success: boolean; error?: string }> => {
   const baseUrl = getBaseUrl();
 
-  let timeText = '';
+  let timeText: string;
   let isGameStartingNow = false;
 
   if (params.eventDateIso && params.startTime24h) {
@@ -1592,7 +1592,8 @@ export const sendOpenPlayGameReminderEmail = async (
           timeText = `${hrs} Hour${hrs > 1 ? 's' : ''} and ${remMins} Minute${remMins > 1 ? 's' : ''}`;
         }
       }
-    } catch (e) {
+    } catch (err) {
+      console.warn('Failed to parse game reminder time:', err);
       const fallbackMins = params.leadTimeMinutes || 15;
       timeText = `${fallbackMins} Minutes`;
     }

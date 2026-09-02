@@ -139,7 +139,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     try {
       const saved = localStorage.getItem('picklepoint_openplay_attendance');
       return saved ? JSON.parse(saved) : {};
-    } catch (e) {
+    } catch (err) {
+      console.warn('Failed to load openplay attendance from localStorage:', err);
       return {};
     }
   });
@@ -149,7 +150,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       const updated = { ...prev, [attendeeId]: !prev[attendeeId] };
       try {
         localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(updated));
-      } catch (e) {}
+      } catch (err) {
+        console.warn('Failed to save openplay attendance to localStorage:', err);
+      }
       return updated;
     });
   };
@@ -162,7 +165,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       });
       try {
         localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(updated));
-      } catch (e) {}
+      } catch (err) {
+        console.warn('Failed to save mark all attendance to localStorage:', err);
+      }
       return updated;
     });
   };
@@ -175,7 +180,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       });
       try {
         localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(updated));
-      } catch (e) {}
+      } catch (err) {
+        console.warn('Failed to clear attendance in localStorage:', err);
+      }
       return updated;
     });
   };
@@ -293,6 +300,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   // KPI Calculations
   const maxCapacity = event.maxParticipants || 16;
   const totalHeadcount = allAttendees.length;
+  const isFull = totalHeadcount >= maxCapacity;
   const primaryCount = allAttendees.filter((a) => a.type === 'primary').length;
   const guestCount = allAttendees.filter((a) => a.type === 'guest').length;
   const approvedHeadcount = allAttendees.filter((a) => a.status === 'approved' || a.paymentStatus === 'paid').length;
@@ -634,6 +642,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 <img
                   src={event.posterImageUrl}
                   alt={event.title}
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1599474924187-334a4ae5bd3c?auto=format&fit=crop&w=800&q=80'; }}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                 />
                 <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
@@ -786,16 +795,22 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             {onOpenManualBookingModal && (
               <button
                 type="button"
-                disabled={isEventExpired || event.status === 'expired'}
+                disabled={isEventExpired || event.status === 'expired' || isFull}
                 onClick={() => onOpenManualBookingModal(event)}
-                className={`py-2 px-3.5 rounded-2xl transition-all text-xs font-black flex items-center gap-1.5 shadow-lg ${
-                  isEventExpired || event.status === 'expired'
+                className={`py-2 px-3.5 rounded-2xl transition-all text-xs font-normal flex items-center gap-1.5 shadow-lg ${
+                  isEventExpired || event.status === 'expired' || isFull
                     ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
                     : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-brand-lime/20'
                 }`}
-                title={isEventExpired || event.status === 'expired' ? "Cannot add player to an expired event session" : "Manually add walk-in or cash player registration"}
+                title={
+                  isEventExpired || event.status === 'expired'
+                    ? "Cannot add player to an expired event session"
+                    : isFull
+                      ? "This Open Play session is fully booked"
+                      : "Manually add walk-in or cash player registration"
+                }
               >
-                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' ? 'text-slate-500' : 'text-dark-bg'}`} />
+                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' || isFull ? 'text-slate-500' : 'text-dark-bg'}`} />
                 <span>+ Add Player (Manual)</span>
               </button>
             )}
@@ -1050,16 +1065,22 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             {onOpenManualBookingModal && (
               <button
                 type="button"
-                disabled={isEventExpired || event.status === 'expired'}
+                disabled={isEventExpired || event.status === 'expired' || isFull}
                 onClick={() => onOpenManualBookingModal(event)}
-                className={`px-3.5 py-2 rounded-xl transition-all font-black text-xs flex items-center gap-1.5 ${
-                  isEventExpired || event.status === 'expired'
+                className={`px-3.5 py-2 rounded-xl transition-all font-normal text-xs flex items-center gap-1.5 ${
+                  isEventExpired || event.status === 'expired' || isFull
                     ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
                     : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-md'
                 }`}
-                title={isEventExpired || event.status === 'expired' ? "Cannot add player to an expired event session" : "Manually add walk-in or cash player registration"}
+                title={
+                  isEventExpired || event.status === 'expired'
+                    ? "Cannot add player to an expired event session"
+                    : isFull
+                      ? "This Open Play session is fully booked"
+                      : "Manually add walk-in or cash player registration"
+                }
               >
-                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' ? 'text-slate-500' : 'text-dark-bg'}`} />
+                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' || isFull ? 'text-slate-500' : 'text-dark-bg'}`} />
                 <span>+ Add Player (Manual)</span>
               </button>
             )}

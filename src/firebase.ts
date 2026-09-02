@@ -47,7 +47,7 @@ if (isFirebaseConfigured) {
   );
 }
 
-export const logAnalyticsEvent = (eventName: string, eventParams?: Record<string, any>) => {
+export const logAnalyticsEvent = (eventName: string, eventParams?: Record<string, unknown>) => {
   if (analytics) {
     try {
       logEvent(analytics, eventName, eventParams);

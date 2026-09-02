@@ -175,3 +175,26 @@ export const getScheduleForDate = (
     afternoonSlots,
   };
 };
+
+/**
+ * Converts start time and end time into an array of 1-hour time slot strings.
+ * Example: start = "18:00", end = "21:00" -> ["06:00 PM - 07:00 PM", "07:00 PM - 08:00 PM", "08:00 PM - 09:00 PM"]
+ */
+export const getOpenPlayTimeSlots = (startTimeStr: string, endTimeStr: string): string[] => {
+  if (!startTimeStr || !endTimeStr) return [];
+  const startHour = parseTimeStringToHour(startTimeStr);
+  let endHour = parseTimeStringToHour(endTimeStr);
+
+  if (endHour <= startHour && (endHour === 0 || endHour <= 5)) {
+    endHour = 24;
+  }
+
+  const slots: string[] = [];
+  for (let h = startHour; h < endHour; h++) {
+    const startStr = formatHourTo12h(h);
+    const endStr = formatHourTo12h(h + 1);
+    slots.push(`${startStr} - ${endStr}`);
+  }
+
+  return slots;
+};

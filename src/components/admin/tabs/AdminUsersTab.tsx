@@ -227,7 +227,7 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         key={item.id}
                         type="button"
                         onClick={() => {
-                          setRoleFilter(item.id as any);
+                          setRoleFilter(item.id as typeof roleFilter);
                           setCurrentPage(1);
                           setIsRoleOpen(false);
                         }}
@@ -279,7 +279,7 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                       key={item.id}
                       type="button"
                       onClick={() => {
-                        setStatusFilter(item.id as any);
+                        setStatusFilter(item.id as typeof statusFilter);
                         setCurrentPage(1);
                         setIsStatusOpen(false);
                       }}

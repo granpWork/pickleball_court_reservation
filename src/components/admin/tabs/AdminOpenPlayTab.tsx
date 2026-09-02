@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   Users,
@@ -143,6 +143,65 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
     event: null,
   });
 
+  const DEFAULT_OPENPLAY_IMAGE = 'https://images.unsplash.com/photo-1599474924187-334a4ae5bd3c?auto=format&fit=crop&w=800&q=80';
+
+  // Restore selected event on initial page load / refresh
+  useEffect(() => {
+    if (events.length > 0 && !selectedEventForRegs) {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const eventId = urlParams.get('eventId') || urlParams.get('openplay');
+        if (eventId) {
+          const matched = events.find(e => e.id === eventId);
+          if (matched) {
+            setSelectedEventForRegs(matched);
+          }
+        }
+      } catch (e) {}
+    }
+  }, [events, selectedEventForRegs, setSelectedEventForRegs]);
+
+  // Handle browser back / forward navigation popstate events
+  useEffect(() => {
+    const handlePopState = () => {
+      if (events.length > 0) {
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const eventId = urlParams.get('eventId') || urlParams.get('openplay');
+          if (eventId) {
+            const matched = events.find(e => e.id === eventId);
+            if (matched) {
+              setSelectedEventForRegs(matched);
+              return;
+            }
+          }
+          setSelectedEventForRegs(null);
+        } catch (e) {}
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [events, setSelectedEventForRegs]);
+
+  const handleSelectEvent = (event: OpenPlayEvent | null) => {
+    setSelectedEventForRegs(event);
+    if (event) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('eventId', event.id);
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    } else {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('eventId');
+        url.searchParams.delete('openplay');
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    }
+  };
+
   const handleOpenQrForEvent = (event: OpenPlayEvent) => {
     setQrModalState({
       isOpen: true,
@@ -280,7 +339,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
         <AdminOpenPlayEventDetails
           event={selectedEventForRegs}
           registrations={openPlayRegistrations}
-          onBack={() => setSelectedEventForRegs(null)}
+          onBack={() => handleSelectEvent(null)}
           onOpenEditModal={onOpenEditModal}
           onDeleteEvent={onDeleteEvent}
           onCopyShareLink={onCopyShareLink}
@@ -437,7 +496,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                           </td>
                           <td className="py-3.5 px-4 font-bold text-white">
                             <div
-                              onClick={(e) => { e.stopPropagation(); setSelectedEventForRegs(event); }}
+                              onClick={(e) => { e.stopPropagation(); handleSelectEvent(event); }}
                               className="flex items-center gap-2 cursor-pointer hover:text-brand-lime transition-colors group/tbl"
                               title="Click to view Admin Event Details Page"
                             >
@@ -461,7 +520,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                           <td className="py-3.5 px-4 text-center">
                             <div className="flex items-center justify-center gap-2">
                               <button
-                                onClick={(e) => { e.stopPropagation(); setSelectedEventForRegs(event); }}
+                                onClick={(e) => { e.stopPropagation(); handleSelectEvent(event); }}
                                 className="px-3 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-lime-400 transition-all cursor-pointer shadow-sm flex items-center gap-1"
                                 title="Open Admin Event Details Page & Roster"
                               >
@@ -531,19 +590,19 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                 return (
                   <div
                     key={event.id}
-                    onClick={() => setSelectedEventForRegs(event)}
+                    onClick={() => handleSelectEvent(event)}
                     className={`glass-panel border rounded-3xl p-5 relative overflow-hidden flex flex-col justify-between transition-all group shadow-lg cursor-pointer hover:border-brand-lime/50 ${
                     isExpired ? 'border-slate-800/60 bg-slate-950/40 opacity-90' : 'border-slate-800 hover:border-slate-700'
                   }`}>
                     <div>
                       {/* Poster Header */}
                       <div
-                        onClick={(e) => { e.stopPropagation(); setSelectedEventForRegs(event); }}
+                        onClick={(e) => { e.stopPropagation(); handleSelectEvent(event); }}
                         className="w-full aspect-[16/9] rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden relative mb-4 cursor-pointer group/poster"
                         title="Click to view Admin Event Details Page"
                       >
                         {event.posterImageUrl ? (
-                          <img src={event.posterImageUrl} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <img src={event.posterImageUrl} alt={event.title} onError={(e) => { (e.currentTarget as HTMLImageElement).src = DEFAULT_OPENPLAY_IMAGE; }} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-slate-900 to-slate-950">
                             <Trophy className="w-8 h-8 text-brand-lime/40 mb-1" />
@@ -609,7 +668,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
 
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <h4
-                          onClick={(e) => { e.stopPropagation(); setSelectedEventForRegs(event); }}
+                          onClick={(e) => { e.stopPropagation(); handleSelectEvent(event); }}
                           className="text-lg sm:text-xl font-semibold text-white leading-tight cursor-pointer hover:text-brand-lime transition-colors flex items-center gap-1.5 group/title"
                           title="Click to view Admin Event Details Page"
                         >
@@ -655,14 +714,20 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                         {onOpenManualBookingModal && (
                           <button
                             type="button"
-                            disabled={isExpired || event.status === 'expired'}
+                            disabled={isExpired || event.status === 'expired' || isFull}
                             onClick={(e) => { e.stopPropagation(); onOpenManualBookingModal(event); }}
-                            className={`py-2 px-3 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
-                              isExpired || event.status === 'expired'
+                            className={`py-2 px-3 rounded-xl font-normal text-xs uppercase tracking-wider flex items-center justify-center gap-1 transition-all ${
+                              isExpired || event.status === 'expired' || isFull
                                 ? 'bg-slate-800 text-slate-500 border border-slate-700/50 cursor-not-allowed'
                                 : 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg cursor-pointer'
                             }`}
-                            title={isExpired || event.status === 'expired' ? "Cannot add player to an expired event session" : "Manually add walk-in or cash player"}
+                            title={
+                              isExpired || event.status === 'expired'
+                                ? "Cannot add player to an expired event session"
+                                : isFull
+                                  ? "This Open Play session is fully booked"
+                                  : "Manually add walk-in or cash player"
+                            }
                           >
                             <UserPlus className="w-3.5 h-3.5" /> + Add Player
                           </button>

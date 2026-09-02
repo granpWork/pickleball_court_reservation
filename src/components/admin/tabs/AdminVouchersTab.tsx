@@ -53,7 +53,7 @@ export const AdminVouchersTab: React.FC<AdminVouchersTabProps> = ({
             <button
               key={tab.id}
               type="button"
-              onClick={() => setStatusFilter(tab.id as any)}
+              onClick={() => setStatusFilter(tab.id as typeof statusFilter)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
                 statusFilter === tab.id
                   ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'

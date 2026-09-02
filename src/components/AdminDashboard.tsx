@@ -457,11 +457,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     try {
       const saved = sessionStorage.getItem('picklepoint_admin_active_tab');
-      if (saved && ['bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers', 'service_fee', 'shortener'].includes(saved)) {
+      if (saved && ['dashboard', 'bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers', 'service_fee', 'shortener'].includes(saved)) {
         return saved as AdminTab;
       }
     } catch (e) {}
-    return 'bookings';
+    return 'dashboard';
   });
 
   const [courtsResetKey, setCourtsResetKey] = useState<number>(0);
@@ -479,10 +479,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         const urlSubTab = params.get('subtab') || params.get('settingsSubTab');
         if (urlSubTab && ['profile', 'organization', 'team', 'policies', 'reminders', 'gcash', 'lead_time', 'service_fee'].includes(urlSubTab)) {
           return urlSubTab as AdminSettingsSubTab;
-        }
-        const saved = sessionStorage.getItem('picklepoint_admin_settings_subtab') || localStorage.getItem('picklepoint_admin_settings_subtab');
-        if (saved && ['profile', 'organization', 'team', 'policies', 'reminders', 'gcash', 'lead_time', 'service_fee'].includes(saved)) {
-          return saved as AdminSettingsSubTab;
         }
       }
     } catch (e) {}
@@ -928,6 +924,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   });
 
   const handleSaveManualOpenPlayRegistration = async (payload: any) => {
+    const targetEvent = openPlayEvents.find(e => e.id === payload.eventId);
+    if (targetEvent) {
+      const activeRegs = openPlayRegistrations.filter(r => r.eventId === targetEvent.id && r.status !== 'cancelled');
+      const currentHeadcount = activeRegs.reduce((sum, r) => sum + (r.playerCount || (1 + (r.guestCount || 0))), 0);
+      const maxCapacity = targetEvent.maxParticipants || 16;
+      const requestedHeadcount = payload.playerCount || 1;
+      if (currentHeadcount + requestedHeadcount > maxCapacity) {
+        throw new Error(`This Open Play session is fully booked (${currentHeadcount}/${maxCapacity} spots filled). Cannot add more players.`);
+      }
+    }
+
     let regId = `reg_manual_${Date.now()}`;
     if (isFirebaseConfigured && db) {
       const regDocRef = doc(collection(db, 'openplay_registrations'));
@@ -940,7 +947,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         await setDoc(doc(db, 'openplay_registrations', regId), finalPayload);
       }
       const localStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
-      let localRegs = localStr ? JSON.parse(localStr) as OpenPlayRegistration[] : [];
+      const localRegs = localStr ? JSON.parse(localStr) as OpenPlayRegistration[] : [];
       localRegs.push(finalPayload);
       try { localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(localRegs)); } catch (e) {}
       try { sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(localRegs)); } catch (e) {}
@@ -1371,7 +1378,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
 
         const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-        let localEvents = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
+        const localEvents = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
         localEvents.push(...newEventsBatch);
         try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
         try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
@@ -1482,7 +1489,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
 
       const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-      let localEvents = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
+      const localEvents = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
       const existingIdx = localEvents.findIndex(e => e.id === eventId);
       if (existingIdx >= 0) {
         localEvents[existingIdx] = payload;
@@ -1531,7 +1538,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         await setDoc(doc(db, 'openplay_events', event.id), updatedPayload, { merge: true });
       }
       const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-      let localEvs = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
+      const localEvs = localStr ? JSON.parse(localStr) as OpenPlayEvent[] : [];
       const existingIdx = localEvs.findIndex((e: any) => e.id === event.id);
       if (existingIdx >= 0) {
         localEvs[existingIdx] = updatedPayload;
@@ -2549,7 +2556,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
 
       const compStr = localStorage.getItem('picklepoint_companies');
-      let localComps = (compStr ? JSON.parse(compStr) : []) as Company[];
+      const localComps = (compStr ? JSON.parse(compStr) : []) as Company[];
       const existingIdx = localComps.findIndex((c) => c.id === companyDocId || c.clientAdminEmail?.toLowerCase() === currentUserEmail);
       if (existingIdx >= 0) {
         localComps[existingIdx] = updatedCompany;
@@ -3535,7 +3542,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setReminderSaveLoading(true);
     setReminderSaveSuccess(false);
     try {
-      let finalMinutes = paymentReminderSettings.preset === 'custom'
+      const finalMinutes = paymentReminderSettings.preset === 'custom'
         ? Math.max(1, Number(paymentReminderSettings.customMinutes) || 1)
         : Number(paymentReminderSettings.preset);
 
@@ -6441,10 +6448,30 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const handleTabChange = (tab: AdminTab) => {
     if (tab === 'courts') {
       setCourtsResetKey((prev) => prev + 1);
+      try { sessionStorage.removeItem('picklepoint_selected_court_id'); } catch (e) {}
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('court_id') || url.searchParams.has('courtId')) {
+          url.searchParams.delete('court_id');
+          url.searchParams.delete('courtId');
+          window.history.pushState(null, '', url.toString());
+        }
+      } catch (e) {}
+    }
+    if (tab === 'settings') {
+      setSettingsSubTab('profile');
     }
     setActiveTab(tab);
     if (tab === 'openplay') {
       setSelectedEventForRegs(null);
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('eventId') || url.searchParams.has('openplay')) {
+          url.searchParams.delete('eventId');
+          url.searchParams.delete('openplay');
+          window.history.pushState(null, '', url.toString());
+        }
+      } catch (e) {}
     }
   };
 
@@ -6617,12 +6644,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             <AdminCourtsTab
               key={courtsResetKey}
               courts={isSuperAdmin ? courts : availableAdminCourts}
+              bookings={bookings}
+              openPlayEvents={openPlayEvents}
               myCompany={currentCompany}
               onOpenCreateCourtModal={() => { setEditingCourt(null); setCourtModalOpen(true); }}
               onOpenEditCourtModal={handleOpenEditCourt}
               onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
               onTogglePublishCourt={(courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); }}
               onOpenManualBookingModal={() => setIsManualBookingModalOpen(true)}
+              gcashAccounts={personalAccounts}
               userPermissions={getUserEffectivePermissions(user as any)}
             />
           )}
@@ -8405,7 +8435,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             <div className="absolute inset-0 court-lines opacity-5 pointer-events-none rounded-3xl"></div>
             
             <div className="flex flex-wrap justify-between items-center pb-4 border-b border-dark-border mb-5 gap-3">
-              <h3 className="text-base font-semibold text-white flex items-center gap-2">
+              <h3 className="text-lg font-normal text-white flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-brand-lime" />
                 {editingCourt ? 'Edit Court Details' : 'Create New Court'}
               </h3>
@@ -8417,7 +8447,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     ? 'bg-brand-lime/15 border-brand-lime/40 text-brand-lime shadow-sm shadow-brand-lime/10' 
                     : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                 }`}>
-                  <span className="text-sm font-extrabold tracking-wide">
+                  <span className="text-sm font-normal tracking-wide">
                     {courtPublished ? 'Published' : 'Draft'}
                   </span>
                   <div className="relative inline-flex items-center cursor-pointer">
@@ -8442,7 +8472,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </div>
 
             {courtFormError && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2.5 rounded-xl text-xs font-semibold mb-4 text-left animate-shake">
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2.5 rounded-xl text-xs font-normal mb-4 text-left animate-shake">
                 {courtFormError}
               </div>
             )}
@@ -8451,13 +8481,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               
               {/* CARD 1: BASIC INFORMATION */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
-                <h4 className="text-xs font-extrabold text-white uppercase tracking-wider border-b border-slate-800/50 pb-2">
+                <h4 className="text-sm font-normal text-white uppercase tracking-wider border-b border-slate-800/50 pb-2">
                   Basic Information
                 </h4>
                 
                 {/* Court Name */}
                 <div className="space-y-1.5 text-left">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">
                     Court Name <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -8466,13 +8496,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     value={courtName}
                     onChange={(e) => setCourtName(e.target.value)}
                     placeholder="e.g., Championship Court A"
-                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
+                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-sm font-normal focus:outline-none focus:border-brand-lime transition-all"
                   />
                 </div>
 
                 {/* Surface Type Dropdown */}
                 <div className="space-y-1.5 text-left">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">
                     Surface Type <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
@@ -8486,7 +8516,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         setIsCourtCityOpen(false);
                         setIsCourtBarangayOpen(false);
                       }}
-                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-sm font-normal text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
                     >
                       <span className="truncate">
                         {courtType || 'Select Surface Type...'}
@@ -8515,8 +8545,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 setCourtType(st);
                                 setIsCourtTypeOpen(false);
                               }}
-                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                courtType === st ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                courtType === st ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                               }`}
                             >
                               <span className="truncate">{st}</span>
@@ -8527,15 +8557,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                       </>
                     )}
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1">Select the court surface material and playing condition.</p>
+                  <p className="text-xs text-slate-400 mt-1 font-normal">Select the court surface material and playing condition.</p>
                 </div>
 
                 {/* Assign GCash Account */}
                 <div className="space-y-1.5 text-left">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                  <label className="text-sm font-normal text-slate-300 uppercase tracking-wider flex items-center justify-between">
                     <span>Assign GCash Payment Destination</span>
                     {courtGcashAccountId && (
-                      <span className="text-[10px] font-bold text-brand-lime uppercase">Custom Destination Active</span>
+                      <span className="text-xs font-normal text-brand-lime uppercase">Custom Destination Active</span>
                     )}
                   </label>
                   <div className="relative">
@@ -8549,7 +8579,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         setIsCourtCityOpen(false);
                         setIsCourtBarangayOpen(false);
                       }}
-                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-sm font-normal text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
                     >
                       <span className="truncate">
                         {(() => {
@@ -8573,8 +8603,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                               setCourtGcashAccountId('');
                               setIsCourtGcashOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                              !courtGcashAccountId ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                            className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                              !courtGcashAccountId ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                             }`}
                           >
                             <span>-- Use Default Choice --</span>
@@ -8591,8 +8621,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                   setCourtGcashAccountId(a.id);
                                   setIsCourtGcashOpen(false);
                                 }}
-                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                  isSelected ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                  isSelected ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                                 }`}
                               >
                                 <span className="truncate">{labelText}</span>
@@ -8604,7 +8634,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                       </>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">
+                  <p className="text-xs text-slate-400 mt-1 font-normal">
                     Select which configured GCash account receives reservation payments for this court. If none is assigned, the client owner's primary account details (or fallback) are shown.
                   </p>
                 </div>
@@ -8612,18 +8642,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
               {/* CARD 2: PRICING */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 space-y-4">
-                <h4 className="text-xs font-extrabold text-white uppercase tracking-wider border-b border-slate-800/50 pb-2">
+                <h4 className="text-sm font-normal text-white uppercase tracking-wider border-b border-slate-800/50 pb-2">
                   Pricing Rates
                 </h4>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                   {/* Day Price */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">
                       Day Rate (5:00 AM – 6:00 PM)
                     </label>
                     <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-550 font-bold text-xs">
+                      <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 font-normal text-sm">
                         ₱ PHP
                       </span>
                       <input
@@ -8632,18 +8662,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         value={courtDayPrice}
                         onChange={(e) => setCourtDayPrice(Number(e.target.value))}
                         placeholder="100"
-                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl pl-16 pr-4 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all font-semibold"
+                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl pl-18 pr-4 py-3 text-sm focus:outline-none focus:border-brand-lime transition-all font-normal"
                       />
                     </div>
                   </div>
 
                   {/* Night Price */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">
                       Night Rate (6:00 PM – 10:00 PM)
                     </label>
                     <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-555 font-bold text-xs">
+                      <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400 font-normal text-sm">
                         ₱ PHP
                       </span>
                       <input
@@ -8652,13 +8682,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         value={courtNightPrice}
                         onChange={(e) => setCourtNightPrice(Number(e.target.value))}
                         placeholder="150"
-                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl pl-16 pr-4 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all font-semibold"
+                        className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl pl-18 pr-4 py-3 text-sm focus:outline-none focus:border-brand-lime transition-all font-normal"
                       />
                     </div>
                   </div>
                 </div>
 
-                <p className="text-xs text-slate-400 font-medium leading-relaxed italic bg-slate-950/20 p-3 rounded-xl border border-slate-800/40">
+                <p className="text-xs text-slate-400 font-normal leading-relaxed italic bg-slate-950/20 p-3 rounded-xl border border-slate-800/40">
                   These rates are automatically applied based on the customer's selected booking time.
                 </p>
               </div>
@@ -8666,14 +8696,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               {/* CARD 3: COURT ADDRESS */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 space-y-4 text-left">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2 flex-wrap gap-2">
-                  <h4 className="text-xs font-extrabold text-white uppercase tracking-wider">
+                  <h4 className="text-sm font-normal text-white uppercase tracking-wider">
                     Court Address
                   </h4>
                   {myCompany && (myCompany.address || myCompany.addressLine1) && (
                     <button
                       type="button"
                       onClick={handleAutofillFromCompanyAddress}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm hover:scale-[1.02] ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-normal transition-all cursor-pointer shadow-sm hover:scale-[1.02] ${
                         autofillAddressSuccess
                           ? 'bg-brand-emerald/20 border border-brand-emerald text-brand-emerald'
                           : 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg'
@@ -8696,7 +8726,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                 {/* Region select */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Region <span className="text-red-500">*</span></label>
+                  <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Region <span className="text-red-500">*</span></label>
                   <div className="relative">
                     <button
                       type="button"
@@ -8708,7 +8738,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         setIsCourtTypeOpen(false);
                         setIsCourtGcashOpen(false);
                       }}
-                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
+                      className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-sm font-normal text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer"
                     >
                       <span className="truncate">
                         {regions.find((r) => r.code === selectedRegion)?.name || regionName || 'Select Region'}
@@ -8726,8 +8756,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                               handleRegionChange('');
                               setIsCourtRegionOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                              !selectedRegion ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                            className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                              !selectedRegion ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                             }`}
                           >
                             <span>Select Region</span>
@@ -8741,8 +8771,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 handleRegionChange(r.code);
                                 setIsCourtRegionOpen(false);
                               }}
-                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                selectedRegion === r.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                selectedRegion === r.code ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                               }`}
                             >
                               <span className="truncate">{r.name}</span>
@@ -8758,7 +8788,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 {/* Province select (only if provinces exist for the region) */}
                 {selectedRegion && provinces.length > 0 && (
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Province</label>
+                    <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Province</label>
                     <div className="relative">
                       <button
                         type="button"
@@ -8769,7 +8799,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                           setIsCourtCityOpen(false);
                           setIsCourtBarangayOpen(false);
                         }}
-                        className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
+                        className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-sm font-normal text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
                       >
                         <span className="truncate">
                           {provinces.find((p) => p.code === selectedProvince)?.name || provinceName || 'Select Province'}
@@ -8787,8 +8817,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                 handleProvinceChange('');
                                 setIsCourtProvinceOpen(false);
                               }}
-                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                !selectedProvince ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                              className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                !selectedProvince ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                               }`}
                             >
                               <span>Select Province</span>
@@ -8802,8 +8832,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                   handleProvinceChange(p.code);
                                   setIsCourtProvinceOpen(false);
                                 }}
-                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                  selectedProvince === p.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                  selectedProvince === p.code ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                                 }`}
                               >
                                 <span className="truncate">{p.name}</span>
@@ -8820,7 +8850,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 {/* Municipality & Barangay dropdowns */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Municipality / City <span className="text-red-500">*</span></label>
+                    <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Municipality / City <span className="text-red-500">*</span></label>
                     {selectedRegion && cities.length > 0 ? (
                       <div className="relative">
                         <button
@@ -8832,7 +8862,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                             setIsCourtProvinceOpen(false);
                             setIsCourtBarangayOpen(false);
                           }}
-                          className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
+                          className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-sm font-normal text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
                         >
                           <span className="truncate">
                             {cities.find((c) => c.code === selectedCity)?.name || cityName || 'Select Municipality/City'}
@@ -8850,8 +8880,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                   handleCityChange('');
                                   setIsCourtCityOpen(false);
                                 }}
-                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                  !selectedCity ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                  !selectedCity ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                                 }`}
                               >
                                 <span>Select Municipality/City</span>
@@ -8865,8 +8895,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                     handleCityChange(c.code);
                                     setIsCourtCityOpen(false);
                                   }}
-                                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                    selectedCity === c.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                  className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                    selectedCity === c.code ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                                   }`}
                                 >
                                   <span className="truncate">{c.name}</span>
@@ -8883,13 +8913,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         value={cityName}
                         onChange={(e) => setCityName(e.target.value)}
                         placeholder="Enter City / Municipality"
-                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all font-semibold shadow-inner"
+                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3.5 py-3 text-sm focus:outline-none focus:border-brand-lime transition-all font-normal shadow-inner"
                       />
                     )}
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Barangay <span className="text-red-500">*</span></label>
+                    <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Barangay <span className="text-red-500">*</span></label>
                     {selectedCity && barangays.length > 0 ? (
                       <div className="relative">
                         <button
@@ -8901,7 +8931,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                             setIsCourtProvinceOpen(false);
                             setIsCourtCityOpen(false);
                           }}
-                          className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
+                          className="w-full flex items-center justify-between gap-2 bg-[#050711] border border-slate-800 rounded-xl p-3 text-sm font-normal text-white focus:outline-none hover:border-brand-lime/50 transition-all cursor-pointer disabled:opacity-50"
                         >
                           <span className="truncate">
                             {barangays.find((b) => b.code === selectedBarangay)?.name || barangayName || 'Select Barangay'}
@@ -8919,8 +8949,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                   handleBarangayChange('');
                                   setIsCourtBarangayOpen(false);
                                 }}
-                                className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                  !selectedBarangay ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                  !selectedBarangay ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                                 }`}
                               >
                                 <span>Select Barangay</span>
@@ -8934,8 +8964,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                                     handleBarangayChange(b.code);
                                     setIsCourtBarangayOpen(false);
                                   }}
-                                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
-                                    selectedBarangay === b.code ? 'bg-brand-lime/10 text-brand-lime font-black' : 'text-slate-300 hover:bg-slate-800'
+                                  className={`w-full text-left px-3 py-2 rounded-xl text-sm font-normal flex items-center justify-between cursor-pointer transition-all ${
+                                    selectedBarangay === b.code ? 'bg-brand-lime/10 text-brand-lime' : 'text-slate-300 hover:bg-slate-800'
                                   }`}
                                 >
                                   <span className="truncate">{b.name}</span>
@@ -8952,7 +8982,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         value={barangayName}
                         onChange={(e) => setBarangayName(e.target.value)}
                         placeholder="Enter Barangay"
-                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all font-semibold shadow-inner"
+                        className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl px-3.5 py-3 text-sm focus:outline-none focus:border-brand-lime transition-all font-normal shadow-inner"
                       />
                     )}
                   </div>
@@ -8960,44 +8990,44 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                 {/* Address Line 1 */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Street Address (Address 1) <span className="text-red-500">*</span></label>
+                  <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Street Address (Address 1) <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     required
                     value={courtAddressLine1}
                     onChange={(e) => setCourtAddressLine1(e.target.value)}
                     placeholder="e.g., 123 Pickleball Lane"
-                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
+                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-sm font-normal focus:outline-none focus:border-brand-lime transition-all"
                   />
                 </div>
 
                 {/* Address Line 2 */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Apt, Suite, Unit, etc. (Address 2 - Optional)</label>
+                  <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Apt, Suite, Unit, etc. (Address 2 - Optional)</label>
                   <input
                     type="text"
                     value={courtAddressLine2}
                     onChange={(e) => setCourtAddressLine2(e.target.value)}
                     placeholder="e.g., Phase 2, Court B"
-                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
+                    className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-sm font-normal focus:outline-none focus:border-brand-lime transition-all"
                   />
                 </div>
 
                 {/* Postal Code & Country */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Postal Code <span className="text-red-500">*</span></label>
+                    <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Postal Code <span className="text-red-500">*</span></label>
                     <input
                       type="text"
                       required
                       value={courtPostalCode}
                       onChange={(e) => setCourtPostalCode(e.target.value)}
                       placeholder="e.g., 1600"
-                      className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-xs focus:outline-none focus:border-brand-lime transition-all"
+                      className="w-full bg-dark-bg/60 border border-dark-border text-slate-200 rounded-xl px-3.5 py-3 text-sm font-normal focus:outline-none focus:border-brand-lime transition-all"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Country</label>
+                    <label className="text-sm font-normal text-slate-300 uppercase tracking-wider">Country</label>
                     <input
                       type="text"
                       required
@@ -9101,7 +9131,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
               {/* CARD 4: COURT PHOTOS */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 space-y-4 text-left">
-                <h4 className="text-xs font-extrabold text-white uppercase tracking-wider border-b border-slate-800/50 pb-2">
+                <h4 className="text-sm font-normal text-white uppercase tracking-wider border-b border-slate-800/50 pb-2">
                   Court Photos
                 </h4>
                 
@@ -9120,10 +9150,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <svg className="w-8 h-8 text-slate-400 mb-3 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
-                  <span className="text-xs font-bold text-slate-300 text-center">Drag & Drop Court Photos here</span>
-                  <span className="text-xs text-slate-500 mt-1 mb-3">Or choose files from your device</span>
+                  <span className="text-sm font-normal text-slate-300 text-center">Drag & Drop Court Photos here</span>
+                  <span className="text-xs text-slate-400 mt-1 mb-3 font-normal">Or choose files from your device</span>
                   
-                  <label className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-xs font-bold hover:bg-slate-750 transition-all cursor-pointer">
+                  <label className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-sm font-normal hover:bg-slate-750 transition-all cursor-pointer">
                     Browse Files
                     <input
                       type="file"
@@ -9138,7 +9168,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 {/* Preview Grid with Reorder / Cover actions */}
                 {courtImages.length > 0 && (
                   <div className="space-y-2">
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-widest block">Uploaded Images ({courtImages.length})</span>
+                    <span className="text-xs font-normal text-slate-400 uppercase tracking-widest block">Uploaded Images ({courtImages.length})</span>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                       {courtImages.map((src, index) => {
                         const isCover = index === 0;
@@ -9163,7 +9193,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                               {/* Top row actions */}
                               <div className="flex justify-between items-center w-full">
                                 {isCover ? (
-                                  <span className="text-xs font-extrabold uppercase bg-brand-lime text-dark-bg px-2 py-0.5 rounded">
+                                  <span className="text-xs font-normal uppercase bg-brand-lime text-dark-bg px-2 py-0.5 rounded">
                                     Cover
                                   </span>
                                 ) : (
@@ -9209,7 +9239,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                             {/* Cover visual badge in static mode */}
                             {isCover && (
-                              <div className="absolute top-1.5 left-1.5 bg-brand-lime text-dark-bg text-xs font-extrabold px-2 py-0.5 rounded shadow pointer-events-none z-10 uppercase">
+                              <div className="absolute top-1.5 left-1.5 bg-brand-lime text-dark-bg text-xs font-normal px-2 py-0.5 rounded shadow pointer-events-none z-10 uppercase">
                                 Cover
                               </div>
                             )}
@@ -9224,22 +9254,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               {/* CARD 5: EQUIPMENT RENTALS & ADD-ONS */}
               <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-5 space-y-4 text-left">
                 <div className="flex justify-between items-center border-b border-slate-800/50 pb-2">
-                  <h4 className="text-xs font-extrabold text-white uppercase tracking-wider">
+                  <h4 className="text-sm font-normal text-white uppercase tracking-wider">
                     Equipment Rentals & Add-ons
                   </h4>
                   <button
                     type="button"
                     onClick={handleOpenCreateRental}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow"
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-normal text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow"
                   >
-                    <Plus className="w-3 h-3" /> Add Rental Item
+                    <Plus className="w-3.5 h-3.5" /> Add Rental Item
                   </button>
                 </div>
 
-                <p className="text-xs text-slate-400">Offer optional items (like paddles, ball sets, and locker services) for users to book alongside the court.</p>
+                <p className="text-xs text-slate-400 font-normal">Offer optional items (like paddles, ball sets, and locker services) for users to book alongside the court.</p>
 
                 {courtRentals.length === 0 ? (
-                  <div className="py-8 text-center border border-dashed border-slate-850 rounded-xl bg-slate-955/10 text-slate-500 text-xs">
+                  <div className="py-8 text-center border border-dashed border-slate-850 rounded-xl bg-slate-955/10 text-slate-400 text-xs font-normal">
                     No rental items added yet. Click "+ Add Rental Item" to configure.
                   </div>
                 ) : (
@@ -9263,7 +9293,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         {/* Rental specs */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 justify-between">
-                            <span className="font-bold text-white text-xs truncate block">{item.name}</span>
+                            <span className="font-normal text-white text-sm truncate block">{item.name}</span>
                             
                             {/* Toggle checkbox */}
                             <label className="relative inline-flex items-center cursor-pointer select-none">
@@ -9277,13 +9307,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                             </label>
                           </div>
 
-                          <p className="text-xs text-slate-450 line-clamp-1 mt-0.5">{item.description || 'No description provided.'}</p>
+                          <p className="text-xs text-slate-400 font-normal line-clamp-1 mt-0.5">{item.description || 'No description provided.'}</p>
                           
                           <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-slate-900/60 text-xs">
-                            <span className="text-brand-lime font-bold font-sans">
-                              ₱{item.price} <span className="text-slate-500 font-medium text-xs">/ {item.pricingType.replace('_', ' ')}</span>
+                            <span className="text-brand-lime font-normal font-sans">
+                              ₱{item.price} <span className="text-slate-400 font-normal text-xs">/ {item.pricingType.replace('_', ' ')}</span>
                             </span>
-                            <span className="text-slate-400 font-semibold font-sans">Qty: {item.quantity}</span>
+                            <span className="text-slate-300 font-normal font-sans">Qty: {item.quantity}</span>
                           </div>
 
                           {/* Edit / Delete actions */}
@@ -9291,7 +9321,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                             <button
                               type="button"
                               onClick={() => handleOpenEditRental(item)}
-                              className="text-xs font-bold text-slate-400 hover:text-brand-lime cursor-pointer transition-colors"
+                              className="text-xs font-normal text-slate-400 hover:text-brand-lime cursor-pointer transition-colors"
                             >
                               Edit
                             </button>
@@ -9299,7 +9329,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                             <button
                               type="button"
                               onClick={() => handleDeleteRental(item.id)}
-                              className="text-xs font-bold text-red-400 hover:text-red-500 cursor-pointer transition-colors"
+                              className="text-xs font-normal text-red-400 hover:text-red-500 cursor-pointer transition-colors"
                             >
                               Delete
                             </button>
@@ -9317,7 +9347,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               <button
                 type="button"
                 onClick={() => setCourtModalOpen(false)}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-400 border border-slate-800 hover:bg-slate-900 transition-all cursor-pointer"
+                className="px-5 py-2.5 rounded-xl text-sm font-normal text-slate-300 border border-slate-800 hover:bg-slate-900 transition-all cursor-pointer"
               >
                 Cancel
               </button>
@@ -9325,9 +9355,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 type="button"
                 onClick={handleSaveCourt}
                 disabled={loading}
-                className="px-6 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer flex items-center justify-center gap-2 shadow"
+                className="px-6 py-2.5 rounded-xl text-sm font-normal text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer flex items-center justify-center gap-2 shadow"
               >
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save Court'}
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Court'}
               </button>
             </div>
           </div>
@@ -12671,6 +12701,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         onClose={() => setIsManualBookingModalOpen(false)}
         courts={isSuperAdmin ? courts : availableAdminCourts}
         existingBookings={bookings}
+        openPlayEvents={openPlayEvents}
         onSaveBooking={handleCreateManualBooking}
         isSubmitting={isSubmittingManualBooking}
       />

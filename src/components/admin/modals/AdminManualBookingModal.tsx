@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { X, Calendar, Clock, User, Phone, Mail, DollarSign, Check, AlertCircle, CreditCard, FileText } from 'lucide-react';
 import { type Court, type Booking, SLOTS, getSlotPrice } from '../adminTypes';
+import { type OpenPlayEvent } from '../../OpenPlayDetails';
+import { getOpenPlayTimeSlots } from '../../../utils/timeSlotUtils';
 
 interface AdminManualBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   courts: Court[];
   existingBookings: Booking[];
+  openPlayEvents?: OpenPlayEvent[];
   onSaveBooking: (booking: Partial<Booking>) => Promise<void> | void;
   isSubmitting?: boolean;
 }
@@ -16,6 +19,7 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
   onClose,
   courts,
   existingBookings,
+  openPlayEvents = [],
   onSaveBooking,
   isSubmitting = false,
 }) => {
@@ -33,8 +37,6 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
   const [internalNotes, setInternalNotes] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
 
-
-
   React.useEffect(() => {
     if (isOpen && courts.length > 0) {
       if (!selectedCourtId || !courts.some((c) => c.id === selectedCourtId)) {
@@ -47,12 +49,14 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
     return courts.find((c) => c.id === selectedCourtId) || courts[0];
   }, [courts, selectedCourtId]);
 
-  // Determine occupied slots for selected court and date
+  // Determine occupied slots for selected court and date (Regular Bookings + Open Play Sessions)
   const occupiedSlots = useMemo(() => {
     const courtIdToUse = selectedCourtId || courts[0]?.id;
     if (!courtIdToUse || !selectedDate) return new Set<string>();
 
     const occupied = new Set<string>();
+
+    // 1. Regular Court Bookings
     existingBookings.forEach((b) => {
       if (b.status === 'cancelled') return;
       if (b.courtId === courtIdToUse && b.date === selectedDate) {
@@ -61,8 +65,28 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
         }
       }
     });
+
+    // 2. Scheduled Open Play Events
+    if (openPlayEvents && openPlayEvents.length > 0) {
+      openPlayEvents.forEach((ev) => {
+        if (ev.status === 'cancelled') return;
+        const evDate = ev.eventDate || (ev as any).date;
+        if (evDate === selectedDate) {
+          const isCourtMatch =
+            !ev.courtIds ||
+            ev.courtIds.length === 0 ||
+            ev.courtIds.includes(courtIdToUse) ||
+            (ev as any).courtId === courtIdToUse;
+          if (isCourtMatch) {
+            const blockedSlots = getOpenPlayTimeSlots(ev.startTime, ev.endTime);
+            blockedSlots.forEach((st) => occupied.add(st));
+          }
+        }
+      });
+    }
+
     return occupied;
-  }, [existingBookings, selectedCourtId, courts, selectedDate]);
+  }, [existingBookings, openPlayEvents, selectedCourtId, courts, selectedDate]);
 
   // Calculate default price for selected slots
   const calculatedTotal = useMemo(() => {

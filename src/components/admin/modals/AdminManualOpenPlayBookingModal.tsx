@@ -65,6 +65,7 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   const currentHeadcount = activeRegs.reduce((sum, r) => sum + (r.playerCount || (1 + (r.guestCount || 0))), 0);
   const maxCapacity = event.maxParticipants || 16;
   const spotsRemaining = Math.max(0, maxCapacity - currentHeadcount);
+  const isFull = spotsRemaining <= 0;
 
   // Form State
   const [playerName, setPlayerName] = useState('');
@@ -233,6 +234,13 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm font-normal flex items-center gap-2.5">
               <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-400" />
               <span>This Open Play session has concluded/expired. Manual player registrations are disabled for past sessions.</span>
+            </div>
+          )}
+
+          {isFull && !isSessionClosed && (
+            <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm font-normal flex items-center gap-2.5">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 text-red-400" />
+              <span>This Open Play session is fully booked ({currentHeadcount}/{maxCapacity} spots filled). Manual player registrations are disabled.</span>
             </div>
           )}
 
@@ -421,8 +429,12 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
 
             <button
               type="submit"
-              disabled={isSubmitting || isSessionClosed || totalHeadcount > spotsRemaining}
-              className="px-6 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg text-sm font-normal flex items-center gap-2 shadow-lg shadow-brand-lime/20 transition-all cursor-pointer disabled:opacity-50"
+              disabled={isSubmitting || isSessionClosed || isFull || totalHeadcount > spotsRemaining}
+              className={`px-6 py-2.5 rounded-xl text-sm font-normal flex items-center gap-2 transition-all ${
+                isSubmitting || isSessionClosed || isFull || totalHeadcount > spotsRemaining
+                  ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
+                  : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-lg shadow-brand-lime/20'
+              }`}
             >
               {isSubmitting ? (
                 <>
