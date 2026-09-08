@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, MapPin, CheckCircle, Lock, ChevronLeft, ChevronRight, ArrowLeft, X, Eye, ExternalLink, Building2, BadgeCheck, Phone, Mail, Globe, FileText, Shield, CloudRain, Trophy, LayoutGrid, Layers, Navigation } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Calendar, Clock, MapPin, CheckCircle, Lock, ChevronLeft, ChevronRight, ArrowLeft, X, Eye, ExternalLink, Building2, BadgeCheck, Phone, Mail, Globe, FileText, Shield, CloudRain, Trophy, LayoutGrid, Layers, Navigation, CheckCircle2, Sun, Moon, Sparkles, Filter, Info, ArrowRight, ShoppingBag, Trash2 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, getDoc, doc, query, where, getDocs } from 'firebase/firestore';
+import { collection, getDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 
 import type { DailyOperatingHoursMap } from './AdminDashboard';
@@ -113,10 +114,28 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
   const [isEquipmentRentalEnabled, setIsEquipmentRentalEnabled] = useState(false);
 
   // Dynamic booking slots states
-  const [bookedSlotsForDate, setBookedSlotsForDate] = useState<string[]>([]);
+  const [approvedSlotsForDate, setApprovedSlotsForDate] = useState<string[]>([]);
+  const [pendingSlotsForDate, setPendingSlotsForDate] = useState<string[]>([]);
   const [playerConflictsForDate, setPlayerConflictsForDate] = useState<Record<string, { courtName: string }>>({});
   const [openPlayBlockedSlots, setOpenPlayBlockedSlots] = useState<Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }>>({});
   const [loadingAvailability, setLoadingAvailability] = useState(false);
+  const [slotFilterTab, setSlotFilterTab] = useState<'all' | 'am' | 'pm'>('all');
+
+  const handleSelectAllAvailable = (slotsToFilter: any[]) => {
+    if (!slotsToFilter || slotsToFilter.length === 0) return;
+    const availableTimes = slotsToFilter
+      .filter((slot) => {
+        const isSlotApproved = approvedSlotsForDate.includes(slot.time);
+        const isSlotPending = pendingSlotsForDate.includes(slot.time);
+        const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
+        const isPlayerConflict = playerConflictsForDate[slot.time];
+        const openPlayInfo = openPlayBlockedSlots[slot.time];
+        return slot.available && !isSlotApproved && !isSlotPending && !isSlotPassed && !isPlayerConflict && !openPlayInfo;
+      })
+      .map((s) => s.time);
+
+    setSelectedSlots(availableTimes);
+  };
   
   // Carousel State
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -393,6 +412,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
     setSelectedCourtId(newCourt.id);
     setSelectedSlots([]);
     setActiveImageIndex(0);
+    loadVenueCourts(newCourt);
   };
 
   useEffect(() => {
@@ -402,40 +422,44 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
       return;
     }
 
+    // Skip redundant fetch if already active court matching targetCourtId
+    if (court && court.id === targetCourtId) {
+      setLoadingCourt(false);
+      return;
+    }
+
     const fetchCourtDetails = async () => {
-      setLoadingCourt(true);
+      if (!court || court.id !== targetCourtId) {
+        setLoadingCourt(true);
+      }
+      let foundCourt: Court | null = null;
       if (isFirebaseConfigured && db) {
         try {
           const docRef = doc(db, 'courts', targetCourtId);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            const loadedCourt = { id: docSnap.id, ...docSnap.data() } as Court;
-            setCourt(loadedCourt);
-            loadVenueCourts(loadedCourt);
-          } else {
-            console.error('No such court found in Firestore');
+            foundCourt = { id: docSnap.id, ...docSnap.data() } as Court;
           }
         } catch (err) {
-          console.error('Error fetching court details:', err);
-        } finally {
-          setLoadingCourt(false);
+          console.warn('Error fetching court details from Firestore, trying local fallback:', err);
         }
-      } else {
-        // LocalStorage fallback
+      }
+
+      if (!foundCourt) {
         try {
           const courtsStr = localStorage.getItem('picklepoint_courts');
           const localCourts = courtsStr ? JSON.parse(courtsStr) : [];
-          const matched = localCourts.find((c: Court) => c.id === targetCourtId);
-          if (matched) {
-            setCourt(matched);
-            loadVenueCourts(matched);
-          }
+          foundCourt = localCourts.find((c: Court) => c.id === targetCourtId) || null;
         } catch (err) {
           console.error('Error loading court details from LocalStorage:', err);
-        } finally {
-          setLoadingCourt(false);
         }
       }
+
+      if (foundCourt) {
+        setCourt(foundCourt);
+        loadVenueCourts(foundCourt);
+      }
+      setLoadingCourt(false);
     };
 
     fetchCourtDetails();
@@ -444,7 +468,8 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
   // Fetch bookings dynamically when selectedDate or court.id changes
   useEffect(() => {
     if (!selectedDate || !court?.id) {
-      setBookedSlotsForDate([]);
+      setApprovedSlotsForDate([]);
+      setPendingSlotsForDate([]);
       setPlayerConflictsForDate({});
       return;
     }
@@ -501,7 +526,8 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
 
     const fetchBookingsForDate = async () => {
       setLoadingAvailability(true);
-      const booked: string[] = [];
+      const approved: string[] = [];
+      const pending: string[] = [];
       const conflicts: Record<string, { courtName: string }> = {};
       const openPlayBlocks: Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }> = {};
       const currentUserEmail = user?.email?.toLowerCase();
@@ -543,6 +569,33 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
         }
       };
 
+      const processBookingItem = (data: any) => {
+        if (data.status !== 'cancelled' && data.status !== 'rejected' && data.paymentStatus !== 'cancelled' && data.paymentStatus !== 'failed' && data.slots && Array.isArray(data.slots)) {
+          const isTargetCourt =
+            (data.courtId && court.id && String(data.courtId) === String(court.id)) ||
+            (data.courtName && court.name && data.courtName.trim().toLowerCase() === court.name.trim().toLowerCase());
+
+          if (isTargetCourt) {
+            const isApproved = data.status === 'approved' || data.status === 'confirmed' || data.paymentStatus === 'paid';
+            if (isApproved) {
+              approved.push(...data.slots);
+            } else {
+              pending.push(...data.slots);
+            }
+          } else if (currentUserEmail || currentUserUid) {
+            const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
+            const bUid = data.userId || data.user?.uid;
+            const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
+            if (isSamePlayer) {
+              const targetCourtName = data.courtName || data.ownerCompanyName || 'Another Venue';
+              data.slots.forEach((st: string) => {
+                conflicts[st] = { courtName: targetCourtName };
+              });
+            }
+          }
+        }
+      };
+
       if (isFirebaseConfigured && db) {
         try {
           const bookingsRef = collection(db, 'bookings');
@@ -552,28 +605,13 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
           );
           const querySnapshot = await getDocs(q);
           querySnapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            if (data.status !== 'cancelled' && data.slots && Array.isArray(data.slots)) {
-              if (data.courtId === court.id) {
-                booked.push(...data.slots);
-              } else if (currentUserEmail || currentUserUid) {
-                const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
-                const bUid = data.userId || data.user?.uid;
-                const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
-                if (isSamePlayer) {
-                  const targetCourtName = data.courtName || data.ownerCompanyName || 'Another Venue';
-                  data.slots.forEach((st: string) => {
-                    conflicts[st] = { courtName: targetCourtName };
-                  });
-                }
-              }
-            }
+            processBookingItem(docSnap.data());
           });
         } catch (err) {
           console.error('Error fetching bookings:', err);
         }
 
-        // 1. Fetch Open Play from Firestore
+        // Fetch Open Play from Firestore
         try {
           const opSnap = await getDocs(collection(db, 'openplay_events'));
           opSnap.forEach((docSnap) => {
@@ -582,68 +620,75 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
         } catch (e) {
           console.warn('Error fetching Open Play events for court availability:', e);
         }
+      }
 
-        // 2. Also check LocalStorage / SessionStorage fallback
-        try {
-          const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-          if (opStr) {
-            const localEvents = JSON.parse(opStr);
-            if (Array.isArray(localEvents)) {
-              localEvents.forEach((ev: any) => {
-                processOpenPlayEvent(ev, ev.id);
-              });
-            }
-          }
-        } catch (e) {}
-      } else {
-        // LocalStorage fallback for Bookings
-        try {
-          const bookingsStr = localStorage.getItem('picklepoint_bookings');
-          const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
+      // Merge LocalStorage bookings for instant offline and multi-tab sync
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings');
+        const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
+        if (Array.isArray(localBookings)) {
           localBookings.forEach((b: any) => {
-            if (b.date === selectedDate && b.status !== 'cancelled' && b.slots && Array.isArray(b.slots)) {
-              if (b.courtId === court.id) {
-                booked.push(...b.slots);
-              } else if (currentUserEmail || currentUserUid) {
-                const bEmail = b.userEmail?.toLowerCase() || b.user?.email?.toLowerCase();
-                const bUid = b.userId || b.user?.uid;
-                const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
-                if (isSamePlayer) {
-                  const targetCourtName = b.courtName || b.ownerCompanyName || 'Another Venue';
-                  b.slots.forEach((st: string) => {
-                    conflicts[st] = { courtName: targetCourtName };
-                  });
-                }
-              }
+            if (b.date === selectedDate) {
+              processBookingItem(b);
             }
           });
-        } catch (err) {
-          console.error('Error loading bookings fallback:', err);
         }
-
-        // LocalStorage fallback for Open Play events
-        try {
-          const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-          if (opStr) {
-            const localEvents = JSON.parse(opStr);
-            if (Array.isArray(localEvents)) {
-              localEvents.forEach((ev: any) => {
-                processOpenPlayEvent(ev, ev.id);
-              });
-            }
-          }
-        } catch (e) {}
+      } catch (err) {
+        console.error('Error loading local bookings fallback:', err);
       }
+
+      // Merge LocalStorage / SessionStorage Open Play events
+      try {
+        const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+        if (opStr) {
+          const localEvents = JSON.parse(opStr);
+          if (Array.isArray(localEvents)) {
+            localEvents.forEach((ev: any) => {
+              processOpenPlayEvent(ev, ev.id);
+            });
+          }
+        }
+      } catch (e) {}
       
-      // Ensure unique list
-      setBookedSlotsForDate([...new Set(booked)]);
+      // Ensure unique lists
+      const uniqueApproved = [...new Set(approved)];
+      const uniquePending = [...new Set(pending)].filter((st) => !uniqueApproved.includes(st));
+      setApprovedSlotsForDate(uniqueApproved);
+      setPendingSlotsForDate(uniquePending);
       setPlayerConflictsForDate(conflicts);
       setOpenPlayBlockedSlots(openPlayBlocks);
       setLoadingAvailability(false);
     };
 
     fetchBookingsForDate();
-  }, [selectedDate, court?.id, user?.email, user?.uid]);
+
+    // Listen to local window events for instant UI updates
+    const handleLocalBookingUpdate = () => {
+      fetchBookingsForDate();
+    };
+    window.addEventListener('storage', handleLocalBookingUpdate);
+    window.addEventListener('picklepoint_booking_added', handleLocalBookingUpdate);
+
+    // Set up real-time Firestore listener for live bookings updates
+    let unsubscribeFirebase: (() => void) | undefined;
+    if (isFirebaseConfigured && db) {
+      try {
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(bookingsRef, where('date', '==', selectedDate));
+        unsubscribeFirebase = onSnapshot(q, () => {
+          fetchBookingsForDate();
+        });
+      } catch (err) {
+        console.warn('Real-time bookings snapshot subscription error:', err);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleLocalBookingUpdate);
+      window.removeEventListener('picklepoint_booking_added', handleLocalBookingUpdate);
+      if (unsubscribeFirebase) unsubscribeFirebase();
+    };
+  }, [selectedDate, court?.id, court?.name, user?.email, user?.uid]);
 
   const effectiveOperatingHours = court?.operatingHours || hostDetails?.operatingHours || DEFAULT_OPERATING_HOURS;
 
@@ -877,7 +922,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
   };
 
   return (
-    <section className="relative pt-24 pb-20 md:pt-32 md:pb-28">
+    <section className={`relative pt-24 md:pt-32 transition-all ${selectedSlots.length > 0 ? 'pb-32 md:pb-36' : 'pb-20 md:pb-28'}`}>
       {/* Background Decorative Gradients */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-emerald/10 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[10%] right-[-10%] w-[50%] h-[50%] bg-brand-lime/10 blur-[120px] rounded-full pointer-events-none"></div>
@@ -975,75 +1020,633 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
 
                 {/* Interactive Multi-Court Selector Tabs */}
                 {venueCourts.length > 1 ? (
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                         <LayoutGrid className="w-3.5 h-3.5 text-brand-lime" />
                         <span>Select Court ({venueCourts.length} Available):</span>
                       </h2>
-                      <span className="text-[11px] text-slate-500">Click tab to switch rates</span>
+                      <span className="text-[11px] text-slate-500 font-medium">Click court tab to view rates & book</span>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {venueCourts.map((c, idx) => {
                         const isSelected = c.id === court?.id;
+                        const isSamePrice = c.dayPrice === c.nightPrice;
+                        const formattedType = c.type || 'Standard Court';
+
                         return (
                           <button
                             key={c.id}
                             type="button"
                             onClick={() => handleSwitchCourt(c)}
-                            className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-start justify-between gap-3 relative overflow-hidden group ${
+                            className={`p-3.5 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-3 relative overflow-hidden group ${
                               isSelected
-                                ? 'bg-gradient-to-br from-brand-lime/15 via-slate-900 to-slate-900 border-brand-lime shadow-lg shadow-brand-lime/10'
-                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                                ? 'bg-gradient-to-br from-brand-lime/15 via-slate-900 to-slate-950 border-brand-lime shadow-lg shadow-brand-lime/10 ring-1 ring-brand-lime/30'
+                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/90'
                             }`}
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5 mb-1">
-                                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
-                                  isSelected ? 'bg-brand-lime text-dark-bg' : 'bg-slate-800 text-slate-400 group-hover:text-white'
-                                }`}>
+                            {/* Card Top: Avatar, Name & Selected Badge */}
+                            <div className="flex items-start justify-between gap-2 w-full">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${
+                                    isSelected
+                                      ? 'bg-brand-lime text-slate-950 shadow-sm'
+                                      : 'bg-slate-800 text-slate-400 group-hover:text-white group-hover:bg-slate-700'
+                                  }`}
+                                >
                                   {idx + 1}
                                 </span>
-                                <span className="font-bold text-sm truncate">{c.name}</span>
+                                <span className="font-extrabold text-sm sm:text-base text-white truncate group-hover:text-brand-lime transition-colors">
+                                  {c.name}
+                                </span>
                               </div>
-                              <p className="text-xs text-slate-400 truncate pl-8">
-                                {c.type || 'Standard Court'}
-                              </p>
-                              <div className="pl-8 text-xs font-semibold text-brand-lime">
-                                ₱{c.dayPrice} <span className="text-[10px] text-slate-500 font-normal">day</span> / ₱{c.nightPrice} <span className="text-[10px] text-slate-500 font-normal">night</span>
-                              </div>
+
+                              {isSelected && (
+                                <span className="px-2.5 py-0.5 rounded-full bg-brand-lime text-slate-950 font-black text-[10px] uppercase tracking-wider shrink-0 shadow-sm shadow-brand-lime/20">
+                                  Selected
+                                </span>
+                              )}
                             </div>
 
-                            {isSelected && (
-                              <span className="px-2 py-0.5 rounded-full bg-brand-lime text-dark-bg font-extrabold text-[10px] uppercase flex-shrink-0 shadow-sm">
-                                Selected
+                            {/* Card Middle: Styled Court Type Badge */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-2.5 py-0.5 rounded-md bg-slate-950/80 border border-slate-800 text-[11px] font-semibold text-slate-300 inline-flex items-center gap-1">
+                                <span>🎾</span>
+                                <span>{formattedType}</span>
                               </span>
-                            )}
+                            </div>
+
+                            {/* Card Bottom: Clean Structured Price Container */}
+                            <div className="w-full pt-2.5 border-t border-slate-800/80 space-y-1 font-sans">
+                              {isSamePrice ? (
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hourly Rate</span>
+                                  <span className="text-base sm:text-lg font-black text-brand-lime">
+                                    ₱{c.dayPrice}<span className="text-xs font-normal text-slate-400">/hr</span>
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Day Rate</span>
+                                    <span className="text-sm font-black text-white">
+                                      ₱{c.dayPrice} <span className="text-[10px] font-normal text-slate-400">/hr</span>
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-[10px] font-bold text-brand-lime/80 uppercase tracking-wider">Night Rate</span>
+                                    <span className="text-sm font-black text-brand-lime">
+                                      ₱{c.nightPrice} <span className="text-[10px] font-normal text-brand-lime/70">/hr</span>
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </button>
                         );
                       })}
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between bg-slate-900/60 p-3 rounded-2xl border border-slate-800/80">
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-7 h-7 rounded-xl bg-brand-lime/10 text-brand-lime flex items-center justify-center font-bold text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-900/60 p-4 rounded-2xl border border-slate-800/80 gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/25 text-brand-lime flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
                         🎾
                       </span>
                       <div>
-                        <span className="text-xs text-slate-400 block font-medium">Active Court:</span>
-                        <span className="text-sm font-bold text-white">{court.name} ({court.type})</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400 font-medium">Active Court:</span>
+                          <span className="text-sm sm:text-base font-extrabold text-white">{court.name}</span>
+                          <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] font-semibold text-slate-300">
+                            {court.type || 'Standard Court'}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-xs font-semibold text-brand-lime">
-                      ₱{court.dayPrice} <span className="text-[10px] text-slate-500 font-normal">day</span> / ₱{court.nightPrice} <span className="text-[10px] text-slate-500 font-normal">night</span>
+                    <div className="flex items-center gap-4 font-sans">
+                      {court.dayPrice === court.nightPrice ? (
+                        <span className="font-black text-brand-lime text-base sm:text-lg tracking-tight">
+                          ₱{court.dayPrice} <span className="text-xs font-normal text-slate-400">/ hr</span>
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold text-slate-400 block uppercase leading-none mb-0.5">Day Rate</span>
+                            <span className="text-sm sm:text-base font-black text-white">₱{court.dayPrice}<span className="text-xs font-normal text-slate-400">/hr</span></span>
+                          </div>
+                          <span className="text-slate-700 font-bold">•</span>
+                          <div className="text-left">
+                            <span className="text-[10px] font-bold text-brand-lime/80 block uppercase leading-none mb-0.5">Night Rate</span>
+                            <span className="text-sm sm:text-base font-black text-brand-lime">₱{court.nightPrice}<span className="text-xs font-normal text-brand-lime/70">/hr</span></span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* Media carousel */}
+            {/* Reserve Court / Time Scheduler Panel (Right Column on Desktop, directly after Select Court section on Mobile/Tablet) */}
+            <div className="lg:col-span-5 lg:row-span-2 lg:col-start-8 lg:row-start-1 space-y-6 lg:sticky lg:top-[96px] lg:max-h-[calc(100vh-110px)] lg:overflow-y-auto pr-0.5 custom-scrollbar w-full max-w-full">
+              <div className="glass-panel rounded-3xl p-6 sm:p-7 space-y-6 border border-slate-800 shadow-2xl">
+                <div className="pb-4 border-b border-slate-800">
+                  <h3 className="text-xl font-extrabold text-white">Reserve Court</h3>
+                  <p className="text-sm text-slate-300 mt-1">Select date and preferred time slots to checkout.</p>
+                </div>
+
+                {/* Date Selection */}
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-brand-lime" /> Choose Date
+                  </label>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    min={(() => {
+                      const d = new Date();
+                      const year = d.getFullYear();
+                      const month = String(d.getMonth() + 1).padStart(2, '0');
+                      const day = String(d.getDate()).padStart(2, '0');
+                      return `${year}-${month}-${day}`;
+                    })()}
+                    onClick={(e) => {
+                      try {
+                        e.currentTarget.showPicker();
+                      } catch {}
+                    }}
+                    onChange={(e) => {
+                      setSelectedDate(e.target.value);
+                      setSelectedSlots([]);
+                    }}
+                    className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-3.5 text-base focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-bold"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                </div>
+
+                {/* Open Play Alert Banner if an Open Play session exists on this court & date */}
+                {selectedDate && Object.keys(openPlayBlockedSlots).length > 0 && (() => {
+                  const firstBlock = Object.values(openPlayBlockedSlots)[0];
+                  return (
+                    <div className="p-4 border border-purple-800/80 rounded-2xl bg-purple-950/40 text-purple-200 space-y-2.5 animate-fade-in shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-black uppercase tracking-wider text-purple-300 flex items-center gap-2 font-sans">
+                          <Trophy className="w-4.5 h-4.5 text-purple-400" /> Open Play Session Scheduled
+                        </span>
+                        <span className="text-xs font-extrabold px-2.5 py-0.5 rounded bg-purple-900/80 border border-purple-700/60 text-purple-200">
+                          Court Locked
+                        </span>
+                      </div>
+                      <p className="text-sm text-purple-200/95 font-medium leading-relaxed">
+                        <strong className="text-white">{firstBlock.title}</strong> is hosted on this court from{' '}
+                        <span className="text-purple-300 font-bold font-sans">{formatTime12h(firstBlock.startTime)}</span> to{' '}
+                        <span className="text-purple-300 font-bold font-sans">{formatTime12h(firstBlock.endTime)}</span>.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.location.href = `/?openplay=${firstBlock.eventId}`;
+                        }}
+                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer font-sans"
+                      >
+                        <Trophy className="w-4 h-4" />
+                        <span>View & Join Open Play Session</span>
+                      </button>
+                    </div>
+                  );
+                })()}
+
+                {/* Availability Slot check */}
+                {!selectedDate ? (
+                  <div className="p-8 border border-dashed border-slate-850 rounded-2xl bg-slate-950/20 text-center flex flex-col items-center justify-center min-h-[220px]">
+                    <Calendar className="w-10 h-10 text-brand-lime/40 mb-3 animate-pulse" />
+                    <h4 className="text-sm font-bold text-white mb-1">Check Availability</h4>
+                    <p className="text-sm text-slate-300 max-w-[240px] leading-relaxed">
+                      Please select a booking date above to view real-time court availability.
+                    </p>
+                  </div>
+                ) : !user ? (
+                  <div className="p-6 border border-slate-850 rounded-2xl bg-slate-900/40 text-center flex flex-col items-center justify-center min-h-[220px] relative overflow-hidden">
+                    <Lock className="w-10 h-10 text-brand-lime/60 mb-3 animate-pulse" />
+                    <h4 className="text-sm font-bold text-white mb-1">Authentication Required</h4>
+                    <p className="text-sm text-slate-300 max-w-[260px] leading-relaxed mb-4">
+                      Sign in or create a player profile to view available slots for <span className="text-brand-lime font-bold">{formatDate(selectedDate)}</span> and book.
+                    </p>
+                    <div className="flex gap-2.5 w-full max-w-[280px]">
+                      <button
+                        onClick={() => {
+                          localStorage.setItem('picklepoint_pending_court_id', court.id);
+                          localStorage.setItem('picklepoint_pending_date', selectedDate);
+                          setView('login');
+                        }}
+                        className="flex-1 py-3 rounded-xl text-sm font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md font-sans"
+                      >
+                        Sign In
+                      </button>
+                      <button
+                        onClick={() => {
+                          localStorage.setItem('picklepoint_pending_court_id', court.id);
+                          localStorage.setItem('picklepoint_pending_date', selectedDate);
+                          setView('register');
+                        }}
+                        className="flex-1 py-3 rounded-xl text-sm font-bold text-white border border-slate-800 hover:bg-slate-850 transition-all cursor-pointer font-sans"
+                      >
+                        Register
+                      </button>
+                    </div>
+                  </div>
+                ) : isSelectedDateDayOff || currentSchedule.slots.length === 0 ? (
+                  <div className="p-6 border border-slate-800 rounded-2xl bg-slate-950/50 text-center flex flex-col items-center justify-center min-h-[220px] space-y-3 opacity-85 animate-fade-in">
+                    <div className="p-3 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
+                      <Clock className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-bold text-white mb-1">Venue Closed ({isSelectedDateDayOff ? 'Day Off' : 'No Slots Scheduled'})</h4>
+                      <p className="text-sm text-slate-300 max-w-[280px] leading-relaxed">
+                        {isSelectedDateDayOff
+                          ? `The venue is closed on ${currentSchedule.dayKey ? currentSchedule.dayKey.charAt(0).toUpperCase() + currentSchedule.dayKey.slice(1) + 's' : 'this date'} (Day Off). Please select another date to reserve a court.`
+                          : 'No operating hours are scheduled for this date. Please choose another date.'}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 animate-fade-in">
+                    {/* Header with Title, Slot Stats Pill & Action Links */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-slate-800/60">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
+                          <Clock className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <label className="text-sm font-extrabold text-white tracking-wide flex items-center gap-2">
+                            Select Time Slot
+                            <span className="text-[10px] font-extrabold uppercase tracking-widest text-brand-lime bg-brand-lime/10 px-2 py-0.5 rounded-md border border-brand-lime/20 font-sans">
+                              1 Hour / Slot
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Quick Actions */}
+                      <div className="flex items-center gap-2">
+                        {selectedSlots.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedSlots([])}
+                            className="text-xs font-bold text-slate-400 hover:text-brand-lime transition-colors cursor-pointer font-sans bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-800 flex items-center gap-1"
+                          >
+                            <X className="w-3 h-3" /> Clear ({selectedSlots.length})
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleSelectAllAvailable(currentSchedule.slots)}
+                            className="text-xs font-bold text-brand-lime hover:text-[#a6e224] transition-colors cursor-pointer font-sans bg-brand-lime/10 hover:bg-brand-lime/20 px-2.5 py-1 rounded-lg border border-brand-lime/30 flex items-center gap-1"
+                          >
+                            <Sparkles className="w-3 h-3 text-brand-lime" /> Select All Available
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Filter Segmented Control Tabs */}
+                    <div className="grid grid-cols-3 gap-1.5 bg-slate-950/90 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
+                      <button
+                        type="button"
+                        onClick={() => setSlotFilterTab('all')}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                          slotFilterTab === 'all'
+                            ? 'bg-slate-800 text-white border border-slate-700 shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Filter className="w-3 h-3 text-slate-400" />
+                        <span>All ({currentSchedule.slots.length})</span>
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setSlotFilterTab('am')}
+                        disabled={currentSchedule.morningSlots.length === 0}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed ${
+                          slotFilterTab === 'am'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Sun className="w-3.5 h-3.5 text-amber-400" />
+                        <span>AM ({currentSchedule.morningSlots.length})</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSlotFilterTab('pm')}
+                        disabled={currentSchedule.afternoonSlots.length === 0}
+                        className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed ${
+                          slotFilterTab === 'pm'
+                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-md'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Moon className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>PM ({currentSchedule.afternoonSlots.length})</span>
+                      </button>
+                    </div>
+
+
+
+                    {loadingAvailability ? (
+                      <div className="flex flex-col items-center justify-center py-10 space-y-2.5 border border-slate-850 rounded-2xl bg-slate-900/10 min-h-[220px]">
+                        <span className="w-8 h-8 border-3 border-slate-800 border-t-brand-lime rounded-full animate-spin"></span>
+                        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider animate-pulse">Checking availability...</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-4 max-h-[340px] overflow-y-auto pr-1 custom-scrollbar">
+                        {/* Slots renderer helper */}
+                        {(() => {
+                          let displaySlots = currentSchedule.slots;
+                          if (slotFilterTab === 'am') displaySlots = currentSchedule.morningSlots;
+                          if (slotFilterTab === 'pm') displaySlots = currentSchedule.afternoonSlots;
+
+                          if (displaySlots.length === 0) {
+                            return (
+                              <div className="p-6 border border-slate-800 rounded-xl bg-slate-950/40 text-center text-xs text-slate-400">
+                                No slots scheduled for this time filter.
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
+                              {displaySlots.map((slot, idx) => {
+                                const price = getSlotPrice(slot.startHour);
+                                const isSelected = selectedSlots.includes(slot.time);
+                                const isSlotApproved = approvedSlotsForDate.includes(slot.time);
+                                const isSlotPending = pendingSlotsForDate.includes(slot.time);
+                                const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
+                                const isPlayerConflict = playerConflictsForDate[slot.time];
+                                const openPlayInfo = openPlayBlockedSlots[slot.time];
+                                const isSlotDisabled = !slot.available || isSlotApproved || isSlotPending || isSlotPassed || !!isPlayerConflict || !!openPlayInfo;
+                                const isNightRate = slot.startHour >= 18;
+
+                                const [startTimeStr, endTimeStr] = slot.time.split(' - ');
+
+                                return (
+                                  <button
+                                    key={`slot-${slot.time}-${idx}`}
+                                    disabled={isSlotDisabled && !isPlayerConflict && !openPlayInfo}
+                                    onClick={() => {
+                                      if (openPlayInfo) {
+                                        if (confirm(`Open Play Event: "${openPlayInfo.title}" is hosted on this court from ${formatTime12h(openPlayInfo.startTime)} to ${formatTime12h(openPlayInfo.endTime)}.\n\nWould you like to view and register for this Open Play event?`)) {
+                                          window.location.href = `/?openplay=${openPlayInfo.eventId}`;
+                                        }
+                                        return;
+                                      }
+                                      if (isPlayerConflict) {
+                                        alert(`Schedule Conflict: You already have an active reservation at ${isPlayerConflict.courtName} on ${formatDate(selectedDate)} for ${slot.time}. A player cannot book overlapping times across multiple venues.`);
+                                        return;
+                                      }
+                                      handleToggleSlot(slot.time);
+                                    }}
+                                    title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : isSlotPending ? `Blocked: Payment pending admin approval for ${slot.time}` : isSlotApproved ? `Booked: Reserved for ${slot.time}` : '')}
+                                    className={`p-3 rounded-2xl border text-left font-sans transition-all duration-200 cursor-pointer relative overflow-hidden group flex flex-col justify-between gap-2.5 ${
+                                      isSelected
+                                        ? 'bg-gradient-to-r from-brand-lime via-[#b6f937] to-emerald-400 border-brand-lime text-slate-950 font-black shadow-[0_0_20px_rgba(163,230,53,0.3)] scale-[1.02] ring-2 ring-brand-lime/40'
+                                        : openPlayInfo
+                                        ? 'bg-gradient-to-br from-purple-950/70 via-purple-900/40 to-slate-900 border-purple-700/70 text-purple-200 hover:border-purple-500 hover:shadow-lg shadow-purple-950/30'
+                                        : isPlayerConflict
+                                        ? 'bg-amber-950/30 border-amber-800/60 text-amber-300 hover:bg-amber-900/40'
+                                        : isSlotApproved
+                                        ? 'bg-slate-900/40 border-slate-800 text-slate-500 opacity-55 cursor-not-allowed'
+                                        : isSlotPending
+                                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400 opacity-80 cursor-not-allowed'
+                                        : isSlotPassed
+                                        ? 'bg-slate-950/30 border-slate-900 text-slate-600 opacity-50 cursor-not-allowed'
+                                        : !slot.available
+                                        ? 'bg-slate-900/20 border-slate-900 text-slate-600 line-through opacity-40 cursor-not-allowed'
+                                        : 'bg-slate-900/85 border-slate-800/90 text-slate-100 hover:border-brand-lime/50 hover:bg-slate-850 hover:scale-[1.01] hover:shadow-lg shadow-slate-950/40'
+                                    }`}
+                                  >
+                                    {/* Card Header: Time Range & Rate Icon */}
+                                    <div className="flex items-center justify-between w-full">
+                                      <div className="flex items-center gap-1.5">
+                                        {isNightRate ? (
+                                          <Moon className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-slate-900' : 'text-indigo-400'}`} />
+                                        ) : (
+                                          <Sun className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-slate-900' : 'text-amber-400'}`} />
+                                        )}
+                                        <div className="flex flex-col">
+                                          <span className={`text-sm sm:text-base font-black tracking-tight leading-none ${isSelected ? 'text-slate-950' : 'text-white'}`}>
+                                            {startTimeStr}
+                                          </span>
+                                          {endTimeStr && (
+                                            <span className={`text-[10px] font-semibold mt-0.5 ${isSelected ? 'text-slate-900/80' : 'text-slate-400'}`}>
+                                              to {endTimeStr}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Status Tag / Checkmark / Price Pill */}
+                                      {isSelected ? (
+                                        <div className="w-7 h-7 rounded-full bg-slate-950 text-brand-lime flex items-center justify-center shadow-md shrink-0">
+                                          <CheckCircle2 className="w-5 h-5" />
+                                        </div>
+                                      ) : openPlayInfo ? (
+                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-900/90 text-purple-200 border border-purple-600/80 flex items-center gap-1 shrink-0 shadow-sm">
+                                          <Trophy className="w-3 h-3 text-purple-300" />
+                                          Open Play
+                                        </span>
+                                      ) : isPlayerConflict ? (
+                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-950 text-amber-400 border border-amber-800/80 shrink-0">
+                                          Conflict
+                                        </span>
+                                      ) : isSlotApproved ? (
+                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-800/90 text-slate-400 shrink-0">
+                                          Booked
+                                        </span>
+                                      ) : isSlotPending ? (
+                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 shrink-0">
+                                          Pending
+                                        </span>
+                                      ) : isSlotPassed ? (
+                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-900 text-slate-500 shrink-0">
+                                          Passed
+                                        </span>
+                                      ) : (
+                                        <span className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-brand-lime font-black text-xs group-hover:border-brand-lime/40 transition-colors shrink-0 shadow-inner">
+                                          ₱{price}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Subtitle Message for Locked / Open Play States */}
+                                    {(openPlayInfo || isPlayerConflict || isSlotPending || isSlotPassed) && (
+                                      <div className={`text-[10px] pt-1.5 border-t ${isSelected ? 'border-slate-900/20 text-slate-900' : 'border-slate-800/60 text-slate-400'} font-medium truncate flex items-center gap-1`}>
+                                        <Info className="w-3 h-3 shrink-0 opacity-70" />
+                                        <span className="truncate">
+                                          {openPlayInfo
+                                            ? `Open Play: ${openPlayInfo.title}`
+                                            : isPlayerConflict
+                                            ? `Reserved at ${isPlayerConflict.courtName}`
+                                            : isSlotPending
+                                            ? 'Awaiting host approval'
+                                            : isSlotPassed
+                                            ? 'Slot time passed'
+                                            : ''}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* Equipment Rentals Add-ons */}
+                    {court.rentals && court.rentals.filter(r => r.enabled).length > 0 && (
+                      <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4.5 space-y-3.5 shadow-inner transition-all">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="w-7 h-7 rounded-lg bg-brand-lime/10 flex items-center justify-center text-sm">🏓</span>
+                            <div>
+                              <span className="text-sm font-bold text-slate-200 block">Need Equipment Rentals?</span>
+                              <span className="text-xs text-slate-300 block font-normal">Paddles, Balls & Gear Add-ons</span>
+                            </div>
+                          </div>
+
+                          {/* Toggle Switch */}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={isEquipmentRentalEnabled}
+                            onClick={() => {
+                              const nextState = !isEquipmentRentalEnabled;
+                              setIsEquipmentRentalEnabled(nextState);
+                              if (!nextState) {
+                                setSelectedRentals({});
+                              }
+                            }}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              isEquipmentRentalEnabled ? 'bg-brand-lime' : 'bg-slate-800 hover:bg-slate-750'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-slate-950 shadow-md ring-0 transition duration-200 ease-in-out ${
+                                isEquipmentRentalEnabled ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Expandable Equipment List */}
+                        {isEquipmentRentalEnabled && (
+                          <div className="space-y-3 pt-3 border-t border-slate-800/60 animate-fade-in">
+                            {court.rentals.filter(r => r.enabled).map((item) => {
+                              const qty = selectedRentals[item.id] || 0;
+                              const itemCost = qty > 0 ? getRentalItemCost(item, qty) : 0;
+                              const isSelected = qty > 0;
+                              return (
+                                <div
+                                  key={item.id}
+                                  onClick={() => {
+                                    setSelectedRentalForModal(item);
+                                    setRentalActiveImageIndex(0);
+                                    setIsRentalZoomed(false);
+                                  }}
+                                  className={`flex items-center gap-3.5 p-3.5 rounded-xl border transition-all duration-300 cursor-pointer ${
+                                    isSelected 
+                                      ? 'border-brand-lime/40 bg-brand-lime/[0.04] shadow-[0_0_12px_rgba(163,230,53,0.06)]' 
+                                      : 'border-slate-800/80 bg-slate-950/20 hover:border-slate-750 hover:bg-slate-900/40'
+                                  }`}
+                                >
+                                  {/* Item Image/Icon */}
+                                  <div className={`w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-xl select-none flex-shrink-0 transition-all relative group/img cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-brand-lime/10 border border-brand-lime/30'
+                                      : 'bg-slate-900 border border-slate-800'
+                                  }`}>
+                                    {item.images && item.images.length > 0 ? (
+                                      <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300" />
+                                    ) : (
+                                      <span>🏓</span>
+                                    )}
+                                  </div>
+
+                                  {/* Item Info */}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                                      <h5 className="text-sm font-bold text-white truncate">{item.name}</h5>
+                                    </div>
+                                    <p className="text-xs text-slate-300 line-clamp-1 mb-1.5">{item.description || 'Quality court equipment'}</p>
+                                    <div className="text-xs font-black text-brand-lime">
+                                      ₱{item.price} <span className="text-xs font-normal text-slate-400">/{item.pricingType === 'per_hour' ? 'hr' : 'item'}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Quantity Controls & Subtotal */}
+                                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg p-1 shadow-inner">
+                                      <button
+                                        type="button"
+                                        disabled={qty <= 0}
+                                        onClick={() => {
+                                          const nextQty = Math.max(0, qty - 1);
+                                          setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
+                                        }}
+                                        className="w-6 h-6 rounded bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      >
+                                        -
+                                      </button>
+                                      <span className="w-5 text-center text-xs font-black text-white">{qty}</span>
+                                      <button
+                                        type="button"
+                                        disabled={qty >= item.quantity}
+                                        onClick={() => {
+                                          const nextQty = Math.min(item.quantity, qty + 1);
+                                          setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
+                                        }}
+                                        className="w-6 h-6 rounded bg-slate-900 border border-slate-800 text-brand-lime font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                    
+                                    {/* Availability / Subtotal */}
+                                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">
+                                      {isSelected ? (
+                                        <span className="text-brand-lime font-bold">Total: ₱{itemCost}</span>
+                                      ) : (
+                                        <span>Avail: {item.quantity}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2 font-medium">
+                        <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
+                        {error}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Left Bottom Column: Media Gallery Carousel, Thumbnails, Title & category badge, Maps, Owner Details, Guidelines */}
+            <div className="lg:col-span-7 lg:col-start-1 lg:row-start-2 space-y-6">
               <div className="relative rounded-3xl overflow-hidden bg-slate-900/40 border border-slate-800/85 shadow-2xl aspect-[16/10] md:aspect-[3/2] group">
                 {allGalleryImages.length > 0 ? (
                   <>
@@ -1480,451 +2083,82 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
               </div>
             </div>
 
-            {/* Right Column: Time Scheduler Panel */}
-            <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-[96px]">
-              <div className="glass-panel rounded-3xl p-6 sm:p-7 space-y-6 border border-slate-800 shadow-2xl">
-                <div className="pb-4 border-b border-slate-800">
-                  <h3 className="text-xl font-extrabold text-white">Reserve Court</h3>
-                  <p className="text-sm text-slate-300 mt-1">Select date and preferred time slots to checkout.</p>
-                </div>
 
-                {/* Date Selection */}
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-brand-lime" /> Choose Date
-                  </label>
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    min={(() => {
-                      const d = new Date();
-                      const year = d.getFullYear();
-                      const month = String(d.getMonth() + 1).padStart(2, '0');
-                      const day = String(d.getDate()).padStart(2, '0');
-                      return `${year}-${month}-${day}`;
-                    })()}
-                    onClick={(e) => {
-                      try {
-                        e.currentTarget.showPicker();
-                      } catch {}
-                    }}
-                    onChange={(e) => {
-                      setSelectedDate(e.target.value);
-                      setSelectedSlots([]);
-                    }}
-                    className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-3.5 text-base focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-bold"
-                    style={{ colorScheme: 'dark' }}
-                  />
-                </div>
-
-                {/* Open Play Alert Banner if an Open Play session exists on this court & date */}
-                {selectedDate && Object.keys(openPlayBlockedSlots).length > 0 && (() => {
-                  const firstBlock = Object.values(openPlayBlockedSlots)[0];
-                  return (
-                    <div className="p-4 border border-purple-800/80 rounded-2xl bg-purple-950/40 text-purple-200 space-y-2.5 animate-fade-in shadow-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-black uppercase tracking-wider text-purple-300 flex items-center gap-2 font-sans">
-                          <Trophy className="w-4.5 h-4.5 text-purple-400" /> Open Play Session Scheduled
-                        </span>
-                        <span className="text-xs font-extrabold px-2.5 py-0.5 rounded bg-purple-900/80 border border-purple-700/60 text-purple-200">
-                          Court Locked
-                        </span>
-                      </div>
-                      <p className="text-sm text-purple-200/95 font-medium leading-relaxed">
-                        <strong className="text-white">{firstBlock.title}</strong> is hosted on this court from{' '}
-                        <span className="text-purple-300 font-bold font-sans">{formatTime12h(firstBlock.startTime)}</span> to{' '}
-                        <span className="text-purple-300 font-bold font-sans">{formatTime12h(firstBlock.endTime)}</span>.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          window.location.href = `/?openplay=${firstBlock.eventId}`;
-                        }}
-                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer font-sans"
-                      >
-                        <Trophy className="w-4 h-4" />
-                        <span>View & Join Open Play Session</span>
-                      </button>
-                    </div>
-                  );
-                })()}
-
-                {/* Availability Slot check */}
-                {!selectedDate ? (
-                  <div className="p-8 border border-dashed border-slate-850 rounded-2xl bg-slate-950/20 text-center flex flex-col items-center justify-center min-h-[220px]">
-                    <Calendar className="w-10 h-10 text-brand-lime/40 mb-3 animate-pulse" />
-                    <h4 className="text-sm font-bold text-white mb-1">Check Availability</h4>
-                    <p className="text-sm text-slate-300 max-w-[240px] leading-relaxed">
-                      Please select a booking date above to view real-time court availability.
-                    </p>
-                  </div>
-                ) : !user ? (
-                  <div className="p-6 border border-slate-850 rounded-2xl bg-slate-900/40 text-center flex flex-col items-center justify-center min-h-[220px] relative overflow-hidden">
-                    <Lock className="w-10 h-10 text-brand-lime/60 mb-3 animate-pulse" />
-                    <h4 className="text-sm font-bold text-white mb-1">Authentication Required</h4>
-                    <p className="text-sm text-slate-300 max-w-[260px] leading-relaxed mb-4">
-                      Sign in or create a player profile to view available slots for <span className="text-brand-lime font-bold">{formatDate(selectedDate)}</span> and book.
-                    </p>
-                    <div className="flex gap-2.5 w-full max-w-[280px]">
-                      <button
-                        onClick={() => {
-                          localStorage.setItem('picklepoint_pending_court_id', court.id);
-                          localStorage.setItem('picklepoint_pending_date', selectedDate);
-                          setView('login');
-                        }}
-                        className="flex-1 py-3 rounded-xl text-sm font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md font-sans"
-                      >
-                        Sign In
-                      </button>
-                      <button
-                        onClick={() => {
-                          localStorage.setItem('picklepoint_pending_court_id', court.id);
-                          localStorage.setItem('picklepoint_pending_date', selectedDate);
-                          setView('register');
-                        }}
-                        className="flex-1 py-3 rounded-xl text-sm font-bold text-white border border-slate-800 hover:bg-slate-850 transition-all cursor-pointer font-sans"
-                      >
-                        Register
-                      </button>
-                    </div>
-                  </div>
-                ) : isSelectedDateDayOff || currentSchedule.slots.length === 0 ? (
-                  <div className="p-6 border border-slate-800 rounded-2xl bg-slate-950/50 text-center flex flex-col items-center justify-center min-h-[220px] space-y-3 opacity-85 animate-fade-in">
-                    <div className="p-3 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
-                      <Clock className="w-7 h-7" />
-                    </div>
-                    <div>
-                      <h4 className="text-base font-bold text-white mb-1">Venue Closed ({isSelectedDateDayOff ? 'Day Off' : 'No Slots Scheduled'})</h4>
-                      <p className="text-sm text-slate-300 max-w-[280px] leading-relaxed">
-                        {isSelectedDateDayOff
-                          ? `The venue is closed on ${currentSchedule.dayKey ? currentSchedule.dayKey.charAt(0).toUpperCase() + currentSchedule.dayKey.slice(1) + 's' : 'this date'} (Day Off). Please select another date to reserve a court.`
-                          : 'No operating hours are scheduled for this date. Please choose another date.'}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-4 animate-fade-in">
-                    <div className="flex justify-between items-center">
-                      <label className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                        <Clock className="w-4 h-4 text-brand-lime" /> Select Time Slot (1 Hour)
-                      </label>
-                      {selectedSlots.length > 0 && (
-                        <button
-                          onClick={() => setSelectedSlots([])}
-                          className="text-xs font-bold text-slate-400 hover:text-brand-lime transition-colors cursor-pointer font-sans"
-                        >
-                          Clear Selection
-                        </button>
-                      )}
-                    </div>
-
-                    {loadingAvailability ? (
-                      <div className="flex flex-col items-center justify-center py-10 space-y-2.5 border border-slate-850 rounded-2xl bg-slate-900/10 min-h-[220px]">
-                        <span className="w-8 h-8 border-3 border-slate-800 border-t-brand-lime rounded-full animate-spin"></span>
-                        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider animate-pulse">Checking availability...</span>
-                      </div>
-                    ) : (
-                      <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
-                        {/* AM (Morning) Section */}
-                        {currentSchedule.morningSlots.length > 0 && (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-extrabold text-slate-300 uppercase tracking-wider bg-slate-900/90 px-2.5 py-1 rounded border border-slate-800">
-                                AM (Morning)
-                              </span>
-                              <div className="h-[1px] bg-slate-800/60 flex-1"></div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2.5">
-                              {currentSchedule.morningSlots.map((slot, idx) => {
-                                const price = getSlotPrice(slot.startHour);
-                                const isSelected = selectedSlots.includes(slot.time);
-                                const isSlotBooked = bookedSlotsForDate.includes(slot.time);
-                                const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
-                                const isPlayerConflict = playerConflictsForDate[slot.time];
-                                const openPlayInfo = openPlayBlockedSlots[slot.time];
-                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict || !!openPlayInfo;
-                                return (
-                                  <button
-                                    key={`am-${idx}`}
-                                    disabled={isSlotDisabled && !isPlayerConflict && !openPlayInfo}
-                                    onClick={() => {
-                                      if (openPlayInfo) {
-                                        if (confirm(`Open Play Event: "${openPlayInfo.title}" is hosted on this court from ${formatTime12h(openPlayInfo.startTime)} to ${formatTime12h(openPlayInfo.endTime)}.\n\nWould you like to view and register for this Open Play event?`)) {
-                                          window.location.href = `/?openplay=${openPlayInfo.eventId}`;
-                                        }
-                                        return;
-                                      }
-                                      if (isPlayerConflict) {
-                                        alert(`Schedule Conflict: You already have an active reservation at ${isPlayerConflict.courtName} on ${formatDate(selectedDate)} for ${slot.time}. A player cannot book overlapping times across multiple venues.`);
-                                        return;
-                                      }
-                                      handleToggleSlot(slot.time);
-                                    }}
-                                    title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : '')}
-                                    className={`py-3 px-3.5 rounded-xl border text-left text-sm font-bold transition-all relative flex justify-between items-center ${
-                                      openPlayInfo
-                                        ? 'bg-purple-950/40 border-purple-800/60 text-purple-200 cursor-pointer hover:border-purple-600 shadow-sm'
-                                        : isPlayerConflict
-                                        ? 'bg-amber-950/30 border-amber-500/40 text-amber-300 font-medium cursor-pointer shadow-sm hover:border-amber-400'
-                                        : isSlotDisabled
-                                        ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
-                                        : isSelected
-                                        ? 'bg-brand-lime text-dark-bg border-brand-lime font-black font-sans'
-                                        : 'bg-dark-bg/60 border-slate-800 text-slate-200 hover:bg-slate-850'
-                                    }`}
-                                  >
-                                    <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-black ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/90 font-sans' : 'text-brand-lime'}`}>
-                                      {openPlayInfo ? '🏆 Open Play' : isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Divider between AM & PM if both present */}
-                        {currentSchedule.morningSlots.length > 0 && currentSchedule.afternoonSlots.length > 0 && (
-                          <div className="border-t border-slate-800/80 my-3" />
-                        )}
-
-                        {/* PM (Afternoon/Evening) Section */}
-                        {currentSchedule.afternoonSlots.length > 0 && (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-extrabold text-slate-300 uppercase tracking-wider bg-slate-900/90 px-2.5 py-1 rounded border border-slate-800">
-                                PM (Afternoon/Evening)
-                              </span>
-                              <div className="h-[1px] bg-slate-800/60 flex-1"></div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2.5">
-                              {currentSchedule.afternoonSlots.map((slot, idx) => {
-                                const price = getSlotPrice(slot.startHour);
-                                const isSelected = selectedSlots.includes(slot.time);
-                                const isSlotBooked = bookedSlotsForDate.includes(slot.time);
-                                const isSlotPassed = isSlotPastOrTooSoon(slot.startHour, selectedDate);
-                                const isPlayerConflict = playerConflictsForDate[slot.time];
-                                const openPlayInfo = openPlayBlockedSlots[slot.time];
-                                const isSlotDisabled = !slot.available || isSlotBooked || isSlotPassed || !!isPlayerConflict || !!openPlayInfo;
-                                return (
-                                  <button
-                                    key={`pm-${idx}`}
-                                    disabled={isSlotDisabled && !isPlayerConflict && !openPlayInfo}
-                                    onClick={() => {
-                                      if (openPlayInfo) {
-                                        if (confirm(`Open Play Event: "${openPlayInfo.title}" is hosted on this court from ${formatTime12h(openPlayInfo.startTime)} to ${formatTime12h(openPlayInfo.endTime)}.\n\nWould you like to view and register for this Open Play event?`)) {
-                                          window.location.href = `/?openplay=${openPlayInfo.eventId}`;
-                                        }
-                                        return;
-                                      }
-                                      if (isPlayerConflict) {
-                                        alert(`Schedule Conflict: You already have an active reservation at ${isPlayerConflict.courtName} on ${formatDate(selectedDate)} for ${slot.time}. A player cannot book overlapping times across multiple venues.`);
-                                        return;
-                                      }
-                                      handleToggleSlot(slot.time);
-                                    }}
-                                    title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : '')}
-                                    className={`py-3 px-3.5 rounded-xl border text-left text-sm font-bold transition-all relative flex justify-between items-center ${
-                                      openPlayInfo
-                                        ? 'bg-purple-950/40 border-purple-800/60 text-purple-200 cursor-pointer hover:border-purple-600 shadow-sm'
-                                        : isPlayerConflict
-                                        ? 'bg-amber-950/30 border-amber-500/40 text-amber-300 font-medium cursor-pointer shadow-sm hover:border-amber-400'
-                                        : isSlotDisabled
-                                        ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
-                                        : isSelected
-                                        ? 'bg-brand-lime text-dark-bg border-brand-lime font-black font-sans'
-                                        : 'bg-dark-bg/60 border-slate-800 text-slate-200 hover:bg-slate-850'
-                                    }`}
-                                  >
-                                    <span>{slot.time.split(' - ')[0]}</span>
-                                    <span className={`text-xs font-black ${openPlayInfo ? 'text-purple-300 font-sans' : isPlayerConflict ? 'text-amber-400 font-sans' : isSlotDisabled ? 'text-slate-500' : isSelected ? 'text-dark-bg/90 font-sans' : 'text-brand-lime'}`}>
-                                      {openPlayInfo ? '🏆 Open Play' : isPlayerConflict ? 'Conflict' : isSlotBooked ? 'Booked' : `₱${price}`}
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Equipment Rentals Add-ons */}
-                    {court.rentals && court.rentals.filter(r => r.enabled).length > 0 && (
-                      <div className="bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4.5 space-y-3.5 shadow-inner transition-all">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <span className="w-7 h-7 rounded-lg bg-brand-lime/10 flex items-center justify-center text-sm">🏓</span>
-                            <div>
-                              <span className="text-sm font-bold text-slate-200 block">Need Equipment Rentals?</span>
-                              <span className="text-xs text-slate-300 block font-normal">Paddles, Balls & Gear Add-ons</span>
-                            </div>
-                          </div>
-
-                          {/* Toggle Switch */}
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={isEquipmentRentalEnabled}
-                            onClick={() => {
-                              const nextState = !isEquipmentRentalEnabled;
-                              setIsEquipmentRentalEnabled(nextState);
-                              if (!nextState) {
-                                setSelectedRentals({});
-                              }
-                            }}
-                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                              isEquipmentRentalEnabled ? 'bg-brand-lime' : 'bg-slate-800 hover:bg-slate-750'
-                            }`}
-                          >
-                            <span
-                              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-slate-950 shadow-md ring-0 transition duration-200 ease-in-out ${
-                                isEquipmentRentalEnabled ? 'translate-x-5' : 'translate-x-0'
-                              }`}
-                            />
-                          </button>
-                        </div>
-
-                        {/* Expandable Equipment List */}
-                        {isEquipmentRentalEnabled && (
-                          <div className="space-y-3 pt-3 border-t border-slate-800/60 animate-fade-in">
-                            {court.rentals.filter(r => r.enabled).map((item) => {
-                              const qty = selectedRentals[item.id] || 0;
-                              const itemCost = qty > 0 ? getRentalItemCost(item, qty) : 0;
-                              const isSelected = qty > 0;
-                              return (
-                                <div
-                                  key={item.id}
-                                  onClick={() => {
-                                    setSelectedRentalForModal(item);
-                                    setRentalActiveImageIndex(0);
-                                    setIsRentalZoomed(false);
-                                  }}
-                                  className={`flex items-center gap-3.5 p-3.5 rounded-xl border transition-all duration-300 cursor-pointer ${
-                                    isSelected 
-                                      ? 'border-brand-lime/40 bg-brand-lime/[0.04] shadow-[0_0_12px_rgba(163,230,53,0.06)]' 
-                                      : 'border-slate-800/80 bg-slate-950/20 hover:border-slate-750 hover:bg-slate-900/40'
-                                  }`}
-                                >
-                                  {/* Item Image/Icon */}
-                                  <div className={`w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center text-xl select-none flex-shrink-0 transition-all relative group/img cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-brand-lime/10 border border-brand-lime/30'
-                                      : 'bg-slate-900 border border-slate-800'
-                                  }`}>
-                                    {item.images && item.images.length > 0 ? (
-                                      <img src={item.images[0]} alt={item.name} className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300" />
-                                    ) : (
-                                      <span>🏓</span>
-                                    )}
-                                  </div>
-
-                                  {/* Item Info */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                                      <h5 className="text-sm font-bold text-white truncate">{item.name}</h5>
-                                    </div>
-                                    <p className="text-xs text-slate-300 line-clamp-1 mb-1.5">{item.description || 'Quality court equipment'}</p>
-                                    <div className="text-xs font-black text-brand-lime">
-                                      ₱{item.price} <span className="text-xs font-normal text-slate-400">/{item.pricingType === 'per_hour' ? 'hr' : 'item'}</span>
-                                    </div>
-                                  </div>
-
-                                  {/* Quantity Controls & Subtotal */}
-                                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                    <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-lg p-1 shadow-inner">
-                                      <button
-                                        type="button"
-                                        disabled={qty <= 0}
-                                        onClick={() => {
-                                          const nextQty = Math.max(0, qty - 1);
-                                          setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
-                                        }}
-                                        className="w-6 h-6 rounded bg-slate-900 border border-slate-800 text-slate-200 font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                      >
-                                        -
-                                      </button>
-                                      <span className="w-5 text-center text-xs font-black text-white">{qty}</span>
-                                      <button
-                                        type="button"
-                                        disabled={qty >= item.quantity}
-                                        onClick={() => {
-                                          const nextQty = Math.min(item.quantity, qty + 1);
-                                          setSelectedRentals((prev) => ({ ...prev, [item.id]: nextQty }));
-                                        }}
-                                        className="w-6 h-6 rounded bg-slate-900 border border-slate-800 text-brand-lime font-bold text-xs flex items-center justify-center hover:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                                      >
-                                        +
-                                      </button>
-                                    </div>
-                                    
-                                    {/* Availability / Subtotal */}
-                                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mr-1">
-                                      {isSelected ? (
-                                        <span className="text-brand-lime font-bold">Total: ₱{itemCost}</span>
-                                      ) : (
-                                        <span>Avail: {item.quantity}</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {error && (
-                      <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2 font-medium">
-                        <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"></span>
-                        {error}
-                      </div>
-                    )}
-
-                    {/* Cost Breakdown */}
-                    {selectedSlots.length > 0 && (
-                      <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-2 text-sm">
-                        <div className="flex justify-between text-slate-300 font-medium">
-                          <span>Court ({selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''})</span>
-                          <span className="font-bold text-white font-sans">₱{totalSlotsCost}</span>
-                        </div>
-                        {totalRentalsCost > 0 && (
-                          <div className="flex justify-between text-slate-300 font-medium">
-                            <span>Equipment rentals</span>
-                            <span className="font-bold text-white font-sans">₱{totalRentalsCost}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between font-extrabold text-base pt-2 border-t border-slate-800">
-                          <span className="text-slate-200">Total Amount</span>
-                          <span className="text-brand-lime font-sans">₱{totalCost}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="pt-2">
-                      <button
-                        disabled={selectedSlots.length === 0}
-                        onClick={handleProceedToCheckout}
-                        className={`w-full py-4 rounded-xl text-base font-extrabold text-center flex items-center justify-center gap-2 transition-all duration-300 ${
-                          selectedSlots.length > 0
-                            ? 'bg-brand-lime text-dark-bg shadow-lg shadow-brand-lime/15 hover:scale-[1.01] cursor-pointer'
-                            : 'bg-slate-800 text-slate-400 cursor-not-allowed border border-slate-700'
-                        }`}
-                      >
-                        {selectedSlots.length > 0
-                          ? `Checkout (₱${totalCost})`
-                          : 'Select Slots to Reserve'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         )}
       </div>
+
+      {/* Fixed Floating Bottom Dock Checkout Bar */}
+      {selectedSlots.length > 0 && typeof document !== 'undefined' && createPortal(
+        <div className="fixed bottom-3 left-3 right-3 sm:bottom-4 sm:left-6 sm:right-6 lg:left-1/2 lg:right-auto lg:-translate-x-1/2 lg:w-[calc(100%-3rem)] lg:max-w-4xl z-[9999] animate-fade-in max-w-[calc(100vw-1.5rem)] sm:max-w-[calc(100vw-3rem)] box-border">
+          <div className="bg-slate-950/98 border border-brand-lime/40 rounded-2xl sm:rounded-3xl p-2.5 sm:p-4 shadow-[0_12px_45px_rgba(0,0,0,0.95)] backdrop-blur-2xl flex items-center justify-between gap-2 sm:gap-4 overflow-hidden w-full box-border">
+            
+            {/* Left Section: Selected Slots & Date Summary */}
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-brand-lime/15 border border-brand-lime/30 text-brand-lime flex items-center justify-center font-black text-xs sm:text-sm shrink-0 shadow-sm">
+                <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5" />
+              </div>
+
+              <div className="flex flex-col min-w-0 flex-1 overflow-hidden">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs sm:text-sm font-black text-white whitespace-nowrap shrink-0">
+                    {selectedSlots.length} {selectedSlots.length === 1 ? 'Slot' : 'Slots'}
+                  </span>
+                  
+                  {/* Mobile inline total price tag */}
+                  <span className="text-xs font-black text-brand-lime sm:hidden shrink-0 whitespace-nowrap">
+                    • ₱{totalCost}
+                  </span>
+
+                  {Object.values(selectedRentals).reduce((a, b) => a + b, 0) > 0 && (
+                    <span className="text-[10px] font-extrabold uppercase bg-brand-lime/10 text-brand-lime px-2 py-0.5 rounded-full border border-brand-lime/20 shrink-0 hidden md:inline-block font-sans whitespace-nowrap">
+                      +{Object.values(selectedRentals).reduce((a, b) => a + b, 0)} Gear
+                    </span>
+                  )}
+                </div>
+
+                <span className="text-[10px] sm:text-[11px] text-slate-400 truncate font-sans block">
+                  {formatDate(selectedDate)}
+                </span>
+              </div>
+            </div>
+
+            {/* Right Section: Price (Desktop) & Action Controls */}
+            <div className="flex items-center gap-1.5 sm:gap-4 shrink-0 min-w-0">
+              {/* Separate Total Display for tablet/desktop */}
+              <div className="hidden sm:flex flex-col items-end shrink-0">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none">Total</span>
+                <span className="text-base sm:text-xl font-black text-brand-lime font-sans mt-0.5">
+                  ₱{totalCost}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedSlots([])}
+                  className="p-2 sm:p-3 rounded-xl border border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer font-sans shrink-0 shadow-inner"
+                  title="Clear Selection"
+                >
+                  <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleProceedToCheckout}
+                  className="py-2 sm:py-3 px-3 sm:px-5 bg-gradient-to-r from-brand-lime via-[#b6f937] to-emerald-400 text-slate-950 font-black rounded-xl hover:opacity-95 transition-all shadow-lg shadow-brand-lime/20 hover:scale-[1.02] cursor-pointer font-sans text-xs sm:text-sm flex items-center gap-1.5 shrink-0 whitespace-nowrap"
+                >
+                  <span className="hidden xs:inline sm:inline">Proceed to </span>
+                  <span>Checkout</span>
+                  <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Lightbox fullscreen Modal */}
       {isLightboxOpen && allGalleryImages.length > 0 && (

@@ -16,7 +16,8 @@ import {
   ChevronDown,
   ArrowLeft,
   LogOut,
-  LifeBuoy
+  LifeBuoy,
+  ImageIcon
 } from 'lucide-react';
 import { type AdminTab, type AdminSettingsSubTab, getUserEffectivePermissions } from './adminTypes';
 
@@ -269,6 +270,20 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
               <div className="flex items-center gap-2.5">
                 <Link2 className="w-4 h-4" />
                 <span>URL Shortener</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => handleTabClick('image_converter')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
+                activeTab === 'image_converter'
+                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <ImageIcon className="w-4 h-4 text-emerald-400" />
+                <span>Image Converter</span>
               </div>
             </button>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, Fragment } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AdminSidebar } from './admin/AdminSidebar';
 import { AdminHeader } from './admin/AdminHeader';
 import { AdminDashboardTab } from './admin/tabs/AdminDashboardTab';
@@ -14,6 +14,7 @@ import { AdminSettingsTab } from './admin/tabs/AdminSettingsTab';
 import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
 import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
+import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
 import { type AdminTab, type AdminSettingsSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
@@ -23,14 +24,11 @@ import { AdminManualOpenPlayBookingModal } from './admin/modals/AdminManualOpenP
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { InteractiveMapPicker } from './InteractiveMapPicker';
 import {
-  LayoutDashboard,
   UserPlus,
   Calendar,
   Clock,
   User,
   Users,
-  TrendingUp,
-  DollarSign,
   Search,
   Edit2,
   Trash2,
@@ -47,24 +45,16 @@ import {
   MapPin,
   Plus,
   Shield,
-  Menu,
-  Globe,
   Star,
   ArrowRight,
   CreditCard,
   ExternalLink,
-  Eye,
-  EyeOff,
   List,
   LayoutGrid,
   Building2,
   Mail,
-  LogOut,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Trophy,
-  Share2,
   Upload,
   FileText,
   Sparkles,
@@ -72,29 +62,22 @@ import {
   CheckCircle,
   CheckCircle2,
   Tag,
-  Save,
   RotateCcw,
   Bell,
-  Volume2,
-  VolumeX,
   Send,
-  Settings,
-  ChevronUp,
   Repeat,
   CalendarCheck,
   MailPlus,
   Copy,
   Download,
-  BarChart3,
   ShieldCheck,
   KeyRound,
   CheckCheck,
-  Phone,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot } from 'firebase/firestore';
-import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPaymentApprovalReceiptEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail } from '../services/emailService';
-import { isEventExpired, formatTime12h, formatEventDateLong, splitAddressComponents, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
+import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail } from '../services/emailService';
+import { isEventExpired, formatTime12h, formatEventDateLong, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 
 const SLOTS = [
   { time: '05:00 AM - 06:00 AM', startHour: 5 },
@@ -245,22 +228,6 @@ const DEFAULT_OPERATING_HOURS: DailyOperatingHoursMap = {
   saturday: { isOpen: true, openTime: '05:00 AM', closeTime: '10:00 PM' },
   sunday: { isOpen: true, openTime: '05:00 AM', closeTime: '10:00 PM' },
 };
-
-const DAYS_OF_WEEK: { key: keyof DailyOperatingHoursMap; label: string }[] = [
-  { key: 'monday', label: 'Monday' },
-  { key: 'tuesday', label: 'Tuesday' },
-  { key: 'wednesday', label: 'Wednesday' },
-  { key: 'thursday', label: 'Thursday' },
-  { key: 'friday', label: 'Friday' },
-  { key: 'saturday', label: 'Saturday' },
-  { key: 'sunday', label: 'Sunday' },
-];
-
-const OPERATING_TIME_OPTIONS = [
-  '05:00 AM', '06:00 AM', '07:00 AM', '08:00 AM', '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-  '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM', '06:00 PM', '07:00 PM', '08:00 PM',
-  '09:00 PM', '10:00 PM', '11:00 PM', '12:00 AM'
-];
 
 const parseTimeStringToHour = (timeStr: string): number => {
   if (!timeStr) return 5;
@@ -499,8 +466,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [settingsSubMenuOpen, setSettingsSubMenuOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [bookingLeadTimeMinutes, setBookingLeadTimeMinutes] = useState<number>(30);
-  const [leadTimeSaveSuccess, setLeadTimeSaveSuccess] = useState(false);
-  const [leadTimeSaveLoading, setLeadTimeSaveLoading] = useState(false);
+  const [_leadTimeSaveSuccess, setLeadTimeSaveSuccess] = useState(false);
+  const [_leadTimeSaveLoading, setLeadTimeSaveLoading] = useState(false);
+  const [_orgProfileSaveSuccess, setOrgProfileSaveSuccess] = useState(false);
+  const [_orgProfileSaveLoading, setOrgProfileSaveLoading] = useState(false);
+  const [_serviceFeeSaving, setServiceFeeSaving] = useState(false);
+  const [_reminderSaveLoading, setReminderSaveLoading] = useState(false);
+  const [_reminderSaveSuccess, setReminderSaveSuccess] = useState(false);
+  const [_testEmailLoading, setTestEmailLoading] = useState(false);
+  const [_testEmailMessage, setTestEmailMessage] = useState<string | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [courts, setCourts] = useState<Court[]>([]);
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -526,7 +500,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [globalGcashQrSetting, setGlobalGcashQrSetting] = useState('');
   const [globalServiceFeeSetting, setGlobalServiceFeeSetting] = useState<number>(30);
   const [globalServiceFeeEnabled, setGlobalServiceFeeEnabled] = useState<boolean>(true);
-  const [serviceFeeSaving, setServiceFeeSaving] = useState(false);
   const [serviceFeeSuccessModalMessage, setServiceFeeSuccessModalMessage] = useState<string | null>(null);
 
   // Form states inside settings modal
@@ -566,10 +539,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     browserNotificationEnabled: false,
   });
 
-  const [reminderSaveLoading, setReminderSaveLoading] = useState(false);
-  const [reminderSaveSuccess, setReminderSaveSuccess] = useState(false);
-  const [testEmailLoading, setTestEmailLoading] = useState(false);
-  const [testEmailMessage, setTestEmailMessage] = useState<string | null>(null);
   const [pendingReminderToast, setPendingReminderToast] = useState<{
     open: boolean;
     count: number;
@@ -590,9 +559,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [cancellationResolutionMode, setCancellationResolutionMode] = useState<'refund' | 'voucher' | 'no_refund'>('refund');
   const [refundVoucherExpiryDays, setRefundVoucherExpiryDays] = useState<number>(30);
   const nonRefundableReason = 'Late cancellation within 12h policy window';
-
-  // Checkouts Accordion State
-  const [expandedCheckoutId, setExpandedCheckoutId] = useState<string | null>(null);
   
   // Reject Checkout Modal States
   const [rejectCheckoutModalBooking, setRejectCheckoutModalBooking] = useState<Booking | null>(null);
@@ -615,8 +581,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'cancelled'>('all');
   const [checkoutCategoryFilter, setCheckoutCategoryFilter] = useState<'all' | 'court' | 'openplay'>('all');
   const [checkoutStatusFilter, setCheckoutStatusFilter] = useState<'all' | 'pending' | 'paid' | 'cancelled'>('pending');
-  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'player' | 'client_admin' | 'super_admin'>('all');
-  const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive' | 'deleted'>('all');
+  const [userRoleFilter] = useState<'all' | 'player' | 'client_admin' | 'super_admin'>('all');
+  const [userStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive' | 'deleted'>('all');
   
   // Edit Booking Modal States
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -654,7 +620,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   // Email Modal States
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [emailToAddress, setEmailToAddress] = useState('');
-  const [emailToName, setEmailToName] = useState('');
+  const [emailToName] = useState('');
   const [emailSubjectInput, setEmailSubjectInput] = useState('');
   const [emailMessageInput, setEmailMessageInput] = useState('');
   const [emailTemplateType, setEmailTemplateType] = useState<'custom' | 'approval' | 'cancellation' | 'reminder'>('custom');
@@ -672,7 +638,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteSuccessInfo, setInviteSuccessInfo] = useState<{ email: string; token: string; link: string; expiresAt: string; role?: string } | null>(null);
   const [copiedInviteLink, setCopiedInviteLink] = useState(false);
-  const [copiedInviteUserToken, setCopiedInviteUserToken] = useState<string | null>(null);
 
   const handleSendInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -772,7 +737,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [companyAddressInput, setCompanyAddressInput] = useState('');
   const [clientAdminEmailInput, setClientAdminEmailInput] = useState('');
   const [companyStatusInput, setCompanyStatusInput] = useState<'pending' | 'active' | 'inactive'>('pending');
-  const [companyStatusFilter, setCompanyStatusFilter] = useState<'all' | 'active' | 'pending' | 'inactive'>('all');
+
 
   // Organization Profile Settings States
   const [orgProfileName, setOrgProfileName] = useState('');
@@ -802,8 +767,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [orgProfileLogoUrl, setOrgProfileLogoUrl] = useState<string | null>(null);
   const [orgSubdomain, setOrgSubdomain] = useState('');
   const [orgOperatingHours, setOrgOperatingHours] = useState<DailyOperatingHoursMap>(DEFAULT_OPERATING_HOURS);
-  const [orgProfileSaveSuccess, setOrgProfileSaveSuccess] = useState(false);
-  const [orgProfileSaveLoading, setOrgProfileSaveLoading] = useState(false);
 
   const handleToggleDayOff = (dayKey: keyof DailyOperatingHoursMap) => {
     setOrgOperatingHours((prev) => {
@@ -955,97 +918,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       setOpenPlayRegistrations(prev => [...prev, finalPayload]);
     } catch (err: any) {
       console.error('Failed to save manual open play registration:', err);
-      throw new Error(err?.message || 'Failed to save manual registration.');
+      throw new Error(err?.message || 'Failed to save manual registration.', { cause: err });
     }
   };
 
   const [rosterModalViewMode, setRosterModalViewMode] = useState<'cards' | 'list' | 'table'>('cards');
   const [rosterSearchQuery, setRosterSearchQuery] = useState('');
   const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest'>('all');
-  const [copiedShareLink, setCopiedShareLink] = useState<string | null>(null);
-
-  // Persistent Attendance Checker State
-  const [attendanceMap, setAttendanceMap] = useState<Record<string, boolean>>(() => {
-    try {
-      const saved = localStorage.getItem('picklepoint_attendance_map');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  const handleToggleAttendance = (attendeeId: string) => {
-    setAttendanceMap(prev => {
-      const nextState = !prev[attendeeId];
-      const updated = { ...prev, [attendeeId]: nextState };
-      try {
-        localStorage.setItem('picklepoint_attendance_map', JSON.stringify(updated));
-      } catch (e) {
-        console.warn('Could not save attendance to localStorage:', e);
-      }
-      return updated;
-    });
-  };
-
-  const checkHasEventStarted = (event: OpenPlayEvent | null, bufferMinutes: number = 15): boolean => {
-    if (!event || !event.eventDate) return true;
-    try {
-      const now = new Date();
-      let eventDateObj: Date | null = null;
-
-      if (event.eventDate.includes('-') && event.eventDate.length === 10) {
-        const [year, month, day] = event.eventDate.split('-').map(Number);
-        eventDateObj = new Date(year, month - 1, day);
-      } else {
-        const parsed = Date.parse(event.eventDate);
-        if (!isNaN(parsed)) {
-          eventDateObj = new Date(parsed);
-        }
-      }
-
-      if (!eventDateObj) return true;
-
-      const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-      const eventZero = new Date(eventDateObj.getFullYear(), eventDateObj.getMonth(), eventDateObj.getDate()).getTime();
-
-      if (todayZero > eventZero) {
-        return true;
-      }
-      if (todayZero < eventZero) {
-        return false;
-      }
-
-      if (event.startTime) {
-        let startHour = 0;
-        let startMinute = 0;
-
-        const timeStr = event.startTime.trim().toUpperCase();
-        if (timeStr.includes('AM') || timeStr.includes('PM')) {
-          const isPM = timeStr.includes('PM');
-          const isAM = timeStr.includes('AM');
-          const cleanTime = timeStr.replace(/(AM|PM)/g, '').trim();
-          const parts = cleanTime.split(':').map(Number);
-          startHour = parts[0] || 0;
-          startMinute = parts[1] || 0;
-          if (isPM && startHour < 12) startHour += 12;
-          if (isAM && startHour === 12) startHour = 0;
-        } else if (timeStr.includes(':')) {
-          const parts = timeStr.split(':').map(Number);
-          startHour = parts[0] || 0;
-          startMinute = parts[1] || 0;
-        }
-
-        const eventStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startHour, startMinute).getTime();
-        const earlyCheckInMs = eventStartMs - (bufferMinutes * 60 * 1000);
-        return now.getTime() >= earlyCheckInMs;
-      }
-
-      return true;
-    } catch (err) {
-      console.error('Error checking event start time:', err);
-      return true;
-    }
-  };
 
   // Form states for Open Play Event creation/edit
   const [openPlayTitle, setOpenPlayTitle] = useState('');
@@ -1069,8 +948,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [isRecurringEnabled, setIsRecurringEnabled] = useState<boolean>(false);
   const [recurringDays, setRecurringDays] = useState<string[]>(['tuesday']);
   const [recurringWeeksCount, setRecurringWeeksCount] = useState<number>(4);
-  const [adminOpenPlayFilter, setAdminOpenPlayFilter] = useState<'all' | 'upcoming' | 'expired'>('all');
-  const [adminOpenPlayViewMode, setAdminOpenPlayViewMode] = useState<'cards' | 'history'>('cards');
 
   const calculateRecurringDates = (startDateStr: string, selectedDays: string[], weeksCount: number): string[] => {
     if (!startDateStr || selectedDays.length === 0 || weeksCount <= 0) return [startDateStr];
@@ -1384,7 +1261,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
 
         setOpenPlayEvents(prev => [...prev, ...newEventsBatch]);
-      setAdminOpenPlayFilter('upcoming');
         setOpenPlayModalOpen(false);
       } catch (err) {
         console.error('Failed to save recurring events:', err);
@@ -1507,7 +1383,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       if (selectedEventForRegs && selectedEventForRegs.id === eventId) {
         setSelectedEventForRegs(payload);
       }
-      setAdminOpenPlayFilter('upcoming');
       setOpenPlayModalOpen(false);
       setEditingOpenPlay(null);
     } catch (err) {
@@ -1521,8 +1396,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const handleCopyShareableLink = (eventId: string) => {
     const shareableUrl = `${window.location.origin}/?openplay=${eventId}`;
     navigator.clipboard.writeText(shareableUrl);
-    setCopiedShareLink(eventId);
-    setTimeout(() => setCopiedShareLink(null), 4000);
   };
 
   const handleToggleEventStatus = async (event: OpenPlayEvent) => {
@@ -1668,7 +1541,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [courtPostalCode, setCourtPostalCode] = useState('');
   const [courtRentals, setCourtRentals] = useState<RentalItem[]>([]);
   const [courtPublished, setCourtPublished] = useState(false);
-  const [courtsViewMode, setCourtsViewMode] = useState<'list' | 'grid'>('list');
   // Court Modal Popover Dropdown Toggle States
   const [isCourtTypeOpen, setIsCourtTypeOpen] = useState(false);
   const [isCourtGcashOpen, setIsCourtGcashOpen] = useState(false);
@@ -1682,10 +1554,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [isOpenPlayGcashOpen, setIsOpenPlayGcashOpen] = useState(false);
   const [posterDragActive, setPosterDragActive] = useState(false);
   // Bookings View States
-  const [bookingsViewMode, setBookingsViewMode] = useState<'table' | 'calendar'>('table');
-  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
-  const [selectedCalendarCourtId, setSelectedCalendarCourtId] = useState<string>('all');
+  const [selectedCalendarCourtId] = useState<string>('all');
   const [calendarSlotFilter, setCalendarSlotFilter] = useState<'all' | 'blocked' | 'available'>('all');
 
   // Venue Policies States
@@ -2047,11 +1917,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  const handleOpenWeatherStoppage = (booking: Booking) => {
-    setWeatherBooking(booking);
-    setStoppageDuration('under_30');
-    setWeatherModalOpen(true);
-  };
+
 
   const handleConfirmWeatherStoppage = async () => {
     if (!weatherBooking) return;
@@ -2209,7 +2075,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const [adminDisplayName, setAdminDisplayName] = useState(user?.name || '');
   const [adminPhone, setAdminPhone] = useState('');
-  const [adminProfileSaveSuccess, setAdminProfileSaveSuccess] = useState(false);
+  const [_adminProfileSaveSuccess, setAdminProfileSaveSuccess] = useState(false);
 
   useEffect(() => {
     if (user?.name) {
@@ -3326,8 +3192,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     };
     window.addEventListener('storage', handleStorageChange);
 
-    // Suppress TS unused local warnings
-  void [Fragment, LayoutDashboard, TrendingUp, DollarSign, Menu, Globe, Eye, EyeOff, LogOut, ChevronDown, ChevronLeft, ChevronRight, Share2, Save, Volume2, VolumeX, Settings, ChevronUp, BarChart3, Phone, sendPaymentApprovalReceiptEmail, splitAddressComponents, DAYS_OF_WEEK, OPERATING_TIME_OPTIONS, leadTimeSaveSuccess, leadTimeSaveLoading, serviceFeeSaving, reminderSaveLoading, reminderSaveSuccess, testEmailLoading, testEmailMessage, expandedCheckoutId, setExpandedCheckoutId, setUserRoleFilter, setUserStatusFilter, copiedInviteUserToken, setCompanyStatusFilter, orgSelectedRegion, orgSelectedProvince, orgSelectedCity, orgSelectedBarangay, orgProfileSaveSuccess, orgProfileSaveLoading, handleToggleDayOff, handleDayTimeChange, handleApplyMonToAll, processOrgLogoFile, copiedShareLink, attendanceMap, handleToggleAttendance, checkHasEventStarted, adminOpenPlayFilter, adminOpenPlayViewMode, setAdminOpenPlayViewMode, handleToggleEventStatus, handleDuplicateOpenPlayEvent, courtsViewMode, setCourtsViewMode, bookingsViewMode, setBookingsViewMode, calendarMonth, setCalendarMonth, setSelectedCalendarCourtId, handleOpenWeatherStoppage, setAdminPhone, adminProfileSaveSuccess, handleSaveAdminPersonalProfile, handleOrgRegionChange, handleOrgProvinceChange, handleOrgCityChange, handleOrgBarangayChange, handleSaveOrgProfile, requestNotificationPermission, handleSavePaymentReminderSettings, handleTestReminderAlert, handleTestReminderEmail, handleOpenInviteClientAdmin, handleCopyUserInviteLink, handleResendUserInviteEmail, handleRevokeUserInvite, handleOpenCreateCompany, handleOpenEditCompany, handleOpenSendEmail, handleOpenCreateCourt, utilizationRate, filteredCourts, filteredUsers, filteredCompanies];
   return () => {
       if (unsubscribeBookings) unsubscribeBookings();
       window.removeEventListener('storage', handleStorageChange);
@@ -3804,7 +3668,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   // Back to Main Site
-  // @ts-ignore
+  // @ts-expect-error Unused helper function for navigation
   const _handleBackToSite = () => {
     window.history.pushState({}, '', '/');
     setView('landing');
@@ -4303,21 +4167,35 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const targetBooking = rejectCheckoutModalBooking;
 
     try {
-      if (isFirebaseConfigured && db) {
-        const bookingRef = doc(db, 'bookings', targetBooking.id);
-        await updateDoc(bookingRef, {
-          status: 'cancelled',
-          paymentStatus: 'failed',
-          rejectionReason: finalReason,
-          rejectedAt: new Date().toISOString(),
-          rejectedBy: user?.email || 'Admin',
-        });
-      } else {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
+      const bookingDocId = targetBooking.id || targetBooking.bookingReference || (targetBooking as any).bookingId;
+
+      if (isFirebaseConfigured && db && bookingDocId) {
+        try {
+          const bookingRef = doc(db, 'bookings', bookingDocId);
+          await updateDoc(bookingRef, {
+            status: 'cancelled',
+            paymentStatus: 'failed',
+            rejectionReason: finalReason,
+            rejectedAt: new Date().toISOString(),
+            rejectedBy: user?.email || 'Admin',
+          });
+        } catch (fErr) {
+          console.warn('Firestore checkout rejection update warning:', fErr);
+        }
+      }
+
+      // Always sync rejection to LocalStorage for offline and multi-tab instant availability
+      const bookingsStr = localStorage.getItem('picklepoint_bookings');
+      if (bookingsStr) {
+        try {
           const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.map((b: Booking) => {
-            if (b.bookingId === targetBooking.id || b.id === targetBooking.id) {
+          const updated = localBookings.map((b: any) => {
+            if (
+              b.id === targetBooking.id ||
+              b.bookingId === targetBooking.id ||
+              b.bookingReference === targetBooking.bookingReference ||
+              (bookingDocId && (b.id === bookingDocId || b.bookingId === bookingDocId || b.bookingReference === bookingDocId))
+            ) {
               return {
                 ...b,
                 status: 'cancelled',
@@ -4330,12 +4208,21 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             return b;
           });
           localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
+        } catch (e) {
+          console.warn('Local storage booking rejection sync error:', e);
         }
       }
 
+      // Dispatch local event so calendar & checkout tabs update in real-time
+      window.dispatchEvent(new Event('picklepoint_booking_added'));
+      window.dispatchEvent(new Event('storage'));
+
       setBookings((prev) =>
-        prev.map((b) =>
-          b.id === targetBooking.id || b.bookingId === targetBooking.id
+        prev.map((b: any) =>
+          b.id === targetBooking.id ||
+          b.bookingId === targetBooking.id ||
+          b.bookingReference === targetBooking.bookingReference ||
+          (bookingDocId && (b.id === bookingDocId || b.bookingId === bookingDocId || b.bookingReference === bookingDocId))
             ? {
                 ...b,
                 status: 'cancelled',
@@ -4347,7 +4234,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       );
 
       // Send rejection / cancellation email if enabled
-      if (rejectSendEmail && targetBooking.user?.email) {
+      const recipientUserEmail = targetBooking.userEmail || targetBooking.user?.email;
+      const recipientUserName = targetBooking.userName || targetBooking.user?.name || 'Valued Player';
+
+      if (rejectSendEmail && recipientUserEmail) {
         const targetCourt = courts.find(
           (c) => c.id === targetBooking.courtId || c.name === targetBooking.courtName
         );
@@ -4366,15 +4256,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         const ownerPhone = targetCourt?.ownerPhone || (targetBooking as any).ownerPhone;
 
         sendNonRefundableCancellationEmail({
-          bookingId: targetBooking.id,
-          bookingReference: targetBooking.bookingReference || targetBooking.id,
+          bookingId: targetBooking.id || bookingDocId,
+          bookingReference: targetBooking.bookingReference || targetBooking.id || bookingDocId,
           courtName: targetBooking.courtName || 'Court',
           date: targetBooking.date || '',
           slots: targetBooking.slots || [],
           totalCost: targetBooking.totalCost || 0,
           cancellationReason: `Payment Verification Rejected: ${finalReason}`,
-          userEmail: targetBooking.user.email,
-          userName: targetBooking.user.name || 'Valued Player',
+          userEmail: recipientUserEmail,
+          userName: recipientUserName,
           ownerCompanyName,
           ownerCompanyAddress,
           ownerEmail,
@@ -4385,7 +4275,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       setRejectCheckoutModalBooking(null);
       setRejectSuccessAlert(
         `Reservation #${targetBooking.bookingReference || targetBooking.id} has been rejected and cancelled.${
-          rejectSendEmail && targetBooking.user?.email ? ` A cancellation notice with reasons was emailed to ${targetBooking.user.email}.` : ''
+          rejectSendEmail && recipientUserEmail ? ` A cancellation notice with reasons was emailed to ${recipientUserEmail}.` : ''
         }`
       );
     } catch (err) {
@@ -4542,7 +4432,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   // User Role Management
-  // @ts-ignore
+  // @ts-expect-error Unused helper function for role updates
   const _handleUpdateUserRole = async (userEmail: string, newRole: 'client_admin' | 'player' | 'super_admin', userUid?: string) => {
     if (userEmail.toLowerCase() === 'admin@picklepoint.com') {
       showModalAlert('Protected Account', "The primary admin account's role cannot be modified.", 'warning');
@@ -5058,80 +4948,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  const handleCopyUserInviteLink = (u: UserAccount) => {
-    if (!u.inviteToken) return;
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
-    const inviteUrl = `${origin}/?view=register&inviteToken=${u.inviteToken}&email=${encodeURIComponent(u.email)}`;
-    navigator.clipboard.writeText(inviteUrl);
-    setCopiedInviteUserToken(u.inviteToken);
-    setTimeout(() => setCopiedInviteUserToken(null), 2500);
-    showModalAlert('Link Copied', 'Invite link copied to clipboard!', 'success');
-  };
 
-  const handleResendUserInviteEmail = async (u: UserAccount) => {
-    if (!u.inviteToken) return;
-    setActionLoading(u.email);
-    try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
-      const inviteUrl = `${origin}/?view=register&inviteToken=${u.inviteToken}&email=${encodeURIComponent(u.email)}`;
-      const expiresAt = u.expiresAt || new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-
-      await sendClientAdminInvitationEmail({
-        toEmail: u.email,
-        toName: u.name !== 'Invited Client Admin' ? u.name : undefined,
-        inviteUrl,
-        expiresAt,
-        invitedBy: currentUserEmail || 'Super Administrator',
-        customMessage: u.customMessage,
-      });
-
-      showModalAlert('Invitation Sent', `Invitation email resent successfully to ${u.email}!`, 'success');
-    } catch (err) {
-      console.error('Failed to resend invitation:', err);
-      showModalAlert('Resend Failed', 'Failed to resend invitation: ' + (err as Error).message, 'error');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleRevokeUserInvite = async (u: UserAccount) => {
-    showModalAlert(
-      'Revoke Invitation',
-      `Are you sure you want to revoke and delete the pending invitation for ${u.email}?`,
-      'warning',
-      'Yes, Revoke',
-      async () => {
-        setActionLoading(u.email);
-        try {
-          if (u.inviteToken && isFirebaseConfigured && db) {
-            try {
-              await updateDoc(doc(db, 'invitations', u.inviteToken), {
-                status: 'revoked',
-                revokedAt: new Date().toISOString()
-              });
-            } catch (fErr) {
-              console.error('Error marking invitation revoked in Firestore:', fErr);
-            }
-          }
-
-          // Remove from localStorage
-          const invStr = localStorage.getItem('picklepoint_invitations');
-          if (invStr) {
-            const localInvs = JSON.parse(invStr);
-            const updated = localInvs.filter((inv: any) => inv.token !== u.inviteToken && inv.email?.toLowerCase() !== u.email.toLowerCase());
-            localStorage.setItem('picklepoint_invitations', JSON.stringify(updated));
-          }
-
-          setUsers((prev) => prev.filter((userItem) => userItem.email.toLowerCase() !== u.email.toLowerCase()));
-        } catch (err) {
-          console.error('Failed to revoke invitation:', err);
-          showModalAlert('Revoke Failed', 'Failed to revoke invitation: ' + (err as Error).message, 'error');
-        } finally {
-          setActionLoading(null);
-        }
-      }
-    );
-  };
 
   // Company Management Handlers
   const handleOpenCreateCompany = () => {
@@ -5143,14 +4960,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setCompanyModalOpen(true);
   };
 
-  const handleOpenEditCompany = (comp: Company) => {
-    setEditingCompany(comp);
-    setCompanyNameInput(comp.name);
-    setCompanyAddressInput(comp.address);
-    setClientAdminEmailInput(comp.clientAdminEmail);
-    setCompanyStatusInput(comp.status || 'active');
-    setCompanyModalOpen(true);
-  };
+
 
   const handleQuickUpdateCompanyStatus = async (companyId: string, newStatus: 'pending' | 'active' | 'inactive') => {
     const targetCompany = companies.find((c) => c.id === companyId);
@@ -5447,15 +5257,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  // Email Dispatch Handlers
-  const handleOpenSendEmail = (toEmail: string, toName: string, defaultSubject?: string, defaultMessage?: string) => {
-    setEmailToAddress(toEmail);
-    setEmailToName(toName);
-    setEmailSubjectInput(defaultSubject || `Notification from PicklePoint`);
-    setEmailMessageInput(defaultMessage || `Hello ${toName},\n\n`);
-    setEmailTemplateType('custom');
-    setEmailModalOpen(true);
-  };
+
 
   const handleTemplateChange = (type: 'custom' | 'approval' | 'cancellation' | 'reminder') => {
     setEmailTemplateType(type);
@@ -5497,32 +5299,85 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
+  const processCourtImageFile = async (file: File) => {
+    const fileNameLower = file.name.toLowerCase();
+    const isRawOrDng = fileNameLower.endsWith('.dng') || fileNameLower.endsWith('.raw') || fileNameLower.endsWith('.cr2') || fileNameLower.endsWith('.nef') || fileNameLower.endsWith('.arw');
+    
+    let imageSrc = '';
+    let isObjectUrl = false;
+
+    if (isRawOrDng) {
+      try {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.length;
+        let bestStart = -1, bestEnd = -1, maxSize = 0, i = 0;
+        while (i < len - 4) {
+          if (bytes[i] === 0xff && bytes[i + 1] === 0xd8 && bytes[i + 2] === 0xff) {
+            const start = i;
+            let j = start + 2, end = -1;
+            while (j < len - 1) {
+              if (bytes[j] === 0xff && bytes[j + 1] === 0xd9) { end = j + 2; break; }
+              j++;
+            }
+            if (end !== -1) {
+              const size = end - start;
+              if (size > maxSize && size > 5000) { maxSize = size; bestStart = start; bestEnd = end; }
+              i = end; continue;
+            }
+          }
+          i++;
+        }
+        if (bestStart !== -1 && bestEnd !== -1) {
+          const jpegBlob = new Blob([bytes.subarray(bestStart, bestEnd)], { type: 'image/jpeg' });
+          imageSrc = URL.createObjectURL(jpegBlob);
+          isObjectUrl = true;
+        }
+      } catch (e) {
+        console.warn('Failed to extract DNG preview:', e);
+      }
+    }
+
+    if (!imageSrc) {
+      try {
+        imageSrc = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
+      } catch (err) {
+        setCourtFormError(`Failed to read file "${file.name}".`);
+        return;
+      }
+    }
+
+    const img = new Image();
+    img.src = imageSrc;
+    img.onerror = () => {
+      if (isObjectUrl) URL.revokeObjectURL(imageSrc);
+      setCourtFormError(`Could not decode "${file.name}". Please convert to JPG or PNG.`);
+    };
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const max_width = 800;
+      const scale = max_width / img.width;
+      canvas.width = max_width;
+      canvas.height = img.height * scale;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        setCourtImages((prev) => [...prev, compressedBase64]);
+      }
+      if (isObjectUrl) URL.revokeObjectURL(imageSrc);
+    };
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        const img = new Image();
-        img.src = base64String;
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const max_width = 500;
-          const scale = max_width / img.width;
-          canvas.width = max_width;
-          canvas.height = img.height * scale;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
-            setCourtImages((prev) => [...prev, compressedBase64]);
-          }
-        };
-      };
-      reader.readAsDataURL(file);
-    });
+    Array.from(files).forEach(processCourtImageFile);
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -5540,29 +5395,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const files = e.dataTransfer.files;
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64String = reader.result as string;
-          const img = new Image();
-          img.src = base64String;
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const max_width = 500;
-            const scale = max_width / img.width;
-            canvas.width = max_width;
-            canvas.height = img.height * scale;
-            const ctx = canvas.getContext('2d');
-            if (ctx) {
-              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
-              setCourtImages((prev) => [...prev, compressedBase64]);
-            }
-          };
-        };
-        reader.readAsDataURL(file);
-      });
+      Array.from(e.dataTransfer.files).forEach(processCourtImageFile);
     }
   };
 
@@ -6287,17 +6120,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   
   const totalRevenue = approvedBookings.reduce((sum, b) => sum + (b.totalCost || 0), 0);
   
-  // Utilization rate: percentage of slots booked out of total operating slots for all dates present in the list
-  // Operating capacity: 17 slots per day
-  const uniqueDatesCount = new Set(bookings.map((b) => b.date).filter(Boolean)).size || 1;
-  const totalAvailableCapacity = uniqueDatesCount * (SLOTS?.length || 17);
-  const totalBookedSlotsCount = bookings
-    .filter((b) => b.status !== 'cancelled')
-    .reduce((sum, b) => sum + (b.slots?.length || 0), 0);
-  const utilizationRate = Math.min(
-    100,
-    Math.round((totalBookedSlotsCount / totalAvailableCapacity) * 100) || 0
-  );
+
+
 
   // Filter and Search Bookings
   const filteredBookings = bookings.filter((b) => {
@@ -6311,15 +6135,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return matchesSearch && matchesStatus;
   });
 
-  // Filter Courts
-  const filteredCourts = courts.filter((c) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.type.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesOwner = isSuperAdmin || availableAdminCourts.some(ac => ac.id === c.id);
-    return matchesSearch && matchesOwner;
-  });
+
 
   const associatedPlayerEmails = new Set([
     ...bookings.map((b) => b.user?.email?.toLowerCase()).filter(Boolean),
@@ -6359,20 +6175,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return matchesSearch && matchesStatus;
   });
 
-  const filteredCompanies = companies.filter((c) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.address.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.clientAdminEmail.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const compStatus = c.status || 'active';
-    const matchesStatus =
-      companyStatusFilter === 'all'
-        ? true
-        : compStatus === companyStatusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
 
   const pendingVerificationCount = bookings.filter(
     (b) => b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending'
@@ -6545,6 +6348,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Platform Service Fee Management'
                 : activeTab === 'support'
                 ? 'Client Support Inquiries & Helpdesk'
+                : activeTab === 'image_converter'
+                ? 'Image Converter & Optimizer'
                 : 'Checkout Settings'}
             </h2>
             <p className="text-slate-400 text-sm mt-1">
@@ -6552,6 +6357,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
                 : activeTab === 'support'
                 ? 'Inspect, manage, and resolve support ticket concerns submitted by Client Administrators & Facility Managers.'
+                : activeTab === 'image_converter'
+                ? 'Convert camera RAW photos (DNG), WEBP, and high-res images to web-optimized formats right in your browser.'
                 : activeTab === 'service_fee'
                 ? 'Configure global convenience & service fee per checkout, inspect fee earnings, and view revenue breakdown.'
                 : activeTab === 'openplay'
@@ -6647,7 +6454,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               bookings={bookings}
               openPlayEvents={openPlayEvents}
               myCompany={currentCompany}
-              onOpenCreateCourtModal={() => { setEditingCourt(null); setCourtModalOpen(true); }}
+              onOpenCreateCourtModal={handleOpenCreateCourt}
               onOpenEditCourtModal={handleOpenEditCourt}
               onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
               onTogglePublishCourt={(courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); }}
@@ -6660,7 +6467,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'companies' && isSuperAdmin && (
             <AdminCompaniesTab
               companies={companies}
-              onOpenOnboardModal={() => { setEditingCompany(null); setCompanyModalOpen(true); }}
+              onOpenOnboardModal={handleOpenCreateCompany}
               onOpenInviteModal={(comp) => { setInviteModalOpen(true); if (comp) setInviteEmailInput(comp.clientAdminEmail || ''); }}
               onApproveCompany={(id) => handleQuickUpdateCompanyStatus(id, 'active')}
               onRejectCompany={(id) => handleQuickUpdateCompanyStatus(id, 'inactive')}
@@ -6840,7 +6647,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 const target = typeof u === 'string' ? users.find(x => x.uid === u || x.email === u) : u;
                 if (target) handlePromptDeleteUser(target);
               }}
-              onOpenInviteModal={() => setInviteModalOpen(true)}
+              onOpenInviteModal={handleOpenInviteClientAdmin}
             />
           )}
 
@@ -6957,6 +6764,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               companies={companies}
               formatEventDateLong={formatEventDateLong}
             />
+          )}
+          {activeTab === 'image_converter' && (
+            <AdminImageConverterTab />
           )}
         </div>
       </div>
@@ -9151,14 +8961,16 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   <span className="text-sm font-normal text-slate-300 text-center">Drag & Drop Court Photos here</span>
-                  <span className="text-xs text-slate-400 mt-1 mb-3 font-normal">Or choose files from your device</span>
+                  <span className="text-xs text-slate-400 mt-1 mb-3 font-normal">
+                    JPG, PNG, WEBP supported • Convert DNG/RAW photos to JPG before uploading
+                  </span>
                   
                   <label className="px-4 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg text-sm font-normal hover:bg-slate-750 transition-all cursor-pointer">
                     Browse Files
                     <input
                       type="file"
                       multiple
-                      accept="image/*"
+                      accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                       onChange={handleImageUpload}
                       className="hidden"
                     />
@@ -11223,7 +11035,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       )}
 
       {/* PLAYER ROSTER & PAYMENT VERIFICATION MODAL (Disabled - using Full Page Roster view instead) */}
-      {false && registrationsModalOpen && selectedEventForRegs && (() => {
+      {Boolean(false) && registrationsModalOpen && selectedEventForRegs && (() => {
         const selEvt = selectedEventForRegs!;
         const eventRegs = openPlayRegistrations.filter(r => r.eventId === selEvt.id);
         

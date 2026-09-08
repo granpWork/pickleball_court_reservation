@@ -13,7 +13,6 @@ import {
   Sparkles,
   Building2,
   CreditCard,
-  Plus,
   Package,
   ChevronDown,
   ChevronUp,
@@ -431,17 +430,7 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
 
                 <div className="flex items-center justify-between flex-wrap gap-2.5">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Create Walk-in CTA */}
-                    {onOpenManualBookingModal && (
-                      <button
-                        type="button"
-                        onClick={onOpenManualBookingModal}
-                        className="py-2.5 px-4 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg transition-all text-xs font-normal flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-brand-lime/20"
-                      >
-                        <Plus className="w-3.5 h-3.5 text-dark-bg" />
-                        <span>Manual Booking</span>
-                      </button>
-                    )}
+
 
                     {/* Edit Court Button */}
                     {onOpenEditCourtModal && (
@@ -499,7 +488,7 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
                     <button
                       type="button"
                       onClick={() => onDeleteCourt(court.id)}
-                      className="py-2.5 px-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-red-400 hover:border-red-900 transition-all text-xs font-normal flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                      className="py-2.5 px-4 rounded-xl bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-600 hover:border-red-600 hover:text-white transition-all text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-red-950/20"
                       title="Delete Court"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

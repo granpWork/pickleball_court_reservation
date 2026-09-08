@@ -8,7 +8,7 @@ import {
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, getDoc, setDoc, getDocs, collection, query, where, updateDoc } from 'firebase/firestore';
-import { sendBookingConfirmationEmail, sendOpenPlayInvitationEmail } from '../services/emailService';
+import { sendBookingConfirmationEmail, sendOpenPlayInvitationEmail, sendNewCheckoutAdminNotificationEmail } from '../services/emailService';
 
 interface CheckoutProps {
   setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'openplay') => void;
@@ -111,6 +111,8 @@ export default function Checkout({
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [receiptLightboxImage, setReceiptLightboxImage] = useState<string | null>(null);
   const [liveBookingStatus, setLiveBookingStatus] = useState<'pending_verification' | 'approved' | 'paid' | 'cancelled' | 'rejected' | 'pending'>('pending_verification');
+  const [isCancellingSubmittedBooking, setIsCancellingSubmittedBooking] = useState(false);
+  const [isCancelConfirmModalOpen, setIsCancelConfirmModalOpen] = useState(false);
 
   const checkLiveBookingStatus = async (targetRef: string) => {
     if (!targetRef) return;
@@ -176,6 +178,97 @@ export default function Checkout({
       }
     } catch (err) {
       console.warn('Live status check error:', err);
+    }
+  };
+
+  const handleCancelSubmittedBooking = async () => {
+    if (!bookingRef) return;
+    setIsCancellingSubmittedBooking(true);
+    try {
+      const targetRef = bookingRef;
+      const cancelTimestamp = new Date().toISOString();
+
+      // 1. Update Firestore bookings
+      if (isFirebaseConfigured && db) {
+        try {
+          await updateDoc(doc(db, 'bookings', targetRef), {
+            status: 'cancelled',
+            paymentStatus: 'cancelled',
+            cancelledAt: cancelTimestamp,
+            cancelledBy: user?.email || 'player',
+          });
+        } catch (err) {
+          console.warn('Firestore cancel update error:', err);
+        }
+
+        try {
+          const opRef = doc(db, 'openplay_registrations', targetRef);
+          const opSnap = await getDoc(opRef);
+          if (opSnap.exists()) {
+            await updateDoc(opRef, {
+              status: 'cancelled',
+              paymentStatus: 'cancelled',
+              cancelledAt: cancelTimestamp,
+            });
+          }
+        } catch (err) {}
+      }
+
+      // 2. Update LocalStorage picklepoint_bookings
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings');
+        if (bookingsStr) {
+          const localBookings = JSON.parse(bookingsStr);
+          const updated = localBookings.map((b: any) => {
+            if (b.id === targetRef || b.bookingId === targetRef || b.bookingReference === targetRef) {
+              return {
+                ...b,
+                status: 'cancelled',
+                paymentStatus: 'cancelled',
+                cancelledAt: cancelTimestamp,
+              };
+            }
+            return b;
+          });
+          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
+        }
+      } catch (e) {}
+
+      // 3. Update LocalStorage picklepoint_openplay_registrations
+      try {
+        const regStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
+        if (regStr) {
+          const localRegs = JSON.parse(regStr);
+          const updated = localRegs.map((r: any) => {
+            if (r.id === targetRef || r.registrationId === targetRef || r.bookingId === targetRef) {
+              return {
+                ...r,
+                status: 'cancelled',
+                paymentStatus: 'cancelled',
+                cancelledAt: cancelTimestamp,
+              };
+            }
+            return r;
+          });
+          localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updated));
+        }
+      } catch (e) {}
+
+      // 4. Remove last submitted saved state from storage
+      try {
+        sessionStorage.removeItem('picklepoint_last_submitted_booking');
+        localStorage.removeItem('picklepoint_last_submitted_booking');
+      } catch (e) {}
+
+      // 5. Update local state & trigger instant calendar unblock dispatch
+      setLiveBookingStatus('cancelled');
+      window.dispatchEvent(new Event('picklepoint_booking_added'));
+      window.dispatchEvent(new Event('storage'));
+    } catch (err) {
+      console.error('Error cancelling reservation:', err);
+    } finally {
+      setIsCancellingSubmittedBooking(false);
+      setIsCancelConfirmModalOpen(false);
     }
   };
 
@@ -865,6 +958,76 @@ export default function Checkout({
 
     const validGuests = guests.map(g => ({ name: g.name.trim(), email: g.email.trim() }));
 
+    const dispatchAdminCheckoutNotifications = () => {
+      const targetAdminEmail = resolvedOwnerEmail || ownerEmail || checkoutDetails.hostEmail || '';
+      const itemTitle = isOpenPlay
+        ? checkoutDetails.openPlayTitle || checkoutDetails.courtName
+        : checkoutDetails.courtName;
+
+      const rawType = (checkoutDetails as any).type;
+      const bType: 'court' | 'open_play' | 'tournament' | 'bootcamp' = rawType === 'tournament'
+        ? 'tournament'
+        : rawType === 'bootcamp'
+        ? 'bootcamp'
+        : isOpenPlay
+        ? 'open_play'
+        : 'court';
+
+      // 1. Dispatch to Client Admin (Required)
+      if (targetAdminEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetAdminEmail)) {
+        sendNewCheckoutAdminNotificationEmail({
+          adminEmail: targetAdminEmail,
+          recipientRole: 'Client Admin',
+          bookingType: bType,
+          itemTitle,
+          bookingReference: refNum,
+          customerName: name,
+          customerEmail: email,
+          customerPhone: phone,
+          date: checkoutDetails.date,
+          slots: checkoutDetails.slots,
+          totalCost: finalTotal,
+          paymentMethod: resolvedPaymentMethod === 'voucher' ? 'Voucher Waiver' : 'GCash',
+          paymentStatus: resolvedPaymentStatus === 'paid' ? 'Paid (Voucher)' : 'Pending Verification',
+          ownerCompanyName: resolvedOwnerCompanyName,
+        }).catch((err) => console.warn('Client admin checkout notification failed:', err));
+      }
+
+      // 2. Dispatch to Venue Managers (Optional)
+      try {
+        const usersStr = localStorage.getItem('picklepoint_users');
+        if (usersStr) {
+          const localUsers = JSON.parse(usersStr) as Array<{ email?: string; role?: string; companyId?: string; companyName?: string }>;
+          const managerEmails = localUsers
+            .filter((u) => u.role === 'manager' && u.email && u.email.toLowerCase() !== targetAdminEmail.toLowerCase())
+            .filter((u) => !companyId || u.companyId === companyId || u.companyName === resolvedOwnerCompanyName)
+            .map((u) => u.email as string);
+
+          const uniqueManagerEmails = Array.from(new Set(managerEmails));
+          uniqueManagerEmails.forEach((mEmail) => {
+            sendNewCheckoutAdminNotificationEmail({
+              adminEmail: mEmail,
+              recipientRole: 'Manager',
+              bookingType: bType,
+              itemTitle,
+              bookingReference: refNum,
+              customerName: name,
+              customerEmail: email,
+              customerPhone: phone,
+              date: checkoutDetails.date,
+              slots: checkoutDetails.slots,
+              totalCost: finalTotal,
+              paymentMethod: resolvedPaymentMethod === 'voucher' ? 'Voucher Waiver' : 'GCash',
+              paymentStatus: resolvedPaymentStatus === 'paid' ? 'Paid (Voucher)' : 'Pending Verification',
+              ownerCompanyName: resolvedOwnerCompanyName,
+            }).catch((err) => console.warn('Manager checkout notification failed:', err));
+          });
+        }
+      } catch (e) {
+        console.warn('Optional manager notification dispatch error:', e);
+      }
+    };
+
     const docPayload = {
       type: (checkoutDetails as any).type || (isOpenPlay ? 'open_play' : 'court'),
       courtId: checkoutDetails.courtId,
@@ -995,6 +1158,7 @@ export default function Checkout({
           };
           sessionStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
           localStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
+          window.dispatchEvent(new Event('picklepoint_booking_added'));
         } catch (e) {}
         sendBookingConfirmationEmail({
           bookingId: refNum,
@@ -1011,6 +1175,9 @@ export default function Checkout({
           ownerEmail,
           ownerPhone,
         }).catch((err) => console.warn('Automated confirmation email failed:', err));
+
+        // Dispatch instant notification emails to Client Admin (Required) and Managers (Optional)
+        dispatchAdminCheckoutNotifications();
       } catch (err) {
         console.error('Error saving checkout booking:', err);
         setError('Failed to record reservation. Please check network connection and try again.');
@@ -1046,6 +1213,7 @@ export default function Checkout({
             };
             sessionStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
             localStorage.setItem('picklepoint_last_submitted_booking', JSON.stringify(savedBookingInfo));
+            window.dispatchEvent(new Event('picklepoint_booking_added'));
           } catch (e) {}
           sendBookingConfirmationEmail({
             bookingId: refNum,
@@ -1062,6 +1230,9 @@ export default function Checkout({
             ownerEmail,
             ownerPhone,
           }).catch((err) => console.warn('Automated confirmation email failed:', err));
+
+          // Dispatch instant notification emails to Client Admin (Required) and Managers (Optional)
+          dispatchAdminCheckoutNotifications();
         } catch (err) {
           setError('Failed to record reservation locally.');
           setIsErrorModalOpen(true);
@@ -1391,21 +1562,115 @@ export default function Checkout({
           </div>
         </div>
 
-        {/* Action Buttons - Clean Print Voucher Button & Return Home */}
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-3 print:hidden">
-          <button
-            onClick={handlePrint}
-            className="w-full py-3.5 rounded-2xl bg-brand-lime text-dark-bg hover:bg-[#a6e224] transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-brand-lime/10 hover:scale-[1.01]"
-          >
-            <Download className="w-4 h-4 text-dark-bg" /> Print Voucher Ticket
-          </button>
-          <button
-            onClick={handleResetToHome}
-            className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-white transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-md hover:scale-[1.01]"
-          >
-            <CheckCircle className="w-4 h-4 text-brand-lime" /> Return to Home
-          </button>
-        </div>
+        {/* Action Buttons & Cancellation Control */}
+        {isCancelled ? (
+          <div className="mt-6 p-5 bg-red-500/10 border border-red-500/30 rounded-3xl text-center space-y-4 shadow-xl">
+            <div className="flex items-center justify-center gap-2 text-red-400 font-bold text-xs">
+              <Check className="w-4 h-4 text-red-400" />
+              <span>Reservation Cancelled & Time Slot Released</span>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed px-2">
+              Your reservation request for court time slots on <strong className="text-white">{formatDate(checkoutDetails.date)}</strong> has been cancelled. The time slots are now available for booking again.
+            </p>
+            <button
+              onClick={() => {
+                try {
+                  sessionStorage.removeItem('picklepoint_last_submitted_booking');
+                  localStorage.removeItem('picklepoint_last_submitted_booking');
+                } catch (e) {}
+                setCheckoutDetails(null);
+                setView('details');
+              }}
+              className="w-full py-3.5 rounded-2xl bg-brand-lime text-dark-bg hover:bg-[#a6e224] transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-brand-lime/10"
+            >
+              <ArrowLeft className="w-4 h-4 text-dark-bg" /> Back to Scheduling Calendar
+            </button>
+          </div>
+        ) : (
+          <div className="mt-8 space-y-3 print:hidden">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                onClick={handlePrint}
+                className="w-full py-3.5 rounded-2xl bg-brand-lime text-dark-bg hover:bg-[#a6e224] transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-xl shadow-brand-lime/10 hover:scale-[1.01]"
+              >
+                <Download className="w-4 h-4 text-dark-bg" /> Print Ticket
+              </button>
+              <button
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem('picklepoint_last_submitted_booking');
+                    localStorage.removeItem('picklepoint_last_submitted_booking');
+                  } catch (e) {}
+                  setCheckoutDetails(null);
+                  setView('details');
+                }}
+                className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-white transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md hover:scale-[1.01]"
+              >
+                <ArrowLeft className="w-4 h-4 text-brand-lime" /> Scheduling
+              </button>
+              <button
+                onClick={handleResetToHome}
+                className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-white transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md hover:scale-[1.01]"
+              >
+                <CheckCircle className="w-4 h-4 text-brand-lime" /> Home
+              </button>
+            </div>
+
+            {!isApproved && (
+              <button
+                type="button"
+                onClick={() => setIsCancelConfirmModalOpen(true)}
+                className="w-full py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/60 text-red-400 font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
+              >
+                <X className="w-4 h-4" /> Cancel Reservation & Release Time Slot
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Modal Dialog for Cancelling Submitted Pending Reservation */}
+        {isCancelConfirmModalOpen && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-[#0e1424] border border-red-500/30 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+              <div className="flex items-center gap-3 text-red-400">
+                <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 flex-shrink-0">
+                  <X className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Cancel Pending Reservation?</h3>
+                  <p className="text-xs text-slate-400 font-mono">Ref: {bookingRef}</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Are you sure you want to cancel this pending checkout? This will cancel reference <strong className="text-white font-mono">{bookingRef}</strong> and immediately release the reserved time slot(s) on the calendar back to available.
+              </p>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={isCancellingSubmittedBooking}
+                  onClick={() => setIsCancelConfirmModalOpen(false)}
+                  className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  Keep Reservation
+                </button>
+                <button
+                  type="button"
+                  disabled={isCancellingSubmittedBooking}
+                  onClick={handleCancelSubmittedBooking}
+                  className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-red-600/30"
+                >
+                  {isCancellingSubmittedBooking ? (
+                    <span>Cancelling...</span>
+                  ) : (
+                    <>
+                      <X className="w-4 h-4" /> Confirm Cancel
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

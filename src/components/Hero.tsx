@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { MapPin, Search, X, LayoutGrid, List, Clock, Building2, Layers, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MapPin, Search, X, LayoutGrid, List, Clock, Building2, Layers, Calendar, ChevronLeft, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 
@@ -70,6 +70,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState<'relevance' | 'dayPrice' | 'nightPrice' | 'courts'>('relevance');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [showFilterOptions, setShowFilterOptions] = useState(false);
 
   const handleExecuteSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -369,17 +370,11 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-emerald/10 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[10%] right-[-10%] w-[50%] h-[50%] bg-brand-lime/10 blur-[120px] rounded-full pointer-events-none"></div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative transition-all duration-300 ${isFocused || isDatePickerOpen ? 'z-40' : 'z-10'}`}>
         <div className="flex flex-col items-center text-center gap-12">
           
           {/* 1. Hero Search Section */}
           <div className="max-w-3xl flex flex-col items-center text-center space-y-4 animate-fade-in">
-            {/* Tagline Badge */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/60 border border-slate-800 text-xs font-medium text-slate-300 backdrop-blur-md">
-              <span className="flex h-1.5 w-1.5 rounded-full bg-brand-lime animate-pulse"></span>
-              State-of-the-Art Court Booking
-            </div>
-
             {/* Headline */}
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.15] font-sans">
               Reserve Your Court.<br />
@@ -387,15 +382,10 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 Rule the Kitchen.
               </span>
             </h1>
-
-            {/* Description */}
-            <p className="text-sm sm:text-base md:text-lg lg:text-xl font-normal text-slate-400 max-w-xl leading-relaxed">
-              Book premium indoor and outdoor pickleball courts in seconds. Join matches, level up your DUPR rating, and play with your local community.
-            </p>
           </div>
 
           {/* Sticky Spotlight Search Bar Container */}
-          <div id="booking-widget" className="w-full max-w-4xl sticky top-[76px] sm:top-[96px] z-30 animate-slide-up">
+          <div id="booking-widget" className={`w-full max-w-6xl sticky top-[76px] sm:top-[96px] transition-all duration-300 animate-slide-up ${isFocused || isDatePickerOpen ? 'z-50' : 'z-30'}`}>
             <form onSubmit={handleExecuteSearch} className="relative group">
               {/* Outer floating search wrapper */}
               <div 
@@ -482,7 +472,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
               {isDatePickerOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsDatePickerOpen(false)} />
-                  <div className="absolute top-20 right-0 sm:right-auto sm:left-1/3 z-50 glass-panel bg-slate-950/95 border border-slate-800/90 rounded-3xl p-6 shadow-[0_30px_70px_rgba(0,0,0,0.8)] backdrop-blur-2xl animate-fade-in text-left w-full max-w-2xl">
+                  <div className="absolute top-20 right-0 sm:right-auto sm:left-1/3 z-[60] glass-panel bg-slate-950/95 border border-slate-800/90 rounded-3xl p-6 shadow-[0_30px_70px_rgba(0,0,0,0.9)] backdrop-blur-2xl animate-fade-in text-left w-full max-w-2xl">
                     {/* Header Controls */}
                     <div className="flex items-center justify-between pb-4 border-b border-slate-900 mb-6">
                       <div className="flex items-center gap-2">
@@ -570,7 +560,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
 
               {/* Floating Dropdown Suggestions Panel */}
               {isFocused && venueGroups.length > 0 && (
-                <div className="absolute top-20 left-0 right-0 glass-panel rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.65)] border border-slate-800/80 backdrop-blur-2xl bg-slate-950/95 z-40 animate-fade-in text-left">
+                <div className="absolute top-20 left-0 right-0 glass-panel rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.85)] border border-slate-800/80 backdrop-blur-2xl bg-slate-950/95 z-[60] animate-fade-in text-left">
                   {/* Empty query suggestions */}
                   {!searchQuery.trim() ? (
                     <div className="p-6 space-y-6">
@@ -720,21 +710,15 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
             </form>
           </div>
 
-          {/* 2. Results Section (Directly Below Hero) */}
-          <div id="venues-results" className="w-full mt-10 space-y-8 animate-fade-in text-left scroll-mt-24">
-            
-            {/* Header section with sort & keyword details */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-dark-border">
+          {/* Results Header section (Directly After Search Box) */}
+          <div id="venues-results" className="w-full mt-6 animate-fade-in text-left scroll-mt-24">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-                  <span>Pickleball Venues</span>
+                <div className="flex items-center gap-2">
                   <span className="text-xs px-2.5 py-1 rounded-full bg-brand-lime/10 text-brand-lime font-extrabold border border-brand-lime/20">
                     {sortedVenues.length} Available
                   </span>
-                </h2>
-                <p className="text-sm font-normal text-slate-400 mt-1">
-                  Browse host organizations and multi-court facilities {searchQuery && <>matching "<span className="text-white font-medium">{searchQuery}</span>"</>}
-                </p>
+                </div>
 
                 {/* Active Filter Chips */}
                 {(searchQuery || searchDate) && (
@@ -772,18 +756,69 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 )}
               </div>
 
-              {/* Sorting and Category Badges */}
-              <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3 w-full lg:w-auto">
+              {/* Action Controls Header: Setting Lines Filter Toggle & View Mode Toggle */}
+              <div className="flex items-center gap-3">
+                {/* Setting Lines Filter Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowFilterOptions(!showFilterOptions)}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    showFilterOptions || selectedCategory !== 'All' || sortBy !== 'relevance'
+                      ? 'bg-brand-lime text-slate-950 border-brand-lime shadow-md shadow-brand-lime/20 font-extrabold'
+                      : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border-slate-800/80 hover:text-white'
+                  }`}
+                  title="Toggle Filter Options"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  <span>Filters</span>
+                  {(selectedCategory !== 'All' || sortBy !== 'relevance') && (
+                    <span className="w-2 h-2 rounded-full bg-slate-950 animate-pulse ml-0.5" />
+                  )}
+                </button>
+
+                {/* View Mode Toggle (Grid/List) */}
+                <div className="flex items-center gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('grid')}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      viewMode === 'grid'
+                        ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Grid View"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('list')}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      viewMode === 'list'
+                        ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="List View"
+                  >
+                    <List className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Collapsible Filter Options Panel */}
+            {showFilterOptions && (
+              <div className="mt-4 p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80 backdrop-blur-2xl animate-fade-in flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
                 {/* Category filters (Horizontally scrollable on mobile) */}
-                <div className="flex items-center gap-1.5 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80 overflow-x-auto scrollbar-none max-w-full">
+                <div className="flex items-center gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-slate-800/80 overflow-x-auto scrollbar-none max-w-full">
                   {['All', 'Indoor', 'Outdoor', 'Multi-Court', 'Premium'].map((cat) => (
                     <button
                       key={cat}
                       type="button"
                       onClick={() => setSelectedCategory(cat)}
-                      className={`whitespace-nowrap flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      className={`whitespace-nowrap flex-shrink-0 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                         selectedCategory === cat
-                          ? 'bg-brand-lime text-dark-bg font-sans font-bold shadow-md shadow-brand-lime/5'
+                          ? 'bg-brand-lime text-dark-bg font-sans shadow-md shadow-brand-lime/10'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
@@ -792,52 +827,34 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                   ))}
                 </div>
 
-                <div className="flex items-center justify-between sm:justify-start gap-3 w-full sm:w-auto">
-                  {/* Sort Dropdown */}
-                  <div className="flex items-center gap-2 flex-1 sm:flex-initial">
-                    <span className="text-xs sm:text-sm font-medium text-slate-500 flex-shrink-0">Sort by:</span>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as any)}
-                      className="bg-slate-900 border border-slate-800 text-slate-300 text-xs sm:text-sm font-normal rounded-xl px-3 py-2 focus:outline-none focus:border-brand-lime transition-all cursor-pointer w-full sm:w-auto"
-                    >
-                      <option value="relevance">Relevance</option>
-                      <option value="dayPrice">Price: Low to High</option>
-                      <option value="nightPrice">Night Rate: Low to High</option>
-                      <option value="courts">Most Courts</option>
-                    </select>
-                  </div>
-
-                  {/* View Mode Toggle (Grid/List) */}
-                  <div className="flex items-center gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80 flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('grid')}
-                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                        viewMode === 'grid'
-                          ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Grid View"
-                    >
-                      <LayoutGrid className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('list')}
-                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                        viewMode === 'list'
-                          ? 'bg-brand-lime text-dark-bg font-bold shadow-md shadow-brand-lime/5'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="List View"
-                    >
-                      <List className="w-4 h-4" />
-                    </button>
-                  </div>
+                {/* Sort Dropdown */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-400 flex-shrink-0 uppercase tracking-wider">Sort by:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="bg-slate-950 border border-slate-800/80 text-slate-200 text-xs font-bold rounded-xl px-3.5 py-2 focus:outline-none focus:border-brand-lime transition-all cursor-pointer"
+                  >
+                    <option value="relevance">Relevance</option>
+                    <option value="dayPrice">Price: Low to High</option>
+                    <option value="nightPrice">Night Rate: Low to High</option>
+                    <option value="courts">Most Courts</option>
+                  </select>
                 </div>
               </div>
-            </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 100% Full Viewport Edge-to-Edge Screen Width Divider */}
+      <div className="w-full mt-3 mb-6 relative z-10 opacity-80">
+        <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-slate-800 to-transparent"></div>
+      </div>
+
+      {/* 2. Venue Cards Grid Container */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+        <div className="w-full text-left">
 
             {/* Results cards grid, Loading State, or Empty State */}
             {loading ? (
@@ -963,12 +980,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                           </span>
                         </div>
 
-                        {/* Top Right Surface Tag */}
-                        <div className="absolute top-3 right-3 px-2 py-0.5 rounded bg-brand-lime/90 text-dark-bg font-black text-[10px] uppercase shadow-md">
-                          {v.courtTypes.some(t => t.toLowerCase().includes('indoor')) && v.courtTypes.some(t => t.toLowerCase().includes('outdoor'))
-                            ? 'Indoor & Outdoor'
-                            : v.courtTypes[0] || 'Pickleball'}
-                        </div>
+
                       </div>
 
                       {/* Content panel */}
@@ -1007,12 +1019,18 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                         {/* Court List Preview / Features */}
                         <div className="flex flex-wrap items-center gap-1.5 pt-1">
                           {v.courts.slice(0, 3).map((courtItem, cIdx) => (
-                            <span
+                            <button
                               key={cIdx}
-                              className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] text-slate-300 font-medium truncate max-w-[130px]"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCourtId(courtItem.id, searchDate);
+                                setView('details');
+                              }}
+                              className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] text-slate-300 hover:text-white hover:border-brand-lime/40 font-medium truncate max-w-[130px] cursor-pointer transition-colors"
                             >
                               🎾 {courtItem.name}
-                            </span>
+                            </button>
                           ))}
                           {v.courts.length > 3 && (
                             <span className="text-[10px] text-slate-500 font-bold">
@@ -1130,12 +1148,18 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                         {/* Courts preview pills */}
                         <div className="flex flex-wrap items-center gap-2 pt-1">
                           {v.courts.map((cItem, cIdx) => (
-                            <span
+                            <button
                               key={cIdx}
-                              className="px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-medium"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCourtId(cItem.id, searchDate);
+                                setView('details');
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-xs text-slate-300 hover:text-white hover:border-brand-lime/40 font-medium cursor-pointer transition-colors"
                             >
-                              🎾 {cItem.name} ({cItem.type})
-                            </span>
+                              🎾 {cItem.name}
+                            </button>
                           ))}
                         </div>
                       </div>
@@ -1151,7 +1175,6 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 ))}
               </div>
             )}
-          </div>
         </div>
       </div>
     </section>

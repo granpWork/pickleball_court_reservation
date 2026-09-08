@@ -23,8 +23,6 @@ export const AdminClientTicketsModal: React.FC<AdminClientTicketsModalProps> = (
   user,
   onOpenSubmitModal,
 }) => {
-  if (!isOpen) return null;
-
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,6 +44,8 @@ export const AdminClientTicketsModal: React.FC<AdminClientTicketsModalProps> = (
       }
     } catch (e) {}
   }, [currentUserEmail, userCompanyName]);
+
+  if (!isOpen) return null;
 
   const categoryLabels: Record<string, string> = {
     technical: '🐛 Technical Bug / App Error',

@@ -29,8 +29,6 @@ export const AdminContactSupportModal: React.FC<AdminContactSupportModalProps> =
   onClose,
   user,
 }) => {
-  if (!isOpen) return null;
-
   const isClientAdmin = user?.role === 'client_admin';
   const isManager = user?.role === 'manager';
   const isAuthorized = isClientAdmin || isManager;
@@ -42,6 +40,8 @@ export const AdminContactSupportModal: React.FC<AdminContactSupportModalProps> =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState<{ ticketId: string } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  if (!isOpen) return null;
 
   const categoryLabels: Record<string, string> = {
     technical: '🐛 Technical Bug / App Error',

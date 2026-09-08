@@ -195,7 +195,7 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto">
       <div className="relative w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden my-8 text-left">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
@@ -319,9 +319,9 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
                         type="button"
                         disabled={isOccupied}
                         onClick={() => handleToggleSlot(slot.time)}
-                        className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center cursor-pointer ${
+                        className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
                           isOccupied
-                            ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
+                            ? 'bg-rose-950/20 border-rose-800/60 text-rose-300/80 cursor-not-allowed opacity-90'
                             : isSelected
                             ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans shadow-md'
                             : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
@@ -331,7 +331,7 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
                         <span
                           className={`text-xs font-extrabold ${
                             isOccupied
-                              ? 'text-slate-500 font-sans'
+                              ? 'text-rose-400 font-sans'
                               : isSelected
                               ? 'text-dark-bg/85 font-sans'
                               : 'text-brand-lime font-sans'
@@ -369,9 +369,9 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
                         type="button"
                         disabled={isOccupied}
                         onClick={() => handleToggleSlot(slot.time)}
-                        className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center cursor-pointer ${
+                        className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
                           isOccupied
-                            ? 'opacity-40 bg-slate-900/20 border-slate-900 text-slate-650 cursor-not-allowed'
+                            ? 'bg-rose-950/20 border-rose-800/60 text-rose-300/80 cursor-not-allowed opacity-90'
                             : isSelected
                             ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans shadow-md'
                             : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
@@ -381,7 +381,7 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
                         <span
                           className={`text-xs font-extrabold ${
                             isOccupied
-                              ? 'text-slate-500 font-sans'
+                              ? 'text-rose-400 font-sans'
                               : isSelected
                               ? 'text-dark-bg/85 font-sans'
                               : 'text-brand-lime font-sans'

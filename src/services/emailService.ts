@@ -1695,4 +1695,148 @@ export const sendOpenPlayGameReminderEmail = async (
   });
 };
 
+export interface AdminCheckoutNotificationParams {
+  adminEmail: string;
+  adminName?: string;
+  recipientRole?: 'Client Admin' | 'Manager' | string;
+  bookingType: 'court' | 'open_play' | 'tournament' | 'bootcamp';
+  itemTitle: string;
+  bookingReference: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string;
+  date: string;
+  slots: string[];
+  totalCost: number;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  ownerCompanyName?: string;
+  extraDetails?: Record<string, string>;
+}
+
+export const sendNewCheckoutAdminNotificationEmail = async (
+  params: AdminCheckoutNotificationParams
+): Promise<{ success: boolean; message: string }> => {
+  const baseUrl = getBaseUrl();
+  const roleLabel = params.recipientRole || 'Client Admin';
+
+  let typeLabel = 'Court Reservation';
+  let typeIcon = '🎾';
+  let badgeBg = 'rgba(166, 226, 36, 0.15)';
+  let badgeBorder = 'rgba(166, 226, 36, 0.3)';
+  let badgeColor = '#a6e224';
+
+  if (params.bookingType === 'open_play') {
+    typeLabel = 'Open Play Event';
+    typeIcon = '🔥';
+    badgeBg = 'rgba(56, 189, 248, 0.15)';
+    badgeBorder = 'rgba(56, 189, 248, 0.3)';
+    badgeColor = '#38bdf8';
+  } else if (params.bookingType === 'tournament') {
+    typeLabel = 'Tournament Registration';
+    typeIcon = '🏆';
+    badgeBg = 'rgba(251, 191, 36, 0.15)';
+    badgeBorder = 'rgba(251, 191, 36, 0.3)';
+    badgeColor = '#fbbf24';
+  } else if (params.bookingType === 'bootcamp') {
+    typeLabel = 'Bootcamp Session';
+    typeIcon = '🏋️';
+    badgeBg = 'rgba(232, 121, 249, 0.15)';
+    badgeBorder = 'rgba(232, 121, 249, 0.3)';
+    badgeColor = '#e879f9';
+  }
+
+  const subject = `🚨 New Checkout (${typeLabel}): ${params.customerName} - ${params.itemTitle}`;
+  const adminCheckoutsUrl = `${baseUrl}/?view=admin&tab=checkouts`;
+
+  const bodyContent = `
+    <div style="background-color: ${badgeBg}; border: 1px solid ${badgeBorder}; border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; text-align: center;">
+      <span style="font-size: 13px; font-weight: 800; color: ${badgeColor}; text-transform: uppercase; letter-spacing: 0.5px;">
+        ${typeIcon} NEW ${typeLabel.toUpperCase()} CHECKOUT
+      </span>
+    </div>
+
+    <p style="margin: 0 0 16px 0; font-size: 15px; color: #e2e8f0; line-height: 1.6;">
+      Hello <strong style="color: #ffffff;">${params.adminName || roleLabel}</strong>,
+    </p>
+    <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+      A customer has completed checkout for <strong style="color: #ffffff;">${params.itemTitle}</strong>. Please review the details below in your Admin Dashboard:
+    </p>
+
+    <!-- CUSTOMER DETAILS CARD -->
+    <div style="background-color: #1e293b; border-radius: 14px; border: 1px solid #334155; padding: 16px; margin-bottom: 16px;">
+      <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #38bdf8; letter-spacing: 1px; margin-bottom: 10px;">
+        👤 CUSTOMER INFORMATION
+      </div>
+      <div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-bottom: 4px;">
+        ${params.customerName}
+      </div>
+      <div style="font-size: 13px; color: #cbd5e1; margin-bottom: 2px;">
+        ✉️ <strong>Email:</strong> ${params.customerEmail}
+      </div>
+      ${params.customerPhone ? `<div style="font-size: 13px; color: #cbd5e1;">📞 <strong>Phone:</strong> ${params.customerPhone}</div>` : ''}
+    </div>
+
+    <!-- TRANSACTION DETAILS CARD -->
+    <div style="background-color: #1e293b; border-radius: 14px; border: 1px solid #334155; padding: 16px; margin-bottom: 20px;">
+      <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #a6e224; letter-spacing: 1px; margin-bottom: 12px;">
+        📋 TRANSACTION DETAILS
+      </div>
+
+      <div style="margin-bottom: 10px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Booking Reference</span>
+        <span style="font-size: 15px; color: #ffffff; font-weight: 800; font-family: monospace;">${params.bookingReference}</span>
+      </div>
+
+      <div style="margin-bottom: 10px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Facility / Item</span>
+        <span style="font-size: 14px; color: #cbd5e1; font-weight: 700;">${params.itemTitle}</span>
+      </div>
+
+      <div style="margin-bottom: 10px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Date & Slot(s)</span>
+        <span style="font-size: 13px; color: #cbd5e1;">${params.date} &bull; ${params.slots.join(', ')}</span>
+      </div>
+
+      <div style="margin-bottom: 10px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Payment Method & Status</span>
+        <span style="font-size: 13px; color: #cbd5e1;">
+          <strong>${params.paymentMethod || 'GCash'}</strong> &bull; 
+          <span style="color: #fbbf24; font-weight: 700;">${params.paymentStatus || 'Pending Verification'}</span>
+        </span>
+      </div>
+
+      <div>
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Total Amount</span>
+        <span style="font-size: 18px; color: #a6e224; font-weight: 900;">₱${params.totalCost.toLocaleString()}</span>
+      </div>
+    </div>
+
+    <!-- ACTION BUTTON -->
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px; margin-bottom: 20px;">
+      <tr>
+        <td align="center">
+          <a href="${adminCheckoutsUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: #a6e224; color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; box-shadow: 0 8px 16px -4px rgba(166, 226, 36, 0.35); text-align: center;">
+            Open Checkouts Dashboard &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const htmlMessage = buildHtmlWrapper(
+    `New ${typeLabel} Received`,
+    `Ref: ${params.bookingReference}`,
+    bodyContent,
+    params.ownerCompanyName
+  );
+
+  return sendCustomUserEmail({
+    toEmail: params.adminEmail,
+    toName: params.adminName || roleLabel,
+    subject,
+    message: htmlMessage,
+  });
+};
+
 

@@ -34,11 +34,6 @@ export const AdminSupportTicketsTab: React.FC<AdminSupportTicketsTabProps> = ({
   const [isSendingReply, setIsSendingReply] = useState(false);
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
 
-  // Load tickets from persistent storage
-  useEffect(() => {
-    loadTickets();
-  }, []);
-
   const loadTickets = () => {
     try {
       const saved = localStorage.getItem('picklepoint_support_tickets');
@@ -79,8 +74,15 @@ export const AdminSupportTicketsTab: React.FC<AdminSupportTicketsTabProps> = ({
         setTickets(defaultTickets);
         localStorage.setItem('picklepoint_support_tickets', JSON.stringify(defaultTickets));
       }
-    } catch (e) {}
+    } catch {
+      // ignore
+    }
   };
+
+  // Load tickets from persistent storage
+  useEffect(() => {
+    loadTickets();
+  }, []);
 
   const saveTickets = (updated: SupportTicket[]) => {
     setTickets(updated);

@@ -75,8 +75,26 @@ function App() {
   const setSelectedCourtId = (id: string, targetDate?: string) => {
     if (id) {
       sessionStorage.setItem('picklepoint_active_court_id', id);
+      try {
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.set('courtId', id);
+          url.searchParams.delete('court_id');
+          url.searchParams.delete('court');
+          window.history.replaceState(null, '', url.toString());
+        }
+      } catch (e) {}
     } else {
       sessionStorage.removeItem('picklepoint_active_court_id');
+      try {
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('courtId');
+          url.searchParams.delete('court_id');
+          url.searchParams.delete('court');
+          window.history.replaceState(null, '', url.toString());
+        }
+      } catch (e) {}
     }
     setSelectedCourtIdState(id);
     if (targetDate !== undefined) {

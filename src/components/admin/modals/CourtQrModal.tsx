@@ -15,7 +15,14 @@ export const CourtQrModal: React.FC<CourtQrModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [isQrLoaded, setIsQrLoaded] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setIsQrLoaded(false);
+    }
+  }, [isOpen, court?.id]);
 
   if (!isOpen || !court) return null;
 
@@ -177,11 +184,20 @@ export const CourtQrModal: React.FC<CourtQrModalProps> = ({
           </div>
 
           {/* QR Image Container */}
-          <div className="p-3 bg-white rounded-2xl inline-block shadow-xl border border-slate-200">
+          <div className="p-3 bg-white rounded-2xl inline-block shadow-xl border border-slate-200 relative min-w-[216px] min-h-[216px] md:min-w-[248px] md:min-h-[248px]">
+            {!isQrLoaded && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white rounded-2xl p-4 space-y-2 z-10">
+                <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-brand-lime animate-spin" />
+                <span className="text-[11px] font-bold text-slate-600">Generating QR Code...</span>
+              </div>
+            )}
             <img
               src={qrImageUrl}
               alt={`QR Code for ${court.name}`}
-              className="w-48 h-48 md:w-56 md:h-56 object-contain rounded-lg"
+              onLoad={() => setIsQrLoaded(true)}
+              className={`w-48 h-48 md:w-56 md:h-56 object-contain rounded-lg transition-opacity duration-300 ${
+                isQrLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
             />
           </div>
 

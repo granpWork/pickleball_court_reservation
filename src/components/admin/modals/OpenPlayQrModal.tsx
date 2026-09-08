@@ -19,7 +19,14 @@ export const OpenPlayQrModal: React.FC<OpenPlayQrModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [isQrLoaded, setIsQrLoaded] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setIsQrLoaded(false);
+    }
+  }, [isOpen, event?.id]);
 
   if (!isOpen || !event) return null;
 
@@ -182,10 +189,19 @@ export const OpenPlayQrModal: React.FC<OpenPlayQrModalProps> = ({
 
           {/* QR Code Box */}
           <div className="w-48 h-48 mx-auto bg-white p-3 rounded-2xl shadow-xl border-4 border-slate-800 flex items-center justify-center relative group">
+            {!isQrLoaded && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-white rounded-xl p-4 space-y-2 z-10">
+                <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-brand-lime animate-spin" />
+                <span className="text-[10px] font-bold text-slate-600">Generating QR...</span>
+              </div>
+            )}
             <img
               src={qrImageUrl}
               alt={`QR Code for ${event.title}`}
-              className="w-full h-full object-contain"
+              onLoad={() => setIsQrLoaded(true)}
+              className={`w-full h-full object-contain transition-opacity duration-300 ${
+                isQrLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
             />
           </div>
 

@@ -32,6 +32,24 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   formatEventDateLong,
   formatTime12h,
 }) => {
+  // Form State
+  const [playerName, setPlayerName] = useState('');
+  const [playerEmail, setPlayerEmail] = useState('');
+  const [playerPhone, setPlayerPhone] = useState('');
+  
+  // Guest State
+  const [guests, setGuests] = useState<{ name: string; email: string }[]>([]);
+  
+  // Payment State
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash' | 'free'>('cash');
+  const [paymentStatus, setPaymentStatus] = useState<'paid' | 'pending_verification'>('paid');
+  const [customFee, setCustomFee] = useState<string>(event?.registrationFee ? String(event.registrationFee) : '0');
+  const [gcashRef, setGcashRef] = useState('');
+  const [adminNotes, setAdminNotes] = useState('');
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   if (!isOpen || !event) return null;
 
   // Check if event date/time is expired
@@ -66,24 +84,6 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   const maxCapacity = event.maxParticipants || 16;
   const spotsRemaining = Math.max(0, maxCapacity - currentHeadcount);
   const isFull = spotsRemaining <= 0;
-
-  // Form State
-  const [playerName, setPlayerName] = useState('');
-  const [playerEmail, setPlayerEmail] = useState('');
-  const [playerPhone, setPlayerPhone] = useState('');
-  
-  // Guest State
-  const [guests, setGuests] = useState<{ name: string; email: string }[]>([]);
-  
-  // Payment State
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'gcash' | 'free'>('cash');
-  const [paymentStatus, setPaymentStatus] = useState<'paid' | 'pending_verification'>('paid');
-  const [customFee, setCustomFee] = useState<string>(event.registrationFee ? String(event.registrationFee) : '0');
-  const [gcashRef, setGcashRef] = useState('');
-  const [adminNotes, setAdminNotes] = useState('');
-  
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const totalHeadcount = 1 + guests.length;
   const feePerPlayer = Number(customFee) || 0;
@@ -178,7 +178,7 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   const selectDropdownClass = "w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white font-normal focus:outline-none focus:border-brand-lime cursor-pointer appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%2394a3b8%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.4-12.8z%22%2F%3E%3C%2Fsvg%3E')] bg-[length:10px_10px] bg-[right_14px_center] bg-no-repeat pr-9";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-7 max-w-3xl w-full shadow-2xl text-left space-y-6 my-8 relative">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
