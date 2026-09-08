@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Calendar, Clock, MapPin, CheckCircle, Lock, ChevronLeft, ChevronRight, ArrowLeft, X, Eye, ExternalLink, Building2, BadgeCheck, Phone, Mail, Globe, FileText, Shield, CloudRain, Trophy, LayoutGrid, Layers, Navigation, CheckCircle2, Sun, Moon, Sparkles, Filter, Info, ArrowRight, ShoppingBag, Trash2 } from 'lucide-react';
+import { Calendar, Clock, MapPin, CheckCircle, Lock, ChevronLeft, ChevronRight, ChevronDown, ArrowLeft, X, Eye, ExternalLink, Building2, BadgeCheck, Phone, Mail, Globe, FileText, Shield, CloudRain, Trophy, LayoutGrid, Layers, Navigation, CheckCircle2, Sun, Moon, Sparkles, Filter, Info, ArrowRight, ShoppingBag, Trash2 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
@@ -120,6 +120,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
   const [openPlayBlockedSlots, setOpenPlayBlockedSlots] = useState<Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }>>({});
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [slotFilterTab, setSlotFilterTab] = useState<'all' | 'am' | 'pm'>('all');
+  const [isCourtDropdownOpen, setIsCourtDropdownOpen] = useState(false);
 
   const handleSelectAllAvailable = (slotsToFilter: any[]) => {
     if (!slotsToFilter || slotsToFilter.length === 0) return;
@@ -570,28 +571,54 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
       };
 
       const processBookingItem = (data: any) => {
-        if (data.status !== 'cancelled' && data.status !== 'rejected' && data.paymentStatus !== 'cancelled' && data.paymentStatus !== 'failed' && data.slots && Array.isArray(data.slots)) {
-          const isTargetCourt =
-            (data.courtId && court.id && String(data.courtId) === String(court.id)) ||
-            (data.courtName && court.name && data.courtName.trim().toLowerCase() === court.name.trim().toLowerCase());
+        if (!data || data.status === 'cancelled' || data.status === 'rejected' || data.paymentStatus === 'cancelled' || data.paymentStatus === 'failed') {
+          return;
+        }
 
-          if (isTargetCourt) {
-            const isApproved = data.status === 'approved' || data.status === 'confirmed' || data.paymentStatus === 'paid';
-            if (isApproved) {
-              approved.push(...data.slots);
-            } else {
-              pending.push(...data.slots);
-            }
-          } else if (currentUserEmail || currentUserUid) {
-            const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
-            const bUid = data.userId || data.user?.uid;
-            const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
-            if (isSamePlayer) {
-              const targetCourtName = data.courtName || data.ownerCompanyName || 'Another Venue';
-              data.slots.forEach((st: string) => {
-                conflicts[st] = { courtName: targetCourtName };
-              });
-            }
+        const bDate = data.date || data.eventDate || data.bookingDate;
+        if (!isSameDateStr(bDate, selectedDate)) {
+          return;
+        }
+
+        const slots = data.slots || data.timeSlots || (data.slot ? [data.slot] : []);
+        if (!Array.isArray(slots) || slots.length === 0) {
+          return;
+        }
+
+        const targetCourtId = String(court.id || '').trim();
+        const targetCourtName = String(court.name || '').trim().toLowerCase();
+
+        const dataCourtId = String(data.courtId || data.court_id || '').trim();
+        const dataCourtName = String(data.courtName || data.court_name || '').trim().toLowerCase();
+
+        const isTargetCourt =
+          (dataCourtId && targetCourtId && dataCourtId === targetCourtId) ||
+          (dataCourtName && targetCourtName && dataCourtName === targetCourtName) ||
+          (!dataCourtId && !dataCourtName && venueCourts.length <= 1);
+
+        if (isTargetCourt) {
+          const isApproved =
+            data.status === 'approved' ||
+            data.status === 'confirmed' ||
+            data.status === 'completed' ||
+            data.status === 'active' ||
+            data.paymentStatus === 'paid' ||
+            data.paymentStatus === 'approved';
+
+          if (isApproved) {
+            approved.push(...slots);
+          } else {
+            pending.push(...slots);
+          }
+        } else if (currentUserEmail || currentUserUid) {
+          const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
+          const bUid = data.userId || data.user?.uid;
+          const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
+          if (isSamePlayer) {
+            const conflictCourtName = data.courtName || data.ownerCompanyName || 'Another Venue';
+            slots.forEach((st: string) => {
+              conflicts[st] = { courtName: conflictCourtName };
+            });
           }
         }
       };
@@ -599,12 +626,8 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
       if (isFirebaseConfigured && db) {
         try {
           const bookingsRef = collection(db, 'bookings');
-          const q = query(
-            bookingsRef,
-            where('date', '==', selectedDate)
-          );
-          const querySnapshot = await getDocs(q);
-          querySnapshot.forEach((docSnap) => {
+          const allSnap = await getDocs(bookingsRef);
+          allSnap.forEach((docSnap) => {
             processBookingItem(docSnap.data());
           });
         } catch (err) {
@@ -628,9 +651,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
         const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
         if (Array.isArray(localBookings)) {
           localBookings.forEach((b: any) => {
-            if (b.date === selectedDate) {
-              processBookingItem(b);
-            }
+            processBookingItem(b);
           });
         }
       } catch (err) {
@@ -674,8 +695,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
     if (isFirebaseConfigured && db) {
       try {
         const bookingsRef = collection(db, 'bookings');
-        const q = query(bookingsRef, where('date', '==', selectedDate));
-        unsubscribeFirebase = onSnapshot(q, () => {
+        unsubscribeFirebase = onSnapshot(bookingsRef, () => {
           fetchBookingsForDate();
         });
       } catch (err) {
@@ -979,7 +999,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
             <div className="lg:col-span-7 space-y-6">
               
               {/* Venue Info & Multi-Court Selector Banner */}
-              <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-slate-800 shadow-2xl space-y-5 animate-fade-in">
+              <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-slate-800 shadow-2xl space-y-5 animate-fade-in relative z-40">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
                   <div className="flex items-center gap-3.5">
                     {hostDetails?.logoUrl || court?.ownerCompanyLogo ? (
@@ -1018,134 +1038,115 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                   </div>
                 </div>
 
-                {/* Interactive Multi-Court Selector Tabs */}
-                {venueCourts.length > 1 ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                        <LayoutGrid className="w-3.5 h-3.5 text-brand-lime" />
-                        <span>Select Court ({venueCourts.length} Available):</span>
-                      </h2>
-                      <span className="text-[11px] text-slate-500 font-medium">Click court tab to view rates & book</span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {venueCourts.map((c, idx) => {
-                        const isSelected = c.id === court?.id;
-                        const isSamePrice = c.dayPrice === c.nightPrice;
-                        const formattedType = c.type || 'Standard Court';
-
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => handleSwitchCourt(c)}
-                            className={`p-3.5 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-3 relative overflow-hidden group ${
-                              isSelected
-                                ? 'bg-gradient-to-br from-brand-lime/15 via-slate-900 to-slate-950 border-brand-lime shadow-lg shadow-brand-lime/10 ring-1 ring-brand-lime/30'
-                                : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 hover:bg-slate-900/90'
-                            }`}
-                          >
-                            {/* Card Top: Avatar, Name & Selected Badge */}
-                            <div className="flex items-start justify-between gap-2 w-full">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black shrink-0 ${
-                                    isSelected
-                                      ? 'bg-brand-lime text-slate-950 shadow-sm'
-                                      : 'bg-slate-800 text-slate-400 group-hover:text-white group-hover:bg-slate-700'
-                                  }`}
-                                >
-                                  {idx + 1}
-                                </span>
-                                <span className="font-extrabold text-sm sm:text-base text-white truncate group-hover:text-brand-lime transition-colors">
-                                  {c.name}
-                                </span>
-                              </div>
-
-                              {isSelected && (
-                                <span className="px-2.5 py-0.5 rounded-full bg-brand-lime text-slate-950 font-black text-[10px] uppercase tracking-wider shrink-0 shadow-sm shadow-brand-lime/20">
-                                  Selected
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Card Middle: Styled Court Type Badge */}
-                            <div className="flex items-center gap-1.5">
-                              <span className="px-2.5 py-0.5 rounded-md bg-slate-950/80 border border-slate-800 text-[11px] font-semibold text-slate-300 inline-flex items-center gap-1">
-                                <span>🎾</span>
-                                <span>{formattedType}</span>
-                              </span>
-                            </div>
-
-                            {/* Card Bottom: Clean Structured Price Container */}
-                            <div className="w-full pt-2.5 border-t border-slate-800/80 space-y-1 font-sans">
-                              {isSamePrice ? (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hourly Rate</span>
-                                  <span className="text-base sm:text-lg font-black text-brand-lime">
-                                    ₱{c.dayPrice}<span className="text-xs font-normal text-slate-400">/hr</span>
-                                  </span>
-                                </div>
-                              ) : (
-                                <div className="flex flex-col gap-1">
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Day Rate</span>
-                                    <span className="text-sm font-black text-white">
-                                      ₱{c.dayPrice} <span className="text-[10px] font-normal text-slate-400">/hr</span>
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center justify-between text-xs">
-                                    <span className="text-[10px] font-bold text-brand-lime/80 uppercase tracking-wider">Night Rate</span>
-                                    <span className="text-sm font-black text-brand-lime">
-                                      ₱{c.nightPrice} <span className="text-[10px] font-normal text-brand-lime/70">/hr</span>
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                {/* Custom Court Selection Dropdown Box */}
+                <div className="space-y-2.5 pt-1 w-full max-w-full relative z-40">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                      <LayoutGrid className="w-4 h-4 text-brand-lime" />
+                      <span>Select Court ({venueCourts.length} {venueCourts.length === 1 ? 'Available' : 'Available'}):</span>
+                    </label>
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      {venueCourts.length > 1 ? 'Click dropdown to switch' : 'Active court'}
+                    </span>
                   </div>
-                ) : (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-900/60 p-4 rounded-2xl border border-slate-800/80 gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className="w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/25 text-brand-lime flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
-                        🎾
-                      </span>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400 font-medium">Active Court:</span>
-                          <span className="text-sm sm:text-base font-extrabold text-white">{court.name}</span>
-                          <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] font-semibold text-slate-300">
-                            {court.type || 'Standard Court'}
-                          </span>
+
+                  {/* Dropdown Selector Button */}
+                  <div className="relative w-full max-w-full">
+                    <button
+                      type="button"
+                      onClick={() => venueCourts.length > 1 && setIsCourtDropdownOpen(!isCourtDropdownOpen)}
+                      className={`w-full bg-slate-900 border ${
+                        isCourtDropdownOpen ? 'border-brand-lime' : 'border-slate-800 hover:border-slate-700'
+                      } text-white rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3 text-left transition-all cursor-pointer shadow-lg font-sans group ${
+                        venueCourts.length <= 1 ? 'cursor-default' : ''
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-brand-lime/15 border border-brand-lime/30 text-brand-lime flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
+                          🎾
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm sm:text-base font-extrabold text-white truncate">
+                              {court?.name || 'Select Court'}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] font-semibold text-slate-300 shrink-0">
+                              {court?.type || 'Standard Court'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4 font-sans">
-                      {court.dayPrice === court.nightPrice ? (
-                        <span className="font-black text-brand-lime text-base sm:text-lg tracking-tight">
-                          ₱{court.dayPrice} <span className="text-xs font-normal text-slate-400">/ hr</span>
-                        </span>
-                      ) : (
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <span className="text-[10px] font-bold text-slate-400 block uppercase leading-none mb-0.5">Day Rate</span>
-                            <span className="text-sm sm:text-base font-black text-white">₱{court.dayPrice}<span className="text-xs font-normal text-slate-400">/hr</span></span>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        {court && (
+                          <div className="hidden xs:flex flex-col items-end">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase leading-none">Rate</span>
+                            <span className="text-xs sm:text-sm font-black text-brand-lime mt-0.5">
+                              ₱{court.dayPrice}{court.dayPrice !== court.nightPrice ? `/₱${court.nightPrice}` : ''}<span className="text-[10px] font-normal text-slate-400">/hr</span>
+                            </span>
                           </div>
-                          <span className="text-slate-700 font-bold">•</span>
-                          <div className="text-left">
-                            <span className="text-[10px] font-bold text-brand-lime/80 block uppercase leading-none mb-0.5">Night Rate</span>
-                            <span className="text-sm sm:text-base font-black text-brand-lime">₱{court.nightPrice}<span className="text-xs font-normal text-brand-lime/70">/hr</span></span>
+                        )}
+
+                        {venueCourts.length > 1 && (
+                          <div className="w-8 h-8 rounded-xl bg-slate-950 border border-slate-800 text-brand-lime flex items-center justify-center shrink-0">
+                            <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isCourtDropdownOpen ? 'rotate-180 text-brand-lime' : 'text-slate-400 group-hover:text-white'}`} />
                           </div>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    </button>
+
+                    {/* Dropdown Options Popup Menu */}
+                    {isCourtDropdownOpen && venueCourts.length > 1 && (
+                      <div className="absolute top-full left-0 right-0 mt-2 z-[100] bg-slate-950 border border-brand-lime/50 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.95)] p-2 space-y-1.5 backdrop-blur-2xl animate-fade-in max-h-72 overflow-y-auto custom-scrollbar">
+                        {venueCourts.map((c, idx) => {
+                          const isSelected = c.id === court?.id;
+                          const isSamePrice = c.dayPrice === c.nightPrice;
+
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                handleSwitchCourt(c);
+                                setIsCourtDropdownOpen(false);
+                              }}
+                              className={`w-full p-3 rounded-xl border text-left transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 ${
+                                isSelected
+                                  ? 'bg-brand-lime/15 border-brand-lime/50 text-white font-extrabold shadow-sm'
+                                  : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-900 hover:border-slate-700 text-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black shrink-0 ${
+                                  isSelected ? 'bg-brand-lime text-slate-950' : 'bg-slate-800 text-slate-400'
+                                }`}>
+                                  {idx + 1}
+                                </span>
+                                <div className="flex flex-col min-w-0">
+                                  <span className={`text-sm font-extrabold truncate ${isSelected ? 'text-brand-lime' : 'text-white'}`}>
+                                    {c.name}
+                                  </span>
+                                  <span className="text-[11px] text-slate-400 font-semibold truncate">
+                                    {c.type || 'Standard Court'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0 font-sans">
+                                <span className="text-xs font-black text-brand-lime bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                                  ₱{c.dayPrice}{!isSamePrice ? `/₱${c.nightPrice}` : ''}/hr
+                                </span>
+                                {isSelected && (
+                                  <CheckCircle2 className="w-4 h-4 text-brand-lime shrink-0" />
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             </div>
 
@@ -1365,7 +1366,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                         <span className="text-xs text-slate-400 font-bold uppercase tracking-wider animate-pulse">Checking availability...</span>
                       </div>
                     ) : (
-                      <div className="space-y-4 max-h-[340px] overflow-y-auto pr-1 custom-scrollbar">
+                      <div className="space-y-4 max-h-[340px] overflow-y-auto pt-2.5 pl-2 pr-1.5 pb-1 custom-scrollbar">
                         {/* Slots renderer helper */}
                         {(() => {
                           let displaySlots = currentSchedule.slots;
@@ -1381,7 +1382,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                           }
 
                           return (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5 pt-1 pl-1">
                               {displaySlots.map((slot, idx) => {
                                 const price = getSlotPrice(slot.startHour);
                                 const isSelected = selectedSlots.includes(slot.time);
@@ -1415,7 +1416,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                                     title={openPlayInfo ? `Reserved for Open Play: ${openPlayInfo.title}` : (isPlayerConflict ? `Schedule Conflict: Booked at ${isPlayerConflict.courtName} for ${slot.time}` : isSlotPending ? `Blocked: Payment pending admin approval for ${slot.time}` : isSlotApproved ? `Booked: Reserved for ${slot.time}` : '')}
                                     className={`p-3 rounded-2xl border text-left font-sans transition-all duration-200 cursor-pointer relative overflow-hidden group flex flex-col justify-between gap-2.5 ${
                                       isSelected
-                                        ? 'bg-gradient-to-r from-brand-lime via-[#b6f937] to-emerald-400 border-brand-lime text-slate-950 font-black shadow-[0_0_20px_rgba(163,230,53,0.3)] scale-[1.02] ring-2 ring-brand-lime/40'
+                                        ? 'bg-brand-lime border-brand-lime text-slate-950 font-semibold shadow-none'
                                         : openPlayInfo
                                         ? 'bg-gradient-to-br from-purple-950/70 via-purple-900/40 to-slate-900 border-purple-700/70 text-purple-200 hover:border-purple-500 hover:shadow-lg shadow-purple-950/30'
                                         : isPlayerConflict
@@ -1440,11 +1441,11 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                                           <Sun className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-slate-900' : 'text-amber-400'}`} />
                                         )}
                                         <div className="flex flex-col">
-                                          <span className={`text-sm sm:text-base font-black tracking-tight leading-none ${isSelected ? 'text-slate-950' : 'text-white'}`}>
+                                          <span className={`text-sm sm:text-base font-medium tracking-normal leading-none ${isSelected ? 'text-slate-950' : 'text-white'}`}>
                                             {startTimeStr}
                                           </span>
                                           {endTimeStr && (
-                                            <span className={`text-[10px] font-semibold mt-0.5 ${isSelected ? 'text-slate-900/80' : 'text-slate-400'}`}>
+                                            <span className={`text-[10px] font-normal mt-0.5 ${isSelected ? 'text-slate-900/80' : 'text-slate-400'}`}>
                                               to {endTimeStr}
                                             </span>
                                           )}
@@ -1457,28 +1458,28 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                                           <CheckCircle2 className="w-5 h-5" />
                                         </div>
                                       ) : openPlayInfo ? (
-                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-900/90 text-purple-200 border border-purple-600/80 flex items-center gap-1 shrink-0 shadow-sm">
+                                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-full bg-purple-900/90 text-purple-200 border border-purple-600/80 flex items-center gap-1 shrink-0 shadow-sm">
                                           <Trophy className="w-3 h-3 text-purple-300" />
                                           Open Play
                                         </span>
                                       ) : isPlayerConflict ? (
-                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-950 text-amber-400 border border-amber-800/80 shrink-0">
+                                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-md bg-amber-950 text-amber-400 border border-amber-800/80 shrink-0">
                                           Conflict
                                         </span>
                                       ) : isSlotApproved ? (
-                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-800/90 text-slate-400 shrink-0">
+                                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-md bg-slate-800/90 text-slate-400 shrink-0">
                                           Booked
                                         </span>
                                       ) : isSlotPending ? (
-                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 shrink-0">
+                                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 shrink-0">
                                           Pending
                                         </span>
                                       ) : isSlotPassed ? (
-                                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-900 text-slate-500 shrink-0">
+                                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-md bg-slate-900 text-slate-500 shrink-0">
                                           Passed
                                         </span>
                                       ) : (
-                                        <span className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-brand-lime font-black text-xs group-hover:border-brand-lime/40 transition-colors shrink-0 shadow-inner">
+                                        <span className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-brand-lime font-normal text-xs group-hover:border-brand-lime/40 transition-colors shrink-0 shadow-inner">
                                           ₱{price}
                                         </span>
                                       )}
