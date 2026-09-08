@@ -1158,32 +1158,34 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                 </div>
 
                 {/* Date Selection */}
-                <div className="space-y-2">
+                <div className="space-y-2 w-full max-w-full overflow-hidden box-border min-w-0">
                   <label className="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-brand-lime" /> Choose Date
+                    <Calendar className="w-4 h-4 text-brand-lime shrink-0" /> Choose Date
                   </label>
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    min={(() => {
-                      const d = new Date();
-                      const year = d.getFullYear();
-                      const month = String(d.getMonth() + 1).padStart(2, '0');
-                      const day = String(d.getDate()).padStart(2, '0');
-                      return `${year}-${month}-${day}`;
-                    })()}
-                    onClick={(e) => {
-                      try {
-                        e.currentTarget.showPicker();
-                      } catch {}
-                    }}
-                    onChange={(e) => {
-                      setSelectedDate(e.target.value);
-                      setSelectedSlots([]);
-                    }}
-                    className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-3.5 text-base focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-bold"
-                    style={{ colorScheme: 'dark' }}
-                  />
+                  <div className="relative w-full max-w-full box-border min-w-0 overflow-hidden">
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      min={(() => {
+                        const d = new Date();
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
+                      })()}
+                      onClick={(e) => {
+                        try {
+                          e.currentTarget.showPicker();
+                        } catch {}
+                      }}
+                      onChange={(e) => {
+                        setSelectedDate(e.target.value);
+                        setSelectedSlots([]);
+                      }}
+                      className="w-full max-w-full box-border bg-slate-900 border border-slate-800 text-white rounded-xl px-3.5 sm:px-4 py-3 text-sm sm:text-base focus:outline-none focus:border-brand-lime transition-all cursor-pointer font-bold block min-w-0 appearance-none"
+                      style={{ colorScheme: 'dark' }}
+                    />
+                  </div>
                 </div>
 
                 {/* Open Play Alert Banner if an Open Play session exists on this court & date */}
