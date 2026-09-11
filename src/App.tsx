@@ -1164,15 +1164,20 @@ function App() {
   return (
     <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg overflow-x-hidden w-full relative">
       {/* Header Navigation */}
-      <Header user={user} onLogout={handleLogout} setView={setView} currentView={currentView} />
+      <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
 
       {/* Main Content Area */}
       <main className="flex-grow">
         <Hero
-          setView={setView}
+          setView={handleSetView}
           setSelectedCourtId={setSelectedCourtId}
           searchDate={landingSearchDate}
           setSearchDate={setLandingSearchDate}
+          onSelectOpenPlayEvent={(eventId) => {
+            window.scrollTo({ top: 0, behavior: 'instant' });
+            setOpenPlayEventId(eventId);
+            setView('openplay');
+          }}
         />
       </main>
 

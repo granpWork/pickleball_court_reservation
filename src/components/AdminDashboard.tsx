@@ -1259,6 +1259,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         localEvents.push(...newEventsBatch);
         try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
         try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
+        try { window.dispatchEvent(new Event('openplay_updated')); } catch (e) {}
 
         setOpenPlayEvents(prev => [...prev, ...newEventsBatch]);
         setOpenPlayModalOpen(false);
@@ -1374,6 +1375,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
       try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
       try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
+      try { window.dispatchEvent(new Event('openplay_updated')); } catch (e) {}
 
       if (editingOpenPlay) {
         setOpenPlayEvents(prev => prev.map(e => e.id === eventId ? payload : e));

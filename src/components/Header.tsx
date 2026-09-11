@@ -95,7 +95,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
             <nav className="hidden lg:flex items-center gap-6 xl:gap-8 flex-shrink-0">
               <button
                 type="button"
-                onClick={() => handleNavClick('landing', '/', 'booking-widget')}
+                onClick={() => handleNavClick('landing', '/?tab=courts', 'booking-widget')}
                 className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap ${
                   currentView === 'landing' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
                 }`}
@@ -108,7 +108,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
 
               <button
                 type="button"
-                onClick={() => handleNavClick('openplay', '/open-play')}
+                onClick={() => handleNavClick('landing', '/?tab=openplay', 'booking-widget')}
                 className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap flex items-center gap-1.5 ${
                   currentView === 'openplay' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
                 }`}
@@ -227,7 +227,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
           <nav className="flex flex-col gap-3">
             <button
               type="button"
-              onClick={() => handleNavClick('landing', '/', 'booking-widget')}
+              onClick={() => handleNavClick('landing', '/?tab=courts', 'booking-widget')}
               className={`text-left w-full text-base font-medium py-2.5 border-b border-dark-border/50 cursor-pointer ${
                 currentView === 'landing' ? 'text-brand-lime font-bold' : 'text-slate-200 hover:text-brand-lime'
               }`}
@@ -237,7 +237,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
 
             <button
               type="button"
-              onClick={() => handleNavClick('openplay', '/open-play')}
+              onClick={() => handleNavClick('landing', '/?tab=openplay', 'booking-widget')}
               className={`text-left w-full text-base font-medium py-2.5 border-b border-dark-border/50 cursor-pointer flex items-center gap-2 ${
                 currentView === 'openplay' ? 'text-brand-lime font-bold' : 'text-slate-200 hover:text-brand-lime'
               }`}
