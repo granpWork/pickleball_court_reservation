@@ -168,8 +168,8 @@ export const AdminImageConverterTab: React.FC = () => {
       };
 
       img.onload = () => {
-        let origW = img.width;
-        let origH = img.height;
+        const origW = img.width;
+        const origH = img.height;
 
         let targetW = origW;
         let targetH = origH;

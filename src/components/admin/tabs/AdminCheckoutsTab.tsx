@@ -11,6 +11,7 @@ import {
   Loader2,
   RotateCcw,
   User,
+  UserCheck,
   Eye,
   Check,
   Users,
@@ -19,6 +20,9 @@ import {
   ShieldCheck,
   ChevronUp,
   SlidersHorizontal,
+  Share2,
+  Copy,
+  MessageSquare,
 } from 'lucide-react';
 import { type Booking, type GcashAccount, type UserAccount, type UserPermissions } from '../adminTypes';
 
@@ -31,10 +35,10 @@ interface AdminCheckoutsTabProps {
   checkoutStatusFilter: 'all' | 'pending' | 'paid' | 'cancelled';
   setCheckoutStatusFilter: (st: 'all' | 'pending' | 'paid' | 'cancelled') => void;
   actionLoading: string | null;
-  onApproveBooking: (booking: Booking) => void;
-  onRejectBooking: (booking: Booking) => void;
-  onRefundBooking: (booking: Booking) => void;
-  onViewReceipt: (receiptUrl: string) => void;
+  onApproveBooking: (b: Booking) => void;
+  onRejectBooking: (b: Booking) => void;
+  onRefundBooking: (b: Booking) => void;
+  onViewReceipt: (url: string) => void;
   onNavigateToBookings?: () => void;
   personalAccounts?: GcashAccount[];
   globalGcashName?: string;
@@ -42,9 +46,9 @@ interface AdminCheckoutsTabProps {
   globalGcashQr?: string;
   onOpenGcashModal?: (type: 'my' | 'global', accountId?: string) => void;
   onDeleteGcashAccount?: (id: string) => void;
-  formatEventDateLong?: (dateStr: string) => string;
-  formatDateLabel?: (dateStr: string) => string;
-  formatTime12h?: (timeStr: string) => string;
+  formatEventDateLong?: (d: string) => string;
+  formatDateLabel?: (d: string) => string;
+  formatTime12h?: (t: string) => string;
   formatTimestamp?: (ts?: string) => string;
   userPermissions?: UserPermissions;
 }
@@ -69,13 +73,60 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
   formatTimestamp = (t) => t || 'N/A',
 }) => {
   const [expandedCheckoutId, setExpandedCheckoutId] = useState<string | null>(null);
+  const [expandedMessageCheckoutIds, setExpandedMessageCheckoutIds] = useState<Record<string, boolean>>({});
   const [checkoutDateFilter, setCheckoutDateFilter] = useState<string>('');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
+  const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+
+  const toggleMessageAccordion = (checkoutId: string) => {
+    setExpandedMessageCheckoutIds((prev) => ({
+      ...prev,
+      [checkoutId]: !prev[checkoutId],
+    }));
+  };
+
+  const generateCheckoutMessage = (booking: Booking): string => {
+    const bName = booking.user?.name || booking.userName || 'Player';
+    const courtName = booking.courtName || 'Pickleball Court';
+    const dateStr = formatEventDateLong(booking.date) || formatDateLabel(booking.date);
+    const slotsStr = booking.slots && booking.slots.length > 0 ? booking.slots.join(', ') : '1 Hour';
+    const totalCost = booking.totalCost || 0;
+    const refCode = booking.bookingReference || booking.bookingId || booking.id;
+    const shareUrl = `${window.location.origin}/?upload_receipt=${encodeURIComponent(refCode)}`;
+
+    return `Hi ${bName}! 🎾
+Here are your reservation details:
+
+📍 Court: ${courtName}
+📅 Date: ${dateStr}
+⏰ Time: ${slotsStr}
+💵 Total Amount Due: ₱${totalCost}
+🎟️ Booking Ref: ${refCode}
+
+👇 UPLOAD GCASH RECEIPT PROOF HERE 👇
+${shareUrl}
+
+Please click the link above to submit your GCash payment receipt screenshot & reference number to confirm your reservation.
+
+Thank you!`;
+  };
 
   const activeFilterCount =
     (checkoutCategoryFilter !== 'all' ? 1 : 0) +
     (checkoutStatusFilter !== 'pending' ? 1 : 0) +
     (checkoutDateFilter ? 1 : 0);
+
+  const isBookingManual = (b: Booking): boolean => {
+    return (
+      b.isManual === true ||
+      (b as any).isManualBooking === true ||
+      (b as any).bookingSource === 'manual' ||
+      Boolean(b.id && (b.id.startsWith('bk_manual_') || b.id.includes('manual'))) ||
+      Boolean(b.bookingId && b.bookingId.includes('WALKIN')) ||
+      Boolean(b.bookingCategory)
+    );
+  };
 
   // Compute counts for verification queue badges
   const pendingQueueCount = checkouts.filter(
@@ -253,6 +304,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                 const proofUrl = booking.receiptImageUrl || (booking as any).receiptUrl || (booking as any).paymentReceiptUrl;
                 const isActionPending = actionLoading === booking.id;
                 const isExpanded = expandedCheckoutId === booking.id;
+                const isManual = isBookingManual(booking);
 
                 return (
                   <div key={booking.id} className="glass-panel border border-slate-800/80 rounded-2xl p-4 space-y-3.5 shadow-xl text-left bg-slate-900/60">
@@ -275,16 +327,23 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                         </div>
                       </div>
 
-                      {/* Category Badge */}
-                      {booking.type === 'openplay' || booking.openPlayEventId || (booking as any).isOpenPlay ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shrink-0">
-                          <Trophy className="w-3 h-3 text-brand-lime" /> OP
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-500/10 border border-blue-500/30 text-blue-300 shrink-0">
-                          <Building2 className="w-3 h-3 text-blue-400" /> Court
-                        </span>
-                      )}
+                      {/* Category & Manual Badges */}
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0">
+                        {booking.type === 'openplay' || booking.openPlayEventId || (booking as any).isOpenPlay ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shrink-0">
+                            <Trophy className="w-3 h-3 text-brand-lime" /> OP
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-blue-500/10 border border-blue-500/30 text-blue-300 shrink-0">
+                            <Building2 className="w-3 h-3 text-blue-400" /> Court
+                          </span>
+                        )}
+                        {isManual && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-purple-500/20 border border-purple-500/40 text-purple-300 shrink-0 shadow-sm">
+                            <UserCheck className="w-3 h-3 text-purple-400" /> Manual
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Details Grid */}
@@ -379,6 +438,41 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                             <span className="font-mono font-bold text-brand-lime">{booking.gcashReferenceNumber}</span>
                           </div>
                         )}
+
+                        {/* Generated Messenger Summary & Shareable Message Card */}
+                        <div className="bg-slate-950/80 border border-purple-500/30 rounded-xl p-3 space-y-2 text-left">
+                          <div className="flex items-center justify-between flex-wrap gap-1">
+                            <div className="flex items-center gap-1.5 text-purple-300 font-extrabold text-[10px] uppercase">
+                              <MessageSquare className="w-3.5 h-3.5" /> Generated Messenger Message
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const msg = generateCheckoutMessage(booking);
+                                navigator.clipboard.writeText(msg);
+                                setCopiedMessageId(booking.id);
+                                setTimeout(() => setCopiedMessageId(null), 3000);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[10px] uppercase flex items-center gap-1 cursor-pointer"
+                            >
+                              {copiedMessageId === booking.id ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-300" />
+                                  <span className="text-emerald-300">Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy Message</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                          <div className="bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-[11px] font-mono text-slate-300 whitespace-pre-wrap leading-relaxed select-all">
+                            {generateCheckoutMessage(booking)}
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -452,6 +546,7 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                   {displayCheckouts.map((booking) => {
                     const isActionPending = actionLoading === booking.id;
                     const isExpanded = expandedCheckoutId === booking.id;
+                    const isManual = isBookingManual(booking);
 
                     const bEmail = (booking.user?.email || booking.userEmail || '').toLowerCase();
                     const bName = booking.user?.name || booking.userName || 'Player';
@@ -490,7 +585,9 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                               </div>
 
                               <div>
-                                <div className="font-extrabold text-white text-sm">{bName}</div>
+                                <div className="font-extrabold text-white text-sm flex items-center gap-2">
+                                  <span>{bName}</span>
+                                </div>
                                 <div className="text-xs text-slate-400 font-mono mt-0.5">{booking.user?.email || booking.userEmail || 'N/A'}</div>
                                 {booking.userPhone && (
                                   <div className="text-xs text-slate-400 font-mono mt-0.5">{booking.userPhone}</div>
@@ -506,17 +603,25 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
 
                           {/* Category / Type */}
                           <td className="py-4.5 px-6">
-                            {booking.type === 'openplay' || booking.openPlayEventId || (booking as any).isOpenPlay ? (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shadow-sm">
-                                <Trophy className="w-3 h-3 text-brand-lime shrink-0" />
-                                <span>OP</span>
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/30 text-blue-300 shadow-sm">
-                                <Building2 className="w-3 h-3 text-blue-400 shrink-0" />
-                                <span>Court</span>
-                              </span>
-                            )}
+                            <div className="flex flex-col items-start gap-1">
+                              {booking.type === 'openplay' || booking.openPlayEventId || (booking as any).isOpenPlay ? (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shadow-sm">
+                                  <Trophy className="w-3 h-3 text-brand-lime shrink-0" />
+                                  <span>OP</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-500/10 border border-blue-500/30 text-blue-300 shadow-sm">
+                                  <Building2 className="w-3 h-3 text-blue-400 shrink-0" />
+                                  <span>Court</span>
+                                </span>
+                              )}
+                              {isManual && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-500/20 border border-purple-500/40 text-purple-300 shadow-sm">
+                                  <UserCheck className="w-2.5 h-2.5 text-purple-400 shrink-0" />
+                                  <span>Manual</span>
+                                </span>
+                              )}
+                            </div>
                           </td>
 
                           {/* Payment Method */}
@@ -663,6 +768,11 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                             {booking.openPlayCategory}
                                           </span>
                                         )}
+                                        {isManual && (
+                                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                                            <UserCheck className="w-3 h-3 text-purple-400 shrink-0" /> Manual Booking
+                                          </span>
+                                        )}
                                       </div>
                                       <h4 className="text-base font-extrabold text-white mt-0.5">
                                         {booking.openPlayTitle || booking.courtName || 'Open Play Session'}
@@ -713,6 +823,11 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                             {booking.courtType}
                                           </span>
                                         )}
+                                        {isManual && (
+                                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1">
+                                            <UserCheck className="w-3 h-3 text-purple-400 shrink-0" /> Manual Booking
+                                          </span>
+                                        )}
                                       </div>
                                       <h4 className="text-base font-extrabold text-white mt-0.5">
                                         {booking.courtName || 'Pickleball Court'}
@@ -749,6 +864,87 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                   </div>
                                 </div>
                               )}
+
+                              {/* Generated Messenger Summary & Shareable Message Card (Accordion) */}
+                              {(() => {
+                                const isMsgExpanded = Boolean(expandedMessageCheckoutIds[booking.id]);
+                                return (
+                                  <div className="bg-slate-900/80 border border-purple-500/30 rounded-2xl overflow-hidden shadow-md transition-all mb-4">
+                                    {/* Accordion Header */}
+                                    <div
+                                      onClick={() => toggleMessageAccordion(booking.id)}
+                                      className="flex items-center justify-between flex-wrap gap-3 p-4 cursor-pointer hover:bg-purple-950/20 transition-colors select-none"
+                                    >
+                                      <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0">
+                                          <MessageSquare className="w-4 h-4" />
+                                        </div>
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <h5 className="text-xs font-extrabold text-white uppercase tracking-wider">
+                                              Generated Messenger Message
+                                            </h5>
+                                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border transition-all ${
+                                              isMsgExpanded
+                                                ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                                            }`}>
+                                              {isMsgExpanded ? 'Expanded' : 'Click to View'}
+                                            </span>
+                                          </div>
+                                          <p className="text-[10px] text-slate-400 mt-0.5">
+                                            Pre-formatted checkout summary & receipt upload link for FB Messenger / SMS.
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const msg = generateCheckoutMessage(booking);
+                                            navigator.clipboard.writeText(msg);
+                                            setCopiedMessageId(booking.id);
+                                            setTimeout(() => setCopiedMessageId(null), 3000);
+                                          }}
+                                          className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow"
+                                        >
+                                          {copiedMessageId === booking.id ? (
+                                            <>
+                                              <Check className="w-3.5 h-3.5 text-emerald-300" />
+                                              <span className="text-emerald-300">Message Copied!</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Copy className="w-3.5 h-3.5" />
+                                              <span>Copy Messenger Message</span>
+                                            </>
+                                          )}
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleMessageAccordion(booking.id)}
+                                          className="p-1.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer"
+                                          title={isMsgExpanded ? 'Collapse Message' : 'Expand Message'}
+                                        >
+                                          {isMsgExpanded ? <ChevronUp className="w-4 h-4 text-purple-300" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Accordion Body */}
+                                    {isMsgExpanded && (
+                                      <div className="p-4 pt-0 border-t border-slate-800/80 space-y-3 animate-fade-in">
+                                        <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 text-xs font-mono text-slate-300 whitespace-pre-wrap leading-relaxed select-all">
+                                          {generateCheckoutMessage(booking)}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
 
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 {/* Customer Details */}
@@ -808,6 +1004,14 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                   <div className="font-bold text-brand-lime uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
                                     <CreditCard className="w-3.5 h-3.5" /> Payment & Voucher Breakdown
                                   </div>
+                                  {isManual && (
+                                    <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                      <span className="text-slate-400">Source:</span>
+                                      <span className="font-extrabold text-purple-300 flex items-center gap-1">
+                                        <UserCheck className="w-3.5 h-3.5 text-purple-400" /> Manual / Admin Walk-in
+                                      </span>
+                                    </div>
+                                  )}
                                   <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
                                     <span className="text-slate-400">Transaction Time:</span>
                                     <span className="font-semibold text-slate-300">{formatTimestamp(booking.createdAt)}</span>
@@ -835,8 +1039,35 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                 {/* Receipt Image Preview */}
                                 <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between text-xs">
                                   <div>
-                                    <div className="font-bold text-brand-lime uppercase tracking-wider text-[10px] mb-2 flex items-center gap-1.5">
-                                      <Eye className="w-3.5 h-3.5" /> Payment Receipt Proof
+                                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/60 mb-2 gap-2 flex-wrap">
+                                      <div className="font-bold text-brand-lime uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                                        <Eye className="w-3.5 h-3.5 text-brand-lime" /> Payment Receipt Proof
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const refCode = booking.bookingReference || booking.bookingId || booking.id;
+                                          const shareUrl = `${window.location.origin}/?upload_receipt=${encodeURIComponent(refCode)}`;
+                                          navigator.clipboard.writeText(shareUrl);
+                                          setCopiedShareId(booking.id);
+                                          setTimeout(() => setCopiedShareId(null), 3000);
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-purple-300 font-extrabold text-[10px] flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                                        title="Copy receipt upload link for FB Messenger"
+                                      >
+                                        {copiedShareId === booking.id ? (
+                                          <>
+                                            <Check className="w-3 h-3 text-emerald-400" />
+                                            <span className="text-emerald-400">Copied Link!</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Share2 className="w-3 h-3 text-purple-400" />
+                                            <span>Share Messenger Link</span>
+                                          </>
+                                        )}
+                                      </button>
                                     </div>
                                     {proofUrl ? (
                                       <div className="relative rounded-lg overflow-hidden border border-slate-700 bg-black/40 group max-h-28 flex items-center justify-center">
@@ -853,7 +1084,12 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
                                         </button>
                                       </div>
                                     ) : (
-                                      <p className="text-slate-500 italic text-xs">No receipt screenshot attached.</p>
+                                      <div className="space-y-2 py-1">
+                                        <p className="text-slate-400 italic text-xs">No receipt screenshot attached yet.</p>
+                                        <p className="text-[11px] text-slate-500 leading-snug">
+                                          Click <strong className="text-purple-300 font-semibold">Share Messenger Link</strong> above to send the upload link to the player via FB Messenger.
+                                        </p>
+                                      </div>
                                     )}
                                   </div>
                                 </div>

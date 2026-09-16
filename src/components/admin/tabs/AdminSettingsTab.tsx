@@ -25,7 +25,11 @@ import {
   ChevronDown,
   UserPlus,
   Users,
-  X
+  X,
+  Zap,
+  AlertTriangle,
+  ShieldCheck,
+  Calendar,
 } from 'lucide-react';
 import { AdminPoliciesTab } from './AdminPoliciesTab';
 import { GcashAmountQrModal } from '../modals/GcashAmountQrModal';
@@ -39,6 +43,9 @@ import {
   type DailyOperatingHoursMap,
   type CourtPolicies,
   getUserEffectivePermissions,
+  getEffectiveSubscriptionExpiry,
+  isSubscriptionExpired,
+  getSubscriptionRemainingDays,
   DAYS_OF_WEEK,
   OPERATING_TIME_OPTIONS
 } from '../adminTypes';
@@ -96,6 +103,7 @@ interface AdminSettingsTabProps {
 
   // Organization Props (with Subdomain / Venue Slug)
   companyProfile?: Company | null;
+  onUpdateCompanySubscription?: (companyId: string, payload: any) => void;
   orgProfileName?: string;
   setOrgProfileName?: (val: string) => void;
   orgProfilePhone?: string;
@@ -191,6 +199,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   setAdminPhone,
   onSaveAdminProfile,
   companyProfile,
+  onUpdateCompanySubscription,
   orgProfileName = '',
   setOrgProfileName,
   orgProfilePhone = '',
@@ -267,6 +276,11 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
 
   const [copiedSlugLink, setCopiedSlugLink] = useState(false);
   const [selectedAmountQrAccount, setSelectedAmountQrAccount] = useState<GcashAccount | null>(null);
+
+  // Cancellation Modal States
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelReasonInput, setCancelReasonInput] = useState('');
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
 
   // Popover States for Location Dropdowns & Operating Hours
   const [isOrgRegionOpen, setIsOrgRegionOpen] = useState(false);
@@ -2191,6 +2205,293 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
             </button>
           </div>
         </form>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SUBSCRIPTION & LICENSING SUB-TAB                                          */}
+      {/* ========================================================================= */}
+      {settingsSubTab === 'subscription' && (() => {
+        const company = companyProfile;
+        const plan = company?.subscriptionPlan || (company?.isTrialClient ? 'trial' : 'monthly');
+        const isExpired = isSubscriptionExpired(company || user as any);
+        const remainingDays = getSubscriptionRemainingDays(company || user as any);
+        const effectiveExpiry = getEffectiveSubscriptionExpiry(company || user as any);
+
+        const planTitleMap: Record<string, string> = {
+          trial: 'Free Trial License',
+          monthly: 'Monthly Pro Subscription',
+          annual: 'Annual Enterprise Plan',
+          lifetime: 'Lifetime Organization Pass',
+        };
+
+        const planBadgeColorMap: Record<string, string> = {
+          trial: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+          monthly: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
+          annual: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+          lifetime: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+        };
+
+        return (
+          <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-slate-800 space-y-8 animate-fade-in">
+            {/* Header Banner */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-brand-emerald/10 border border-slate-800 shadow-xl">
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${planBadgeColorMap[plan] || planBadgeColorMap.monthly}`}>
+                    ⚡ {planTitleMap[plan] || 'Standard Plan'}
+                  </span>
+                  {isExpired ? (
+                    <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5" /> Expired Access
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5" /> Active License
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-white">
+                  {company?.name || 'Facility Organization'} Subscription Status
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
+                  Manage your organization's administrative access terms, monitor active licensing periods, and inspect enabled facility capabilities.
+                </p>
+              </div>
+
+              {/* Expiration Card Gauge */}
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex flex-col items-center justify-center text-center min-w-[200px] shadow-inner">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 mb-1">Time Remaining</span>
+                {company?.forceTerminated ? (
+                  <>
+                    <span className="text-3xl font-black text-rose-500">0 Days</span>
+                    <span className="text-[11px] font-extrabold text-rose-400 mt-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3 text-rose-400" /> Terminated by Super Admin
+                    </span>
+                  </>
+                ) : plan === 'lifetime' ? (
+                  <>
+                    <span className="text-2xl font-black text-purple-400">Unlimited</span>
+                    <span className="text-[11px] font-bold text-slate-400 mt-0.5">Lifetime Pass</span>
+                  </>
+                ) : remainingDays !== null ? (
+                  <>
+                    <span className={`text-3xl font-black ${isExpired ? 'text-rose-400' : remainingDays <= 7 ? 'text-amber-400' : 'text-brand-lime'}`}>
+                      {remainingDays > 0 ? remainingDays : 0} <span className="text-sm font-bold">Days</span>
+                    </span>
+                    <span className="text-[11px] font-bold text-slate-400 mt-1 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" /> Expiration: {effectiveExpiry ? effectiveExpiry.toLocaleDateString() : 'N/A'}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm font-bold text-slate-400">Active Term</span>
+                )}
+              </div>
+            </div>
+
+            {/* Included Platform Features Grid */}
+            <div className="space-y-4">
+              <h4 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-brand-lime" />
+                <span>Included Platform Capabilities</span>
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-bold mb-3">
+                    🏟️
+                  </div>
+                  <h5 className="text-sm font-bold text-white">Court Schedule Management</h5>
+                  <p className="text-xs text-slate-400">Unlimited daily court creation, custom hour pricing, and automated slot blockouts.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 font-bold mb-3">
+                    ⚡
+                  </div>
+                  <h5 className="text-sm font-bold text-white">Open Play Events System</h5>
+                  <p className="text-xs text-slate-400">Create open play matches, register players, auto-calculate fees, and generate shareable links.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 font-bold mb-3">
+                    💳
+                  </div>
+                  <h5 className="text-sm font-bold text-white">Centralized GCash QR Billing</h5>
+                  <p className="text-xs text-slate-400">Add personal or corporate GCash QR codes for direct venue booking payments.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold mb-3">
+                    🎫
+                  </div>
+                  <h5 className="text-sm font-bold text-white">Promotions & Vouchers</h5>
+                  <p className="text-xs text-slate-400">Issue custom discount voucher codes, set usage limits, and track promo redemptions.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold mb-3">
+                    📧
+                  </div>
+                  <h5 className="text-sm font-bold text-white">Email & Reminder Automation</h5>
+                  <p className="text-xs text-slate-400">Automated email receipts, approval confirmations, and pending payment sound alerts.</p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 font-bold mb-3">
+                    📊
+                  </div>
+                  <h5 className="text-sm font-bold text-white">Revenue & Analytics Dashboard</h5>
+                  <p className="text-xs text-slate-400">Real-time metrics, peak booking hour distribution, and court revenue leaderboards.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Force Terminated Notice Banner */}
+            {company?.forceTerminated && (
+              <div className="p-5 rounded-2xl bg-rose-950/90 border border-rose-500/50 text-rose-200 text-xs sm:text-sm space-y-2 shadow-2xl animate-fade-in">
+                <div className="flex items-center gap-2 font-black text-white text-base">
+                  <AlertTriangle className="w-5 h-5 text-rose-400" />
+                  <span>Subscription Force Terminated by Super Admin</span>
+                </div>
+                <p className="text-xs text-rose-300 leading-relaxed">
+                  Your platform subscription was manually terminated by the Super Admin on{' '}
+                  <strong>
+                    {company.forceTerminatedAt
+                      ? new Date(company.forceTerminatedAt).toLocaleDateString()
+                      : 'Recently'}
+                  </strong>
+                  .
+                </p>
+                {company.forceTerminatedReason && (
+                  <p className="text-xs font-mono bg-rose-900/40 p-2.5 rounded-xl border border-rose-800/60 text-rose-200">
+                    Reason: {company.forceTerminatedReason}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Subscription Canceled Banner */}
+            {company?.subscriptionStatus === 'canceled' && !isExpired && (
+              <div className="p-5 rounded-2xl bg-amber-950/90 border border-amber-500/50 text-amber-200 text-xs sm:text-sm space-y-2 shadow-2xl animate-fade-in">
+                <div className="flex items-center gap-2 font-black text-white text-base">
+                  <Clock className="w-5 h-5 text-amber-400" />
+                  <span>Subscription Auto-Renewal Canceled</span>
+                </div>
+                <p className="text-xs text-amber-300 leading-relaxed">
+                  Your subscription has been canceled. Your facility retains full administrative access through{' '}
+                  <strong>{effectiveExpiry ? effectiveExpiry.toLocaleDateString() : 'your paid term'}</strong>. No further automatic charges will occur.
+                </p>
+                {company.cancelReason && (
+                  <p className="text-xs font-mono bg-amber-900/40 p-2.5 rounded-xl border border-amber-800/60 text-amber-200">
+                    Submitted Reason: {company.cancelReason}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Super Admin Plan Upgrade & Assistance Panel */}
+            <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+              <div className="space-y-1">
+                <h4 className="text-base font-bold text-white flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  Need to extend your trial or upgrade your plan?
+                </h4>
+                <p className="text-xs text-slate-400 max-w-xl">
+                  Contact our Super Admin helpdesk to request plan renewals, submit proof of subscription payments, or scale your court limits.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+                <a
+                  href={`mailto:support@bookpicklecourt.com?subject=Subscription%20Extension%20Request%20-%20${encodeURIComponent(company?.name || 'Facility')}`}
+                  className="px-5 py-3 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-extrabold text-xs transition-all flex items-center gap-2 shadow-lg shadow-brand-lime/20 cursor-pointer flex-shrink-0"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>Contact Super Admin Support</span>
+                </a>
+
+                {company && company.subscriptionStatus !== 'canceled' && !company.forceTerminated && plan !== 'lifetime' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCancelModalOpen(true)}
+                    className="px-4 py-3 rounded-xl bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border border-slate-800 hover:border-rose-500/30 text-xs font-extrabold transition-all cursor-pointer flex-shrink-0"
+                  >
+                    Cancel Subscription
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* CLIENT ADMIN CANCEL SUBSCRIPTION MODAL */}
+      {isCancelModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="glass-panel max-w-md w-full p-6 rounded-3xl border border-slate-800 space-y-5 bg-slate-950 shadow-2xl text-left">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center space-x-2 text-rose-400">
+                <AlertTriangle className="w-5 h-5" />
+                <h4 className="font-extrabold text-white text-base">Cancel Subscription</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCancelModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to cancel your facility's subscription? You will retain full administrative access through the end of your current paid term. No further renewals will be processed.
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 mb-1">Reason for canceling (Optional)</label>
+              <textarea
+                rows={3}
+                value={cancelReasonInput}
+                onChange={(e) => setCancelReasonInput(e.target.value)}
+                placeholder="e.g. Closing venue, switching plans, or pricing feedback..."
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsCancelModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-bold transition-all cursor-pointer"
+              >
+                Keep Subscription
+              </button>
+              <button
+                type="button"
+                disabled={cancelSubmitting}
+                onClick={async () => {
+                  if (!companyProfile || !onUpdateCompanySubscription) return;
+                  setCancelSubmitting(true);
+                  try {
+                    await onUpdateCompanySubscription(companyProfile.id, {
+                      subscriptionStatus: 'canceled',
+                      cancelRequestedAt: new Date().toISOString(),
+                      cancelReason: cancelReasonInput.trim() || 'Client Admin requested cancellation',
+                    });
+                    setIsCancelModalOpen(false);
+                    setCancelReasonInput('');
+                  } catch (e) {
+                    console.error('Error canceling subscription:', e);
+                  } finally {
+                    setCancelSubmitting(false);
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs transition-all shadow-lg shadow-rose-600/20 cursor-pointer"
+              >
+                {cancelSubmitting ? 'Canceling...' : 'Confirm Cancellation'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

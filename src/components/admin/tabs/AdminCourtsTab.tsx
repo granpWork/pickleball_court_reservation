@@ -16,10 +16,11 @@ import {
   Check,
   Share2,
 } from 'lucide-react';
-import { type Court, type Booking, type UserPermissions, type GcashAccount } from '../adminTypes';
+import { type Court, type Booking, type UserPermissions, type GcashAccount, type AdminCourtsSubTab } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { AdminCourtDetails } from './AdminCourtDetails';
 import { CourtQrModal } from '../modals/CourtQrModal';
+import { AdminManualBookingModal } from '../modals/AdminManualBookingModal';
 
 interface AdminCourtsTabProps {
   courts: Court[];
@@ -37,6 +38,9 @@ interface AdminCourtsTabProps {
     country?: string;
     postalCode?: string;
   } | null;
+  courtsSubTab?: AdminCourtsSubTab;
+  onSaveManualBooking?: (booking: Partial<Booking>) => Promise<void> | void;
+  isSubmittingManualBooking?: boolean;
   onOpenCreateCourtModal: () => void;
   onOpenEditCourtModal: (court: Court) => void;
   onDeleteCourt: (courtId: string) => void;
@@ -52,6 +56,9 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   bookings = [],
   openPlayEvents = [],
   myCompany: _myCompany,
+  courtsSubTab = 'list',
+  onSaveManualBooking,
+  isSubmittingManualBooking = false,
   onOpenCreateCourtModal,
   onOpenEditCourtModal,
   onDeleteCourt,
@@ -66,38 +73,6 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   const [selectedCourtForDetails, setSelectedCourtForDetails] = useState<Court | null>(null);
   const [qrModalState, setQrModalState] = useState<{ isOpen: boolean; court: Court | null }>({ isOpen: false, court: null });
   const [copiedCourtId, setCopiedCourtId] = useState<string | null>(null);
-
-  const handleCopyShareLink = (courtId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const url = `${origin}/?view=details&courtId=${courtId}`;
-    navigator.clipboard.writeText(url);
-    setCopiedCourtId(courtId);
-    setTimeout(() => setCopiedCourtId(null), 2500);
-  };
-
-  const handleOpenQrModal = (court: Court, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setQrModalState({ isOpen: true, court });
-  };
-
-  const handleSetSelectedCourt = (court: Court | null) => {
-    setSelectedCourtForDetails(court);
-    if (court) {
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.set('court_id', court.id);
-        window.history.pushState(null, '', url.toString());
-      } catch (e) {}
-    } else {
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('court_id');
-        url.searchParams.delete('courtId');
-        window.history.pushState(null, '', url.toString());
-      } catch (e) {}
-    }
-  };
 
   // Restore selected court details view on initial load ONLY if court_id is in URL, and handle popstate back button
   useEffect(() => {
@@ -146,6 +121,51 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
       }
     }
   }, [courts, selectedCourtForDetails]);
+
+  if (courtsSubTab === 'manual_booking') {
+    return (
+      <AdminManualBookingModal
+        isEmbedded={true}
+        courts={courts}
+        existingBookings={bookings}
+        openPlayEvents={openPlayEvents}
+        onSaveBooking={onSaveManualBooking || (async () => {})}
+        isSubmitting={isSubmittingManualBooking}
+      />
+    );
+  }
+
+  const handleCopyShareLink = (courtId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const url = `${origin}/?view=details&courtId=${courtId}`;
+    navigator.clipboard.writeText(url);
+    setCopiedCourtId(courtId);
+    setTimeout(() => setCopiedCourtId(null), 2500);
+  };
+
+  const handleOpenQrModal = (court: Court, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setQrModalState({ isOpen: true, court });
+  };
+
+  const handleSetSelectedCourt = (court: Court | null) => {
+    setSelectedCourtForDetails(court);
+    if (court) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('court_id', court.id);
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    } else {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('court_id');
+        url.searchParams.delete('courtId');
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    }
+  };
 
   const handleSelectCourt = (court: Court) => {
     handleSetSelectedCourt(court);

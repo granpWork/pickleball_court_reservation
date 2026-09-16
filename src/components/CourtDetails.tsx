@@ -4,6 +4,7 @@ import { Calendar, Clock, MapPin, CheckCircle, Lock, ChevronLeft, ChevronRight, 
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDoc, doc, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
+import { isSubscriptionExpired } from './admin/adminTypes';
 
 import type { DailyOperatingHoursMap } from './AdminDashboard';
 import {
@@ -457,6 +458,17 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
       }
 
       if (foundCourt) {
+        if (isFirebaseConfigured && db) {
+          try {
+            const compId = foundCourt.companyId;
+            if (compId) {
+              const compSnap = await getDoc(doc(db, 'companies', compId));
+              if (compSnap.exists() && isSubscriptionExpired(compSnap.data())) {
+                foundCourt.published = false;
+              }
+            }
+          } catch (e) {}
+        }
         setCourt(foundCourt);
         loadVenueCourts(foundCourt);
       }
@@ -1471,8 +1483,8 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                                           Booked
                                         </span>
                                       ) : isSlotPending ? (
-                                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 shrink-0">
-                                          Pending
+                                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                                          Blocked
                                         </span>
                                       ) : isSlotPassed ? (
                                         <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded-md bg-slate-900 text-slate-500 shrink-0">
@@ -1495,7 +1507,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                                             : isPlayerConflict
                                             ? `Reserved at ${isPlayerConflict.courtName}`
                                             : isSlotPending
-                                            ? 'Awaiting host approval'
+                                            ? 'Blocked - Pending approval'
                                             : isSlotPassed
                                             ? 'Slot time passed'
                                             : ''}

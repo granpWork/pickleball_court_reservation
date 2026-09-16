@@ -17,14 +17,18 @@ import {
   ArrowLeft,
   LogOut,
   LifeBuoy,
-  ImageIcon
+  ImageIcon,
+  Zap,
+  Lock,
 } from 'lucide-react';
-import { type AdminTab, type AdminSettingsSubTab, getUserEffectivePermissions } from './adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, getUserEffectivePermissions, isSubscriptionExpired } from './adminTypes';
 
 interface AdminSidebarProps {
   activeTab: AdminTab;
   setActiveTab: (tab: AdminTab) => void;
   isSuperAdmin: boolean;
+  courtsSubTab?: AdminCourtsSubTab;
+  setCourtsSubTab?: (subTab: AdminCourtsSubTab) => void;
   settingsSubTab: AdminSettingsSubTab;
   setSettingsSubTab: (subTab: AdminSettingsSubTab) => void;
   settingsSubMenuOpen: boolean;
@@ -33,6 +37,7 @@ interface AdminSidebarProps {
   setMobileMenuOpen: (open: boolean) => void;
   setView?: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | any) => void;
   user?: { name?: string; email?: string; role?: string; isAdmin?: boolean } | null;
+  currentCompany?: any;
   onLogout?: () => void;
   onOpenSupportModal?: () => void;
   onOpenClientTicketsModal?: () => void;
@@ -51,6 +56,8 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   activeTab,
   setActiveTab,
   isSuperAdmin,
+  courtsSubTab = 'list',
+  setCourtsSubTab = () => {},
   settingsSubTab,
   setSettingsSubTab,
   settingsSubMenuOpen,
@@ -59,6 +66,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   setMobileMenuOpen,
   setView,
   user,
+  currentCompany,
   onLogout,
   onOpenSupportModal,
   onOpenClientTicketsModal,
@@ -73,6 +81,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   bookingLeadTimeMinutes: _bookingLeadTimeMinutes = 30,
 }) => {
   const [supportSubMenuOpen, setSupportSubMenuOpen] = React.useState(false);
+  const [courtsSubMenuOpen, setCourtsSubMenuOpen] = React.useState(true);
   const isClientAdminRole = user?.role === 'client_admin';
   const isManagerRole = user?.role === 'manager';
 
@@ -82,8 +91,17 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   const canViewFinancials = isSuperAdmin || effectivePerms.canViewFinancials !== false;
   const canManageTeam = isSuperAdmin || effectivePerms.canManageTeam === true;
 
+  const isTrialOrSubExpired = !isSuperAdmin && isSubscriptionExpired(currentCompany || user as any);
+
   const handleTabClick = (tab: AdminTab) => {
+    if (isTrialOrSubExpired && tab !== 'users' && tab !== 'checkouts' && tab !== 'settings') {
+      return;
+    }
     setActiveTab(tab);
+    if (isTrialOrSubExpired && tab === 'settings') {
+      setSettingsSubTab('subscription');
+      setSettingsSubMenuOpen(true);
+    }
     setMobileMenuOpen(false);
   };
 
@@ -150,40 +168,123 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           <nav className="space-y-1">
             <button
               onClick={() => handleTabClick('dashboard')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                activeTab === 'dashboard'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              disabled={isTrialOrSubExpired}
+              title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                isTrialOrSubExpired
+                  ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                  : activeTab === 'dashboard'
+                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
               }`}
             >
               <div className="flex items-center gap-2.5">
                 <BarChart3 className="w-4 h-4" />
                 <span>Dashboard</span>
               </div>
+              {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
             </button>
 
-            <button
-              onClick={() => handleTabClick('courts')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                activeTab === 'courts'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className={`p-1 rounded-lg transition-colors ${activeTab === 'courts' ? 'bg-slate-950/20 text-slate-950' : 'bg-brand-lime/15 text-brand-lime border border-brand-lime/30'}`}>
-                  <MapPin className="w-4 h-4" />
-                </span>
-                <span>Courts</span>
-              </div>
-            </button>
+            {/* Courts Main Button with Submenu */}
+            <div className="space-y-1">
+              <button
+                onClick={() => {
+                  if (activeTab !== 'courts') {
+                    handleTabClick('courts');
+                    setCourtsSubTab('list');
+                    setCourtsSubMenuOpen(true);
+                  } else {
+                    setCourtsSubMenuOpen(!courtsSubMenuOpen);
+                  }
+                }}
+                disabled={isTrialOrSubExpired}
+                title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                  isTrialOrSubExpired
+                    ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                    : activeTab === 'courts'
+                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className={`p-1 rounded-lg transition-colors ${activeTab === 'courts' ? 'bg-slate-950/20 text-slate-950' : 'bg-brand-lime/15 text-brand-lime border border-brand-lime/30'}`}>
+                    <MapPin className="w-4 h-4" />
+                  </span>
+                  <span>Courts</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 flex-shrink-0" />}
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${courtsSubMenuOpen && activeTab === 'courts' ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
+
+              {/* Submenu for Courts */}
+              {courtsSubMenuOpen && activeTab === 'courts' && (
+                <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3">
+                  <button
+                    type="button"
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => {
+                      if (!isTrialOrSubExpired) {
+                        handleTabClick('courts');
+                        setCourtsSubTab('list');
+                        setMobileMenuOpen(false);
+                      }
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : courtsSubTab === 'list'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span>Courts List</span>
+                    </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => {
+                      if (!isTrialOrSubExpired) {
+                        handleTabClick('courts');
+                        setCourtsSubTab('manual_booking');
+                        setMobileMenuOpen(false);
+                      }
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : courtsSubTab === 'manual_booking'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5 text-brand-lime" />
+                      <span>Manual Booking</span>
+                    </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
+                  </button>
+                </div>
+              )}
+            </div>
 
             <button
               onClick={() => handleTabClick('openplay')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                activeTab === 'openplay'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              disabled={isTrialOrSubExpired}
+              title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                isTrialOrSubExpired
+                  ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                  : activeTab === 'openplay'
+                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
               }`}
             >
               <div className="flex items-center gap-2.5">
@@ -192,20 +293,26 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 </span>
                 <span>Open Play</span>
               </div>
+              {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
             </button>
 
             <button
               onClick={() => handleTabClick('bookings')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                activeTab === 'bookings'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              disabled={isTrialOrSubExpired}
+              title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                isTrialOrSubExpired
+                  ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                  : activeTab === 'bookings'
+                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
               }`}
             >
               <div className="flex items-center gap-2.5">
                 <LayoutDashboard className="w-4 h-4" />
                 <span>Reservations</span>
               </div>
+              {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
             </button>
 
             {isSuperAdmin && (
@@ -246,45 +353,60 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             {canManageVouchers && (
               <button
                 onClick={() => handleTabClick('vouchers')}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                  activeTab === 'vouchers'
-                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                disabled={isTrialOrSubExpired}
+                title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                  isTrialOrSubExpired
+                    ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                    : activeTab === 'vouchers'
+                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
                   <Tag className="w-4 h-4" />
                   <span>Vouchers</span>
                 </div>
+                {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
               </button>
             )}
 
             <button
               onClick={() => handleTabClick('shortener')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                activeTab === 'shortener'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              disabled={isTrialOrSubExpired}
+              title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                isTrialOrSubExpired
+                  ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                  : activeTab === 'shortener'
+                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
               }`}
             >
               <div className="flex items-center gap-2.5">
                 <Link2 className="w-4 h-4" />
                 <span>URL Shortener</span>
               </div>
+              {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
             </button>
 
             <button
               onClick={() => handleTabClick('image_converter')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                activeTab === 'image_converter'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              disabled={isTrialOrSubExpired}
+              title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                isTrialOrSubExpired
+                  ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                  : activeTab === 'image_converter'
+                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
               }`}
             >
               <div className="flex items-center gap-2.5">
                 <ImageIcon className="w-4 h-4 text-emerald-400" />
                 <span>Image Converter</span>
               </div>
+              {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
             </button>
 
             <button
@@ -342,6 +464,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 onClick={() => {
                   if (activeTab !== 'settings') {
                     setActiveTab('settings');
+                    if (isTrialOrSubExpired) {
+                      setSettingsSubTab('subscription');
+                    }
                     setSettingsSubMenuOpen(true);
                   } else {
                     setSettingsSubMenuOpen(!settingsSubMenuOpen);
@@ -367,88 +492,140 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3">
                   <button
                     type="button"
-                    onClick={() => { setSettingsSubTab('profile'); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'profile'
-                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('profile'); setMobileMenuOpen(false); } }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : settingsSubTab === 'profile'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
                   >
-                    <User className="w-3.5 h-3.5" />
-                    <span>My Profile</span>
+                    <div className="flex items-center gap-2">
+                      <User className="w-3.5 h-3.5" />
+                      <span>My Profile</span>
+                    </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => { setSettingsSubTab('organization'); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'organization'
-                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('organization'); setMobileMenuOpen(false); } }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : settingsSubTab === 'organization'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
                   >
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>Facility</span>
+                    <div className="flex items-center gap-2">
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span>Facility</span>
+                    </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
                   </button>
 
                   {canManageTeam && (
                     <button
                       type="button"
-                      onClick={() => { setSettingsSubTab('team'); setMobileMenuOpen(false); }}
-                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                        settingsSubTab === 'team'
-                          ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                      disabled={isTrialOrSubExpired}
+                      onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('team'); setMobileMenuOpen(false); } }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                        isTrialOrSubExpired
+                          ? 'opacity-40 cursor-not-allowed text-slate-600'
+                          : settingsSubTab === 'team'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                       }`}
                     >
-                      <Users className="w-3.5 h-3.5" />
-                      <span>Team & Access</span>
+                      <div className="flex items-center gap-2">
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Team & Access</span>
+                      </div>
+                      {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
                     </button>
                   )}
 
                   <button
                     type="button"
-                    onClick={() => { setSettingsSubTab('policies'); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'policies'
-                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('policies'); setMobileMenuOpen(false); } }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : settingsSubTab === 'policies'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
                   >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Venue Rules</span>
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Venue Rules</span>
+                    </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
                   </button>
 
                   {canViewFinancials && (
                     <button
                       type="button"
-                      onClick={() => { setSettingsSubTab('gcash'); setMobileMenuOpen(false); }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                        settingsSubTab === 'gcash'
-                          ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                      disabled={isTrialOrSubExpired}
+                      onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('gcash'); setMobileMenuOpen(false); } }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                        isTrialOrSubExpired
+                          ? 'opacity-40 cursor-not-allowed text-slate-600'
+                          : settingsSubTab === 'gcash'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <Clock className="w-3.5 h-3.5" />
                         <span>GCash Accounts</span>
                       </div>
+                      {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
                     </button>
                   )}
 
                   <button
                     type="button"
-                    onClick={() => { setSettingsSubTab('lead_time'); setMobileMenuOpen(false); }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'lead_time'
-                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('lead_time'); setMobileMenuOpen(false); } }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : settingsSubTab === 'lead_time'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       <Clock className="w-3.5 h-3.5" />
                       <span>Booking Lead Time</span>
                     </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => { setSettingsSubTab('subscription'); setMobileMenuOpen(false); }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
+                      settingsSubTab === 'subscription'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Subscription & License</span>
+                    </div>
+                    {isTrialOrSubExpired && (
+                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase">
+                        Renew
+                      </span>
+                    )}
                   </button>
 
                   {isSuperAdmin && (

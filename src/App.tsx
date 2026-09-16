@@ -8,6 +8,7 @@ import AdminDashboard from './components/AdminDashboard';
 import CourtDetails from './components/CourtDetails';
 import Checkout from './components/Checkout';
 import BookingStatus from './components/BookingStatus';
+import UploadReceiptPage from './components/UploadReceiptPage';
 import OpenPlayDetails from './components/OpenPlayDetails';
 import OpenPlayPage from './components/OpenPlayPage';
 import Bootcamp from './components/Bootcamp';
@@ -21,7 +22,7 @@ import { sendRegistrationConfirmationEmail } from './services/emailService';
 import { AlertCircle, Loader2 } from 'lucide-react';
 
 function App() {
-  const [currentView, setView] = useState<'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy'>(() => {
+  const [currentView, setView] = useState<'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt'>(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('view') === 'privacy' || window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy') {
       return 'privacy';
@@ -31,6 +32,9 @@ function App() {
     }
     if (params.get('view') === 'login' || params.get('invite') === 'true' || window.location.pathname === '/login') {
       return 'login';
+    }
+    if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+      return 'upload_receipt';
     }
     if (params.get('view') === 'lookup' || params.get('ref')) {
       return 'lookup';
@@ -107,7 +111,7 @@ function App() {
     return u.role === 'client_admin' && (!u.companyId || u.needsOnboarding === true);
   };
 
-  const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy') => {
+  const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt') => {
     setOpenPlayEventId(null);
     if (isUserUnonboardedClientAdmin(user) && nextView !== 'client_onboarding' && nextView !== 'login' && nextView !== 'register') {
       if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
@@ -269,6 +273,16 @@ function App() {
       return;
     }
 
+    if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+      setView('upload_receipt');
+      return;
+    }
+
+    if (params.get('view') === 'lookup' || params.get('ref')) {
+      setView('lookup');
+      return;
+    }
+
     if (params.get('view') === 'details' || params.get('courtId') || params.get('court_id') || params.get('court')) {
       const targetCourtId = params.get('courtId') || params.get('court_id') || params.get('court');
       if (targetCourtId) {
@@ -338,6 +352,10 @@ function App() {
       }
     }
 
+    if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+      setView('upload_receipt');
+      return;
+    }
     if (params.get('view') === 'lookup' || params.get('ref')) {
       setView('lookup');
       return;
@@ -393,6 +411,8 @@ function App() {
         setInvitationNotice({ email: invitedEmail, company: invitedCompany });
       }
       setView('login');
+    } else if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+      setView('upload_receipt');
     } else if (params.get('view') === 'lookup' || params.get('ref')) {
       setView('lookup');
     } else if (params.get('view') === 'openplay' || window.location.pathname === '/open-play') {
@@ -1072,6 +1092,24 @@ function App() {
         {/* Main Content Area */}
         <main className="flex-grow">
           <BookingStatus setView={handleSetView} />
+        </main>
+
+        {/* Footer Branding & Newsletter */}
+        <Footer />
+        {renderDeactivatedModal()}
+      </div>
+    );
+  }
+
+  if (currentView === 'upload_receipt') {
+    return (
+      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
+        {/* Header Navigation */}
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
+
+        {/* Main Content Area */}
+        <main className="flex-grow">
+          <UploadReceiptPage setView={handleSetView} />
         </main>
 
         {/* Footer Branding & Newsletter */}

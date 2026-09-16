@@ -18,6 +18,7 @@ import {
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { isEventExpired, calculateEventDuration, formatTime12h, formatEventDateLong, splitAddressComponents, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
+import { isSubscriptionExpired } from './admin/adminTypes';
 
 interface OpenPlayPageProps {
   onSelectEvent: (eventId: string) => void;
@@ -67,12 +68,14 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
     const eventsList: OpenPlayEvent[] = [];
     let regsList: OpenPlayRegistration[] = [];
     const logosRecord: Record<string, string> = {};
+    const companiesList: any[] = [];
 
     if (isFirebaseConfigured && db) {
       try {
         const cSnap = await getDocs(collection(db, 'companies'));
         cSnap.forEach((dSnap) => {
           const cData = dSnap.data();
+          companiesList.push({ id: dSnap.id, ...cData });
           if (cData.logoUrl) {
             logosRecord[dSnap.id] = cData.logoUrl;
             if (cData.name) {
@@ -132,6 +135,9 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
       try {
         const localComps = JSON.parse(localCompStr);
         localComps.forEach((c: any) => {
+          if (!companiesList.some(comp => comp.id === c.id)) {
+            companiesList.push(c);
+          }
           if (c.logoUrl) {
             if (c.id) logosRecord[c.id] = c.logoUrl;
             if (c.name) logosRecord[c.name.toLowerCase()] = c.logoUrl;
@@ -189,7 +195,19 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
       }
     } catch (e) {}
 
-    setEvents(Array.from(eventsMap.values()).filter((e) => e.status !== 'cancelled' && e.status !== 'draft'));
+    // Check if company subscription is expired for each event
+    const finalEventsList = Array.from(eventsMap.values()).map((e) => {
+      const matchedComp = companiesList.find((comp) =>
+        (e.companyId && comp.id === e.companyId) ||
+        (comp.name && e.location?.toLowerCase().includes(comp.name.toLowerCase()))
+      );
+      if (matchedComp && isSubscriptionExpired(matchedComp)) {
+        return { ...e, status: 'draft' as const };
+      }
+      return e;
+    });
+
+    setEvents(finalEventsList.filter((e) => e.status !== 'cancelled' && e.status !== 'draft'));
     setRegistrations(regsList);
     setLoading(false);
   };

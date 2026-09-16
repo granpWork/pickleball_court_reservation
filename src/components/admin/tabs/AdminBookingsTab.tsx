@@ -18,7 +18,8 @@ import {
   Trophy,
   Plus,
 } from 'lucide-react';
-import { type Booking, type UserPermissions, getBookingScheduleState } from '../adminTypes';
+import { type Booking, type UserPermissions, type BookingCategory, BOOKING_CATEGORIES, getBookingScheduleState } from '../adminTypes';
+import { Tag } from 'lucide-react';
 
 interface AdminBookingsTabProps {
   bookings: Booking[];
@@ -67,6 +68,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   const [selectedCalendarCourtId, setSelectedCalendarCourtId] = useState<string>('all');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<'all' | BookingCategory>('all');
   const [scheduleFilter, setScheduleFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [selectedBookingDate, setSelectedBookingDate] = useState<string>('');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
@@ -74,6 +76,12 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   const displayBookings = filteredBookings.filter((b) => {
     if (selectedBookingDate && b.date !== selectedBookingDate) {
       return false;
+    }
+    if (categoryFilter !== 'all') {
+      const bCat = b.bookingCategory || (
+        b.type === 'openplay' || b.type === 'open_play' || b.openPlayEventId ? 'tournament' : 'regular'
+      );
+      if (bCat !== categoryFilter) return false;
     }
     const schedState = getBookingScheduleState(b.date, b.slots);
     if (scheduleFilter === 'active') {
@@ -87,6 +95,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
   const activeFilterCount =
     (selectedBookingDate ? 1 : 0) +
+    (categoryFilter !== 'all' ? 1 : 0) +
     (scheduleFilter !== 'all' ? 1 : 0) +
     (bookingStatusFilter !== 'all' ? 1 : 0);
 
@@ -118,23 +127,21 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           title={`${displayStatus.toUpperCase()} - ${tooltipDesc}`}
           className={`w-3.5 h-3.5 rounded-full shrink-0 shadow-md ring-2 transition-all cursor-help hover:scale-125 ${dotClass}`}
         />
-
-        {/* Hover Tooltip */}
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 hidden group-hover/tooltip:flex flex-col items-center z-50 pointer-events-none w-max max-w-xs animate-fade-in">
-          <div className="bg-slate-950 text-white border border-slate-700/90 px-3 py-1.5 rounded-xl text-[11px] font-semibold shadow-2xl whitespace-nowrap flex items-center gap-1.5">
-            <span className={`w-2 h-2 rounded-full ${isApproved ? 'bg-emerald-400' : isPending ? 'bg-amber-400' : isCompleted ? 'bg-purple-400' : 'bg-rose-500'}`}></span>
-            <span className="font-extrabold capitalize text-brand-lime">{displayStatus}</span> &mdash; <span>{tooltipDesc}</span>
-          </div>
-          <div className="w-2 h-2 bg-slate-950 border-r border-b border-slate-700/90 rotate-45 -mt-1" />
+        <div className="absolute bottom-full mb-1.5 hidden group-hover/tooltip:flex flex-col items-center z-30 pointer-events-none">
+          <span className="bg-slate-900 border border-slate-700 text-white text-[10px] font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap">
+            {tooltipDesc}
+          </span>
+          <span className="w-1.5 h-1.5 bg-slate-900 border-r border-b border-slate-700 rotate-45 -mt-1"></span>
         </div>
       </div>
     );
   };
 
-  const formatBookingDate = (dateStr?: string) => {
+  const formatBookingDate = (dateStr: string) => {
     if (!dateStr) return 'N/A';
     const parts = dateStr.split('-');
     if (parts.length !== 3) return dateStr;
+
     const year = parseInt(parts[0], 10);
     const month = parseInt(parts[1], 10) - 1;
     const day = parseInt(parts[2], 10);
@@ -145,21 +152,35 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   };
 
   const getBookingCategoryInfo = (b: Booking) => {
+    if (b.bookingCategory) {
+      const found = BOOKING_CATEGORIES.find((c) => c.id === b.bookingCategory);
+      if (found) {
+        return {
+          label: found.shortLabel,
+          fullLabel: found.label,
+          badgeBg: found.badgeBg,
+          badgeText: found.badgeText,
+          badgeBorder: found.badgeBorder,
+          colorClass: `${found.badgeText} font-extrabold`,
+        };
+      }
+    }
+
     const typeStr = (b.type || '').toLowerCase();
     
     if (typeStr === 'tournament' || (b as any).isTournament || (b as any).tournamentId) {
-      return { label: 'Tournament', colorClass: 'text-amber-400 font-extrabold' };
+      return { label: 'Tournament', fullLabel: 'Tournament', badgeBg: 'bg-cyan-950/40', badgeText: 'text-cyan-300', badgeBorder: 'border-cyan-800/50', colorClass: 'text-cyan-300 font-extrabold' };
     }
     
     if (typeStr === 'bootcamp' || (b as any).isBootcamp || (b as any).bootcampId) {
-      return { label: 'Bootcamp', colorClass: 'text-purple-400 font-extrabold' };
+      return { label: 'Bootcamp', fullLabel: 'Bootcamp', badgeBg: 'bg-purple-950/40', badgeText: 'text-purple-300', badgeBorder: 'border-purple-800/50', colorClass: 'text-purple-300 font-extrabold' };
     }
     
     if (typeStr === 'openplay' || typeStr === 'open_play' || b.openPlayEventId || (b as any).isOpenPlay) {
-      return { label: 'Open Play', colorClass: 'text-cyan-400 font-extrabold' };
+      return { label: 'Open Play', fullLabel: 'Open Play Event', badgeBg: 'bg-cyan-950/40', badgeText: 'text-cyan-300', badgeBorder: 'border-cyan-800/50', colorClass: 'text-cyan-300 font-extrabold' };
     }
 
-    return { label: 'Court', colorClass: 'text-brand-lime font-extrabold' };
+    return { label: 'Regular Walk-in', fullLabel: 'Regular Walk-in', badgeBg: 'bg-emerald-950/40', badgeText: 'text-emerald-400', badgeBorder: 'border-emerald-800/50', colorClass: 'text-emerald-400 font-extrabold' };
   };
 
   const formatTime12h = (t: string) => {
@@ -337,7 +358,11 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                         <div className="font-mono font-bold text-white text-xs">{b.bookingReference || b.id.substring(0, 8).toUpperCase()}</div>
                         {(() => {
                           const cat = getBookingCategoryInfo(b);
-                          return <div className={`text-xs mt-0.5 ${cat.colorClass}`}>{cat.label}</div>;
+                          return (
+                            <span className={`inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border mt-1 ${cat.badgeBg} ${cat.badgeText} ${cat.badgeBorder}`}>
+                              {cat.label}
+                            </span>
+                          );
                         })()}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -376,29 +401,32 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                               }}
                             />
                           </div>
-                          <div className="text-xs space-y-0.5 min-w-0 flex-1">
-                            <div className="font-extrabold text-white truncate">{bName}</div>
-                            <div className="text-slate-400 font-mono text-[11px] truncate">{bEmail || 'No Email'}</div>
+                          <div className="min-w-0">
+                            <div className="font-bold text-white text-sm truncate">{bName}</div>
+                            <div className="text-xs text-slate-400 truncate">{bEmail || 'No Email'}</div>
                           </div>
                         </div>
                       );
                     })()}
 
-                    {/* Details Grid */}
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60 space-y-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Schedule Date</span>
-                        <div className="font-bold text-white text-[11px] flex items-center gap-1.5">
-                          <Clock className="w-3 h-3 text-brand-lime shrink-0" />
-                          <span>{formatBookingDate(b.date)}</span>
-                        </div>
+                    {/* Schedule & Court Info */}
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
+                      <div>
+                        <div className="text-slate-500 font-medium">Court</div>
+                        <div className="font-bold text-slate-200">{b.courtName || 'Standard Court'}</div>
                       </div>
+                      <div>
+                        <div className="text-slate-500 font-medium">Date & Time</div>
+                        <div className="font-bold text-slate-200">{formatBookingDate(b.date)}</div>
+                      </div>
+                    </div>
 
-                      <div className="bg-slate-950/40 p-2.5 rounded-xl border border-slate-800/60 space-y-1">
-                        <span className="text-[10px] uppercase font-bold text-slate-500 block">Payment</span>
-                        <div className="font-extrabold text-white text-sm">₱{(b.totalCost || 0).toLocaleString()}</div>
-                        <div className="text-[10px] text-slate-400 capitalize">{b.paymentMethod || 'GCash'}</div>
+                    {/* Total & Payment */}
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <div className="text-slate-400">
+                        Total: <strong className="text-white font-mono font-bold text-sm">₱{(b.totalCost || 0).toLocaleString()}</strong>
                       </div>
+                      <div className="text-[10px] text-slate-400 capitalize">{b.paymentMethod || 'GCash'}</div>
                     </div>
 
                     {/* Actions Bar */}
@@ -493,7 +521,11 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                 <div className="font-bold text-white font-mono text-xs">{b.bookingReference || b.id.substring(0, 8).toUpperCase()}</div>
                                 {(() => {
                                   const cat = getBookingCategoryInfo(b);
-                                  return <div className={`text-xs mt-0.5 ${cat.colorClass}`}>{cat.label}</div>;
+                                  return (
+                                    <span className={`inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border mt-1 ${cat.badgeBg} ${cat.badgeText} ${cat.badgeBorder}`}>
+                                      {cat.label}
+                                    </span>
+                                  );
                                 })()}
                               </div>
                             </div>
@@ -1058,6 +1090,41 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   ))}
                 </div>
               </div>
+
+              {/* Section 4: Booking Purpose / Type Category Filter */}
+              <div className="space-y-2">
+                <label className="text-xs font-extrabold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-brand-lime" />
+                  <span>Booking Purpose & Type</span>
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCategoryFilter('all')}
+                    className={`px-3 py-2 rounded-xl text-xs font-extrabold border text-left transition-all cursor-pointer ${
+                      categoryFilter === 'all'
+                        ? 'bg-brand-lime/10 border-brand-lime text-brand-lime font-black shadow-sm'
+                        : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white'
+                    }`}
+                  >
+                    All Types
+                  </button>
+                  {BOOKING_CATEGORIES.map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setCategoryFilter(cat.id)}
+                      className={`px-3 py-2 rounded-xl text-xs font-extrabold border text-left transition-all cursor-pointer ${
+                        categoryFilter === cat.id
+                          ? `${cat.badgeBg} ${cat.badgeBorder} ${cat.badgeText} font-black shadow-sm`
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      {cat.shortLabel}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Modal Footer Actions */}
@@ -1068,6 +1135,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   setSelectedBookingDate('');
                   setScheduleFilter('all');
                   setBookingStatusFilter('all');
+                  setCategoryFilter('all');
                 }}
                 className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
               >

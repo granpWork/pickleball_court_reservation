@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Search, Calendar, Clock, MapPin, 
   User, ShieldCheck, ShieldAlert, CheckCircle, 
-  AlertTriangle, Phone
+  AlertTriangle, Phone, Upload, Loader2
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
 
 interface BookingStatusProps {
   setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup') => void;
@@ -29,6 +29,7 @@ interface BookingDetails {
   bookingReference: string;
   status: 'pending' | 'confirmed' | 'approved' | 'cancelled' | 'failed';
   gcashReferenceNumber?: string;
+  receiptImageUrl?: string;
 }
 
 export default function BookingStatus({ setView }: BookingStatusProps) {
@@ -38,6 +39,11 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState('');
 
+  const [receiptImagePreview, setReceiptImagePreview] = useState<string>('');
+  const [gcashRefInput, setGcashRefInput] = useState<string>('');
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadSuccessMsg, setUploadSuccessMsg] = useState<string>('');
+
   const performLookup = async (inputRef: string) => {
     if (!inputRef.trim()) return;
 
@@ -45,6 +51,7 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
     setSearchError('');
     setBooking(null);
     setHasSearched(true);
+    setUploadSuccessMsg('');
 
     const ref = inputRef.trim().toUpperCase();
 
@@ -57,6 +64,8 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
         if (docSnap.exists()) {
           const data = docSnap.data() as BookingDetails;
           setBooking({ ...data, id: docSnap.id });
+          if (data.gcashReferenceNumber) setGcashRefInput(data.gcashReferenceNumber);
+          if (data.receiptImageUrl) setReceiptImagePreview(data.receiptImageUrl);
         } else {
           // 2. Fall back to querying collection
           try {
@@ -68,6 +77,8 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
               const docSnap = querySnapshot.docs[0];
               const data = docSnap.data() as BookingDetails;
               setBooking({ ...data, id: docSnap.id });
+              if (data.gcashReferenceNumber) setGcashRefInput(data.gcashReferenceNumber);
+              if (data.receiptImageUrl) setReceiptImagePreview(data.receiptImageUrl);
             } else {
               setSearchError(`No reservation found matching Reference Number "${ref}".`);
             }
@@ -106,6 +117,8 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
 
           if (found) {
             setBooking(found as BookingDetails);
+            if (found.gcashReferenceNumber) setGcashRefInput(found.gcashReferenceNumber);
+            if (found.receiptImageUrl) setReceiptImagePreview(found.receiptImageUrl);
           } else {
             setSearchError(`No reservation found matching Reference Number "${ref}".`);
           }
@@ -123,15 +136,96 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
     performLookup(searchRef);
   };
 
-  // Auto-search on mount if URL contains ref parameter
+  // Auto-search on mount if URL contains ref, upload_receipt, or lookup parameter
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const urlRef = params.get('ref');
+    const urlRef = params.get('upload_receipt') || params.get('ref') || params.get('lookup');
     if (urlRef) {
       setSearchRef(urlRef);
       performLookup(urlRef);
     }
   }, []);
+
+  const formatGcashReference = (val: string) => {
+    const clean = val.replace(/\D/g, '').slice(0, 13);
+    let formatted = '';
+    if (clean.length > 0) {
+      formatted += clean.slice(0, 4);
+    }
+    if (clean.length > 4) {
+      formatted += ' ' + clean.slice(4, 7);
+    }
+    if (clean.length > 7) {
+      formatted += ' ' + clean.slice(7, 13);
+    }
+    return formatted;
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file (JPG, PNG, WEBP).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setReceiptImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleUploadReceiptSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!booking || !receiptImagePreview) return;
+
+    setIsUploading(true);
+    try {
+      const bookingDocId = booking.id || booking.bookingReference;
+      const updateData: any = {
+        receiptImageUrl: receiptImagePreview,
+        paymentStatus: 'pending_verification',
+        status: 'pending',
+      };
+      if (gcashRefInput.trim()) {
+        updateData.gcashReferenceNumber = gcashRefInput.trim();
+      }
+
+      if (isFirebaseConfigured && db && bookingDocId) {
+        const docRef = doc(db, 'bookings', bookingDocId);
+        await updateDoc(docRef, updateData);
+      }
+
+      // LocalStorage fallback update
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings');
+        if (bookingsStr) {
+          const localBookings = JSON.parse(bookingsStr);
+          if (Array.isArray(localBookings)) {
+            const updated = localBookings.map((b: any) => {
+              if (
+                b.id === bookingDocId ||
+                b.bookingReference === booking.bookingReference ||
+                b.bookingId === booking.bookingReference
+              ) {
+                return { ...b, ...updateData };
+              }
+              return b;
+            });
+            localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
+          }
+        }
+      } catch (e) {}
+
+      setBooking((prev) => (prev ? { ...prev, ...updateData } : null));
+      setUploadSuccessMsg('Payment receipt proof submitted successfully! Your booking is under admin review.');
+    } catch (err: any) {
+      console.error('Failed to submit receipt:', err);
+      alert('Failed to submit receipt proof. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
@@ -502,6 +596,110 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
 
                 </div>
               </div>
+
+              {/* Upload Payment Proof Card (Shown when status is pending or user wants to upload/update proof) */}
+              {(booking.status === 'pending' || booking.paymentStatus === 'pending' || booking.paymentStatus === 'pending_verification') && (
+                <div className="glass-panel rounded-3xl p-6 border border-slate-800 shadow-xl space-y-4">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-800/80">
+                    <Upload className="w-5 h-5 text-brand-lime" />
+                    <div>
+                      <h4 className="text-sm font-bold text-white uppercase tracking-wider">Upload Payment Proof</h4>
+                      <p className="text-[11px] text-slate-400">Attach receipt screenshot and GCash Reference No.</p>
+                    </div>
+                  </div>
+
+                  {uploadSuccessMsg && (
+                    <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/25 rounded-xl text-emerald-400 text-xs font-semibold flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      <span>{uploadSuccessMsg}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleUploadReceiptSubmit} className="space-y-4">
+                    {/* File Upload / Image Preview */}
+                    <div>
+                      <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1.5">
+                        Receipt Screenshot / Photo *
+                      </label>
+                      
+                      {receiptImagePreview ? (
+                        <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 max-h-56 group flex items-center justify-center">
+                          <img 
+                            src={receiptImagePreview} 
+                            alt="GCash Receipt Proof" 
+                            className="max-h-56 object-contain w-full"
+                          />
+                          <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <label className="px-3 py-1.5 rounded-lg bg-brand-lime text-dark-bg text-xs font-bold uppercase tracking-wider cursor-pointer hover:bg-[#a6e224] transition-colors">
+                              Change Photo
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                onChange={handleFileSelect} 
+                                className="hidden" 
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      ) : (
+                        <label className="border-2 border-dashed border-slate-700 hover:border-brand-lime/60 rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-slate-900/40 hover:bg-slate-900/80 group">
+                          <div className="w-10 h-10 rounded-full bg-slate-800 group-hover:bg-brand-lime/10 flex items-center justify-center text-slate-400 group-hover:text-brand-lime transition-colors mb-2">
+                            <Upload className="w-5 h-5" />
+                          </div>
+                          <span className="text-xs font-bold text-slate-300 group-hover:text-brand-lime transition-colors">
+                            Click to select GCash Receipt image
+                          </span>
+                          <span className="text-[10px] text-slate-500 mt-1">PNG, JPG, or WEBP screenshot</span>
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            onChange={handleFileSelect} 
+                            className="hidden" 
+                            required
+                          />
+                        </label>
+                      )}
+                    </div>
+
+                    {/* GCash Ref Number Input */}
+                    <div className="space-y-1.5 text-left">
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                        13-Digit GCash Reference Number (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={15}
+                        placeholder="e.g. 9043 231 523444"
+                        value={gcashRefInput}
+                        onChange={(e) => setGcashRefInput(formatGcashReference(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-800 text-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all font-mono tracking-wider font-bold"
+                      />
+                      <span className="text-[10px] text-slate-500 block leading-none">
+                        Type the 13-digit code from your GCash transaction receipt.
+                      </span>
+                    </div>
+
+                    {/* Submit Button */}
+                    <button
+                      type="submit"
+                      disabled={isUploading || !receiptImagePreview}
+                      className="w-full py-3 px-4 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs tracking-wider flex items-center justify-center gap-2 hover:bg-[#a6e224] transition-all shadow-lg shadow-brand-lime/10 uppercase cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed border-none outline-none"
+                    >
+                      {isUploading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin text-dark-bg" />
+                          Submitting Proof...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4" />
+                          Submit Payment Proof
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
 
           </div>

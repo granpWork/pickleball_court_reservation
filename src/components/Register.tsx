@@ -7,7 +7,22 @@ import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
 interface RegisterProps {
   setView: (view: 'landing' | 'login' | 'register' | 'client_onboarding') => void;
-  onLoginSuccess: (user: { uid?: string; name: string; email: string; role?: string; companyId?: string; companyName?: string; permissions?: any; isAdmin?: boolean; needsOnboarding?: boolean }) => void;
+  onLoginSuccess: (user: {
+    uid?: string;
+    name: string;
+    email: string;
+    role?: string;
+    companyId?: string;
+    companyName?: string;
+    permissions?: any;
+    isAdmin?: boolean;
+    needsOnboarding?: boolean;
+    subscriptionPlan?: string;
+    subscriptionStatus?: string;
+    subscriptionExpiresAt?: string;
+    isTrialClient?: boolean;
+    trialExpiresAt?: string;
+  }) => void;
   invitationNotice?: { email: string; company?: string } | null;
 }
 
@@ -40,7 +55,22 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       }
 
       try {
-        let inviteData: { email?: string; name?: string; status?: string; expiresAt?: string; token?: string; role?: 'super_admin' | 'client_admin' | 'player' } | null = null;
+        let inviteData: {
+          email?: string;
+          name?: string;
+          company?: string;
+          companyId?: string;
+          status?: string;
+          expiresAt?: string;
+          token?: string;
+          role?: 'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player';
+          permissions?: any;
+          subscriptionPlan?: 'trial' | 'monthly' | 'yearly' | 'lifetime' | 'custom';
+          subscriptionStatus?: 'active' | 'past_due' | 'canceled' | 'expired';
+          subscriptionExpiresAt?: string;
+          isTrialClient?: boolean;
+          trialExpiresAt?: string;
+        } | null = null;
 
         if (isFirebaseConfigured && db) {
           try {
@@ -196,6 +226,11 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
               permissions: verifiedInviteData?.permissions || undefined,
               status: 'active',
               needsOnboarding: isClientAdminInvite,
+              subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
+              subscriptionStatus: verifiedInviteData?.subscriptionStatus || 'active',
+              subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
+              isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
+              trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
               createdAt: new Date().toISOString()
             });
           } catch (e) {
@@ -227,6 +262,11 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           permissions: verifiedInviteData?.permissions,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,
+          subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
+          subscriptionStatus: verifiedInviteData?.subscriptionStatus || 'active',
+          subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
+          isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
+          trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
         });
         setLoading(false);
       } catch (err) {
@@ -243,7 +283,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       // Simulate network latency for mock auth
       setTimeout(async () => {
         const usersStr = localStorage.getItem('picklepoint_users');
-        const users = (usersStr ? JSON.parse(usersStr) : []) as { name: string; email: string; password?: string; role?: string; needsOnboarding?: boolean; companyId?: string; companyName?: string }[];
+        const users = (usersStr ? JSON.parse(usersStr) : []) as any[];
 
         const userExists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
 
@@ -261,7 +301,12 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           companyId: verifiedInviteData?.companyId || '',
           companyName: verifiedInviteData?.company || '',
           needsOnboarding: isClientAdminInvite, 
-          status: 'active' 
+          status: 'active',
+          subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
+          subscriptionStatus: verifiedInviteData?.subscriptionStatus || 'active',
+          subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
+          isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
+          trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
         };
         users.push(newUser);
         localStorage.setItem('picklepoint_users', JSON.stringify(users));
@@ -288,6 +333,11 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           permissions: verifiedInviteData?.permissions,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,
+          subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
+          subscriptionStatus: verifiedInviteData?.subscriptionStatus || 'active',
+          subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
+          isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
+          trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
         });
         setLoading(false);
       }, 1000);

@@ -29,6 +29,7 @@ import {
   type OpenPlayEvent,
   type OpenPlayRegistration,
 } from './OpenPlayDetails';
+import { isSubscriptionExpired } from './admin/adminTypes';
 
 interface Court {
   id: string;
@@ -267,10 +268,12 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
               );
               const resolvedLogo = data.logoUrl || data.ownerCompanyLogo || matchedCompany?.logoUrl || '';
               const resolvedCompName = matchedCompany?.name || data.ownerCompanyName || data.companyName || '';
+              const isExpired = matchedCompany ? isSubscriptionExpired(matchedCompany) : false;
 
               firebaseCourts.push({
                 id: docSnap.id,
                 ...data,
+                published: isExpired ? false : (data.published !== false),
                 companyId: data.companyId || matchedCompany?.id || '',
                 ownerCompanyName: resolvedCompName,
                 companyName: resolvedCompName,
@@ -290,6 +293,15 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
           if (eSnap) {
             eSnap.forEach((dSnap) => {
               const norm = normalizeOpenPlayEvent(dSnap.id, dSnap.data());
+              const matchedCourt = firebaseCourts.find((c) => norm.courtIds?.includes(c.id));
+              const matchedComp = companiesList.find((comp: any) =>
+                (norm.companyId && comp.id === norm.companyId) ||
+                (matchedCourt?.companyId && comp.id === matchedCourt.companyId) ||
+                (matchedCourt?.ownerCompanyName && comp.name?.toLowerCase() === matchedCourt.ownerCompanyName.toLowerCase())
+              );
+              if (matchedComp && isSubscriptionExpired(matchedComp)) {
+                norm.status = 'draft';
+              }
               eventsMap.set(norm.id, norm);
             });
           }
@@ -300,6 +312,15 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
               const localEventsRaw = JSON.parse(localEStr);
               localEventsRaw.forEach((e: any) => {
                 const norm = normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e);
+                const matchedCourt = firebaseCourts.find((c) => norm.courtIds?.includes(c.id));
+                const matchedComp = companiesList.find((comp: any) =>
+                  (norm.companyId && comp.id === norm.companyId) ||
+                  (matchedCourt?.companyId && comp.id === matchedCourt.companyId) ||
+                  (matchedCourt?.ownerCompanyName && comp.name?.toLowerCase() === matchedCourt.ownerCompanyName.toLowerCase())
+                );
+                if (matchedComp && isSubscriptionExpired(matchedComp)) {
+                  norm.status = 'draft';
+                }
                 eventsMap.set(norm.id, norm);
               });
             } catch (err) {}

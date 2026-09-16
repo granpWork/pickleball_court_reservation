@@ -1191,6 +1191,10 @@ export interface UserInvitationEmailParams {
   invitedBy?: string;
   customMessage?: string;
   companyName?: string;
+  subscriptionPlan?: 'trial' | 'monthly' | 'yearly' | 'lifetime' | 'custom';
+  trialExpiresAt?: string;
+  subscriptionExpiresAt?: string;
+  isTrialClient?: boolean;
 }
 
 export const sendUserInvitationEmail = async (params: UserInvitationEmailParams): Promise<{ success: boolean; error?: string }> => {
@@ -1203,6 +1207,16 @@ export const sendUserInvitationEmail = async (params: UserInvitationEmailParams)
   };
 
   const roleInfo = roleLabels[params.role] || roleLabels.client_admin;
+  const planLabel = params.subscriptionPlan === 'trial' || params.isTrialClient
+    ? '⚡ TRIAL CLIENT ACCESS'
+    : params.subscriptionPlan === 'monthly'
+    ? '📅 MONTHLY SUBSCRIPTION'
+    : params.subscriptionPlan === 'yearly'
+    ? '🗓️ YEARLY SUBSCRIPTION'
+    : params.subscriptionPlan === 'lifetime'
+    ? '♾️ LIFETIME SUBSCRIPTION'
+    : undefined;
+
   const subject = `Official Invitation: Register as ${roleInfo.badge} on Book Picklecourt`;
   const inviteeDisplayName = params.toName || params.toEmail.split('@')[0];
   const formattedExpiry = new Date(params.expiresAt).toLocaleDateString('en-US', {
@@ -1214,6 +1228,13 @@ export const sendUserInvitationEmail = async (params: UserInvitationEmailParams)
     minute: '2-digit',
   });
 
+  const planExpiryDate = params.trialExpiresAt || params.subscriptionExpiresAt;
+  const formattedPlanExpiry = planExpiryDate ? new Date(planExpiryDate).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }) : null;
+
   const bodyContent = `
     <div style="margin-bottom: 24px;">
       <p style="margin: 0 0 12px 0; font-size: 15px; color: #e2e8f0; line-height: 1.5;">
@@ -1222,6 +1243,16 @@ export const sendUserInvitationEmail = async (params: UserInvitationEmailParams)
       <p style="margin: 0 0 14px 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
         You have been invited by Book Picklecourt System Administration${params.invitedBy ? ` (<strong>${params.invitedBy}</strong>)` : ''} to join the platform as a <strong style="color: ${roleInfo.color};">${roleInfo.title}</strong>${params.companyName ? ` for <strong>${params.companyName}</strong>` : ''}.
       </p>
+
+      ${planLabel ? `
+        <div style="background-color: rgba(166, 226, 36, 0.08); border-left: 3px solid #a6e224; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
+          <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #a6e224; letter-spacing: 0.5px; margin-bottom: 4px;">ASSIGNED LICENSING TIER</div>
+          <p style="margin: 0; font-size: 13px; color: #f8fafc; font-weight: 700;">
+            ${planLabel} ${formattedPlanExpiry ? `<span style="font-size: 11px; font-weight: normal; color: #cbd5e1;">(Valid until ${formattedPlanExpiry})</span>` : ''}
+          </p>
+        </div>
+      ` : ''}
+
       ${params.customMessage ? `
         <div style="background-color: rgba(56, 189, 248, 0.08); border-left: 3px solid ${roleInfo.color}; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
           <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: ${roleInfo.color}; letter-spacing: 0.5px; margin-bottom: 4px;">NOTE FROM SUPER ADMIN</div>
@@ -1241,7 +1272,7 @@ export const sendUserInvitationEmail = async (params: UserInvitationEmailParams)
             Designated Recipient: <strong style="color: #ffffff;">${params.toEmail}</strong>
           </div>
           <div style="font-size: 11px; color: #94a3b8;">
-            ⏱️ <strong>Expires:</strong> ${formattedExpiry} (Single-use token)
+            ⏱️ <strong>Invitation Link Expires:</strong> ${formattedExpiry} (Single-use token)
           </div>
         </td>
       </tr>

@@ -15,7 +15,7 @@ import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
 import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
-import { type AdminTab, type AdminSettingsSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -109,6 +109,9 @@ interface Booking {
   id: string;
   bookingId?: string; // for local fallback
   type?: 'court' | 'open_play' | 'openplay' | 'tournament' | 'bootcamp' | 'coaching';
+  bookingCategory?: 'regular' | 'company_block' | 'maintenance' | 'tournament' | 'vip';
+  isManual?: boolean;
+  bookingSource?: string;
   openPlayEventId?: string;
   openPlayTitle?: string;
   openPlayCategory?: string;
@@ -432,6 +435,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   });
 
   const [courtsResetKey, setCourtsResetKey] = useState<number>(0);
+  const [companiesResetKey, setCompaniesResetKey] = useState<number>(0);
 
   useEffect(() => {
     try {
@@ -444,13 +448,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
         const urlSubTab = params.get('subtab') || params.get('settingsSubTab');
-        if (urlSubTab && ['profile', 'organization', 'team', 'policies', 'reminders', 'gcash', 'lead_time', 'service_fee'].includes(urlSubTab)) {
+        if (urlSubTab && ['profile', 'organization', 'team', 'policies', 'reminders', 'gcash', 'lead_time', 'service_fee', 'subscription'].includes(urlSubTab)) {
           return urlSubTab as AdminSettingsSubTab;
         }
       }
     } catch (e) {}
     return 'profile';
   });
+
+  const [courtsSubTab, setCourtsSubTab] = useState<AdminCourtsSubTab>('list');
 
   useEffect(() => {
     try {
@@ -463,6 +469,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
     } catch (e) {}
   }, [settingsSubTab]);
+
   const [settingsSubMenuOpen, setSettingsSubMenuOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [bookingLeadTimeMinutes, setBookingLeadTimeMinutes] = useState<number>(30);
@@ -634,6 +641,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [inviteCompanyNameInput, setInviteCompanyNameInput] = useState('');
   const [inviteDepartmentInput, setInviteDepartmentInput] = useState('');
   const [inviteCustomMessage, setInviteCustomMessage] = useState('');
+  const [inviteSubscriptionPlan, setInviteSubscriptionPlan] = useState<'trial' | 'monthly' | 'yearly' | 'lifetime'>('trial');
+  const [inviteTrialDays, setInviteTrialDays] = useState<number>(7);
   const [inviteExpiryHours, setInviteExpiryHours] = useState<number>(48);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteSuccessInfo, setInviteSuccessInfo] = useState<{ email: string; token: string; link: string; expiresAt: string; role?: string } | null>(null);
@@ -665,6 +674,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const expiresAt = new Date(Date.now() + (inviteExpiryHours || 48) * 60 * 60 * 1000).toISOString();
       const baseUrl = import.meta.env.VITE_APP_BASE_URL || window.location.origin;
 
+      let isTrialClient = false;
+      let trialExpiresAt: string | undefined = undefined;
+      let subscriptionExpiresAt: string | undefined = undefined;
+
+      if (inviteRoleInput === 'client_admin') {
+        if (inviteSubscriptionPlan === 'trial') {
+          isTrialClient = true;
+          trialExpiresAt = new Date(Date.now() + (inviteTrialDays || 7) * 24 * 60 * 60 * 1000).toISOString();
+          subscriptionExpiresAt = trialExpiresAt;
+        } else if (inviteSubscriptionPlan === 'monthly') {
+          subscriptionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        } else if (inviteSubscriptionPlan === 'yearly') {
+          subscriptionExpiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+        }
+      }
+
       const assignedCompany = isClientAdmin
         ? (effectiveOrgName || myCompany?.name || 'Facility')
         : inviteRoleInput === 'client_admin'
@@ -688,6 +713,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         expiresAt,
         invitedBy: (user as any)?.email || 'admin@picklepoint.com',
         customMessage: inviteCustomMessage.trim(),
+        subscriptionPlan: inviteRoleInput === 'client_admin' ? inviteSubscriptionPlan : undefined,
+        subscriptionStatus: 'active',
+        subscriptionExpiresAt,
+        isTrialClient,
+        trialExpiresAt,
+        trialDurationDays: inviteSubscriptionPlan === 'trial' ? inviteTrialDays : undefined,
       };
 
       if (db) {
@@ -703,6 +734,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         invitedBy: (user as any)?.email || 'admin@picklepoint.com',
         companyName: inviteCompanyNameInput.trim() || undefined,
         customMessage: inviteCustomMessage.trim() || undefined,
+        subscriptionPlan: inviteRoleInput === 'client_admin' ? inviteSubscriptionPlan : undefined,
+        isTrialClient,
+        trialExpiresAt,
+        subscriptionExpiresAt,
       });
 
       setInviteSuccessInfo({
@@ -1013,6 +1048,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     (userObj?.companyName && c.name && c.name.toLowerCase() === userObj.companyName.toLowerCase()) ||
     (c.clientAdminEmail && userObj?.invitedBy && c.clientAdminEmail.toLowerCase() === userObj.invitedBy.toLowerCase())
   );
+
+  useEffect(() => {
+    if (!isSuperAdmin && (isSubscriptionExpired(currentCompany) || isSubscriptionExpired(user as any))) {
+      const allowedTabs: AdminTab[] = ['users', 'checkouts', 'settings'];
+      if (!allowedTabs.includes(activeTab)) {
+        setActiveTab('settings');
+        setSettingsSubTab('subscription');
+      } else if (activeTab === 'settings' && settingsSubTab !== 'subscription') {
+        setSettingsSubTab('subscription');
+      }
+    }
+  }, [isSuperAdmin, currentCompany, user, activeTab, settingsSubTab]);
 
   const availableAdminCourts = (() => {
     const hostEmail = currentUserEmail.trim().toLowerCase();
@@ -1868,6 +1915,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         id: bookingData.id || `bk_manual_${Date.now()}`,
         bookingId: bookingData.bookingId || `BK-WALKIN-${Math.floor(100000 + Math.random() * 900000)}`,
         type: 'court',
+        isManual: true,
+        bookingSource: 'manual',
         companyId: bookingData.companyId || currentCompany?.id || '',
         courtId: bookingData.courtId!,
         courtName: bookingData.courtName || 'Court',
@@ -3759,6 +3808,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setApproveSubmitting(true);
     setApproveError(null);
 
+    const targetBooking = approveCheckoutModalBooking;
+
     try {
       const updatedFields: Partial<Booking> = {
         status: 'approved',
@@ -3777,28 +3828,107 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         (updatedFields as any).adminApprovalNotes = approvePaymentNotes.trim();
       }
 
+      // 1. Multi-key Firestore updates for both 'bookings' and 'openplay_registrations'
       if (isFirebaseConfigured && db) {
-        try {
-          await updateDoc(doc(db, 'bookings', approveCheckoutModalBooking.id), updatedFields);
-        } catch (cloudErr) {
-          console.warn('Firestore approve write failed, updating local state:', cloudErr);
+        const candidateIds = Array.from(
+          new Set(
+            [
+              targetBooking.id,
+              targetBooking.bookingReference,
+              (targetBooking as any).bookingId,
+              (targetBooking as any).gcashReferenceNumber,
+              (targetBooking as any).registrationId,
+              (targetBooking as any).eventId,
+            ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
+          )
+        );
+
+        let isUpdatedInCloud = false;
+
+        // Try direct updateDoc across candidate IDs in 'bookings'
+        for (const candidateId of candidateIds) {
+          try {
+            const bRef = doc(db, 'bookings', candidateId);
+            const bSnap = await getDoc(bRef);
+            if (bSnap.exists()) {
+              await updateDoc(bRef, updatedFields);
+              isUpdatedInCloud = true;
+            }
+          } catch (e) {
+            console.warn(`Direct updateDoc on bookings/${candidateId} failed:`, e);
+          }
+        }
+
+        // Try direct updateDoc across candidate IDs in 'openplay_registrations'
+        for (const candidateId of candidateIds) {
+          try {
+            const opRef = doc(db, 'openplay_registrations', candidateId);
+            const opSnap = await getDoc(opRef);
+            if (opSnap.exists()) {
+              await updateDoc(opRef, updatedFields);
+              isUpdatedInCloud = true;
+            }
+          } catch (e) {
+            console.warn(`Direct updateDoc on openplay_registrations/${candidateId} failed:`, e);
+          }
+        }
+
+        // Fallback: Query by bookingReference or gcashReferenceNumber
+        if (!isUpdatedInCloud) {
+          const refKeys = Array.from(
+            new Set([targetBooking.bookingReference, (targetBooking as any).gcashReferenceNumber].filter((v): v is string => Boolean(v)))
+          );
+          for (const key of refKeys) {
+            try {
+              const qB = query(collection(db, 'bookings'), where('bookingReference', '==', key));
+              const sB = await getDocs(qB);
+              sB.forEach((d) => updateDoc(d.ref, updatedFields));
+
+              const qOp = query(collection(db, 'openplay_registrations'), where('gcashReferenceNumber', '==', key));
+              const sOp = await getDocs(qOp);
+              sOp.forEach((d) => updateDoc(d.ref, updatedFields));
+            } catch (qErr) {
+              console.warn('Fallback query approval update warning:', qErr);
+            }
+          }
         }
       }
 
-      // Sync Local Storage
-      const bStr = localStorage.getItem('picklepoint_bookings');
-      if (bStr) {
-        const localB = JSON.parse(bStr) as Booking[];
-        const updated = localB.map((b) => (b.id === approveCheckoutModalBooking.id ? { ...b, ...updatedFields } : b));
-        localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-      }
+      // 2. Sync Local Storage & Session Storage across both keys
+      const matchFn = (b: any) =>
+        b.id === targetBooking.id ||
+        b.bookingId === targetBooking.id ||
+        b.bookingReference === targetBooking.bookingReference ||
+        ((targetBooking as any).gcashReferenceNumber && b.gcashReferenceNumber === (targetBooking as any).gcashReferenceNumber);
 
-      // Sync Component State
+      ['picklepoint_bookings', 'picklepoint_openplay_registrations'].forEach((sKey) => {
+        try {
+          const raw = localStorage.getItem(sKey);
+          if (raw) {
+            const list = JSON.parse(raw);
+            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...updatedFields } : b));
+            localStorage.setItem(sKey, JSON.stringify(updated));
+          }
+        } catch (e) {}
+        try {
+          const raw = sessionStorage.getItem(sKey);
+          if (raw) {
+            const list = JSON.parse(raw);
+            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...updatedFields } : b));
+            sessionStorage.setItem(sKey, JSON.stringify(updated));
+          }
+        } catch (e) {}
+      });
+
+      // 3. Dispatch real-time events & Sync Component State
+      window.dispatchEvent(new Event('picklepoint_booking_added'));
+      window.dispatchEvent(new Event('storage'));
+
       setBookings((prev) =>
-        prev.map((b) => (b.id === approveCheckoutModalBooking.id ? { ...b, ...updatedFields } : b))
+        prev.map((b) => (matchFn(b) ? { ...b, ...updatedFields } : b))
       );
 
-      const approvedBookingRef = approveCheckoutModalBooking.bookingReference || approveCheckoutModalBooking.id;
+      const approvedBookingRef = targetBooking.bookingReference || targetBooking.id;
       setApproveCheckoutModalBooking(null);
       showModalAlert(
         'Payment Approved!',
@@ -4152,87 +4282,127 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const handleConfirmRejectCheckout = async () => {
     if (!rejectCheckoutModalBooking) return;
 
-    let finalReason = '';
-    if (rejectReasonOption === 'invalid_ref') {
-      finalReason = 'GCash Reference Number is invalid or not found on bank statement.';
-    } else if (rejectReasonOption === 'unclear_receipt') {
-      finalReason = 'Uploaded payment receipt screenshot is blurry, cut off, or illegible.';
-    } else if (rejectReasonOption === 'amount_mismatch') {
-      finalReason = 'Transferred amount does not match the required court reservation cost.';
-    } else if (rejectReasonOption === 'payment_not_received') {
-      finalReason = 'Payment proof could not be verified in the venue GCash account.';
-    } else {
-      finalReason = rejectCustomReason.trim() || 'Transaction proof was rejected by the venue administrator.';
-    }
+    const finalReason =
+      rejectReasonOption === 'invalid_ref'
+        ? 'GCash Reference Number is invalid or not found on bank statement.'
+        : rejectReasonOption === 'unclear_receipt'
+        ? 'Uploaded payment receipt screenshot is blurry, cut off, or illegible.'
+        : rejectReasonOption === 'amount_mismatch'
+        ? 'Transferred amount does not match the required court reservation cost.'
+        : rejectReasonOption === 'payment_not_received'
+        ? 'Payment proof could not be verified in the venue GCash account.'
+        : rejectCustomReason.trim() || 'Transaction proof was rejected by the venue administrator.';
 
     setRejectCheckoutSubmitting(true);
     const targetBooking = rejectCheckoutModalBooking;
 
     try {
-      const bookingDocId = targetBooking.id || targetBooking.bookingReference || (targetBooking as any).bookingId;
+      const rejectionPayload = {
+        status: 'cancelled',
+        paymentStatus: 'failed',
+        rejectionReason: finalReason,
+        rejectedAt: new Date().toISOString(),
+        rejectedBy: user?.email || 'Admin',
+      };
 
-      if (isFirebaseConfigured && db && bookingDocId) {
-        try {
-          const bookingRef = doc(db, 'bookings', bookingDocId);
-          await updateDoc(bookingRef, {
-            status: 'cancelled',
-            paymentStatus: 'failed',
-            rejectionReason: finalReason,
-            rejectedAt: new Date().toISOString(),
-            rejectedBy: user?.email || 'Admin',
-          });
-        } catch (fErr) {
-          console.warn('Firestore checkout rejection update warning:', fErr);
-        }
-      }
+      // 1. Multi-key Firestore updates for both 'bookings' and 'openplay_registrations'
+      if (isFirebaseConfigured && db) {
+        const candidateIds = Array.from(
+          new Set(
+            [
+              targetBooking.id,
+              targetBooking.bookingReference,
+              (targetBooking as any).bookingId,
+              (targetBooking as any).gcashReferenceNumber,
+              (targetBooking as any).registrationId,
+              (targetBooking as any).eventId,
+            ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
+          )
+        );
 
-      // Always sync rejection to LocalStorage for offline and multi-tab instant availability
-      const bookingsStr = localStorage.getItem('picklepoint_bookings');
-      if (bookingsStr) {
-        try {
-          const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.map((b: any) => {
-            if (
-              b.id === targetBooking.id ||
-              b.bookingId === targetBooking.id ||
-              b.bookingReference === targetBooking.bookingReference ||
-              (bookingDocId && (b.id === bookingDocId || b.bookingId === bookingDocId || b.bookingReference === bookingDocId))
-            ) {
-              return {
-                ...b,
-                status: 'cancelled',
-                paymentStatus: 'failed',
-                rejectionReason: finalReason,
-                rejectedAt: new Date().toISOString(),
-                rejectedBy: user?.email || 'Admin',
-              };
+        let isUpdatedInCloud = false;
+
+        // Try direct updateDoc across candidate IDs in 'bookings'
+        for (const candidateId of candidateIds) {
+          try {
+            const bRef = doc(db, 'bookings', candidateId);
+            const bSnap = await getDoc(bRef);
+            if (bSnap.exists()) {
+              await updateDoc(bRef, rejectionPayload);
+              isUpdatedInCloud = true;
             }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-        } catch (e) {
-          console.warn('Local storage booking rejection sync error:', e);
+          } catch (e) {
+            console.warn(`Direct rejection updateDoc on bookings/${candidateId} failed:`, e);
+          }
+        }
+
+        // Try direct updateDoc across candidate IDs in 'openplay_registrations'
+        for (const candidateId of candidateIds) {
+          try {
+            const opRef = doc(db, 'openplay_registrations', candidateId);
+            const opSnap = await getDoc(opRef);
+            if (opSnap.exists()) {
+              await updateDoc(opRef, rejectionPayload);
+              isUpdatedInCloud = true;
+            }
+          } catch (e) {
+            console.warn(`Direct rejection updateDoc on openplay_registrations/${candidateId} failed:`, e);
+          }
+        }
+
+        // Fallback: Query by bookingReference or gcashReferenceNumber
+        if (!isUpdatedInCloud) {
+          const refKeys = Array.from(
+            new Set([targetBooking.bookingReference, (targetBooking as any).gcashReferenceNumber].filter((v): v is string => Boolean(v)))
+          );
+          for (const key of refKeys) {
+            try {
+              const qB = query(collection(db, 'bookings'), where('bookingReference', '==', key));
+              const sB = await getDocs(qB);
+              sB.forEach((d) => updateDoc(d.ref, rejectionPayload));
+
+              const qOp = query(collection(db, 'openplay_registrations'), where('gcashReferenceNumber', '==', key));
+              const sOp = await getDocs(qOp);
+              sOp.forEach((d) => updateDoc(d.ref, rejectionPayload));
+            } catch (qErr) {
+              console.warn('Fallback query rejection update warning:', qErr);
+            }
+          }
         }
       }
 
-      // Dispatch local event so calendar & checkout tabs update in real-time
+      // 2. Sync Local Storage & Session Storage across both keys
+      const matchFn = (b: any) =>
+        b.id === targetBooking.id ||
+        b.bookingId === targetBooking.id ||
+        b.bookingReference === targetBooking.bookingReference ||
+        ((targetBooking as any).gcashReferenceNumber && b.gcashReferenceNumber === (targetBooking as any).gcashReferenceNumber);
+
+      ['picklepoint_bookings', 'picklepoint_openplay_registrations'].forEach((sKey) => {
+        try {
+          const raw = localStorage.getItem(sKey);
+          if (raw) {
+            const list = JSON.parse(raw);
+            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...rejectionPayload } : b));
+            localStorage.setItem(sKey, JSON.stringify(updated));
+          }
+        } catch (e) {}
+        try {
+          const raw = sessionStorage.getItem(sKey);
+          if (raw) {
+            const list = JSON.parse(raw);
+            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...rejectionPayload } : b));
+            sessionStorage.setItem(sKey, JSON.stringify(updated));
+          }
+        } catch (e) {}
+      });
+
+      // 3. Dispatch local events so UI updates in real-time
       window.dispatchEvent(new Event('picklepoint_booking_added'));
       window.dispatchEvent(new Event('storage'));
 
       setBookings((prev) =>
-        prev.map((b: any) =>
-          b.id === targetBooking.id ||
-          b.bookingId === targetBooking.id ||
-          b.bookingReference === targetBooking.bookingReference ||
-          (bookingDocId && (b.id === bookingDocId || b.bookingId === bookingDocId || b.bookingReference === bookingDocId))
-            ? {
-                ...b,
-                status: 'cancelled',
-                paymentStatus: 'failed',
-                rejectionReason: finalReason,
-              }
-            : b
-        )
+        prev.map((b: any) => (matchFn(b) ? { ...b, ...rejectionPayload } : b))
       );
 
       // Send rejection / cancellation email if enabled
@@ -4258,8 +4428,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         const ownerPhone = targetCourt?.ownerPhone || (targetBooking as any).ownerPhone;
 
         sendNonRefundableCancellationEmail({
-          bookingId: targetBooking.id || bookingDocId,
-          bookingReference: targetBooking.bookingReference || targetBooking.id || bookingDocId,
+          bookingId: targetBooking.id || targetBooking.bookingReference || '',
+          bookingReference: targetBooking.bookingReference || targetBooking.id || '',
           courtName: targetBooking.courtName || 'Court',
           date: targetBooking.date || '',
           slots: targetBooking.slots || [],
@@ -5257,6 +5427,102 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleUpdateCompanySubscription = async (
+    companyId: string,
+    payload: any
+  ) => {
+    const { id: _ignoreId, ...restPayload } = payload || {};
+    const cleanPayload = Object.fromEntries(
+      Object.entries(restPayload).filter(([_, v]) => v !== undefined)
+    );
+
+    setCompanies((prev) =>
+      prev.map((c) => (c.id === companyId ? { ...c, ...cleanPayload } : c))
+    );
+
+    if (isFirebaseConfigured && db) {
+      try {
+        await updateDoc(doc(db, 'companies', companyId), cleanPayload as any);
+      } catch (e) {
+        console.warn('Error updating company subscription in Firestore:', e);
+      }
+    }
+
+    const compStr = localStorage.getItem('picklepoint_companies');
+    if (compStr) {
+      try {
+        const localComps = JSON.parse(compStr);
+        const updatedLocalComps = localComps.map((c: any) =>
+          c.id === companyId ? { ...c, ...cleanPayload } : c
+        );
+        localStorage.setItem('picklepoint_companies', JSON.stringify(updatedLocalComps));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // Sync specific subscription fields to linked client admin user accounts
+    const targetComp = companies.find((c) => c.id === companyId);
+    const targetEmail = targetComp?.clientAdminEmail?.toLowerCase().trim();
+
+    const userSubPayload = {
+      subscriptionPlan: payload.subscriptionPlan,
+      subscriptionStatus: payload.subscriptionStatus,
+      subscriptionExpiresAt: payload.subscriptionExpiresAt,
+      isTrialClient: payload.isTrialClient,
+      trialExpiresAt: payload.trialExpiresAt,
+      forceTerminated: payload.forceTerminated,
+      forceTerminatedAt: payload.forceTerminatedAt,
+      forceTerminatedReason: payload.forceTerminatedReason,
+    };
+    const cleanUserPayload = Object.fromEntries(
+      Object.entries(userSubPayload).filter(([_, v]) => v !== undefined)
+    );
+
+    setUsers((prev) =>
+      prev.map((u) =>
+        (targetEmail && u.email?.toLowerCase().trim() === targetEmail) || u.companyId === companyId
+          ? { ...u, ...cleanUserPayload }
+          : u
+      )
+    );
+
+    const currentDb = db;
+    if (isFirebaseConfigured && currentDb) {
+      try {
+        const usersSnap = await getDocs(
+          query(collection(currentDb, 'users'), where('companyId', '==', companyId))
+        );
+        usersSnap.forEach((uDoc) => {
+          updateDoc(doc(currentDb, 'users', uDoc.id), cleanUserPayload as any).catch(() => {});
+        });
+      } catch (e) {
+        console.warn('Error syncing subscription to users in Firestore:', e);
+      }
+    }
+
+    const usersStr = localStorage.getItem('picklepoint_users');
+    if (usersStr) {
+      try {
+        const localUsers = JSON.parse(usersStr);
+        const updatedLocalUsers = localUsers.map((u: any) =>
+          (targetEmail && u.email?.toLowerCase().trim() === targetEmail) || u.companyId === companyId
+            ? { ...u, ...cleanUserPayload }
+            : u
+        );
+        localStorage.setItem('picklepoint_users', JSON.stringify(updatedLocalUsers));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    showModalAlert(
+      'Subscription Updated',
+      `Company licensing updated to ${payload.subscriptionPlan.toUpperCase()} plan. Status is now ${payload.subscriptionStatus}.`,
+      'success'
+    );
   };
 
 
@@ -6263,6 +6529,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
       } catch (e) {}
     }
+    if (tab === 'companies') {
+      setCompaniesResetKey((prev) => prev + 1);
+      try { sessionStorage.removeItem('picklepoint_selected_company_id'); } catch (e) {}
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('company_id') || url.searchParams.has('companyId')) {
+          url.searchParams.delete('company_id');
+          url.searchParams.delete('companyId');
+          window.history.pushState(null, '', url.toString());
+        }
+      } catch (e) {}
+    }
     if (tab === 'settings') {
       setSettingsSubTab('profile');
     }
@@ -6291,6 +6569,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         activeTab={activeTab}
         setActiveTab={handleTabChange}
         isSuperAdmin={isSuperAdmin}
+        courtsSubTab={courtsSubTab}
+        setCourtsSubTab={setCourtsSubTab}
         settingsSubTab={settingsSubTab}
         setSettingsSubTab={setSettingsSubTab}
         settingsSubMenuOpen={settingsSubMenuOpen}
@@ -6299,6 +6579,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         setMobileMenuOpen={setMobileMenuOpen}
         setView={setView}
         user={user}
+        currentCompany={currentCompany}
         onLogout={onLogout}
         onOpenSupportModal={() => setIsSupportModalOpen(true)}
         onOpenClientTicketsModal={() => setIsClientTicketsModalOpen(true)}
@@ -6343,18 +6624,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 : activeTab === 'openplay'
                 ? 'Open Play Management'
                 : activeTab === 'policies'
-                ? 'Venue Policies & Rules'
+                ? 'Court Policies & Guidelines'
                 : activeTab === 'vouchers'
-                ? 'Vouchers & Discount Codes'
+                ? 'Discounts & Vouchers'
                 : activeTab === 'service_fee'
-                ? 'Platform Service Fee Management'
+                ? 'Service Fee Configuration'
+                : activeTab === 'shortener'
+                ? 'Short URL Link Generator'
                 : activeTab === 'support'
-                ? 'Client Support Inquiries & Helpdesk'
+                ? 'Technical Support & Helpdesk'
                 : activeTab === 'image_converter'
-                ? 'Image Converter & Optimizer'
-                : 'Checkout Settings'}
+                ? 'WebP Image Converter'
+                : 'Facility Operations & Settings'}
             </h2>
-            <p className="text-slate-400 text-sm mt-1">
+            <p className="text-sm text-slate-400 mt-1">
               {activeTab === 'dashboard'
                 ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
                 : activeTab === 'support'
@@ -6406,6 +6689,29 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             )}
           </div>
 
+          {/* SUBSCRIPTION EXPIRED LOCKOUT BANNER */}
+          {!isSuperAdmin && (isSubscriptionExpired(currentCompany) || isSubscriptionExpired(user as any)) && (
+            <div className="mb-8 p-5 rounded-2xl bg-rose-950/80 border border-rose-500/40 text-rose-200 text-xs sm:text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xl animate-fade-in">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-rose-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-black text-white text-sm">Facility Subscription / Trial Access Expired</h4>
+                  <p className="text-xs text-rose-300 mt-0.5 leading-relaxed">
+                    Your platform access for <strong>{effectiveOrgName || 'Facility'}</strong> has expired. Administrative write actions are currently locked until your licensing plan is renewed. Contact the Super Admin to extend your trial or upgrade to a full license.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSupportModalOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-extrabold text-xs transition-all flex items-center gap-1.5 cursor-pointer flex-shrink-0 shadow-lg shadow-rose-500/20"
+              >
+                <MailPlus className="w-4 h-4" />
+                <span>Contact Super Admin</span>
+              </button>
+            </div>
+          )}
+
           {/* Subcomponents Rendering */}
           {activeTab === 'dashboard' && (
             <AdminDashboardTab
@@ -6456,6 +6762,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               bookings={bookings}
               openPlayEvents={openPlayEvents}
               myCompany={currentCompany}
+              courtsSubTab={courtsSubTab}
+              onSaveManualBooking={handleCreateManualBooking}
+              isSubmittingManualBooking={isSubmittingManualBooking}
               onOpenCreateCourtModal={handleOpenCreateCourt}
               onOpenEditCourtModal={handleOpenEditCourt}
               onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
@@ -6468,12 +6777,16 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'companies' && isSuperAdmin && (
             <AdminCompaniesTab
+              key={companiesResetKey}
               companies={companies}
+              courts={courts}
+              users={users}
               onOpenOnboardModal={handleOpenCreateCompany}
               onOpenInviteModal={(comp) => { setInviteModalOpen(true); if (comp) setInviteEmailInput(comp.clientAdminEmail || ''); }}
               onApproveCompany={(id) => handleQuickUpdateCompanyStatus(id, 'active')}
               onRejectCompany={(id) => handleQuickUpdateCompanyStatus(id, 'inactive')}
               onDeleteCompany={(id) => handleDeleteCompany(id)}
+              onUpdateCompanySubscription={handleUpdateCompanySubscription}
             />
           )}
 
@@ -6517,7 +6830,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               globalGcashNumber={globalGcashNumberSetting}
               globalGcashQr={globalGcashQrSetting}
               onOpenGcashModal={handleOpenSettingsModal}
-              onDeleteGcashAccount={(id) => handleDeleteCheckoutSettings('my', id)}
+              onDeleteGcashAccount={(id: string) => handleDeleteCheckoutSettings('my', id)}
               formatEventDateLong={formatEventDateLong}
               formatDateLabel={formatDateLabel}
               formatTime12h={formatTime12h}
@@ -6664,6 +6977,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               setAdminPhone={setAdminPhone}
               onSaveAdminProfile={handleSaveAdminPersonalProfile}
               companyProfile={currentCompany}
+              onUpdateCompanySubscription={handleUpdateCompanySubscription}
               orgProfileName={orgProfileName}
               setOrgProfileName={setOrgProfileName}
               orgProfilePhone={orgProfilePhone}
@@ -12410,16 +12724,100 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
               {/* Dynamic Field: Facility / Company Name for Client Admin */}
               {inviteRoleInput === 'client_admin' && (
-                <div className="animate-fade-in">
-                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Assigned Facility / Company Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={inviteCompanyNameInput}
-                    onChange={(e) => setInviteCompanyNameInput(e.target.value)}
-                    placeholder="e.g. PickleZone Libmanan"
-                    className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime"
-                  />
+                <div className="space-y-4 animate-fade-in">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Assigned Facility / Company Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={inviteCompanyNameInput}
+                      onChange={(e) => setInviteCompanyNameInput(e.target.value)}
+                      placeholder="e.g. PickleZone Libmanan"
+                      className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime"
+                    />
+                  </div>
+
+                  {isSuperAdmin && (
+                    <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3">
+                      <label className="block text-xs font-extrabold text-brand-lime uppercase tracking-wider flex items-center gap-1.5">
+                        ⚡ Licensing & Subscription Tier *
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setInviteSubscriptionPlan('trial')}
+                          className={`p-2.5 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
+                            inviteSubscriptionPlan === 'trial'
+                              ? 'bg-amber-500/15 border-amber-500 text-amber-300 shadow-sm shadow-amber-500/10'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          ⚡ Trial Access
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInviteSubscriptionPlan('monthly')}
+                          className={`p-2.5 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
+                            inviteSubscriptionPlan === 'monthly'
+                              ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/10'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          📅 Monthly Sub (+30d)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInviteSubscriptionPlan('yearly')}
+                          className={`p-2.5 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
+                            inviteSubscriptionPlan === 'yearly'
+                              ? 'bg-cyan-500/15 border-cyan-500 text-cyan-300 shadow-sm shadow-cyan-500/10'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          🗓️ Yearly Sub (+365d)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInviteSubscriptionPlan('lifetime')}
+                          className={`p-2.5 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
+                            inviteSubscriptionPlan === 'lifetime'
+                              ? 'bg-purple-500/15 border-purple-500 text-purple-300 shadow-sm shadow-purple-500/10'
+                              : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          ♾️ Lifetime Sub
+                        </button>
+                      </div>
+
+                      {inviteSubscriptionPlan === 'trial' && (
+                        <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase">Trial Access Duration</label>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {[
+                              { label: '24 Hours', days: 1 },
+                              { label: '3 Days', days: 3 },
+                              { label: '7 Days', days: 7 },
+                              { label: '14 Days', days: 14 },
+                              { label: '30 Days', days: 30 },
+                            ].map((opt) => (
+                              <button
+                                key={opt.days}
+                                type="button"
+                                onClick={() => setInviteTrialDays(opt.days)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                                  inviteTrialDays === opt.days
+                                    ? 'bg-amber-500 text-slate-950 border-amber-400'
+                                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -18,9 +18,18 @@ import {
   CheckCircle2,
   RotateCcw,
   ChevronDown,
-  Check
+  Check,
+  Zap,
+  AlertTriangle,
+  Sparkles,
+  CreditCard,
+  Calendar,
 } from 'lucide-react';
-import { type UserAccount } from '../adminTypes';
+import {
+  type UserAccount,
+  isSubscriptionExpired,
+  getSubscriptionRemainingDays,
+} from '../adminTypes';
 
 export interface AdminUsersTabProps {
   users: UserAccount[];
@@ -428,6 +437,32 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                             </>
                           )}
                         </span>
+
+                        {(u.role === 'client_admin' || u.subscriptionPlan || u.isTrialClient) && (
+                          <div className="mt-1.5">
+                            {isSubscriptionExpired(u) ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/30">
+                                <AlertTriangle className="w-2.5 h-2.5" /> Expired
+                              </span>
+                            ) : u.subscriptionPlan === 'trial' || u.isTrialClient ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                                <Zap className="w-2.5 h-2.5" /> Trial {getSubscriptionRemainingDays(u) !== null ? `(${getSubscriptionRemainingDays(u)}d)` : ''}
+                              </span>
+                            ) : u.subscriptionPlan === 'yearly' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/30">
+                                <Calendar className="w-2.5 h-2.5" /> Yearly Sub
+                              </span>
+                            ) : u.subscriptionPlan === 'lifetime' ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/30">
+                                <Sparkles className="w-2.5 h-2.5" /> Lifetime
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+                                <CreditCard className="w-2.5 h-2.5" /> Monthly Sub
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* Company Affiliation */}

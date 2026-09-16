@@ -1,7 +1,76 @@
+export type BookingCategory = 'regular' | 'company_block' | 'maintenance' | 'tournament' | 'vip';
+
+export interface BookingCategoryMeta {
+  id: BookingCategory;
+  label: string;
+  shortLabel: string;
+  description: string;
+  iconName: string;
+  badgeBg: string;
+  badgeText: string;
+  badgeBorder: string;
+}
+
+export const BOOKING_CATEGORIES: BookingCategoryMeta[] = [
+  {
+    id: 'regular',
+    label: 'Regular Walk-in / Public',
+    shortLabel: 'Regular',
+    description: 'Standard player or walk-in customer booking with standard rates',
+    iconName: 'User',
+    badgeBg: 'bg-emerald-950/40',
+    badgeText: 'text-emerald-400',
+    badgeBorder: 'border-emerald-800/50',
+  },
+  {
+    id: 'company_block',
+    label: 'Company / Private Event',
+    shortLabel: 'Company Event',
+    description: 'Court reserved for internal company matters, staff events, or private use',
+    iconName: 'Building2',
+    badgeBg: 'bg-purple-950/40',
+    badgeText: 'text-purple-300',
+    badgeBorder: 'border-purple-800/50',
+  },
+  {
+    id: 'maintenance',
+    label: 'Facility Maintenance',
+    shortLabel: 'Maintenance',
+    description: 'Blocked for cleaning, court surface repairs, net replacement, or facility work',
+    iconName: 'Wrench',
+    badgeBg: 'bg-amber-950/40',
+    badgeText: 'text-amber-300',
+    badgeBorder: 'border-amber-800/50',
+  },
+  {
+    id: 'tournament',
+    label: 'Tournament / League',
+    shortLabel: 'Tournament',
+    description: 'Reserved for official tournaments, league matches, or organized competitions',
+    iconName: 'Trophy',
+    badgeBg: 'bg-cyan-950/40',
+    badgeText: 'text-cyan-300',
+    badgeBorder: 'border-cyan-800/50',
+  },
+  {
+    id: 'vip',
+    label: 'VIP / Member Reserved',
+    shortLabel: 'VIP Reserved',
+    description: 'Priority reservation for VIP guests, club partners, or court sponsors',
+    iconName: 'Crown',
+    badgeBg: 'bg-rose-950/40',
+    badgeText: 'text-rose-300',
+    badgeBorder: 'border-rose-800/50',
+  },
+];
+
 export interface Booking {
   id: string;
   bookingId?: string;
   type?: 'court' | 'open_play' | 'openplay' | 'tournament' | 'bootcamp' | 'coaching';
+  bookingCategory?: BookingCategory;
+  isManual?: boolean;
+  bookingSource?: string;
   openPlayEventId?: string;
   openPlayTitle?: string;
   openPlayCategory?: string;
@@ -123,6 +192,10 @@ export function getUserEffectivePermissions(user?: { role?: string; permissions?
   };
 }
 
+export type SubscriptionPlan = 'trial' | 'monthly' | 'yearly' | 'lifetime' | 'custom';
+export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'expired';
+export type AdminCourtsSubTab = 'list' | 'manual_booking';
+
 export interface UserAccount {
   uid?: string;
   name: string;
@@ -141,6 +214,14 @@ export interface UserAccount {
   createdAt?: string;
   photoUrl?: string;
   avatarUrl?: string;
+  // Subscription & Licensing fields
+  subscriptionPlan?: SubscriptionPlan;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionStartedAt?: string;
+  subscriptionExpiresAt?: string;
+  isTrialClient?: boolean;
+  trialExpiresAt?: string;
+  trialDurationDays?: number;
 }
 
 export interface DayOperatingHours {
@@ -184,6 +265,51 @@ export interface Company {
   bookingLeadTimeMinutes?: number;
   operatingHours?: DailyOperatingHoursMap;
   subdomain?: string;
+  // Subscription & Licensing fields
+  subscriptionPlan?: SubscriptionPlan;
+  subscriptionStatus?: SubscriptionStatus;
+  subscriptionStartedAt?: string;
+  subscriptionExpiresAt?: string;
+  isTrialClient?: boolean;
+  trialExpiresAt?: string;
+  cancelRequestedAt?: string;
+  cancelReason?: string;
+  forceTerminated?: boolean;
+  forceTerminatedAt?: string;
+  forceTerminatedBy?: string;
+  forceTerminatedReason?: string;
+}
+
+export function getEffectiveSubscriptionExpiry(entity?: any): Date | null {
+  if (!entity) return null;
+  const plan = entity.subscriptionPlan;
+  if (plan === 'lifetime' && !entity.forceTerminated) return null;
+
+  const expiryStr = entity.subscriptionExpiresAt || entity.trialExpiresAt;
+  if (!expiryStr) return null;
+  const d = new Date(expiryStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export function isSubscriptionExpired(entity?: any): boolean {
+  if (!entity) return false;
+  if (entity.forceTerminated || entity.subscriptionStatus === 'expired') return true;
+  if (entity.subscriptionPlan === 'lifetime') return false;
+
+  const expiryDate = getEffectiveSubscriptionExpiry(entity);
+  if (!expiryDate) return false;
+  return new Date().getTime() > expiryDate.getTime();
+}
+
+export function getSubscriptionRemainingDays(entity?: any): number | null {
+  if (!entity) return null;
+  if (entity.forceTerminated) return 0;
+  const expiryDate = getEffectiveSubscriptionExpiry(entity);
+  if (!expiryDate) return null;
+  const diffMs = expiryDate.getTime() - new Date().getTime();
+  if (diffMs <= 0) return 0;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  return diffDays;
 }
 
 export interface RentalItem {
@@ -299,7 +425,7 @@ export interface SupportTicket {
 }
 
 export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter';
-export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee';
+export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee' | 'subscription';
 
 export const SLOTS = [
   { time: '05:00 AM - 06:00 AM', startHour: 5 },
