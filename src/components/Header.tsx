@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Menu, X, ChevronRight, User, Trophy, Flame } from 'lucide-react';
+import { Menu, X, ChevronRight, User, Flame, Building2 } from 'lucide-react';
 
 interface HeaderProps {
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
   onLogout: () => void;
-  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt') => void;
-  currentView?: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt';
+  setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt' | 'venue_pricing') => void;
+  currentView?: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt' | 'venue_pricing';
 }
 
 export default function Header({ user, onLogout, setView, currentView = 'landing' }: HeaderProps) {
@@ -24,7 +24,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleNavClick = (view: 'landing' | 'openplay' | 'bootcamp' | 'lookup' | 'profile', path: string, scrollTarget?: string) => {
+  const handleNavClick = (view: 'landing' | 'openplay' | 'bootcamp' | 'lookup' | 'profile' | 'venue_pricing', path: string, scrollTarget?: string) => {
     setIsOpen(false);
     window.history.pushState({}, '', path);
     setView(view);
@@ -100,25 +100,12 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
                   currentView === 'landing' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
                 }`}
               >
-                Book Court
+                Booking
                 {currentView === 'landing' && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
                 )}
               </button>
 
-              <button
-                type="button"
-                onClick={() => handleNavClick('landing', '/?tab=openplay', 'booking-widget')}
-                className={`text-sm xl:text-base font-medium transition-colors cursor-pointer border-none bg-transparent font-sans relative py-1 whitespace-nowrap flex items-center gap-1.5 ${
-                  currentView === 'openplay' ? 'text-brand-lime font-semibold' : 'text-slate-300 hover:text-brand-lime'
-                }`}
-              >
-                <Trophy className="w-4 h-4 text-brand-lime" />
-                <span>Open Play</span>
-                {currentView === 'openplay' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
-                )}
-              </button>
 
               <button
                 type="button"
@@ -145,6 +132,17 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
                 {currentView === 'lookup' && (
                   <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-lime rounded-full animate-fade-in" />
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavClick('venue_pricing', '/?view=venue_pricing')}
+                className={`text-sm xl:text-base font-semibold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer border-none bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-3 py-1 rounded-full font-sans relative whitespace-nowrap flex items-center gap-1.5 ${
+                  currentView === 'venue_pricing' ? 'ring-2 ring-emerald-400 bg-emerald-500/20' : ''
+                }`}
+              >
+                <Building2 className="w-4 h-4 text-emerald-400" />
+                <span>For Venue Owners</span>
               </button>
             </nav>
 
@@ -232,19 +230,9 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
                 currentView === 'landing' ? 'text-brand-lime font-bold' : 'text-slate-200 hover:text-brand-lime'
               }`}
             >
-              Book Court
+              Booking
             </button>
 
-            <button
-              type="button"
-              onClick={() => handleNavClick('landing', '/?tab=openplay', 'booking-widget')}
-              className={`text-left w-full text-base font-medium py-2.5 border-b border-dark-border/50 cursor-pointer flex items-center gap-2 ${
-                currentView === 'openplay' ? 'text-brand-lime font-bold' : 'text-slate-200 hover:text-brand-lime'
-              }`}
-            >
-              <Trophy className="w-4 h-4" />
-              <span>Open Play</span>
-            </button>
 
             <button
               type="button"
@@ -265,6 +253,15 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
               }`}
             >
               Check Status
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleNavClick('venue_pricing', '/?view=venue_pricing')}
+              className="text-left w-full text-base font-semibold py-2.5 cursor-pointer text-emerald-400 flex items-center gap-2"
+            >
+              <Building2 className="w-4 h-4 text-emerald-400" />
+              <span>For Venue Owners (Pricing)</span>
             </button>
           </nav>
 

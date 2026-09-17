@@ -158,5 +158,13 @@ service cloud.firestore {
       allow create, update: if true;
       allow delete: if isAdmin() || isAuthenticated();
     }
+
+    // ==========================================
+    // 11. Client Venue Subscription Leads
+    // ==========================================
+    match /client_leads/{leadId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin() || isAuthenticated();
+    }
   }
 }

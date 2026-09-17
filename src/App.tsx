@@ -15,6 +15,7 @@ import Bootcamp from './components/Bootcamp';
 import Profile from './components/Profile';
 import ClientAdminOnboarding from './components/ClientAdminOnboarding';
 import PrivacyPolicy from './components/PrivacyPolicy';
+import VenueSubscription from './components/VenueSubscription';
 import { auth, db, isFirebaseConfigured } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc, increment, deleteDoc } from 'firebase/firestore';
@@ -22,8 +23,11 @@ import { sendRegistrationConfirmationEmail } from './services/emailService';
 import { AlertCircle, Loader2 } from 'lucide-react';
 
 function App() {
-  const [currentView, setView] = useState<'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt'>(() => {
+  const [currentView, setView] = useState<'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt' | 'venue_pricing'>(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'venue_pricing' || window.location.pathname === '/pricing' || window.location.pathname === '/for-venue-owners') {
+      return 'venue_pricing';
+    }
     if (params.get('view') === 'privacy' || window.location.pathname === '/privacy' || window.location.pathname === '/privacy-policy') {
       return 'privacy';
     }
@@ -134,7 +138,7 @@ function App() {
     return u.role === 'client_admin' && (!u.companyId || u.needsOnboarding === true);
   };
 
-  const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt') => {
+  const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt' | 'venue_pricing') => {
     if (nextView !== 'openplay' && nextView !== 'login' && nextView !== 'register') {
       handleSelectOpenPlayEvent(null);
     }
@@ -1218,6 +1222,30 @@ function App() {
         </main>
 
         {/* Footer Branding & Newsletter */}
+        <Footer setView={handleSetView} />
+        {renderDeactivatedModal()}
+      </div>
+    );
+  }
+
+  if (currentView === 'venue_pricing') {
+    return (
+      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
+        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
+        <main className="flex-grow pt-16">
+          <VenueSubscription
+            onBack={() => handleSetView('landing')}
+            onSelectPlan={(planId, billingCycle) => {
+              void planId; void billingCycle;
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              if (user) {
+                handleSetView('client_onboarding');
+              } else {
+                handleSetView('register');
+              }
+            }}
+          />
+        </main>
         <Footer setView={handleSetView} />
         {renderDeactivatedModal()}
       </div>

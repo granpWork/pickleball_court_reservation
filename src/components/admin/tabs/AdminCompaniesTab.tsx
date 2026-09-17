@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Building2,
   Plus,
@@ -22,7 +22,10 @@ import {
   ExternalLink,
   Clock,
   ChevronDown,
+  Gift,
 } from 'lucide-react';
+import { db, isFirebaseConfigured } from '../../../firebase';
+import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import {
   type Company,
   type SubscriptionPlan,
@@ -47,6 +50,22 @@ interface AdminCompaniesTabProps {
   ) => void;
 }
 
+export interface ClientLead {
+  id: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  facilityName: string;
+  courtCount?: number | string;
+  cityLocation?: string;
+  socialPlatform?: string;
+  socialUrl?: string;
+  notes?: string;
+  status?: string;
+  isFreeEarlyAccess?: boolean;
+  appliedAt?: any;
+}
+
 export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
   companies,
   courts = [],
@@ -61,6 +80,58 @@ export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
   // Page View Navigation State: null = Roster List Page, Company = Full Details Page
   const [selectedCompanyForView, setSelectedCompanyForView] = useState<Company | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'licensing' | 'profile' | 'courts' | 'team'>('licensing');
+
+  // Client Leads & Venue Applications State
+  const [clientLeads, setClientLeads] = useState<ClientLead[]>([]);
+
+  const fetchClientLeads = async () => {
+    if (isFirebaseConfigured && db) {
+      try {
+        const snap = await getDocs(collection(db, 'client_leads'));
+        const leads: ClientLead[] = [];
+        snap.forEach((docSnap) => {
+          leads.push({ id: docSnap.id, ...docSnap.data() } as ClientLead);
+        });
+        leads.sort((a, b) => {
+          const tA = a.appliedAt?.seconds || 0;
+          const tB = b.appliedAt?.seconds || 0;
+          return tB - tA;
+        });
+        setClientLeads(leads);
+      } catch (e) {
+        console.warn('Error fetching client leads:', e);
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchClientLeads();
+  }, []);
+
+  const handleApproveLeadAndInvite = async (lead: ClientLead) => {
+    if (onOpenInviteModal) {
+      onOpenInviteModal({
+        id: '',
+        name: lead.facilityName,
+        clientAdminEmail: lead.email,
+        phone: lead.phone || '',
+        city: lead.cityLocation || '',
+      } as any);
+    }
+
+    if (isFirebaseConfigured && db && lead.id) {
+      try {
+        await updateDoc(doc(db, 'client_leads', lead.id), {
+          status: 'invited',
+        });
+        setClientLeads((prev) =>
+          prev.map((l) => (l.id === lead.id ? { ...l, status: 'invited' } : l))
+        );
+      } catch (e) {
+        console.warn('Error updating lead status:', e);
+      }
+    }
+  };
 
   // Form State for Editing Subscription
   const [editPlan, setEditPlan] = useState<SubscriptionPlan>('trial');
@@ -998,6 +1069,76 @@ export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Pending Venue Partner Applications Section */}
+      {clientLeads.length > 0 && (
+        <div className="glass-panel p-6 rounded-2xl border border-brand-lime/30 bg-slate-900/90 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+              <Gift className="w-5 h-5 text-brand-lime" />
+              <span>Pending Venue Partner Applications ({clientLeads.length})</span>
+            </h4>
+            <span className="text-[10px] font-bold text-brand-lime bg-brand-lime/10 border border-brand-lime/30 px-2.5 py-1 rounded-full uppercase">
+              Free Early Access Applicants
+            </span>
+          </div>
+
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+            {clientLeads.map((lead) => (
+              <div
+                key={lead.id}
+                className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:border-slate-700 transition-all"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-extrabold text-white text-sm">{lead.facilityName}</span>
+                    <span className="text-xs text-slate-400 font-normal">({lead.courtCount || 1} Courts)</span>
+                    {lead.status === 'invited' ? (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        Invitation Sent
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                        Pending Review
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300">
+                    Applicant: <strong>{lead.fullName}</strong> • <a href={`mailto:${lead.email}`} className="text-brand-lime hover:underline">{lead.email}</a> • {lead.phone}
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Location: {lead.cityLocation || 'N/A'} {lead.socialUrl ? `• Social Page: ` : ''}
+                    {lead.socialUrl && (
+                      <a
+                        href={lead.socialUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-emerald-400 hover:underline inline-flex items-center gap-1 font-mono"
+                      >
+                        <Globe className="w-3 h-3" />
+                        <span className="capitalize">{lead.socialPlatform || 'Link'}</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                    {lead.notes ? ` • Notes: "${lead.notes}"` : ''}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleApproveLeadAndInvite(lead)}
+                    className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-brand-lime to-emerald-400 text-dark-bg font-extrabold text-xs hover:from-brand-lime/90 hover:to-emerald-500 transition-all cursor-pointer flex items-center gap-1.5 shadow-md"
+                  >
+                    <MailPlus className="w-4 h-4" />
+                    <span>Approve & Send Invitation Token</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Companies List Table */}
       <div className="glass-panel border border-slate-800 rounded-2xl overflow-hidden shadow-2xl">
