@@ -85,23 +85,42 @@ export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
   const [clientLeads, setClientLeads] = useState<ClientLead[]>([]);
 
   const fetchClientLeads = async () => {
+    const leadsMap = new Map<string, ClientLead>();
+
+    // 1. Read LocalStorage Fallback Leads
+    try {
+      const localStr = localStorage.getItem('picklepoint_venue_leads');
+      if (localStr) {
+        const parsed = JSON.parse(localStr);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((l: any) => {
+            if (l.email) leadsMap.set(l.email.toLowerCase(), l);
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 2. Read Cloud Firestore Leads
     if (isFirebaseConfigured && db) {
       try {
         const snap = await getDocs(collection(db, 'client_leads'));
-        const leads: ClientLead[] = [];
         snap.forEach((docSnap) => {
-          leads.push({ id: docSnap.id, ...docSnap.data() } as ClientLead);
+          const data = docSnap.data() as ClientLead;
+          const leadId = docSnap.id;
+          leadsMap.set(data.email ? data.email.toLowerCase() : leadId, { ...data, id: leadId });
         });
-        leads.sort((a, b) => {
-          const tA = a.appliedAt?.seconds || 0;
-          const tB = b.appliedAt?.seconds || 0;
-          return tB - tA;
-        });
-        setClientLeads(leads);
       } catch (e) {
         console.warn('Error fetching client leads:', e);
       }
     }
+
+    const leads = Array.from(leadsMap.values());
+    leads.sort((a, b) => {
+      const tA = (a.appliedAt?.seconds ? a.appliedAt.seconds * 1000 : new Date(a.appliedAt || 0).getTime());
+      const tB = (b.appliedAt?.seconds ? b.appliedAt.seconds * 1000 : new Date(b.appliedAt || 0).getTime());
+      return tB - tA;
+    });
+    setClientLeads(leads);
   };
 
   useEffect(() => {

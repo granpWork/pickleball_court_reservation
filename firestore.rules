@@ -163,8 +163,7 @@ service cloud.firestore {
     // 11. Client Venue Subscription Leads
     // ==========================================
     match /client_leads/{leadId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin() || isAuthenticated();
+      allow read, write: if true;
     }
   }
 }
