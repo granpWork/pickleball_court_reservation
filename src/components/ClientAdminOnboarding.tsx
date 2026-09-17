@@ -13,7 +13,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { DEFAULT_OPERATING_HOURS } from '../utils/timeSlotUtils';
 
 const REGIONS_FALLBACK = [
@@ -76,6 +76,80 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-populate company name and contact phone number from venue application or invitation
+  useEffect(() => {
+    if (!user?.email) return;
+    const targetEmail = user.email.trim().toLowerCase();
+
+    const fetchLeadOrInvitation = async () => {
+      let foundFacilityName = '';
+      let foundPhone = '';
+
+      // 1. Check Local Storage first for quick response
+      try {
+        const localLeads = JSON.parse(localStorage.getItem('picklepoint_venue_leads') || '[]');
+        const lead = localLeads.find((l: any) => l.email?.trim().toLowerCase() === targetEmail);
+        if (lead) {
+          if (lead.facilityName) foundFacilityName = lead.facilityName;
+          if (lead.phone) foundPhone = lead.phone;
+        }
+
+        const localInvites = JSON.parse(localStorage.getItem('picklepoint_invitations') || '[]');
+        const invite = localInvites.find((i: any) => i.inviteeEmail?.trim().toLowerCase() === targetEmail || i.email?.trim().toLowerCase() === targetEmail);
+        if (invite) {
+          if (!foundFacilityName && (invite.assignedFacilityName || invite.companyName)) {
+            foundFacilityName = invite.assignedFacilityName || invite.companyName;
+          }
+          if (!foundPhone && (invite.phone || invite.mobilePhone)) {
+            foundPhone = invite.phone || invite.mobilePhone;
+          }
+        }
+      } catch (err) {
+        console.warn('Error reading local storage in ClientAdminOnboarding:', err);
+      }
+
+      // 2. Query Firestore if configured
+      if (isFirebaseConfigured && db) {
+        try {
+          const leadsRef = collection(db, 'venueLeads');
+          const qLead = query(leadsRef, where('email', '==', targetEmail));
+          const leadSnap = await getDocs(qLead);
+          if (!leadSnap.empty) {
+            const data = leadSnap.docs[0].data();
+            if (data.facilityName) foundFacilityName = data.facilityName;
+            if (data.phone) foundPhone = data.phone;
+          }
+
+          if (!foundFacilityName || !foundPhone) {
+            const invRef = collection(db, 'invitations');
+            const qInv = query(invRef, where('inviteeEmail', '==', targetEmail));
+            const invSnap = await getDocs(qInv);
+            if (!invSnap.empty) {
+              const data = invSnap.docs[0].data();
+              if (!foundFacilityName && (data.assignedFacilityName || data.companyName)) {
+                foundFacilityName = data.assignedFacilityName || data.companyName;
+              }
+              if (!foundPhone && (data.phone || data.mobilePhone)) {
+                foundPhone = data.phone || data.mobilePhone;
+              }
+            }
+          }
+        } catch (fErr) {
+          console.warn('Error querying Firestore for lead/invitation:', fErr);
+        }
+      }
+
+      if (foundFacilityName) {
+        setCompanyName((prev) => (prev ? prev : foundFacilityName));
+      }
+      if (foundPhone) {
+        setPhone((prev) => (prev ? prev : foundPhone));
+      }
+    };
+
+    fetchLeadOrInvitation();
+  }, [user?.email]);
 
   // Fetch PSGC Regions on mount
   useEffect(() => {
@@ -385,6 +459,9 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
       };
 
       localStorage.setItem('picklepoint_session', JSON.stringify(updatedUserSession));
+
+      // Dispatch real-time company update event so open dashboards refresh live
+      window.dispatchEvent(new Event('picklepoint_company_updated'));
 
       // 4. Complete onboarding
       onComplete(updatedUserSession);

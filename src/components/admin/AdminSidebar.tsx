@@ -328,6 +328,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   <Building2 className="w-4 h-4" />
                   <span>Companies</span>
                 </div>
+                {_pendingCompaniesCount > 0 && (
+                  <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded-full bg-red-500 text-white animate-pulse">
+                    {_pendingCompaniesCount}
+                  </span>
+                )}
               </button>
             )}
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Building2,
   Sparkles,
@@ -13,9 +13,128 @@ import {
   Mail,
   Clock,
   Share2,
+  ChevronDown,
+  Search,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { sendFreePartnerApplicationEmails } from '../services/emailService';
+
+interface CountryOption {
+  name: string;
+  code: string;
+  flag: string;
+  iso: string;
+}
+
+const COUNTRY_OPTIONS: CountryOption[] = [
+  { name: 'Philippines', code: '+63', flag: '🇵🇭', iso: 'PH' },
+  { name: 'United States', code: '+1', flag: '🇺🇸', iso: 'US' },
+  { name: 'Australia', code: '+61', flag: '🇦🇺', iso: 'AU' },
+  { name: 'United Kingdom', code: '+44', flag: '🇬🇧', iso: 'GB' },
+  { name: 'Canada', code: '+1', flag: '🇨🇦', iso: 'CA' },
+  { name: 'Singapore', code: '+65', flag: '🇸🇬', iso: 'SG' },
+  { name: 'Japan', code: '+81', flag: '🇯🇵', iso: 'JP' },
+  { name: 'Afghanistan', code: '+93', flag: '🇦🇫', iso: 'AF' },
+  { name: 'Albania', code: '+355', flag: '🇦🇱', iso: 'AL' },
+  { name: 'Algeria', code: '+213', flag: '🇩🇿', iso: 'DZ' },
+  { name: 'Andorra', code: '+376', flag: '🇦🇩', iso: 'AD' },
+  { name: 'Angola', code: '+244', flag: '🇦🇴', iso: 'AO' },
+  { name: 'Argentina', code: '+54', flag: '🇦🇷', iso: 'AR' },
+  { name: 'Armenia', code: '+374', flag: '🇦🇲', iso: 'AM' },
+  { name: 'Austria', code: '+43', flag: '🇦🇹', iso: 'AT' },
+  { name: 'Azerbaijan', code: '+994', flag: '🇦🇿', iso: 'AZ' },
+  { name: 'Bahrain', code: '+973', flag: '🇧🇭', iso: 'BH' },
+  { name: 'Bangladesh', code: '+880', flag: '🇧🇩', iso: 'BD' },
+  { name: 'Belgium', code: '+32', flag: '🇧🇪', iso: 'BE' },
+  { name: 'Belize', code: '+501', flag: '🇧🇿', iso: 'BZ' },
+  { name: 'Benin', code: '+229', flag: '🇧🇯', iso: 'BJ' },
+  { name: 'Bhutan', code: '+975', flag: '🇧🇹', iso: 'BT' },
+  { name: 'Bolivia', code: '+591', flag: '🇧🇴', iso: 'BO' },
+  { name: 'Bosnia & Herzegovina', code: '+387', flag: '🇧🇦', iso: 'BA' },
+  { name: 'Brazil', code: '+55', flag: '🇧🇷', iso: 'BR' },
+  { name: 'Brunei', code: '+673', flag: '🇧🇳', iso: 'BN' },
+  { name: 'Bulgaria', code: '+359', flag: '🇧🇬', iso: 'BG' },
+  { name: 'Cambodia', code: '+855', flag: '🇰🇭', iso: 'KH' },
+  { name: 'Chile', code: '+56', flag: '🇨🇱', iso: 'CL' },
+  { name: 'China', code: '+86', flag: '🇨🇳', iso: 'CN' },
+  { name: 'Colombia', code: '+57', flag: '🇨🇴', iso: 'CO' },
+  { name: 'Costa Rica', code: '+506', flag: '🇨🇷', iso: 'CR' },
+  { name: 'Croatia', code: '+385', flag: '🇭🇷', iso: 'HR' },
+  { name: 'Cyprus', code: '+357', flag: '🇨🇾', iso: 'CY' },
+  { name: 'Czech Republic', code: '+420', flag: '🇨🇿', iso: 'CZ' },
+  { name: 'Denmark', code: '+45', flag: '🇩🇰', iso: 'DK' },
+  { name: 'Ecuador', code: '+593', flag: '🇪🇨', iso: 'EC' },
+  { name: 'Egypt', code: '+20', flag: '🇪🇬', iso: 'EG' },
+  { name: 'Estonia', code: '+372', flag: '🇪🇪', iso: 'EE' },
+  { name: 'Finland', code: '+358', flag: '🇫🇮', iso: 'FI' },
+  { name: 'France', code: '+33', flag: '🇫🇷', iso: 'FR' },
+  { name: 'Georgia', code: '+995', flag: '🇬🇪', iso: 'GE' },
+  { name: 'Germany', code: '+49', flag: '🇩🇪', iso: 'DE' },
+  { name: 'Greece', code: '+30', flag: '🇬🇷', iso: 'GR' },
+  { name: 'Guatemala', code: '+502', flag: '🇬🇹', iso: 'GT' },
+  { name: 'Hong Kong', code: '+852', flag: '🇭🇰', iso: 'HK' },
+  { name: 'Hungary', code: '+36', flag: '🇭🇺', iso: 'HU' },
+  { name: 'Iceland', code: '+354', flag: '🇮🇸', iso: 'IS' },
+  { name: 'India', code: '+91', flag: '🇮🇳', iso: 'IN' },
+  { name: 'Indonesia', code: '+62', flag: '🇮🇩', iso: 'ID' },
+  { name: 'Ireland', code: '+353', flag: '🇮🇪', iso: 'IE' },
+  { name: 'Israel', code: '+972', flag: '🇮🇱', iso: 'IL' },
+  { name: 'Italy', code: '+39', flag: '🇮🇹', iso: 'IT' },
+  { name: 'Jamaica', code: '+1', flag: '🇯🇲', iso: 'JM' },
+  { name: 'Japan', code: '+81', flag: '🇯🇵', iso: 'JP' },
+  { name: 'Jordan', code: '+962', flag: '🇯🇴', iso: 'JO' },
+  { name: 'Kazakhstan', code: '+7', flag: '🇰🇿', iso: 'KZ' },
+  { name: 'Kenya', code: '+254', flag: '🇰🇪', iso: 'KE' },
+  { name: 'Kuwait', code: '+965', flag: '🇰🇼', iso: 'KW' },
+  { name: 'Laos', code: '+856', flag: '🇱🇦', iso: 'LA' },
+  { name: 'Latvia', code: '+371', flag: '🇱🇻', iso: 'LV' },
+  { name: 'Lebanon', code: '+961', flag: '🇱🇧', iso: 'LB' },
+  { name: 'Lithuania', code: '+370', flag: '🇱🇹', iso: 'LT' },
+  { name: 'Luxembourg', code: '+352', flag: '🇱🇺', iso: 'LU' },
+  { name: 'Macau', code: '+853', flag: '🇲🇴', iso: 'MO' },
+  { name: 'Malaysia', code: '+60', flag: '🇲🇾', iso: 'MY' },
+  { name: 'Maldives', code: '+960', flag: '🇲🇻', iso: 'MV' },
+  { name: 'Malta', code: '+356', flag: '🇲🇹', iso: 'MT' },
+  { name: 'Mexico', code: '+52', flag: '🇲🇽', iso: 'MX' },
+  { name: 'Monaco', code: '+377', flag: '🇲🇨', iso: 'MC' },
+  { name: 'Mongolia', code: '+976', flag: '🇲🇳', iso: 'MN' },
+  { name: 'Morocco', code: '+212', flag: '🇲🇦', iso: 'MA' },
+  { name: 'Nepal', code: '+977', flag: '🇳🇵', iso: 'NP' },
+  { name: 'Netherlands', code: '+31', flag: '🇳🇱', iso: 'NL' },
+  { name: 'New Zealand', code: '+64', flag: '🇳🇿', iso: 'NZ' },
+  { name: 'Nigeria', code: '+234', flag: '🇳🇬', iso: 'NG' },
+  { name: 'Norway', code: '+47', flag: '🇳🇴', iso: 'NO' },
+  { name: 'Oman', code: '+968', flag: '🇴🇲', iso: 'OM' },
+  { name: 'Pakistan', code: '+92', flag: '🇵🇰', iso: 'PK' },
+  { name: 'Panama', code: '+507', flag: '🇵🇦', iso: 'PA' },
+  { name: 'Paraguay', code: '+595', flag: '🇵🇾', iso: 'PY' },
+  { name: 'Peru', code: '+51', flag: '🇵🇪', iso: 'PE' },
+  { name: 'Poland', code: '+48', flag: '🇵🇱', iso: 'PL' },
+  { name: 'Portugal', code: '+351', flag: '🇵🇹', iso: 'PT' },
+  { name: 'Qatar', code: '+974', flag: '🇶🇦', iso: 'QA' },
+  { name: 'Romania', code: '+40', flag: '🇷🇴', iso: 'RO' },
+  { name: 'Saudi Arabia', code: '+966', flag: '🇸🇦', iso: 'SA' },
+  { name: 'Serbia', code: '+381', flag: '🇷🇸', iso: 'RS' },
+  { name: 'Slovakia', code: '+421', flag: '🇸🇰', iso: 'SK' },
+  { name: 'Slovenia', code: '+386', flag: '🇸🇮', iso: 'SI' },
+  { name: 'South Africa', code: '+27', flag: '🇿🇦', iso: 'ZA' },
+  { name: 'South Korea', code: '+82', flag: '🇰🇷', iso: 'KR' },
+  { name: 'Spain', code: '+34', flag: '🇪🇸', iso: 'ES' },
+  { name: 'Sri Lanka', code: '+94', flag: '🇱🇰', iso: 'LK' },
+  { name: 'Sweden', code: '+46', flag: '🇸🇪', iso: 'SE' },
+  { name: 'Switzerland', code: '+41', flag: '🇨🇭', iso: 'CH' },
+  { name: 'Taiwan', code: '+886', flag: '🇹🇼', iso: 'TW' },
+  { name: 'Thailand', code: '+66', flag: '🇹🇭', iso: 'TH' },
+  { name: 'Tunisia', code: '+216', flag: '🇹🇳', iso: 'TN' },
+  { name: 'Turkey', code: '+90', flag: '🇹🇷', iso: 'TR' },
+  { name: 'Ukraine', code: '+380', flag: '🇺🇦', iso: 'UA' },
+  { name: 'United Arab Emirates', code: '+971', flag: '🇦🇪', iso: 'AE' },
+  { name: 'Uruguay', code: '+598', flag: '🇺🇾', iso: 'UY' },
+  { name: 'Uzbekistan', code: '+998', flag: '🇺🇿', iso: 'UZ' },
+  { name: 'Venezuela', code: '+58', flag: '🇻🇪', iso: 'VE' },
+  { name: 'Vietnam', code: '+84', flag: '🇻🇳', iso: 'VN' },
+];
 
 interface VenueSubscriptionProps {
   onBack?: () => void;
@@ -26,7 +145,17 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
   // Lead Form State
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState<CountryOption>(COUNTRY_OPTIONS[0]);
+  const [isCountryDropdownOpen, setIsCountryDropdownOpen] = useState(false);
+  const [countrySearchQuery, setCountrySearchQuery] = useState('');
+  const countryDropdownRef = useRef<HTMLDivElement>(null);
+
+  const filteredCountries = COUNTRY_OPTIONS.filter((c) =>
+    c.name.toLowerCase().includes(countrySearchQuery.toLowerCase()) ||
+    c.code.includes(countrySearchQuery) ||
+    c.iso.toLowerCase().includes(countrySearchQuery.toLowerCase())
+  );
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [facilityName, setFacilityName] = useState('');
   const [courtCount, setCourtCount] = useState('4');
   const [cityLocation, setCityLocation] = useState('');
@@ -37,9 +166,19 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
   const [leadSuccess, setLeadSuccess] = useState(false);
   const [leadError, setLeadError] = useState('');
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (countryDropdownRef.current && !countryDropdownRef.current.contains(event.target as Node)) {
+        setIsCountryDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const handleLeadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim() || !facilityName.trim() || !phone.trim() || !cityLocation.trim()) {
+    if (!fullName.trim() || !email.trim() || !facilityName.trim() || !phoneNumber.trim() || !cityLocation.trim()) {
       setLeadError('Please fill out all required fields.');
       return;
     }
@@ -47,11 +186,13 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
     setSubmittingLead(true);
     setLeadError('');
 
+    const targetEmail = email.trim().toLowerCase();
+    const fullPhone = `${selectedCountry.code} ${phoneNumber.trim()}`;
+
     const leadPayload = {
-      id: 'lead_' + Date.now(),
       fullName: fullName.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
+      email: targetEmail,
+      phone: fullPhone,
       facilityName: facilityName.trim(),
       courtCount: Number(courtCount) || 1,
       cityLocation: cityLocation.trim(),
@@ -61,30 +202,118 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
       status: 'pending_invite',
       isFreeEarlyAccess: true,
       appliedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     try {
+      let existingLead: any = null;
+      let existingCompany: any = null;
+
       if (isFirebaseConfigured && db) {
+        // 1. Check client_leads collection
         try {
-          await addDoc(collection(db, 'client_leads'), {
-            ...leadPayload,
-            appliedAt: serverTimestamp(),
-            createdAt: serverTimestamp(),
+          const leadsSnap = await getDocs(collection(db, 'client_leads'));
+          leadsSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.email && data.email.trim().toLowerCase() === targetEmail) {
+              existingLead = { ...data, id: docSnap.id };
+            }
           });
-        } catch (fErr: any) {
-          console.warn('Firestore lead submission warning, applying local fallback:', fErr);
-          const existingStr = localStorage.getItem('picklepoint_venue_leads') || '[]';
-          const existing = JSON.parse(existingStr);
-          existing.push(leadPayload);
-          localStorage.setItem('picklepoint_venue_leads', JSON.stringify(existing));
+        } catch (e) {
+          console.warn('Error querying client_leads:', e);
         }
+
+        // 2. Check companies collection
+        try {
+          const compSnap = await getDocs(collection(db, 'companies'));
+          compSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            const compEmail = (data.clientAdminEmail || data.email || '').trim().toLowerCase();
+            if (compEmail === targetEmail) {
+              existingCompany = { ...data, id: docSnap.id };
+            }
+          });
+        } catch (e) {
+          console.warn('Error querying companies:', e);
+        }
+      }
+
+      // 3. Fallback check in localStorage
+      try {
+        const localLeadsStr = localStorage.getItem('picklepoint_venue_leads');
+        if (localLeadsStr) {
+          const localLeads = JSON.parse(localLeadsStr);
+          if (Array.isArray(localLeads)) {
+            const found = localLeads.find((l: any) => l.email && l.email.trim().toLowerCase() === targetEmail);
+            if (found && !existingLead) existingLead = found;
+          }
+        }
+      } catch (e) {}
+
+      // Handle detected duplicates with tailored venue owner alerts
+      if (existingCompany) {
+        setSubmittingLead(false);
+        setLeadError(`🎉 Great news! An account for ${targetEmail} has already been approved and registered as a venue partner. Please check your email inbox for your portal login details.`);
+        return;
+      }
+
+      if (existingLead) {
+        const st = existingLead.status;
+        if (st === 'pending_invite' || st === 'pending') {
+          setSubmittingLead(false);
+          setLeadError(`📩 An early partner access application for ${targetEmail} has already been received and is currently under review by our team. We will process your request and reach out to you shortly!`);
+          return;
+        }
+
+        if (st === 'invited' || st === 'approved') {
+          setSubmittingLead(false);
+          setLeadError(`🎉 Great news! An account for ${targetEmail} has already been approved. Please check your email inbox for your admin invitation link.`);
+          return;
+        }
+
+        if (st === 'rejected') {
+          setSubmittingLead(false);
+          setLeadError(`⚠️ An application associated with ${targetEmail} was previously reviewed. To update your facility information or inquire about re-application, please contact our onboarding team directly at support@picklepoint.ph.`);
+          return;
+        }
+
+        setSubmittingLead(false);
+        setLeadError(`The email address ${targetEmail} is already registered in our system. If you need assistance, please contact support@picklepoint.ph.`);
+        return;
+      }
+
+      // If brand new email application, save lead doc
+      if (isFirebaseConfigured && db) {
+        await addDoc(collection(db, 'client_leads'), {
+          id: 'lead_' + Date.now(),
+          ...leadPayload,
+          appliedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        });
       } else {
         const existingStr = localStorage.getItem('picklepoint_venue_leads') || '[]';
-        const existing = JSON.parse(existingStr);
-        existing.push(leadPayload);
+        const existing: any[] = JSON.parse(existingStr);
+        existing.push({ id: 'lead_' + Date.now(), ...leadPayload, createdAt: new Date().toISOString() });
         localStorage.setItem('picklepoint_venue_leads', JSON.stringify(existing));
       }
+
+      // Notify open dashboards/tabs in real-time about new lead application submission
+      window.dispatchEvent(new Event('picklepoint_lead_updated'));
+
+      // Dispatch Email Notifications (Applicant Confirmation & Super Admin Alert)
+      sendFreePartnerApplicationEmails({
+        applicantName: fullName.trim(),
+        applicantEmail: email.trim().toLowerCase(),
+        applicantPhone: fullPhone,
+        facilityName: facilityName.trim(),
+        courtCount,
+        cityLocation: cityLocation.trim(),
+        socialPlatform,
+        socialUrl: socialUrl.trim(),
+        notes: notes.trim(),
+      }).catch((emailErr) => {
+        console.warn('Non-blocking application email notification warning:', emailErr);
+      });
 
       setLeadSuccess(true);
     } catch (err: any) {
@@ -264,28 +493,103 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address *</label>
-                      <input
-                        type="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="mark@pickleclub.ph"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand-lime"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">Mobile / Phone Number *</label>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Email Address *</label>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="mark@pickleclub.ph"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand-lime"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Mobile / Phone Number *</label>
+                    <div className="relative flex rounded-xl border border-slate-800 focus-within:border-brand-lime bg-slate-950 transition-colors" ref={countryDropdownRef}>
+                      {/* Country Code Dropdown Trigger */}
+                      <button
+                        type="button"
+                        onClick={() => setIsCountryDropdownOpen(!isCountryDropdownOpen)}
+                        className="flex items-center gap-2 bg-slate-900 border-r border-slate-800 px-3 py-3 text-xs sm:text-sm text-white focus:outline-none hover:bg-slate-800/80 transition-colors rounded-l-xl shrink-0 font-medium"
+                      >
+                        <img
+                          src={`https://flagcdn.com/w40/${selectedCountry.iso.toLowerCase()}.png`}
+                          srcSet={`https://flagcdn.com/w80/${selectedCountry.iso.toLowerCase()}.png 2x`}
+                          alt={selectedCountry.name}
+                          className="w-5 h-3.5 object-cover rounded-sm shadow-sm shrink-0"
+                          loading="eager"
+                        />
+                        <span>{selectedCountry.code}</span>
+                        <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isCountryDropdownOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {/* Phone Input */}
                       <input
                         type="tel"
                         required
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="0917 123 4567"
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-brand-lime"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        placeholder="123-456-7890"
+                        className="w-full bg-transparent px-4 py-3 text-sm text-white focus:outline-none font-mono"
                       />
+
+                      {/* Floating Dropdown Card */}
+                      {isCountryDropdownOpen && (
+                        <div className="absolute top-full left-0 mt-1.5 w-72 max-h-72 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 p-2 flex flex-col gap-1.5">
+                          {/* Search Input Box */}
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text"
+                              value={countrySearchQuery}
+                              onChange={(e) => setCountrySearchQuery(e.target.value)}
+                              placeholder="Search country or code..."
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+                              autoFocus
+                            />
+                          </div>
+
+                          {/* Country List */}
+                          <div className="overflow-y-auto max-h-56 divide-y divide-slate-800/40 pr-0.5">
+                            {filteredCountries.length > 0 ? (
+                              filteredCountries.map((c) => {
+                                const isSelected = selectedCountry.iso === c.iso && selectedCountry.code === c.code;
+                                return (
+                                  <button
+                                    key={`${c.iso}-${c.code}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedCountry(c);
+                                      setIsCountryDropdownOpen(false);
+                                      setCountrySearchQuery('');
+                                    }}
+                                    className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs sm:text-sm transition-colors text-left ${
+                                      isSelected ? 'bg-slate-800 text-brand-lime font-medium' : 'text-slate-200 hover:bg-slate-800/60'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <img
+                                        src={`https://flagcdn.com/w40/${c.iso.toLowerCase()}.png`}
+                                        srcSet={`https://flagcdn.com/w80/${c.iso.toLowerCase()}.png 2x`}
+                                        alt={c.name}
+                                        className="w-5 h-3.5 object-cover rounded-sm shadow-sm shrink-0"
+                                        loading="lazy"
+                                      />
+                                      <span className="truncate">{c.name}</span>
+                                      <span className="text-slate-400 font-mono text-xs shrink-0">({c.code})</span>
+                                    </div>
+                                    {isSelected && <Check className="w-4 h-4 text-brand-lime shrink-0 ml-2" />}
+                                  </button>
+                                );
+                              })
+                            ) : (
+                              <div className="p-3 text-center text-xs text-slate-500">No country found</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 

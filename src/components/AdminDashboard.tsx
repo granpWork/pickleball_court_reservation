@@ -15,7 +15,7 @@ import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
 import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminCompaniesSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -457,6 +457,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   });
 
   const [courtsSubTab, setCourtsSubTab] = useState<AdminCourtsSubTab>('list');
+  const [companiesSubTab] = useState<AdminCompaniesSubTab>('all');
 
   useEffect(() => {
     try {
@@ -635,6 +636,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // User Invitation Modal States
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [selectedInviteLeadId, setSelectedInviteLeadId] = useState<string | null>(null);
   const [inviteRoleInput, setInviteRoleInput] = useState<'client_admin' | 'super_admin' | 'player' | 'manager' | 'editor'>('client_admin');
   const [inviteEmailInput, setInviteEmailInput] = useState('');
   const [inviteNameInput, setInviteNameInput] = useState('');
@@ -699,7 +701,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const companyParam = encodeURIComponent(assignedCompany);
       const inviteUrl = `${baseUrl}/register?inviteToken=${inviteToken}&email=${encodeURIComponent(inviteEmailInput.trim())}&company=${companyParam}&role=${inviteRoleInput}`;
 
-      const inviteData = {
+      const rawInviteData = {
         token: inviteToken,
         email: inviteEmailInput.toLowerCase().trim(),
         name: inviteNameInput.trim(),
@@ -720,6 +722,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         trialExpiresAt,
         trialDurationDays: inviteSubscriptionPlan === 'trial' ? inviteTrialDays : undefined,
       };
+
+      const inviteData = Object.fromEntries(
+        Object.entries(rawInviteData).filter(([_, value]) => value !== undefined)
+      );
 
       if (db) {
         await setDoc(doc(db, 'invitations', inviteToken), inviteData);
@@ -771,6 +777,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [companyNameInput, setCompanyNameInput] = useState('');
   const [companyAddressInput, setCompanyAddressInput] = useState('');
   const [clientAdminEmailInput, setClientAdminEmailInput] = useState('');
+  const [companyPhoneInput, setCompanyPhoneInput] = useState('');
   const [companyStatusInput, setCompanyStatusInput] = useState<'pending' | 'active' | 'inactive'>('pending');
 
 
@@ -3235,17 +3242,42 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
       }
 
-    // Cross-tab storage listener
+    // Real-time Firestore onSnapshot for companies
+    let unsubscribeCompanies: (() => void) | null = null;
+    if (isFirebaseConfigured && db) {
+      try {
+        unsubscribeCompanies = onSnapshot(collection(db!, 'companies'), () => {
+          fetchData();
+        });
+      } catch (err) {
+        console.warn('Failed to initialize real-time companies listener:', err);
+      }
+    }
+
+    // Cross-tab & Custom event listeners
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'picklepoint_bookings' || e.key === 'picklepoint_openplay_registrations') {
+      if (
+        e.key === 'picklepoint_bookings' ||
+        e.key === 'picklepoint_openplay_registrations' ||
+        e.key === 'picklepoint_companies' ||
+        e.key === 'picklepoint_venue_leads'
+      ) {
         fetchData();
       }
     };
-    window.addEventListener('storage', handleStorageChange);
 
-  return () => {
+    const handleCompanyUpdate = () => {
+      fetchData();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('picklepoint_company_updated', handleCompanyUpdate);
+
+    return () => {
       if (unsubscribeBookings) unsubscribeBookings();
+      if (unsubscribeCompanies) unsubscribeCompanies();
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('picklepoint_company_updated', handleCompanyUpdate);
     };
   }, [courts, isSuperAdmin, currentUserUid, currentUserEmail, myCompany]);
 
@@ -5030,6 +5062,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleOpenInviteClientAdmin = () => {
+    setSelectedInviteLeadId(null);
     setInviteEmailInput('');
     setInviteNameInput('');
     setInviteCustomMessage('');
@@ -5048,7 +5081,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
 
     const assignedRole = inviteRoleInput || (isSuperAdmin ? 'client_admin' : 'manager');
-    const assignedCompany = effectiveOrgName || myCompany?.name || userObj?.companyName || 'Facility';
+    const assignedCompany = inviteCompanyNameInput.trim() || effectiveOrgName || myCompany?.name || userObj?.companyName || 'Facility';
     const assignedCompanyId = myCompany?.id || (user as any)?.companyId || '';
 
     setInviteLoading(true);
@@ -5078,9 +5111,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         inviteRecord.customMessage = inviteCustomMessage.trim();
       }
 
+      const cleanInviteRecord = Object.fromEntries(
+        Object.entries(inviteRecord).filter(([_, value]) => value !== undefined)
+      );
+
       if (isFirebaseConfigured && db) {
         try {
-          await setDoc(doc(db, 'invitations', token), inviteRecord);
+          await setDoc(doc(db, 'invitations', token), cleanInviteRecord);
         } catch (fErr) {
           console.error('Error saving invitation to Firestore:', fErr);
           throw fErr;
@@ -5101,6 +5138,57 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         invitedBy: currentUserEmail || user?.email || 'Administrator',
         customMessage: inviteCustomMessage.trim() || undefined,
       });
+
+      // Mark matching lead in client_leads as invited upon successful invitation dispatch
+      if (isFirebaseConfigured && db) {
+        try {
+          const leadsSnap = await getDocs(collection(db, 'client_leads'));
+          for (const dSnap of leadsSnap.docs) {
+            const data = dSnap.data();
+            const leadEmail = (data.email || data.applicantEmail || data.clientAdminEmail || '').trim().toLowerCase();
+            const isMatch =
+              dSnap.id === selectedInviteLeadId ||
+              (data.id && data.id === selectedInviteLeadId) ||
+              (leadEmail && leadEmail === targetEmail);
+
+            if (isMatch) {
+              await updateDoc(doc(db, 'client_leads', dSnap.id), {
+                status: 'invited',
+                invitedAt: new Date().toISOString(),
+              });
+            }
+          }
+        } catch (lErr) {
+          console.warn('Error updating matching client_leads status:', lErr);
+        }
+      }
+
+      try {
+        const localLeadsStr = localStorage.getItem('picklepoint_venue_leads');
+        if (localLeadsStr) {
+          const localLeads = JSON.parse(localLeadsStr);
+          if (Array.isArray(localLeads)) {
+            const updated = localLeads.map((l: any) => {
+              const lEmail = (l.email || l.applicantEmail || l.clientAdminEmail || '').trim().toLowerCase();
+              const isMatch =
+                l.id === selectedInviteLeadId ||
+                (l.id && l.id === selectedInviteLeadId) ||
+                (lEmail && lEmail === targetEmail);
+              return isMatch
+                ? { ...l, status: 'invited', invitedAt: new Date().toISOString() }
+                : l;
+            });
+            localStorage.setItem('picklepoint_venue_leads', JSON.stringify(updated));
+          }
+        }
+      } catch (e) {}
+
+      // Dispatch custom event with lead details to refresh venue application lists in real-time
+      window.dispatchEvent(
+        new CustomEvent('picklepoint_lead_updated', {
+          detail: { leadId: selectedInviteLeadId, email: targetEmail, status: 'invited' },
+        })
+      );
 
       setInviteSuccessInfo({
         email: targetEmail,
@@ -5123,11 +5211,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
 
   // Company Management Handlers
-  const handleOpenCreateCompany = () => {
+  const handleOpenCreateCompany = (initialData?: any) => {
     setEditingCompany(null);
-    setCompanyNameInput('');
-    setCompanyAddressInput('');
-    setClientAdminEmailInput('');
+    setCompanyNameInput(initialData?.facilityName || initialData?.name || initialData?.companyName || '');
+    setCompanyAddressInput(initialData?.cityLocation || initialData?.address || initialData?.location || '');
+    setClientAdminEmailInput(initialData?.email || initialData?.clientAdminEmail || '');
+    setCompanyPhoneInput(initialData?.phone || initialData?.mobilePhone || initialData?.contactPhone || '');
     setCompanyStatusInput('pending');
     setCompanyModalOpen(true);
   };
@@ -5216,6 +5305,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       address: companyAddressInput.trim(),
       clientAdminEmail: clientAdminEmailInput.trim().toLowerCase(),
       status: finalStatus,
+      phone: companyPhoneInput.trim() || undefined,
       createdAt: editingCompany ? editingCompany.createdAt : new Date().toISOString(),
     };
 
@@ -6587,7 +6677,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         bookingsCount={bookings.length}
         pendingBookingsCount={pendingBookings.length}
         companiesCount={companies.length}
-        pendingCompaniesCount={companies.filter((c) => c.status === 'pending').length}
+        pendingCompaniesCount={(() => {
+          const pendingCompCount = companies.filter((c) => c.status === 'pending').length;
+          let pendingLeadsCount = 0;
+          try {
+            const rawLeads = localStorage.getItem('picklepoint_venue_leads');
+            if (rawLeads) {
+              const parsed = JSON.parse(rawLeads);
+              if (Array.isArray(parsed)) {
+                pendingLeadsCount = parsed.filter((l: any) => l.status !== 'invited').length;
+              }
+            }
+          } catch (e) {}
+          return pendingCompCount + pendingLeadsCount;
+        })()}
         pendingVerificationCount={pendingVerificationCount}
         openPlayCount={openPlayEvents.length}
         personalAccountsCount={personalAccounts.length}
@@ -6781,8 +6884,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               companies={companies}
               courts={courts}
               users={users}
+              companiesSubTab={companiesSubTab}
               onOpenOnboardModal={handleOpenCreateCompany}
-              onOpenInviteModal={(comp) => { setInviteModalOpen(true); if (comp) setInviteEmailInput(comp.clientAdminEmail || ''); }}
+              onOpenInviteModal={(comp: any) => {
+                setInviteModalOpen(true);
+                if (comp) {
+                  setSelectedInviteLeadId(comp.id || comp.leadId || null);
+                  setInviteEmailInput(comp.clientAdminEmail || comp.email || '');
+                  setInviteNameInput(comp.fullName || comp.contactPerson || '');
+                  setInviteCompanyNameInput(comp.facilityName || comp.name || '');
+                } else {
+                  setSelectedInviteLeadId(null);
+                }
+              }}
               onApproveCompany={(id) => handleQuickUpdateCompanyStatus(id, 'active')}
               onRejectCompany={(id) => handleQuickUpdateCompanyStatus(id, 'inactive')}
               onDeleteCompany={(id) => handleDeleteCompany(id)}
@@ -9784,6 +9898,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 />
               </div>
 
+              {/* Contact Phone Number */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Contact Phone Number
+                </label>
+                <input
+                  type="tel"
+                  placeholder="e.g. 0917-123-4567"
+                  value={companyPhoneInput}
+                  onChange={(e) => setCompanyPhoneInput(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20"
+                />
+              </div>
+
               {/* Client Admin Email */}
               <div>
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
@@ -10117,6 +10245,26 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     onChange={(e) => setInviteNameInput(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 font-medium"
                   />
+                </div>
+
+                {/* Assigned Facility / Company Name */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                    Assigned Facility / Company Name <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      <Building2 className="w-4 h-4" />
+                    </span>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Metro Pickleball Club"
+                      value={inviteCompanyNameInput}
+                      onChange={(e) => setInviteCompanyNameInput(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 font-medium"
+                    />
+                  </div>
                 </div>
 
                 {/* Token Expiration Window */}
