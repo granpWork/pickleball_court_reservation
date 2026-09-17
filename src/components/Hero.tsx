@@ -226,9 +226,11 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
     );
   };
 
-  const fetchData = async () => {
-    setLoading(true);
-    setOpenPlayLoading(true);
+  const fetchData = async (isInitial = false) => {
+    if (isInitial) {
+      setLoading(true);
+      setOpenPlayLoading(true);
+    }
     try {
       if (isFirebaseConfigured && db) {
         try {
@@ -419,10 +421,10 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
   };
 
   useEffect(() => {
-    fetchData();
+    fetchData(true);
 
     const handleStorageUpdate = () => {
-      fetchData();
+      fetchData(false);
     };
 
     window.addEventListener('storage', handleStorageUpdate);
@@ -959,7 +961,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
           </div>
 
           {/* Results Header section & Segmented Tab Switcher */}
-          <div id="venues-results" className="w-full mt-6 animate-fade-in text-left scroll-mt-24">
+          <div id="venues-results" className="w-full mt-6 text-left scroll-mt-24">
             
             {/* Segmented View Switcher Bar */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -1117,7 +1119,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
 
             {/* Collapsible Filter Options Panel (For Courts) */}
             {activeTab === 'courts' && showFilterOptions && (
-              <div className="mt-4 p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80 backdrop-blur-2xl animate-fade-in flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
+              <div className="mt-4 p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80 backdrop-blur-2xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
                 <div className="flex items-center gap-1.5 bg-slate-950/60 p-1 rounded-xl border border-slate-800/80 overflow-x-auto scrollbar-none max-w-full">
                   {['All', 'Indoor', 'Outdoor', 'Multi-Court', 'Premium'].map((cat) => (
                     <button
@@ -1162,7 +1164,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
           {activeTab === 'courts' && (
             <>
               {loading ? (
-                <div className="py-8 space-y-8 animate-fade-in">
+                <div className="py-8 space-y-8">
                   <div className="flex flex-col items-center justify-center text-center space-y-3">
                     <div className="relative flex items-center justify-center">
                       <div className="w-12 h-12 rounded-full border-2 border-slate-800 border-t-brand-lime animate-spin"></div>
@@ -1209,7 +1211,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                   </p>
                 </div>
               ) : viewMode === 'grid' ? (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in">
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {sortedVenues.map((v) => (
                     <div
                       key={v.venueId}
@@ -1328,7 +1330,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                   ))}
                 </div>
               ) : (
-                <div className="space-y-4 animate-fade-in">
+                <div className="space-y-4">
                   {sortedVenues.map((v) => (
                     <div
                       key={v.venueId}
@@ -1448,7 +1450,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                   <p className="text-sm text-slate-400 font-medium">Loading Open Play sessions...</p>
                 </div>
               ) : filteredOpenPlayEvents.length === 0 ? (
-                <div className="p-12 sm:p-16 rounded-3xl glass-panel border border-slate-800 text-center animate-fade-in">
+                <div className="p-12 sm:p-16 rounded-3xl glass-panel border border-slate-800 text-center">
                   <Trophy className="w-14 h-14 text-slate-600 mx-auto mb-4" />
                   <h3 className="text-lg font-bold text-white mb-2">
                     No Open Play Sessions Found
@@ -1472,7 +1474,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left animate-fade-in">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
                   {filteredOpenPlayEvents.map((event) => {
                     const isExpired = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired' || event.status === 'completed';
                     const eventRegCount = openPlayRegistrations

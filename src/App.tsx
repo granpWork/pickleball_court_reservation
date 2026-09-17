@@ -69,6 +69,29 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     return params.get('eventId') || params.get('openplay') || null;
   });
+
+  const handleSelectOpenPlayEvent = (id: string | null, tab?: string) => {
+    setOpenPlayEventId(id);
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        if (id) {
+          url.pathname = '/open-play';
+          url.searchParams.set('eventId', id);
+          if (tab) {
+            url.searchParams.set('tab', tab);
+          } else {
+            url.searchParams.delete('tab');
+          }
+        } else {
+          url.searchParams.delete('eventId');
+          url.searchParams.delete('openplay');
+          url.searchParams.delete('tab');
+        }
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    }
+  };
   const [landingSearchDate, setLandingSearchDate] = useState<string>('');
   const [selectedCourtId, setSelectedCourtIdState] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -112,7 +135,9 @@ function App() {
   };
 
   const handleSetView = (nextView: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt') => {
-    setOpenPlayEventId(null);
+    if (nextView !== 'openplay' && nextView !== 'login' && nextView !== 'register') {
+      handleSelectOpenPlayEvent(null);
+    }
     if (isUserUnonboardedClientAdmin(user) && nextView !== 'client_onboarding' && nextView !== 'login' && nextView !== 'register') {
       if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
         window.history.pushState({}, '', '/');
@@ -723,7 +748,21 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       const pathname = window.location.pathname;
+      const searchParams = new URLSearchParams(window.location.search);
+      const openPlayParam = searchParams.get('eventId') || searchParams.get('openplay');
       const savedCheckoutStr = sessionStorage.getItem('picklepoint_checkout_details');
+
+      if (openPlayParam) {
+        setOpenPlayEventId(openPlayParam);
+        setView('openplay');
+        return;
+      }
+
+      if (pathname === '/open-play' || searchParams.get('view') === 'openplay') {
+        setOpenPlayEventId(null);
+        setView('openplay');
+        return;
+      }
 
       if (pathname === '/pickle-admin') {
         if (user && (user.isAdmin || user.email.toLowerCase() === 'admin@picklepoint.com')) {
@@ -939,8 +978,7 @@ function App() {
             setView={handleSetView}
             onNavigateToAuth={(mode) => setView(mode)} 
             onBack={() => {
-              setOpenPlayEventId(null);
-              window.history.pushState({}, '', '/open-play');
+              handleSelectOpenPlayEvent(null);
               setView('openplay');
             }} 
           />
@@ -1052,7 +1090,7 @@ function App() {
           <OpenPlayPage
             onSelectEvent={(eventId) => {
               window.scrollTo({ top: 0, behavior: 'instant' });
-              setOpenPlayEventId(eventId);
+              handleSelectOpenPlayEvent(eventId);
             }}
             setView={handleSetView}
           />
@@ -1213,7 +1251,7 @@ function App() {
           setSearchDate={setLandingSearchDate}
           onSelectOpenPlayEvent={(eventId) => {
             window.scrollTo({ top: 0, behavior: 'instant' });
-            setOpenPlayEventId(eventId);
+            handleSelectOpenPlayEvent(eventId);
             setView('openplay');
           }}
         />

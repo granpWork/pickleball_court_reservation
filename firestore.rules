@@ -10,10 +10,12 @@ service cloud.firestore {
     }
 
     function isPrimaryAdmin() {
-      return request.auth != null && (
-        request.auth.token.email == 'admin@picklepoint.com' ||
-        request.auth.token.email.matches('(?i)admin@picklepoint\\.com')
-      );
+      return isAuthenticated() &&
+        request.auth.token != null &&
+        request.auth.token.email != null && (
+          request.auth.token.email == 'admin@picklepoint.com' ||
+          request.auth.token.email.matches('(?i)admin@picklepoint\\.com')
+        );
     }
 
     function isSuperAdmin() {
@@ -43,6 +45,17 @@ service cloud.firestore {
       return isSuperAdmin() || isClientAdmin() || isFacilityManager();
     }
 
+    // Helper: Identifies if a request attempts to modify subscription parameters
+    function isModifyingSubscription() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'subscriptionPlan',
+        'subscriptionStatus',
+        'subscriptionExpiresAt',
+        'trialExpiresAt',
+        'isTrialClient'
+      ]);
+    }
+
     // ==========================================
     // 1. Users Collection
     // ==========================================
@@ -55,7 +68,11 @@ service cloud.firestore {
     // ==========================================
     match /companies/{companyId} {
       allow read: if true;
-      allow write: if isAdmin() || isAuthenticated();
+      
+      // Super Admins can edit anything; Client Admins can edit profile except subscription fields
+      allow create: if isSuperAdmin() || (!isModifyingSubscription() && (isAdmin() || isAuthenticated()));
+      allow update: if isSuperAdmin() || (!isModifyingSubscription() && (isAdmin() || isAuthenticated()));
+      allow delete: if isSuperAdmin();
 
       match /{allSubcollections=**} {
         allow read: if true;
@@ -101,10 +118,14 @@ service cloud.firestore {
     }
 
     // ==========================================
-    // 7. Open Play Events & Registrations
+    // 7. Open Play Events & Registrations & Subcollection Chat
     // ==========================================
     match /openplay_events/{eventId} {
       allow read, write: if true;
+
+      match /{allSubcollections=**} {
+        allow read, write: if true;
+      }
     }
 
     match /openplay_registrations/{registrationId} {

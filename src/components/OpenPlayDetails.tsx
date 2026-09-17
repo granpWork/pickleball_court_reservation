@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Trophy,
   Calendar,
@@ -22,10 +22,34 @@ import {
   Award,
   EyeOff,
   Globe,
+  MessageSquare,
+  Send,
+  Hourglass,
+  Search,
+  MessageCircle,
+  CornerUpLeft,
 } from 'lucide-react';
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { db, isFirebaseConfigured } from '../firebase';
-import { doc, getDoc, collection, getDocs, setDoc, query, where } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, setDoc, query, where, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
+
+export interface OpenPlayChatMessage {
+  id: string;
+  eventId: string;
+  senderUid: string;
+  senderName: string;
+  senderPhotoUrl?: string;
+  message: string;
+  createdAt: string;
+  isHost?: boolean;
+  senderStatus?: 'approved' | 'pending' | 'waitlisted';
+  replyTo?: {
+    messageId: string;
+    senderName: string;
+    textSnippet: string;
+  };
+  reactions?: Record<string, string[]>;
+}
 
 export interface OpenPlayEvent {
   id: string;
@@ -72,278 +96,22 @@ export interface AssignedCourtInfo {
   longitude?: number;
 }
 
-export const isEventExpired = (eventDate: string, endTime?: string): boolean => {
-  if (!eventDate || !eventDate.trim()) return false;
-  const now = new Date();
-  
-  let evYear: number | null = null;
-  let evMonth: number | null = null;
-  let evDay: number | null = null;
+import {
+  isEventExpired,
+  calculateEventDuration,
+  formatTime12h,
+  formatEventDateLong,
+  splitAddressComponents,
+  normalizeOpenPlayEvent,
+} from '../utils/openPlayUtils';
 
-  const trimmedDate = eventDate.trim();
-  
-  const isoMatch = trimmedDate.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  const usMatch = trimmedDate.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-
-  if (isoMatch) {
-    evYear = parseInt(isoMatch[1], 10);
-    evMonth = parseInt(isoMatch[2], 10);
-    evDay = parseInt(isoMatch[3], 10);
-  } else if (usMatch) {
-    evMonth = parseInt(usMatch[1], 10);
-    evDay = parseInt(usMatch[2], 10);
-    evYear = parseInt(usMatch[3], 10);
-  } else {
-    const parsed = new Date(trimmedDate);
-    if (!isNaN(parsed.getTime())) {
-      evYear = parsed.getFullYear();
-      evMonth = parsed.getMonth() + 1;
-      evDay = parsed.getDate();
-    }
-  }
-
-  if (!evYear || !evMonth || !evDay) return false;
-
-  const curYear = now.getFullYear();
-  const curMonth = now.getMonth() + 1;
-  const curDay = now.getDate();
-
-  if (evYear < curYear) return true;
-  if (evYear > curYear) return false;
-
-  if (evMonth < curMonth) return true;
-  if (evMonth > curMonth) return false;
-
-  if (evDay < curDay) return true;
-  if (evDay > curDay) return false;
-
-  if (!endTime || !endTime.trim()) return false;
-
-  let endHour = 23;
-  let endMinute = 59;
-  
-  const trimmedTime = endTime.trim();
-  if (trimmedTime.includes(':')) {
-    const parts = trimmedTime.split(':');
-    let h = parseInt(parts[0], 10);
-    const m = parseInt(parts[1]?.substring(0, 2) || '0', 10);
-    
-    if (trimmedTime.toLowerCase().includes('pm') && h < 12) h += 12;
-    if (trimmedTime.toLowerCase().includes('am') && h === 12) h = 0;
-    
-    endHour = isNaN(h) ? 23 : h;
-    endMinute = isNaN(m) ? 59 : m;
-  }
-  
-  const curHour = now.getHours();
-  const curMinute = now.getMinutes();
-  
-  if (curHour > endHour) return true;
-  if (curHour === endHour && curMinute >= endMinute) return true;
-  
-  return false;
-};
-
-export const calculateEventDuration = (startTime?: string, endTime?: string): string => {
-  if (!startTime || !endTime) return '';
-  
-  const parseMins = (tStr: string) => {
-    const trimmed = tStr.trim();
-    let h = 0;
-    let m = 0;
-    if (trimmed.includes(':')) {
-      const parts = trimmed.split(':');
-      h = parseInt(parts[0], 10) || 0;
-      m = parseInt(parts[1]?.substring(0, 2) || '0', 10) || 0;
-      if (trimmed.toLowerCase().includes('pm') && h < 12) h += 12;
-      if (trimmed.toLowerCase().includes('am') && h === 12) h = 0;
-    }
-    return h * 60 + m;
-  };
-
-  const startMins = parseMins(startTime);
-  let endMins = parseMins(endTime);
-
-  if (endMins <= startMins) {
-    endMins += 24 * 60;
-  }
-
-  const diffMins = endMins - startMins;
-  const hours = Math.floor(diffMins / 60);
-  const mins = diffMins % 60;
-
-  if (hours > 0 && mins > 0) {
-    return `${hours} hrs ${mins} mins gameplay`;
-  } else if (hours > 0) {
-    return `${hours} ${hours === 1 ? 'hr' : 'hrs'} gameplay`;
-  } else {
-    return `${mins} mins gameplay`;
-  }
-};
-
-export const formatTime12h = (timeStr?: string): string => {
-  if (!timeStr) return '';
-  const trimmed = timeStr.trim();
-  const match12 = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (match12) {
-    const h = parseInt(match12[1], 10);
-    return `${h}:${match12[2]} ${match12[3].toUpperCase()}`;
-  }
-  
-  let h = 0;
-  let m = 0;
-  if (trimmed.includes(':')) {
-    const parts = trimmed.split(':');
-    h = parseInt(parts[0], 10) || 0;
-    m = parseInt(parts[1]?.substring(0, 2) || '0', 10) || 0;
-  }
-  const period = h >= 12 ? 'PM' : 'AM';
-  const displayH = h % 12 || 12;
-  return `${displayH}:${m.toString().padStart(2, '0')} ${period}`;
-};
-
-export const formatEventDateLong = (dateStr?: string): string => {
-  if (!dateStr || !dateStr.trim()) return '';
-  
-  const match = dateStr.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) {
-    const year = parseInt(match[1], 10);
-    const monthIndex = parseInt(match[2], 10) - 1;
-    const day = parseInt(match[3], 10);
-    const d = new Date(year, monthIndex, day);
-    if (!isNaN(d.getTime())) {
-      const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
-      ];
-      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${dayNames[d.getDay()]}`;
-    }
-  }
-
-  try {
-    const d = new Date(dateStr);
-    if (!isNaN(d.getTime())) {
-      const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
-      ];
-      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      return `${monthNames[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${dayNames[d.getDay()]}`;
-    }
-  } catch (e) {}
-
-  return dateStr;
-};
-
-export const splitAddressComponents = (locationStr?: string) => {
-  if (!locationStr || !locationStr.trim()) return { primary: '', secondary: '' };
-  
-  let cleaned = locationStr.trim();
-  cleaned = cleaned.replace(/,\s*Philippines$/i, '');
-  cleaned = cleaned.replace(/,\s*Region\s+[I|V|X|VI|VII|VIII|IX|XI|XII|XIII\d]+(?:\s*\([^)]*\))?/gi, '');
-  cleaned = cleaned.replace(/,\s*Postal:\s*\d+/gi, '');
-  cleaned = cleaned.replace(/,\s*\d{4,}$/gi, '');
-
-  const parts = cleaned.split(',').map(s => s.trim()).filter(Boolean);
-  
-  if (parts.length <= 1) {
-    return { primary: cleaned, secondary: '' };
-  }
-
-  if (parts.length === 2) {
-    return { primary: parts[0], secondary: parts[1] };
-  }
-
-  let secondaryStartIndex = Math.max(1, parts.length - 2);
-  
-  for (let i = 0; i < parts.length; i++) {
-    const partLower = parts[i].toLowerCase();
-    if (
-      partLower.includes('city') ||
-      partLower.includes('municipality') ||
-      partLower.includes('libmanan') ||
-      partLower.includes('naga') ||
-      partLower.includes('sur') ||
-      partLower.includes('norte') ||
-      partLower.includes('metro') ||
-      partLower.includes('manila')
-    ) {
-      secondaryStartIndex = i;
-      break;
-    }
-  }
-
-  const primary = parts.slice(0, secondaryStartIndex).join(', ');
-  const secondary = parts.slice(secondaryStartIndex).join(', ');
-
-  return { primary: primary || parts[0], secondary: secondary || parts.slice(1).join(', ') };
-};
-
-export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => {
-  if (!data) {
-    return {
-      id,
-      title: 'Open Play Session',
-      eventDate: '',
-      startTime: '18:00',
-      endTime: '21:00',
-      category: 'Open to All',
-      description: '',
-      maxParticipants: 16,
-      registrationFee: 0,
-      createdByUid: '',
-      createdByEmail: '',
-      createdAt: new Date().toISOString(),
-      status: 'active'
-    };
-  }
-
-  const eventDate = data.eventDate || data.date || data.startDate || data.event_date || data.scheduleDate || data.day || '';
-  const endTime = data.endTime || '21:00';
-  const isPast = isEventExpired(eventDate, endTime);
-
-  let effectiveStatus: 'draft' | 'active' | 'completed' | 'cancelled' | 'expired' = data.status || (isPast ? 'expired' : 'active');
-  if (isPast && effectiveStatus === 'active') {
-    effectiveStatus = 'expired';
-  } else if (!isPast && effectiveStatus === 'expired') {
-    effectiveStatus = data.status || 'active';
-  }
-
-  const rawMax = data?.maxParticipants ?? data?.maxPlayers ?? data?.capacity ?? data?.max_participants;
-  const parsedMax = Number(rawMax);
-  const finalMax = (!isNaN(parsedMax) && parsedMax > 0) ? parsedMax : 16;
-
-  return {
-    id,
-    title: data.title || data.name || data.eventTitle || 'Open Play Session',
-    location: data.location || data.address || '',
-    eventDate,
-    startTime: data.startTime || '18:00',
-    endTime,
-    category: data.category || data.skillLevel || 'Open to All',
-    description: data.description || '',
-    posterImageUrl: data.posterImageUrl || data.imageUrl || data.posterUrl || undefined,
-    maxParticipants: finalMax,
-    registrationFee: Number(data.registrationFee || data.fee || data.price) || 0,
-    gcashAccountId: data.gcashAccountId || 'global',
-    gcashName: data.gcashName || '',
-    gcashNumber: data.gcashNumber || '',
-    gcashQrCode: data.gcashQrCode || '',
-    companyId: data.companyId || '',
-    companyName: data.companyName || '',
-    companyLogoUrl: data.companyLogoUrl || data.logoUrl || data.companyLogo || undefined,
-    createdByUid: data.createdByUid || '',
-    createdByEmail: data.createdByEmail || '',
-    createdAt: data.createdAt || new Date().toISOString(),
-    status: effectiveStatus,
-    rotationRule: data.rotationRule || 'winners_stay',
-    courtIds: data.courtIds || [],
-    courtNames: data.courtNames || [],
-    isRecurring: Boolean(data.isRecurring),
-    recurrencePattern: data.recurrencePattern,
-    recurrenceGroupId: data.recurrenceGroupId
-  };
+export {
+  isEventExpired,
+  calculateEventDuration,
+  formatTime12h,
+  formatEventDateLong,
+  splitAddressComponents,
+  normalizeOpenPlayEvent,
 };
 
 export interface OpenPlayRegistration {
@@ -384,6 +152,11 @@ interface OpenPlayDetailsProps {
   setView?: (view: any) => void;
 }
 
+const chatBroadcastChannel =
+  typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('picklepoint_openplay_chat_channel')
+    : null;
+
 export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBack, setCheckoutDetails, setView }: OpenPlayDetailsProps) {
   const [event, setEvent] = useState<OpenPlayEvent | null>(null);
   const [registrations, setRegistrations] = useState<OpenPlayRegistration[]>([]);
@@ -402,10 +175,312 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   void step; void setStep; void playerPhone; void gcashRef; void receiptImage; void submitting; void setSubmitting;
 
+  // Bottom Roster Tabs & Chat States
+  const [rosterTab, setRosterTabState] = useState<'participants' | 'waitlist' | 'chat'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab === 'chat' || tab === 'waitlist' || tab === 'participants') return tab;
+    }
+    return 'participants';
+  });
+
+  const setRosterTab = (tab: 'participants' | 'waitlist' | 'chat') => {
+    setRosterTabState(tab);
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tab);
+        window.history.replaceState(null, '', url.toString());
+      } catch (e) {}
+    }
+  };
+  const [rosterSearch, setRosterSearch] = useState('');
+  const [chatMessages, setChatMessages] = useState<OpenPlayChatMessage[]>([]);
+  const [newChatMessage, setNewChatMessage] = useState('');
+  const [isSendingChat, setIsSendingChat] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<{ messageId: string; senderName: string; textSnippet: string } | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (rosterTab === 'chat' && chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages.length, rosterTab]);
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
     fetchEventDetails();
   }, [eventId]);
+
+  // Real-time Isolated Subcollection Chat Sync & Concluded Event Cleansing
+  useEffect(() => {
+    if (!eventId) return;
+
+    // Reset chat messages when eventId changes to prevent cross-event leakage
+    setChatMessages([]);
+    setReplyingTo(null);
+
+    const localKey = `picklepoint_op_chat_${eventId}`;
+    const isConcluded = event && (isEventExpired(event.eventDate, event.endTime) || event.status !== 'active');
+
+    const mergeAndSetMessages = (incoming: OpenPlayChatMessage[]) => {
+      setChatMessages((prev) => {
+        const map = new Map<string, OpenPlayChatMessage>();
+        prev.forEach((m) => map.set(m.id, m));
+        incoming.forEach((m) => map.set(m.id, m));
+        const list = Array.from(map.values());
+        list.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+        return list;
+      });
+    };
+
+    if (isConcluded) {
+      try {
+        localStorage.removeItem(localKey);
+      } catch (e) {}
+    } else {
+      try {
+        const savedStr = localStorage.getItem(localKey);
+        if (savedStr) {
+          const parsed = JSON.parse(savedStr);
+          if (Array.isArray(parsed)) mergeAndSetMessages(parsed);
+        }
+      } catch (e) {}
+    }
+
+    let handleChannelMessage: ((e: MessageEvent) => void) | null = null;
+    if (chatBroadcastChannel) {
+      handleChannelMessage = (e: MessageEvent) => {
+        if (e.data && e.data.type === 'CHAT_MSG' && e.data.eventId === eventId) {
+          if (e.data.msg) {
+            mergeAndSetMessages([e.data.msg]);
+          }
+        }
+      };
+      chatBroadcastChannel.addEventListener('message', handleChannelMessage);
+    }
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === localKey && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) mergeAndSetMessages(parsed);
+        } catch (err) {}
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    let mainUnsub: (() => void) | null = null;
+    let eventDocUnsub: (() => void) | null = null;
+
+    if (isFirebaseConfigured && db) {
+      // 1. Guaranteed Top-Level Event Document Listener (Immune to subcollection permission errors)
+      try {
+        const eventDocRef = doc(db!, 'openplay_events', eventId);
+        eventDocUnsub = onSnapshot(
+          eventDocRef,
+          (eSnap) => {
+            if (eSnap.exists()) {
+              const data = eSnap.data();
+              if (Array.isArray(data.chatFeed) && data.chatFeed.length > 0) {
+                mergeAndSetMessages(data.chatFeed);
+              }
+            }
+          },
+          () => {}
+        );
+      } catch (e) {}
+
+      // 2. Subcollection Listener
+      try {
+        const chatRef = collection(db!, 'openplay_events', eventId, 'messages');
+
+        mainUnsub = onSnapshot(
+          chatRef,
+          (snapshot) => {
+            const msgs: OpenPlayChatMessage[] = [];
+            snapshot.forEach((docSnap) => {
+              msgs.push({ id: docSnap.id, ...docSnap.data() } as OpenPlayChatMessage);
+            });
+
+            if (msgs.length > 0) {
+              mergeAndSetMessages(msgs);
+              if (!isConcluded) {
+                try {
+                  localStorage.setItem(localKey, JSON.stringify(msgs));
+                } catch (e) {}
+              }
+            }
+          },
+          (err) => {
+            console.warn('Subcollection chat snapshot warning:', err);
+          }
+        );
+      } catch (err) {
+        console.warn('Error setting up chat snapshot:', err);
+      }
+    }
+
+    return () => {
+      if (chatBroadcastChannel && handleChannelMessage) {
+        chatBroadcastChannel.removeEventListener('message', handleChannelMessage);
+      }
+      window.removeEventListener('storage', handleStorageChange);
+      if (mainUnsub) mainUnsub();
+      if (eventDocUnsub) eventDocUnsub();
+    };
+  }, [eventId]);
+
+  const handleSendChatMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChatMessage.trim() || !user) return;
+
+    // Disallow sending only if session is explicitly completed or cancelled by admin
+    if (event && (event.status === 'completed' || event.status === 'cancelled')) return;
+
+    // Determine primary player registration match if exists
+    const primaryReg = registrations.find((reg) => {
+      if ((reg as any).isAddGuestOnly === true) return false;
+      const uUid = (user.uid || '').trim().toLowerCase();
+      const uEmail = (user.email || '').trim().toLowerCase();
+      const uName = (user.name || '').trim().toLowerCase();
+
+      const rUid = (reg.playerUid || (reg as any).userId || (reg as any).user?.uid || '').trim().toLowerCase();
+      const rEmail = (reg.playerEmail || reg.userEmail || (reg as any).primaryPlayerEmail || (reg as any).email || '').trim().toLowerCase();
+      const rName = (reg.playerName || (reg as any).primaryPlayerName || (reg as any).userName || '').trim().toLowerCase();
+
+      if (uUid && rUid && uUid === rUid) return true;
+      if (uEmail && rEmail && uEmail === rEmail) return true;
+      if (uName && rName && uName === rName) return true;
+
+      if (Array.isArray(reg.guests)) {
+        return reg.guests.some((g: any) => {
+          const gEmail = (g.email || '').trim().toLowerCase();
+          const gUid = (g.uid || '').trim().toLowerCase();
+          return (uEmail && gEmail && uEmail === gEmail) || (uUid && gUid && uUid === gUid);
+        });
+      }
+      return false;
+    });
+
+    const isHost = Boolean(
+      event &&
+        (event.createdByUid === user.uid ||
+          event.createdByEmail === user.email ||
+          user.role === 'admin' ||
+          user.isAdmin)
+    );
+
+    // Determine status tag (approved, pending, or waitlisted)
+    let statusTag: 'approved' | 'pending' | 'waitlisted' = 'pending';
+    if (primaryReg) {
+      const isApproved = primaryReg.status === 'approved' || primaryReg.paymentStatus === 'paid';
+      const maxParticipants = event?.maxParticipants || 16;
+      const regIdx = registrations.findIndex((r) => r.id === primaryReg.id);
+      if (regIdx >= maxParticipants) {
+        statusTag = 'waitlisted';
+      } else {
+        statusTag = isApproved ? 'approved' : 'pending';
+      }
+    }
+
+    setIsSendingChat(true);
+    const msgText = newChatMessage.trim();
+    setNewChatMessage('');
+    const currentReply = replyingTo ? { ...replyingTo } : undefined;
+    setReplyingTo(null);
+
+    const newMsg: OpenPlayChatMessage = {
+      id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      eventId,
+      senderUid: user.uid || 'user_anon',
+      senderName: user.name || user.email || 'Player',
+      senderPhotoUrl: (user as any).photoUrl || (user as any).avatarUrl || `https://robohash.org/${encodeURIComponent(user.name || 'player')}?set=set4`,
+      message: msgText,
+      createdAt: new Date().toISOString(),
+      isHost,
+      senderStatus: statusTag,
+      replyTo: currentReply,
+      reactions: {},
+    };
+
+    setChatMessages((prev) => [...prev, newMsg]);
+
+    if (isFirebaseConfigured && db) {
+      try {
+        const cleanedMsg = JSON.parse(JSON.stringify(newMsg));
+        const results = await Promise.allSettled([
+          setDoc(doc(db!, 'openplay_events', eventId, 'messages', newMsg.id), cleanedMsg),
+          setDoc(
+            doc(db!, 'openplay_events', eventId),
+            { chatFeed: arrayUnion(cleanedMsg) },
+            { merge: true }
+          ),
+        ]);
+        results.forEach((res, idx) => {
+          if (res.status === 'rejected') {
+            console.error(`[PicklePoint Chat] Firestore write ${idx} failed:`, res.reason);
+          } else {
+            console.log(`[PicklePoint Chat] Firestore write ${idx} succeeded!`);
+          }
+        });
+      } catch (err) {
+        console.error('[PicklePoint Chat] Firestore write error:', err);
+      }
+    }
+
+    try {
+      const localKey = `picklepoint_op_chat_${eventId}`;
+      const existingStr = localStorage.getItem(localKey);
+      const existing: OpenPlayChatMessage[] = existingStr ? JSON.parse(existingStr) : [];
+      const updated = [...existing.filter((m) => m.id !== newMsg.id), newMsg];
+      localStorage.setItem(localKey, JSON.stringify(updated));
+      window.dispatchEvent(new Event('storage'));
+
+      if (chatBroadcastChannel) {
+        chatBroadcastChannel.postMessage({ type: 'CHAT_MSG', eventId, msg: newMsg });
+      }
+    } catch (e) {}
+
+    setIsSendingChat(false);
+  };
+
+  const handleToggleReaction = async (msgId: string, emoji: string) => {
+    if (!user) return;
+    const userUid = user.uid || user.email || user.name;
+
+    setChatMessages((prevMsgs) =>
+      prevMsgs.map((m) => {
+        if (m.id !== msgId) return m;
+        const currentReactions = { ...(m.reactions || {}) };
+        const existingUids = currentReactions[emoji] || [];
+        const hasReacted = existingUids.includes(userUid);
+
+        const newUids = hasReacted
+          ? existingUids.filter((u) => u !== userUid)
+          : [...existingUids, userUid];
+
+        if (newUids.length > 0) {
+          currentReactions[emoji] = newUids;
+        } else {
+          delete currentReactions[emoji];
+        }
+
+        const updatedMsg = { ...m, reactions: currentReactions };
+
+        if (isFirebaseConfigured && db) {
+          try {
+            updateDoc(doc(db!, 'openplay_events', eventId, 'messages', msgId), {
+              reactions: currentReactions,
+            }).catch(() => {});
+          } catch (e) {}
+        }
+
+        return updatedMsg;
+      })
+    );
+  };
 
   const fetchEventDetails = async () => {
     setLoading(true);
@@ -416,7 +491,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
       if (isFirebaseConfigured && db) {
         try {
-          const eventSnap = await getDoc(doc(db, 'openplay_events', eventId));
+          const eventSnap = await getDoc(doc(db!, 'openplay_events', eventId));
           if (eventSnap.exists()) {
             foundEvent = { id: eventSnap.id, ...eventSnap.data() } as OpenPlayEvent;
           }
@@ -441,7 +516,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
         if (isFirebaseConfigured && db) {
           if (foundEvent.companyId) {
             try {
-              const compSnap = await getDoc(doc(db, 'companies', foundEvent.companyId));
+              const compSnap = await getDoc(doc(db!, 'companies', foundEvent.companyId));
               if (compSnap.exists()) {
                 const compData = compSnap.data();
                 compName = compName || compData.name || compData.companyName || '';
@@ -451,7 +526,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
           }
           if ((!compName || !compLogo) && foundEvent.createdByUid) {
             try {
-              const userSnap = await getDoc(doc(db, 'users', foundEvent.createdByUid));
+              const userSnap = await getDoc(doc(db!, 'users', foundEvent.createdByUid));
               if (userSnap.exists()) {
                 const uData = userSnap.data();
                 compName = compName || uData.companyName || uData.name || '';
@@ -468,7 +543,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
         if (targetCourtId && isFirebaseConfigured && db) {
           try {
-            const courtSnap = await getDoc(doc(db, 'courts', targetCourtId));
+            const courtSnap = await getDoc(doc(db!, 'courts', targetCourtId));
             if (courtSnap.exists()) {
               const cData = courtSnap.data();
               matchedCourt = {
@@ -566,7 +641,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       if (isFirebaseConfigured && db) {
         try {
           // Query bookings collection
-          const bQuery = query(collection(db, 'bookings'), where('openPlayEventId', '==', eventId));
+          const bQuery = query(collection(db!, 'bookings'), where('openPlayEventId', '==', eventId));
           const bSnap = await getDocs(bQuery);
           bSnap.forEach(dSnap => {
             const b = dSnap.data();
@@ -597,7 +672,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
           });
 
           // Query legacy openplay_registrations collection
-          const q = query(collection(db, 'openplay_registrations'), where('eventId', '==', eventId));
+          const q = query(collection(db!, 'openplay_registrations'), where('eventId', '==', eventId));
           const regsSnap = await getDocs(q);
           regsSnap.forEach(dSnap => {
             const regData = dSnap.data() as OpenPlayRegistration;
@@ -863,7 +938,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     try {
       if (isFirebaseConfigured && db) {
         try {
-          await setDoc(doc(db, 'openplay_registrations', regId), payload);
+          await setDoc(doc(db!, 'openplay_registrations', regId), payload);
         } catch (cloudErr) {
           console.warn('Firestore openplay registration save failed, persisting locally:', cloudErr);
         }
@@ -1397,8 +1472,8 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
             )}
           </div>
 
-          {/* SESSION PARTICIPANT ROSTER CARD */}
-          {activeRegistrations.length > 0 && (() => {
+          {/* BOTTOM ROSTER & EVENT HUB (PARTICIPANTS, WAITING LIST, & SESSION CHAT) */}
+          {(() => {
             interface ParticipantCard {
               id: string;
               name: string;
@@ -1408,29 +1483,33 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
               guestIndex?: number;
               isApproved: boolean;
               dateStr: string;
+              registrationId: string;
             }
 
-            const participants: ParticipantCard[] = [];
-            activeRegistrations.forEach(reg => {
+            const allAttendees: ParticipantCard[] = [];
+            activeRegistrations.forEach((reg) => {
               const isApproved = reg.status === 'approved' || reg.paymentStatus === 'paid';
               const primaryName = reg.playerName || 'Player';
-              const primaryPhoto = (reg as any).photoUrl || (reg as any).playerPhotoUrl || (reg as any).avatarUrl || (reg as any).userPhotoUrl;
+              const primaryPhoto =
+                (reg as any).photoUrl ||
+                (reg as any).playerPhotoUrl ||
+                (reg as any).avatarUrl ||
+                (reg as any).userPhotoUrl;
               const dateStr = reg.createdAt ? reg.createdAt.split('T')[0] : 'Registered';
 
-              // Primary Player (Only if not an add-guest-only entry)
               const isAddGuestOnly = (reg as any).isAddGuestOnly === true;
               if (!isAddGuestOnly) {
-                participants.push({
+                allAttendees.push({
                   id: `${reg.id}-primary`,
                   name: primaryName,
                   type: 'primary',
                   photoUrl: primaryPhoto,
                   isApproved,
-                  dateStr
+                  dateStr,
+                  registrationId: reg.id,
                 });
               }
 
-              // Guests
               const spots = reg.playerCount || 1;
               const numGuests = isAddGuestOnly
                 ? Math.max(reg.guests?.length || 0, reg.guestNames?.length || 0, spots || 1)
@@ -1438,9 +1517,10 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
               const hostName = (reg as any).primaryPlayerName || primaryName;
 
               for (let gIdx = 0; gIdx < numGuests; gIdx++) {
-                const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
+                const gName =
+                  reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
                 const gPhoto = (reg.guests?.[gIdx] as any)?.photoUrl;
-                participants.push({
+                allAttendees.push({
                   id: `${reg.id}-guest-${gIdx}`,
                   name: gName,
                   type: 'guest',
@@ -1448,76 +1528,451 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                   hostName: hostName,
                   guestIndex: gIdx + 1,
                   isApproved,
-                  dateStr
+                  dateStr,
+                  registrationId: reg.id,
                 });
               }
             });
 
-            const totalHeadcount = participants.length;
-            const confirmedHeadcount = participants.filter(p => p.isApproved).length;
-            const pendingHeadcount = participants.filter(p => !p.isApproved).length;
+            const maxParticipants = event?.maxParticipants || 16;
+            const participants = allAttendees.slice(0, maxParticipants);
+            const waitlist = allAttendees.slice(maxParticipants);
+
+            const filteredParticipants = participants.filter((p) =>
+              p.name.toLowerCase().includes(rosterSearch.toLowerCase())
+            );
+            const filteredWaitlist = waitlist.filter((p) =>
+              p.name.toLowerCase().includes(rosterSearch.toLowerCase())
+            );
+
+            const confirmedCount = participants.filter((p) => p.isApproved).length;
+            const pendingCount = participants.filter((p) => !p.isApproved).length;
 
             return (
-              <div className="mt-8 pt-8 border-t border-dark-border/60 text-left animate-fade-in">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4 text-brand-lime" />
-                    <h3 className="text-sm font-extrabold text-white uppercase tracking-wider">
-                      Session Player & Guest Roster ({totalHeadcount} Attendees)
-                    </h3>
-                  </div>
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    {confirmedHeadcount} Confirmed • {pendingHeadcount} Pending Review
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                  {participants.map((p) => (
-                    <div
-                      key={p.id}
-                      className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs transition-all ${
-                        p.type === 'guest'
-                          ? 'bg-purple-950/20 border-purple-900/40 hover:border-purple-800/60'
-                          : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'
+              <div className="mt-8 pt-8 border-t border-dark-border/60 text-left">
+                {/* Tab Navigation Header */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 border-b border-slate-800 pb-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRosterTab('participants')}
+                      className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border ${
+                        rosterTab === 'participants'
+                          ? 'bg-brand-lime text-dark-bg border-brand-lime/40 shadow-lg shadow-brand-lime/10'
+                          : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
                       }`}
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-11 h-11 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60">
-                          <img
-                            src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
-                            alt={p.name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=b5f529&color=0f172a&bold=true`;
-                            }}
-                          />
-                        </div>
-                        <div className="truncate min-w-0">
-                          <div className="flex items-center gap-1.5 truncate">
-                            <span className="font-bold text-white truncate">
-                              {p.name}
-                            </span>
-                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase flex-shrink-0 ${
-                              p.type === 'guest'
-                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                : 'bg-brand-lime/10 text-brand-lime border border-brand-lime/30'
-                            }`}>
-                              {p.type === 'guest' ? 'Guest' : 'Player'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex-shrink-0 ${
-                        p.isApproved
-                          ? 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime'
-                          : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+                      <Users className="w-4 h-4" />
+                      <span>Participants</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                        rosterTab === 'participants' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
                       }`}>
-                        {p.isApproved ? 'Confirmed' : 'Pending'}
+                        {participants.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRosterTab('waitlist')}
+                      className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border ${
+                        rosterTab === 'waitlist'
+                          ? 'bg-amber-400 text-dark-bg border-amber-400/40 shadow-lg shadow-amber-400/10'
+                          : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      <Hourglass className="w-4 h-4" />
+                      <span>Waiting List</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                        rosterTab === 'waitlist' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
+                      }`}>
+                        {waitlist.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRosterTab('chat')}
+                      className={`px-4 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border ${
+                        rosterTab === 'chat'
+                          ? 'bg-purple-500 text-white border-purple-500/40 shadow-lg shadow-purple-500/20'
+                          : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>Session Chat</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                        rosterTab === 'chat' ? 'bg-white/20 text-white' : 'bg-slate-800 text-purple-300'
+                      }`}>
+                        {chatMessages.length}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Search Bar for Roster Tabs */}
+                  {(rosterTab === 'participants' || rosterTab === 'waitlist') && (
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search roster..."
+                        value={rosterSearch}
+                        onChange={(e) => setRosterSearch(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime/50"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* TAB 1: PARTICIPANTS */}
+                {rosterTab === 'participants' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                      <span>
+                        Showing <strong className="text-white">{filteredParticipants.length}</strong> of {participants.length} session slots filled
+                      </span>
+                      <span className="font-semibold text-slate-400">
+                        {confirmedCount} Confirmed • {pendingCount} Pending Review
                       </span>
                     </div>
-                  ))}
-                </div>
+
+                    {filteredParticipants.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                        {filteredParticipants.map((p) => (
+                          <div
+                            key={p.id}
+                            className={`p-3 rounded-xl border flex items-center justify-between gap-3 text-xs transition-all ${
+                              p.type === 'guest'
+                                ? 'bg-purple-950/20 border-purple-900/40 hover:border-purple-800/60'
+                                : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-11 h-11 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-slate-800/60">
+                                <img
+                                  src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                  alt={p.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=b5f529&color=0f172a&bold=true`;
+                                  }}
+                                />
+                              </div>
+                              <div className="truncate min-w-0">
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <span className="font-bold text-white truncate">{p.name}</span>
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase flex-shrink-0 ${
+                                      p.type === 'guest'
+                                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                        : 'bg-brand-lime/10 text-brand-lime border border-brand-lime/30'
+                                    }`}
+                                  >
+                                    {p.type === 'guest' ? 'Guest' : 'Player'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex-shrink-0 ${
+                                p.isApproved
+                                  ? 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime'
+                                  : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+                              }`}
+                            >
+                              {p.isApproved ? 'Confirmed' : 'Pending'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-8 rounded-2xl bg-slate-900/40 border border-slate-800 text-center text-slate-400 text-xs">
+                        No participants match your search criteria.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 2: WAITING LIST */}
+                {rosterTab === 'waitlist' && (
+                  <div className="space-y-4">
+                    {filteredWaitlist.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                        {filteredWaitlist.map((p, idx) => (
+                          <div
+                            key={p.id}
+                            className="p-3 rounded-xl border bg-slate-900/60 border-amber-500/30 flex items-center justify-between gap-3 text-xs shadow-sm"
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-7 h-7 rounded-full bg-amber-400 text-dark-bg font-extrabold text-xs flex items-center justify-center shrink-0 shadow">
+                                #{idx + 1}
+                              </div>
+                              <div className="w-10 h-10 rounded-full border border-slate-700 bg-slate-900 overflow-hidden flex-shrink-0">
+                                <img
+                                  src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                  alt={p.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=f59e0b&color=0f172a&bold=true`;
+                                  }}
+                                />
+                              </div>
+                              <div className="truncate min-w-0">
+                                <div className="font-bold text-white truncate">{p.name}</div>
+                                <div className="text-[10px] text-amber-400 font-semibold uppercase">Waiting Queue</div>
+                              </div>
+                            </div>
+
+                            <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              Waitlisted
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-10 rounded-2xl bg-slate-900/40 border border-slate-800 text-center space-y-2">
+                        <Users className="w-8 h-8 text-slate-500 mx-auto" />
+                        <h4 className="text-sm font-bold text-white">No Players on Waiting List</h4>
+                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                          There are currently no waitlisted players for this session. Available slots can be booked directly!
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 3: SESSION CHAT */}
+                {rosterTab === 'chat' && (() => {
+                  const isConcluded = event && (isEventExpired(event.eventDate, event.endTime) || event.status !== 'active');
+
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-slate-900/80 border border-purple-500/30 rounded-2xl p-4 space-y-4 shadow-xl">
+                        {/* Chat Header Status Notice */}
+                        <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-800 text-xs">
+                          <div className="flex items-center gap-2">
+                            <MessageSquare className="w-4 h-4 text-purple-400" />
+                            <span className="font-extrabold text-white uppercase tracking-wider">Official Session Chat</span>
+                          </div>
+                          <span className="text-[10px] text-purple-300 font-semibold bg-purple-500/10 border border-purple-500/30 px-2 py-0.5 rounded-full">
+                            Live Attendee Chat
+                          </span>
+                        </div>
+
+                        {/* Chat Messages Feed */}
+                        <div className="max-h-80 overflow-y-auto space-y-3.5 custom-scrollbar pr-1">
+                          {chatMessages.length > 0 ? (
+                            chatMessages.map((msg) => {
+                              const isCurrentUser =
+                                user && (msg.senderUid === user.uid || msg.senderName === user.name || msg.senderName === user.email);
+
+                              const senderReg = allAttendees.find(
+                                (a) => a.name.toLowerCase() === msg.senderName.toLowerCase()
+                              );
+
+                              const isSenderWaitlisted = waitlist.some((w) => w.name.toLowerCase() === msg.senderName.toLowerCase());
+                              const isSenderApproved = senderReg ? senderReg.isApproved : msg.senderStatus === 'approved';
+
+                              return (
+                                <div
+                                  key={msg.id}
+                                  className={`flex items-start gap-2.5 text-xs ${isCurrentUser ? 'flex-row-reverse' : ''}`}
+                                >
+                                  <div className="w-8 h-8 rounded-full border border-slate-700 bg-slate-950 overflow-hidden shrink-0">
+                                    <img
+                                      src={msg.senderPhotoUrl || `https://robohash.org/${encodeURIComponent(msg.senderName)}?set=set4`}
+                                      alt={msg.senderName}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(msg.senderName)}&background=a855f7&color=ffffff&bold=true`;
+                                      }}
+                                    />
+                                  </div>
+
+                                  <div className={`max-w-[80%] space-y-1 ${isCurrentUser ? 'text-right' : 'text-left'}`}>
+                                    <div className={`flex items-center gap-1.5 flex-wrap text-[10px] ${isCurrentUser ? 'justify-end' : 'justify-start'}`}>
+                                      <span className="font-bold text-white">{msg.senderName}</span>
+
+                                      {/* SENDER STATUS TAG BADGES */}
+                                      {msg.isHost ? (
+                                        <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-extrabold uppercase text-[8px]">
+                                          Host
+                                        </span>
+                                      ) : isSenderWaitlisted || msg.senderStatus === 'waitlisted' ? (
+                                        <span className="px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 border border-amber-400/50 font-extrabold uppercase text-[8px] flex items-center gap-0.5">
+                                          Waitlisted
+                                        </span>
+                                      ) : isSenderApproved ? (
+                                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-extrabold uppercase text-[8px] flex items-center gap-0.5">
+                                          Approved
+                                        </span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.2 rounded bg-gradient-to-r from-red-500/20 via-blue-500/20 to-blue-600/20 text-blue-300 border border-blue-500/40 font-extrabold uppercase text-[8px] flex items-center gap-0.5">
+                                          Pending
+                                        </span>
+                                      )}
+
+                                      <span className="text-slate-500 text-[9px]">
+                                        {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                      </span>
+                                    </div>
+
+                                    <div
+                                      className={`p-3 rounded-2xl text-xs leading-relaxed inline-block break-words relative group ${
+                                        isCurrentUser
+                                          ? 'bg-purple-600 text-white rounded-tr-none'
+                                          : 'bg-slate-950/90 border border-slate-800 text-slate-200 rounded-tl-none'
+                                      }`}
+                                    >
+                                      {/* Quoted Reply Box */}
+                                      {msg.replyTo && (
+                                        <div className={`p-2 rounded-xl text-[11px] mb-1.5 border-l-2 text-left ${
+                                          isCurrentUser
+                                            ? 'bg-purple-700/80 border-purple-300 text-purple-100'
+                                            : 'bg-slate-900 border-purple-400 text-slate-300'
+                                        }`}>
+                                          <span className="font-extrabold text-purple-300 block text-[10px]">
+                                            Replying to @{msg.replyTo.senderName}
+                                          </span>
+                                          <p className="line-clamp-2 italic text-[11px]">{msg.replyTo.textSnippet}</p>
+                                        </div>
+                                      )}
+
+                                      <p>{msg.message}</p>
+
+                                      {/* Reaction Pills Container */}
+                                      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-1 mt-1.5 pt-1 border-t border-white/10">
+                                          {Object.entries(msg.reactions).map(([emoji, uids]) => {
+                                            if (!uids || uids.length === 0) return null;
+                                            const userUid = user?.uid || user?.email || user?.name || '';
+                                            const hasReacted = uids.includes(userUid);
+                                            return (
+                                              <button
+                                                key={emoji}
+                                                type="button"
+                                                onClick={() => handleToggleReaction(msg.id, emoji)}
+                                                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                                                  hasReacted
+                                                    ? 'bg-purple-400/30 text-white border border-purple-300'
+                                                    : 'bg-slate-900/60 text-slate-300 border border-slate-700'
+                                                }`}
+                                              >
+                                                <span>{emoji}</span>
+                                                <span>{uids.length}</span>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Message Quick Actions Bar (Reply & Reactions) */}
+                                    {!isConcluded && user && (
+                                      <div className={`flex items-center gap-2 pt-0.5 text-[10px] text-slate-400 ${isCurrentUser ? 'justify-end' : 'justify-start'}`}>
+                                        <button
+                                          type="button"
+                                          onClick={() => setReplyingTo({ messageId: msg.id, senderName: msg.senderName, textSnippet: msg.message.substring(0, 60) })}
+                                          className="hover:text-purple-300 flex items-center gap-1 transition-colors cursor-pointer"
+                                        >
+                                          <CornerUpLeft className="w-3 h-3" />
+                                          <span>Reply</span>
+                                        </button>
+
+                                        <div className="flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity">
+                                          {['👍', '🎾', '🔥', '❤️'].map((emoji) => (
+                                            <button
+                                              key={emoji}
+                                              type="button"
+                                              onClick={() => handleToggleReaction(msg.id, emoji)}
+                                              className="hover:scale-125 transition-transform cursor-pointer"
+                                            >
+                                              {emoji}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="py-10 text-center space-y-2">
+                              <MessageCircle className="w-8 h-8 text-purple-400/50 mx-auto" />
+                              <h4 className="text-xs font-bold text-white">No Chat Messages Yet</h4>
+                              <p className="text-[11px] text-slate-400">
+                                Be the first attendee to post a comment or ask a question for this session!
+                              </p>
+                            </div>
+                          )}
+                          <div ref={chatEndRef} />
+                        </div>
+
+                        {/* Chat Input Form / Unauthenticated Log In Bar / Concluded Disabling */}
+                        {isConcluded ? (
+                          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center justify-center gap-2 text-center">
+                            <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span>This Open Play session has concluded. The chat room is now closed for data cleansing.</span>
+                          </div>
+                        ) : !user ? (
+                          <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-xs flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+                            <div className="flex items-center gap-2 text-slate-300">
+                              <Lock className="w-4 h-4 text-purple-400 shrink-0" />
+                              <span>Sign in to post a message or reply in this session chat.</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onNavigateToAuth('login')}
+                              className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md shrink-0"
+                            >
+                              Log In to Chat
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2 pt-2 border-t border-slate-800">
+                            {/* Quoted Reply Target Preview Banner */}
+                            {replyingTo && (
+                              <div className="p-2 rounded-xl bg-slate-950 border border-purple-500/40 text-xs flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 truncate">
+                                  <CornerUpLeft className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                  <span className="text-[11px] text-slate-300 truncate">
+                                    Replying to <strong className="text-purple-300">@{replyingTo.senderName}</strong>: "{replyingTo.textSnippet}"
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setReplyingTo(null)}
+                                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+
+                            <form onSubmit={handleSendChatMessage} className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                placeholder={replyingTo ? `Replying to @${replyingTo.senderName}...` : "Type a message or question for attendees..."}
+                                value={newChatMessage}
+                                onChange={(e) => setNewChatMessage(e.target.value)}
+                                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                              />
+                              <button
+                                type="submit"
+                                disabled={!newChatMessage.trim() || isSendingChat}
+                                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-md shrink-0"
+                              >
+                                {isSendingChat ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                <span className="hidden sm:inline">Send</span>
+                              </button>
+                            </form>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}
