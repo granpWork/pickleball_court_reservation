@@ -15,6 +15,7 @@ import {
   Share2,
   ChevronDown,
   Search,
+  Trophy,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
@@ -370,10 +371,27 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
             <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 sm:p-8 backdrop-blur-md shadow-xl">
               <h3 className="text-xl sm:text-2xl font-bold text-white mb-6 flex items-center gap-2">
                 <Sparkles className="w-6 h-6 text-brand-lime" />
-                <span>What's Included in Your Free Access</span>
+                <span>What's Included in Your Free Partner Access</span>
               </h3>
 
               <div className="space-y-6">
+                {/* 1. Voice Scoreboard & Referee Console */}
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 flex-shrink-0">
+                    <Trophy className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white mb-1 flex items-center gap-2">
+                      <span>Live Voice Scoreboard & Referee Console</span>
+                      <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">New</span>
+                    </h4>
+                    <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                      Transform matches with official 3-number callouts (`2-5-2`), natural human neural voice announcements, synthesized referee whistle sounds, win-by-2 deuce enforcement, and court side swapping.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. 0% Commission */}
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0">
                     <Gift className="w-6 h-6" />
@@ -381,11 +399,12 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
                   <div>
                     <h4 className="text-base font-bold text-white mb-1">0% Commission & Zero Monthly Fees</h4>
                     <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                      Keep 100% of your booking revenues. Early partner venues enjoy full facility admin privileges without recurring subscription charges.
+                      Keep 100% of your court revenues. Early partner venues enjoy full facility admin privileges without recurring subscription charges.
                     </p>
                   </div>
                 </div>
 
+                {/* 3. Automated GCash Proof Validation */}
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 flex-shrink-0">
                     <Zap className="w-6 h-6" />
@@ -398,26 +417,28 @@ export default function VenueSubscription({ onBack }: VenueSubscriptionProps) {
                   </div>
                 </div>
 
+                {/* 4. Open Play Event Engine & Auto Rosters */}
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 flex-shrink-0">
                     <Users className="w-6 h-6" />
                   </div>
                   <div>
-                    <h4 className="text-base font-bold text-white mb-1">Open Play Rosters & Live Group Chat</h4>
+                    <h4 className="text-base font-bold text-white mb-1">Open Play Event Engine & Auto Rosters</h4>
                     <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                      Host open play sessions, manage player waitlists automatically, and allow players to coordinate via live in-app event chat.
+                      Host open play sessions, manage player waitlists automatically, collect GCash entry fees, auto-pull rosters into live scoreboards, and let players chat via live in-app event messaging.
                     </p>
                   </div>
                 </div>
 
+                {/* 5. Dedicated Client Admin & Security Suite */}
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 flex-shrink-0">
                     <ShieldCheck className="w-6 h-6" />
                   </div>
                   <div>
-                    <h4 className="text-base font-bold text-white mb-1">Dedicated Client Admin Dashboard</h4>
+                    <h4 className="text-base font-bold text-white mb-1">Full Facility Admin Control Suite</h4>
                     <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                      Add courts, set operating hours, configure venue GCash QR codes, manage booking statuses, and invite facility staff members.
+                      Add courts, configure peak/night rate toggles, set lead-time rules, manage GCash QR codes, invite staff managers, and access in-browser WebP photo optimization tools.
                     </p>
                   </div>
                 </div>

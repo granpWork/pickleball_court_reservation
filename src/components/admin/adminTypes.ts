@@ -425,8 +425,58 @@ export interface SupportTicket {
   resolvedBy?: string;
 }
 
-export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter';
+export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter' | 'scoreboard';
 export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee' | 'subscription';
+
+export interface ScoreboardPlayer {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+}
+
+export interface ScoreboardMatch {
+  id: string;
+  companyId?: string;
+  openPlayId?: string;
+  openPlayTitle?: string;
+  matchTitle: string;
+  gameType: 'doubles' | 'singles';
+  targetPoints: number;
+  winByTwo: boolean;
+  swappedSides?: boolean;
+
+  teamRed: {
+    name: string;
+    score: number;
+    players: ScoreboardPlayer[];
+  };
+  teamBlue: {
+    name: string;
+    score: number;
+    players: ScoreboardPlayer[];
+  };
+
+  servingTeam: 'red' | 'blue';
+  serverNumber: 1 | 2;
+  firstServeOfGameDone: boolean;
+  status: 'live' | 'paused' | 'completed';
+  winner?: 'red' | 'blue';
+
+  history: Array<{
+    teamRedScore: number;
+    teamBlueScore: number;
+    servingTeam: 'red' | 'blue';
+    serverNumber: 1 | 2;
+    swappedSides?: boolean;
+    firstServeOfGameDone: boolean;
+    status: 'live' | 'paused' | 'completed';
+    winner?: 'red' | 'blue';
+  }>;
+
+  createdAt: string;
+  updatedAt: string;
+}
 
 export const SLOTS = [
   { time: '05:00 AM - 06:00 AM', startHour: 5 },

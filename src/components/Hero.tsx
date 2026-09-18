@@ -633,18 +633,6 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
           
           {/* 1. Hero Search Section */}
           <div className="max-w-3xl flex flex-col items-center text-center space-y-4 animate-fade-in">
-            <button
-              type="button"
-              onClick={() => {
-                window.history.pushState({}, '', '/?view=venue_pricing');
-                setView('venue_pricing');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all cursor-pointer shadow-md mb-1 border-none font-sans"
-            >
-              <Building2 className="w-3.5 h-3.5" />
-              <span>Court Owner? List Your Venue & Automate GCash Bookings →</span>
-            </button>
 
             {/* Headline */}
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.15] font-sans">

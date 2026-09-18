@@ -15,6 +15,7 @@ import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
 import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
+import { AdminScoreboardTab } from './admin/tabs/AdminScoreboardTab';
 import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminCompaniesSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
@@ -6738,11 +6739,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Technical Support & Helpdesk'
                 : activeTab === 'image_converter'
                 ? 'WebP Image Converter'
+                : activeTab === 'scoreboard'
+                ? 'Match Scoreboard & Referee Console'
                 : 'Facility Operations & Settings'}
             </h2>
             <p className="text-sm text-slate-400 mt-1">
               {activeTab === 'dashboard'
                 ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
+                : activeTab === 'scoreboard'
+                ? 'Create live scoreboards, pull Open Play rosters, referee matches with official pickleball callouts, swap sides, and reset match scores.'
                 : activeTab === 'support'
                 ? 'Inspect, manage, and resolve support ticket concerns submitted by Client Administrators & Facility Managers.'
                 : activeTab === 'image_converter'
@@ -7197,6 +7202,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           )}
           {activeTab === 'image_converter' && (
             <AdminImageConverterTab />
+          )}
+          {activeTab === 'scoreboard' && (
+            <AdminScoreboardTab
+              user={user}
+              openPlayEvents={openPlayEvents}
+              myCompany={currentCompany}
+              isSuperAdmin={isSuperAdmin}
+            />
           )}
         </div>
       </div>

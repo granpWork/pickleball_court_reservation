@@ -165,5 +165,12 @@ service cloud.firestore {
     match /client_leads/{leadId} {
       allow read, write: if true;
     }
+
+    // ==========================================
+    // 12. Scoreboard & Live Matches
+    // ==========================================
+    match /scoreboards/{scoreboardId} {
+      allow read, write: if true;
+    }
   }
 }

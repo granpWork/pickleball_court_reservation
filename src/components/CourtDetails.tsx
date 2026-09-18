@@ -977,13 +977,6 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
             <span>{user?.isAdmin || user?.role === 'client_admin' || user?.role === 'manager' || user?.role === 'super_admin' ? 'Back to Admin Dashboard' : 'Back to Venues'}</span>
           </button>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 font-medium">Viewing Venue:</span>
-            <span className="text-xs font-bold text-white bg-slate-900 px-3 py-1 rounded-full border border-slate-800 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-brand-lime" />
-              <span>{court?.ownerCompanyName || hostDetails?.companyName || 'PicklePoint Venue'}</span>
-            </span>
-          </div>
         </div>
 
         {bookingConfirmed ? (
@@ -1074,19 +1067,9 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-xl bg-brand-lime/15 border border-brand-lime/30 text-brand-lime flex items-center justify-center font-bold text-sm shrink-0 shadow-sm">
-                          🎾
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm sm:text-base font-extrabold text-white truncate">
-                              {court?.name || 'Select Court'}
-                            </span>
-                            <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-[11px] font-semibold text-slate-300 shrink-0">
-                              {court?.type || 'Standard Court'}
-                            </span>
-                          </div>
-                        </div>
+                        <span className="text-sm sm:text-base font-extrabold text-white truncate">
+                          {court?.name || 'Select Court'}
+                        </span>
                       </div>
 
                       <div className="flex items-center gap-3 shrink-0">
@@ -1134,14 +1117,9 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
                                 }`}>
                                   {idx + 1}
                                 </span>
-                                <div className="flex flex-col min-w-0">
-                                  <span className={`text-sm font-extrabold truncate ${isSelected ? 'text-brand-lime' : 'text-white'}`}>
-                                    {c.name}
-                                  </span>
-                                  <span className="text-[11px] text-slate-400 font-semibold truncate">
-                                    {c.type || 'Standard Court'}
-                                  </span>
-                                </div>
+                                <span className={`text-sm font-extrabold truncate ${isSelected ? 'text-brand-lime' : 'text-white'}`}>
+                                  {c.name}
+                                </span>
                               </div>
 
                               <div className="flex items-center gap-2 shrink-0 font-sans">
