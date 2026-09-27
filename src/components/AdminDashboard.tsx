@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { AdminSidebar } from './admin/AdminSidebar';
 import { AdminHeader } from './admin/AdminHeader';
 import { AdminDashboardTab } from './admin/tabs/AdminDashboardTab';
@@ -79,6 +79,7 @@ import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot } from 'firebase/firestore';
 import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail } from '../services/emailService';
 import { isEventExpired, formatTime12h, formatEventDateLong, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
+import { safeFetchPsgcJson } from '../services/psgcService';
 
 const SLOTS = [
   { time: '05:00 AM - 06:00 AM', startHour: 5 },
@@ -142,6 +143,11 @@ interface Booking {
   paymentMethod?: string;
   paymentStatus?: string;
   bookingReference?: string;
+  createdByAdminName?: string;
+  createdByAdminEmail?: string;
+  lastModifiedByAdminEmail?: string;
+  lastModifiedByAdminName?: string;
+  lastModifiedAt?: string;
   gcashReferenceNumber?: string;
   receiptImageUrl?: string;
   voucherCode?: string;
@@ -479,6 +485,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [_leadTimeSaveLoading, setLeadTimeSaveLoading] = useState(false);
   const [_orgProfileSaveSuccess, setOrgProfileSaveSuccess] = useState(false);
   const [_orgProfileSaveLoading, setOrgProfileSaveLoading] = useState(false);
+  const loadedCompanyIdRef = useRef<string | null>(null);
   const [_serviceFeeSaving, setServiceFeeSaving] = useState(false);
   const [_reminderSaveLoading, setReminderSaveLoading] = useState(false);
   const [_reminderSaveSuccess, setReminderSaveSuccess] = useState(false);
@@ -1056,6 +1063,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     (userObj?.companyName && c.name && c.name.toLowerCase() === userObj.companyName.toLowerCase()) ||
     (c.clientAdminEmail && userObj?.invitedBy && c.clientAdminEmail.toLowerCase() === userObj.invitedBy.toLowerCase())
   );
+
+  const myCompany = currentCompany;
+  const effectiveOrgName = myCompany?.name || userObj?.companyName || 'PickleZone1';
 
   useEffect(() => {
     if (!isSuperAdmin && (isSubscriptionExpired(currentCompany) || isSubscriptionExpired(user as any))) {
@@ -1645,28 +1655,25 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [weatherBooking, setWeatherBooking] = useState<Booking | null>(null);
   const [stoppageDuration, setStoppageDuration] = useState<'under_30' | 'over_30'>('under_30');
 
-  // Sync selected court policies when selectedPolicyCourtId changes
+  // Sync selected court or company policies when selectedPolicyCourtId or myCompany changes
   useEffect(() => {
     const availableCourts = isSuperAdmin ? courts : availableAdminCourts;
     if (availableCourts.length > 0 && (!selectedPolicyCourtId || !availableCourts.some(c => c.id === selectedPolicyCourtId))) {
       setSelectedPolicyCourtId(availableCourts[0].id);
-      return;
     }
 
     const currentCourt = courts.find((c) => c.id === selectedPolicyCourtId);
-    if (currentCourt) {
-      setPolicyCancellation(currentCourt.policies?.cancellationPolicy || '');
-      setPolicyRules(currentCourt.policies?.rulesPolicy || '');
-      setPolicyWeather(currentCourt.policies?.weatherPolicy || '');
-      setPolicyEquipment(currentCourt.policies?.equipmentPolicy || '');
+    const activePolicies = currentCourt?.policies || (myCompany as any)?.policies;
+    if (activePolicies) {
+      setPolicyCancellation(activePolicies.cancellationPolicy || '');
+      setPolicyRules(activePolicies.rulesPolicy || '');
+      setPolicyWeather(activePolicies.weatherPolicy || '');
+      setPolicyEquipment(activePolicies.equipmentPolicy || '');
     }
-  }, [selectedPolicyCourtId, courts, isSuperAdmin, currentUserUid]);
+  }, [selectedPolicyCourtId, courts, availableAdminCourts, isSuperAdmin, myCompany]);
 
   const handleSavePolicies = async () => {
-    if (!selectedPolicyCourtId) {
-      alert('Please select a court to save policies for.');
-      return;
-    }
+    const targetCourtId = selectedPolicyCourtId || (availableAdminCourts.length > 0 ? availableAdminCourts[0].id : null);
 
     const updatedPolicies: CourtPolicies = {
       cancellationPolicy: policyCancellation.trim(),
@@ -1675,28 +1682,45 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       equipmentPolicy: policyEquipment.trim(),
     };
 
-    setActionLoading(selectedPolicyCourtId);
+    setActionLoading(targetCourtId || 'policies');
     try {
-      if (isFirebaseConfigured && db) {
-        const courtRef = doc(db, 'courts', selectedPolicyCourtId);
-        await updateDoc(courtRef, { policies: updatedPolicies });
+      // 1. Save to Company record in Firestore & Local Storage if available
+      const companyDocId = myCompany?.id || (currentUserUid !== 'unknown' ? currentUserUid : null);
+      if (companyDocId) {
+        if (isFirebaseConfigured && db) {
+          await setDoc(doc(db, 'companies', companyDocId), { policies: updatedPolicies }, { merge: true }).catch(() => {});
+        }
+        const compStr = localStorage.getItem('picklepoint_companies');
+        if (compStr) {
+          const localComps = JSON.parse(compStr) as Company[];
+          const updatedComps = localComps.map(c => c.id === companyDocId || (c.clientAdminEmail && currentUserEmail && c.clientAdminEmail.toLowerCase() === currentUserEmail.toLowerCase()) ? { ...c, policies: updatedPolicies } : c);
+          localStorage.setItem('picklepoint_companies', JSON.stringify(updatedComps));
+          setCompanies(updatedComps);
+        }
+      }
+
+      // 2. Save to Court record(s) in Firestore & Local Storage
+      if (targetCourtId && isFirebaseConfigured && db) {
+        const courtRef = doc(db, 'courts', targetCourtId);
+        await updateDoc(courtRef, { policies: updatedPolicies }).catch(() => {});
       }
 
       const courtsStr = localStorage.getItem('picklepoint_courts');
       if (courtsStr) {
         const localCourts = JSON.parse(courtsStr) as Court[];
-        const updated = localCourts.map((c: Court) => {
-          if (c.id === selectedPolicyCourtId) {
+        const updatedLocalCourts = localCourts.map((c: Court) => {
+          if (!targetCourtId || c.id === targetCourtId) {
             return { ...c, policies: updatedPolicies };
           }
           return c;
         });
-        localStorage.setItem('picklepoint_courts', JSON.stringify(updated));
+        localStorage.setItem('picklepoint_courts', JSON.stringify(updatedLocalCourts));
+        setCourts(updatedLocalCourts);
+      } else {
+        setCourts((prev) =>
+          prev.map((c) => (!targetCourtId || c.id === targetCourtId ? { ...c, policies: updatedPolicies } : c))
+        );
       }
-
-      setCourts((prev) =>
-        prev.map((c) => (c.id === selectedPolicyCourtId ? { ...c, policies: updatedPolicies } : c))
-      );
 
       setShowPoliciesSuccessModal(true);
     } catch (err) {
@@ -1941,6 +1965,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         userPhone: bookingData.userPhone || bookingData.user?.phone || '',
         createdAt: bookingData.createdAt || new Date().toISOString(),
         bookingReference: bookingData.bookingReference || `WALKIN-${Date.now().toString().slice(-6)}`,
+        createdByAdminName: bookingData.createdByAdminName || user?.name || userObj?.companyName || adminDisplayName || currentUserEmail || 'Admin',
+        createdByAdminEmail: bookingData.createdByAdminEmail || currentUserEmail || (user as any)?.email || '',
       };
 
       if (isFirebaseConfigured && db) {
@@ -1962,9 +1988,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         console.warn('Failed to update local storage for manual booking:', e);
       }
 
+      setIsManualBookingModalOpen(false);
+      setActiveTab('checkouts');
+      setCheckoutStatusFilter('all');
+      setCheckoutCategoryFilter('all');
+
       showModalAlert(
         'Reservation Created!',
-        `Manual reservation for ${fullBooking.userName} (${fullBooking.courtName} - ${fullBooking.date}) has been successfully created.`,
+        `Manual reservation for ${fullBooking.userName} (${fullBooking.courtName} - ${fullBooking.date}) has been created successfully. Redirecting you to Checkouts to view the booking.`,
         'success'
       );
     } catch (err: any) {
@@ -1973,6 +2004,159 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       throw err;
     } finally {
       setIsSubmittingManualBooking(false);
+    }
+  };
+
+  const handleUpdateManualBookingDetails = async (
+    targetBooking: string | Booking,
+    updatedData: { userName: string; userEmail: string; userPhone: string; paymentMethod: string; totalCost?: number }
+  ) => {
+    try {
+      const modifierEmail = currentUserEmail || (user as any)?.email || 'admin@picklepoint.com';
+      const modifierName = user?.name || userObj?.companyName || adminDisplayName || 'Admin';
+      const modifiedTimestamp = new Date().toISOString();
+
+      // Extract candidate identifiers for target booking
+      const candidateIds = Array.from(
+        new Set(
+          (typeof targetBooking === 'object'
+            ? [
+                targetBooking.id,
+                targetBooking.bookingReference,
+                targetBooking.bookingId,
+                (targetBooking as any).gcashReferenceNumber,
+                (targetBooking as any).registrationId,
+              ]
+            : [targetBooking]
+          ).filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
+        )
+      );
+
+      const matchFn = (b: any) =>
+        candidateIds.includes(b.id) ||
+        candidateIds.includes(b.bookingId) ||
+        candidateIds.includes(b.bookingReference) ||
+        candidateIds.includes(b.registrationId);
+
+      // 1. Update local bookings state
+      const updatedBookings = bookings.map((b) => {
+        if (matchFn(b)) {
+          return {
+            ...b,
+            userName: updatedData.userName,
+            userEmail: updatedData.userEmail,
+            userPhone: updatedData.userPhone,
+            user: {
+              ...b.user,
+              name: updatedData.userName,
+              email: updatedData.userEmail,
+              phone: updatedData.userPhone,
+            },
+            paymentMethod: updatedData.paymentMethod,
+            ...(updatedData.totalCost !== undefined ? { totalCost: updatedData.totalCost } : {}),
+            lastModifiedByAdminEmail: modifierEmail,
+            lastModifiedByAdminName: modifierName,
+            lastModifiedAt: modifiedTimestamp,
+          };
+        }
+        return b;
+      });
+
+      setBookings(updatedBookings);
+
+      // 2. Update local openPlayEvents state if applicable
+      setOpenPlayEvents((prevEvents) =>
+        prevEvents.map((evt: any) => {
+          if (!evt.registeredPlayers || evt.registeredPlayers.length === 0) return evt;
+          const updatedPlayers = evt.registeredPlayers.map((p: any) => {
+            if (matchFn(p)) {
+              return {
+                ...p,
+                name: updatedData.userName,
+                userName: updatedData.userName,
+                email: updatedData.userEmail,
+                userEmail: updatedData.userEmail,
+                phone: updatedData.userPhone,
+                userPhone: updatedData.userPhone,
+                paymentMethod: updatedData.paymentMethod,
+              };
+            }
+            return p;
+          });
+          return { ...evt, registeredPlayers: updatedPlayers };
+        })
+      );
+
+      // 3. Update Firestore across candidate IDs & collections ('bookings' and 'openplay_registrations')
+      if (isFirebaseConfigured && db) {
+        const updatePayload: Record<string, any> = {
+          userName: updatedData.userName,
+          userEmail: updatedData.userEmail,
+          userPhone: updatedData.userPhone,
+          user: {
+            name: updatedData.userName,
+            email: updatedData.userEmail,
+            phone: updatedData.userPhone,
+          },
+          paymentMethod: updatedData.paymentMethod,
+          lastModifiedByAdminEmail: modifierEmail,
+          lastModifiedByAdminName: modifierName,
+          lastModifiedAt: modifiedTimestamp,
+        };
+        if (updatedData.totalCost !== undefined) {
+          updatePayload.totalCost = updatedData.totalCost;
+        }
+
+        // Save/merge across candidate IDs in 'bookings' and 'openplay_registrations'
+        for (const cid of candidateIds) {
+          try {
+            const bRef = doc(db, 'bookings', cid);
+            await setDoc(bRef, updatePayload, { merge: true });
+          } catch (e) {
+            console.warn(`setDoc on bookings/${cid} failed:`, e);
+          }
+          try {
+            const opRef = doc(db, 'openplay_registrations', cid);
+            await setDoc(opRef, updatePayload, { merge: true });
+          } catch (e) {
+            console.warn(`setDoc on openplay_registrations/${cid} failed:`, e);
+          }
+        }
+
+        // Additional fallback: Query documents matching bookingReference or bookingId
+        for (const cid of candidateIds) {
+          try {
+            const qB1 = query(collection(db, 'bookings'), where('bookingReference', '==', cid));
+            const sB1 = await getDocs(qB1);
+            sB1.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
+
+            const qB2 = query(collection(db, 'bookings'), where('bookingId', '==', cid));
+            const sB2 = await getDocs(qB2);
+            sB2.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
+
+            const qOp1 = query(collection(db, 'openplay_registrations'), where('bookingReference', '==', cid));
+            const sOp1 = await getDocs(qOp1);
+            sOp1.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
+
+            const qOp2 = query(collection(db, 'openplay_registrations'), where('bookingId', '==', cid));
+            const sOp2 = await getDocs(qOp2);
+            sOp2.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
+          } catch (qErr) {
+            console.warn('Fallback query edit update warning:', qErr);
+          }
+        }
+      }
+
+      // 4. Update Local Storage & Session Storage
+      try {
+        localStorage.setItem('picklepoint_bookings', JSON.stringify(updatedBookings));
+        sessionStorage.setItem('picklepoint_bookings', JSON.stringify(updatedBookings));
+      } catch (e) {}
+
+      showModalAlert('Booking Updated', 'Manual reservation details updated successfully.', 'success');
+    } catch (err: any) {
+      console.error('Failed to update manual booking:', err);
+      showModalAlert('Update Failed', err?.message || 'Failed to update manual booking details.', 'error');
     }
   };
 
@@ -2106,9 +2290,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return parseGoogleMapsUrl(courtMapUrl, courtConstructedFallbackAddress);
   }, [courtMapUrl, courtConstructedFallbackAddress]);
 
-  const myCompany = currentCompany;
-  const effectiveOrgName = myCompany?.name || userObj?.companyName || 'PickleZone1';
-
   const effectiveOrgShortLocation = useMemo(() => {
     const city = myCompany?.municipality || (myCompany as any)?.city || orgCityName;
     const province = myCompany?.province || orgProvinceName;
@@ -2178,6 +2359,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   useEffect(() => {
     if (myCompany) {
+      if (loadedCompanyIdRef.current === myCompany.id) return;
+      loadedCompanyIdRef.current = myCompany.id;
+
       setOrgProfileName(myCompany.name || '');
       setOrgProfilePhone(myCompany.phone || '');
       setOrgAddressLine1(myCompany.addressLine1 || myCompany.address || '');
@@ -2211,15 +2395,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         );
         if (matchReg) {
           setOrgSelectedRegion(matchReg.code);
-          fetch(`https://psgc.cloud/api/regions/${matchReg.code}/provinces`)
-            .then((res) => res.json())
+          safeFetchPsgcJson(`https://psgc.cloud/api/regions/${matchReg.code}/provinces`)
             .then((provs) => {
               const hasProvinces = Array.isArray(provs) && provs.length > 0;
               setOrgProvinces(hasProvinces ? provs : []);
 
               if (!hasProvinces) {
-                return fetch(`https://psgc.cloud/api/regions/${matchReg.code}/cities-municipalities`)
-                  .then((r) => r.json())
+                return safeFetchPsgcJson(`https://psgc.cloud/api/regions/${matchReg.code}/cities-municipalities`)
                   .then((cts) => {
                     if (Array.isArray(cts)) {
                       setOrgCities(cts);
@@ -2231,8 +2413,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                         );
                         if (matchCity) {
                           setOrgSelectedCity(matchCity.code);
-                          fetch(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`)
-                            .then((r) => r.json())
+                          safeFetchPsgcJson(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`)
                             .then((brgys) => {
                               if (Array.isArray(brgys)) {
                                 setOrgBarangays(brgys);
@@ -2259,8 +2440,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 );
                 if (matchProv) {
                   setOrgSelectedProvince(matchProv.code);
-                  return fetch(`https://psgc.cloud/api/provinces/${matchProv.code}/cities-municipalities`)
-                    .then((r) => r.json())
+                  return safeFetchPsgcJson(`https://psgc.cloud/api/provinces/${matchProv.code}/cities-municipalities`)
                     .then((cts) => {
                       if (Array.isArray(cts)) {
                         setOrgCities(cts);
@@ -2272,8 +2452,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                           );
                           if (matchCity) {
                             setOrgSelectedCity(matchCity.code);
-                            fetch(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`)
-                              .then((r) => r.json())
+                            safeFetchPsgcJson(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`)
                               .then((brgys) => {
                                 if (Array.isArray(brgys)) {
                                   setOrgBarangays(brgys);
@@ -2295,7 +2474,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 }
               }
             })
-            .catch((e) => console.warn('Could not auto-cascade company address PSGC:', e));
+            .catch(() => {});
         }
       }
     }
@@ -2330,7 +2509,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  const handleOrgRegionChange = async (code: string) => {
+  const extractCodeValue = (val: any): string => {
+    if (!val) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'object' && val.target && typeof val.target.value === 'string') {
+      return val.target.value;
+    }
+    return String(val);
+  };
+
+  const handleOrgRegionChange = async (val: any) => {
+    const code = extractCodeValue(val);
     setOrgSelectedRegion(code);
     const activeRegions = regions.length > 0 ? regions : REGIONS_FALLBACK;
     const regionObj = activeRegions.find((r) => r.code === code);
@@ -2349,23 +2538,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     
     if (code) {
       try {
-        const resProv = await fetch(`https://psgc.cloud/api/regions/${code}/provinces`);
-        const provs = await resProv.json();
+        const provs = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${code}/provinces`);
         const hasProvinces = Array.isArray(provs) && provs.length > 0;
         setOrgProvinces(hasProvinces ? provs : []);
         
         if (!hasProvinces) {
-          const resCities = await fetch(`https://psgc.cloud/api/regions/${code}/cities-municipalities`);
-          const cts = await resCities.json();
+          const cts = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${code}/cities-municipalities`);
           setOrgCities(Array.isArray(cts) ? cts : []);
         }
-      } catch (err) {
-        console.error('Error fetching org provinces:', err);
-      }
+      } catch (err) {}
     }
   };
 
-  const handleOrgProvinceChange = async (code: string) => {
+  const handleOrgProvinceChange = async (val: any) => {
+    const code = extractCodeValue(val);
     setOrgSelectedProvince(code);
     const provObj = orgProvinces.find(p => p.code === code);
     setOrgProvinceName(provObj ? provObj.name : '');
@@ -2380,16 +2566,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     
     if (code) {
       try {
-        const resCities = await fetch(`https://psgc.cloud/api/provinces/${code}/cities-municipalities`);
-        const cts = await resCities.json();
+        const cts = await safeFetchPsgcJson(`https://psgc.cloud/api/provinces/${code}/cities-municipalities`);
         setOrgCities(Array.isArray(cts) ? cts : []);
-      } catch (err) {
-        console.error('Error fetching org cities:', err);
-      }
+      } catch (err) {}
     }
   };
 
-  const handleOrgCityChange = async (code: string) => {
+  const handleOrgCityChange = async (val: any) => {
+    const code = extractCodeValue(val);
     setOrgSelectedCity(code);
     const cityObj = orgCities.find(c => c.code === code);
     setOrgCityName(cityObj ? cityObj.name : '');
@@ -2401,23 +2585,24 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     
     if (code) {
       try {
-        const resBarangays = await fetch(`https://psgc.cloud/api/cities-municipalities/${code}/barangays`);
-        const brgys = await resBarangays.json();
+        const brgys = await safeFetchPsgcJson(`https://psgc.cloud/api/cities-municipalities/${code}/barangays`);
         setOrgBarangays(Array.isArray(brgys) ? brgys : []);
-      } catch (err) {
-        console.error('Error fetching org barangays:', err);
-      }
+      } catch (err) {}
     }
   };
 
-  const handleOrgBarangayChange = (code: string) => {
+  const handleOrgBarangayChange = (val: any) => {
+    const code = extractCodeValue(val);
     setOrgSelectedBarangay(code);
     const brgyObj = orgBarangays.find(b => b.code === code);
     setOrgBarangayName(brgyObj ? brgyObj.name : '');
   };
 
-  const handleSaveOrgProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
+
+  const handleSaveOrgProfile = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     
     const companyDocId = myCompany?.id || (currentUserUid !== 'unknown' ? currentUserUid : 'company-' + currentUserEmail.replace(/[^a-zA-Z0-9]/g, '_'));
 
@@ -5761,11 +5946,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   // PSGC API cascading fetchers
   const fetchRegions = async () => {
     try {
-      const res = await fetch('https://psgc.cloud/api/regions');
-      const data = await res.json();
+      const data = await safeFetchPsgcJson('https://psgc.cloud/api/regions');
       setRegions(Array.isArray(data) && data.length > 0 ? data : REGIONS_FALLBACK);
     } catch (err) {
-      console.error('Failed to fetch regions, using fallback:', err);
       setRegions(REGIONS_FALLBACK);
     }
   };
@@ -5779,11 +5962,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const url = provinceCode 
         ? `https://psgc.cloud/api/provinces/${provinceCode}/cities-municipalities`
         : `https://psgc.cloud/api/regions/${regionCode}/cities-municipalities`;
-      const res = await fetch(url);
-      const data = await res.json();
+      const data = await safeFetchPsgcJson(url);
       setCities(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to fetch cities:', err);
       setCities([]);
     }
   };
@@ -5794,11 +5975,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       return;
     }
     try {
-      const res = await fetch(`https://psgc.cloud/api/cities-municipalities/${cityCode}/barangays`);
-      const data = await res.json();
+      const data = await safeFetchPsgcJson(`https://psgc.cloud/api/cities-municipalities/${cityCode}/barangays`);
       setBarangays(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to fetch barangays:', err);
       setBarangays([]);
     }
   };
@@ -5821,19 +6000,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     
     if (code) {
       try {
-        const resProv = await fetch(`https://psgc.cloud/api/regions/${code}/provinces`);
-        const provs = await resProv.json();
+        const provs = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${code}/provinces`);
         const hasProvinces = Array.isArray(provs) && provs.length > 0;
         setProvinces(hasProvinces ? provs : []);
         
         if (!hasProvinces) {
-          const resCities = await fetch(`https://psgc.cloud/api/regions/${code}/cities-municipalities`);
-          const cts = await resCities.json();
+          const cts = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${code}/cities-municipalities`);
           setCities(Array.isArray(cts) ? cts : []);
         }
-      } catch (err) {
-        console.error('Error fetching provinces:', err);
-      }
+      } catch (err) {}
     }
   };
 
@@ -5910,8 +6085,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       if (matchReg) {
         setSelectedRegion(matchReg.code);
 
-        const resProv = await fetch(`https://psgc.cloud/api/regions/${matchReg.code}/provinces`);
-        const provs = await resProv.json();
+        const provs = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${matchReg.code}/provinces`);
         const hasProvinces = Array.isArray(provs) && provs.length > 0;
         setProvinces(hasProvinces ? provs : []);
 
@@ -5930,8 +6104,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           ? `https://psgc.cloud/api/provinces/${matchedProvCode}/cities-municipalities`
           : `https://psgc.cloud/api/regions/${matchReg.code}/cities-municipalities`;
 
-        const resCities = await fetch(urlCities);
-        const cts = await resCities.json();
+        const cts = await safeFetchPsgcJson(urlCities);
         if (Array.isArray(cts)) {
           setCities(cts);
           if (targetCity) {
@@ -5941,8 +6114,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             if (matchCity) {
               setSelectedCity(matchCity.code);
 
-              const resBrgy = await fetch(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`);
-              const brgys = await resBrgy.json();
+              const brgys = await safeFetchPsgcJson(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`);
               if (Array.isArray(brgys)) {
                 setBarangays(brgys);
                 if (targetBarangay) {
@@ -5958,9 +6130,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           }
         }
       }
-    } catch (e) {
-      console.warn('Error autofilling PSGC address from company:', e);
-    }
+    } catch (e) {}
   };
 
   // Court Actions
@@ -6048,16 +6218,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setCourtModalOpen(true);
 
     try {
-      const resReg = await fetch('https://psgc.cloud/api/regions');
-      const regs = await resReg.json();
+      const regs = await safeFetchPsgcJson('https://psgc.cloud/api/regions');
       if (Array.isArray(regs)) {
         setRegions(regs);
         const matchReg = regs.find(r => r.name.toLowerCase() === court.region?.toLowerCase());
         if (matchReg) {
           setSelectedRegion(matchReg.code);
           
-          const resProv = await fetch(`https://psgc.cloud/api/regions/${matchReg.code}/provinces`);
-          const provs = await resProv.json();
+          const provs = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${matchReg.code}/provinces`);
           const hasProvinces = Array.isArray(provs) && provs.length > 0;
           setProvinces(hasProvinces ? provs : []);
           
@@ -6073,16 +6241,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           const urlCities = matchedProvCode 
             ? `https://psgc.cloud/api/provinces/${matchedProvCode}/cities-municipalities`
             : `https://psgc.cloud/api/regions/${matchReg.code}/cities-municipalities`;
-          const resCities = await fetch(urlCities);
-          const cts = await resCities.json();
+          const cts = await safeFetchPsgcJson(urlCities);
           if (Array.isArray(cts)) {
             setCities(cts);
             const matchCity = cts.find(c => c.name.toLowerCase() === court.municipality?.toLowerCase());
             if (matchCity) {
               setSelectedCity(matchCity.code);
               
-              const resBrgy = await fetch(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`);
-              const brgys = await resBrgy.json();
+              const brgys = await safeFetchPsgcJson(`https://psgc.cloud/api/cities-municipalities/${matchCity.code}/barangays`);
               if (Array.isArray(brgys)) {
                 setBarangays(brgys);
                 const matchBrgy = brgys.find(b => b.name.toLowerCase() === court.barangay?.toLowerCase());
@@ -6094,9 +6260,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           }
         }
       }
-    } catch (e) {
-      console.error('Error preloading PSGC address values:', e);
-    }
+    } catch (e) {}
   };
 
   const handleSaveCourt = async () => {
@@ -6850,7 +7014,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               courts={isSuperAdmin ? courts : availableAdminCourts}
               users={users}
               userPermissions={getUserEffectivePermissions(user as any)}
+              currentAdminEmail={user?.email || currentUserEmail}
+              currentAdminName={user?.name || adminDisplayName || 'Admin'}
               onOpenManualBookingModal={() => setIsManualBookingModalOpen(true)}
+              onUpdateManualBooking={handleUpdateManualBookingDetails}
               onRefundBooking={(booking) => {
                 setRefundModalBooking(booking);
                 setRefundAmountInput(booking.totalCost.toString());
@@ -6920,6 +7087,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               setCheckoutStatusFilter={setCheckoutStatusFilter}
               actionLoading={actionLoading}
               userPermissions={getUserEffectivePermissions(user as any)}
+              currentAdminEmail={user?.email || currentUserEmail}
+              currentAdminName={user?.name || adminDisplayName || 'Admin'}
+              onUpdateManualBooking={handleUpdateManualBookingDetails}
               onApproveBooking={(booking) => {
                 setApproveCheckoutModalBooking(booking);
                 setApproveGcashRef(booking.gcashReferenceNumber || '');

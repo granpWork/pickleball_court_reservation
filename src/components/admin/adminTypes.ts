@@ -100,6 +100,11 @@ export interface Booking {
   paymentMethod?: string;
   paymentStatus?: string;
   bookingReference?: string;
+  createdByAdminName?: string;
+  createdByAdminEmail?: string;
+  lastModifiedByAdminEmail?: string;
+  lastModifiedByAdminName?: string;
+  lastModifiedAt?: string;
   gcashReferenceNumber?: string;
   receiptImageUrl?: string;
   voucherCode?: string;

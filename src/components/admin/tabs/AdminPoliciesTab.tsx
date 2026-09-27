@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText,
   Shield,
@@ -23,6 +23,15 @@ export const AdminPoliciesTab: React.FC<AdminPoliciesTabProps> = ({ policies, on
   const [equipmentPolicy, setEquipmentPolicy] = useState(policies.equipmentPolicy || '');
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    if (policies) {
+      setCancellationPolicy(policies.cancellationPolicy || '');
+      setRulesPolicy(policies.rulesPolicy || '');
+      setWeatherPolicy(policies.weatherPolicy || '');
+      setEquipmentPolicy(policies.equipmentPolicy || '');
+    }
+  }, [policies]);
 
   const handleAutoGenerateCancellation = () => {
     setCancellationPolicy(

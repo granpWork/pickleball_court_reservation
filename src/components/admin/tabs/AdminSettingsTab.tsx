@@ -389,7 +389,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
     if (!onSaveOrgProfile) return;
     setSavingOrgProfile(true);
     try {
-      await onSaveOrgProfile();
+      await onSaveOrgProfile(e);
       setOrgProfileSaved(true);
       setTimeout(() => setOrgProfileSaved(false), 3000);
     } catch (err) {
@@ -1244,7 +1244,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            handleOrgRegionChange?.({ target: { value: '' } } as any);
+                            handleOrgRegionChange?.('');
                             setIsOrgRegionOpen(false);
                           }}
                           className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
@@ -1259,7 +1259,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                             key={r.code}
                             type="button"
                             onClick={() => {
-                              handleOrgRegionChange?.({ target: { value: r.code } } as any);
+                              handleOrgRegionChange?.(r.code);
                               setIsOrgRegionOpen(false);
                             }}
                             className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
@@ -1302,7 +1302,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            handleOrgProvinceChange?.({ target: { value: '' } } as any);
+                            handleOrgProvinceChange?.('');
                             setIsOrgProvinceOpen(false);
                           }}
                           className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
@@ -1317,7 +1317,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                             key={p.code}
                             type="button"
                             onClick={() => {
-                              handleOrgProvinceChange?.({ target: { value: p.code } } as any);
+                              handleOrgProvinceChange?.(p.code);
                               setIsOrgProvinceOpen(false);
                             }}
                             className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
@@ -1363,7 +1363,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            handleOrgCityChange?.({ target: { value: '' } } as any);
+                            handleOrgCityChange?.('');
                             setIsOrgCityOpen(false);
                           }}
                           className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
@@ -1378,7 +1378,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                             key={c.code}
                             type="button"
                             onClick={() => {
-                              handleOrgCityChange?.({ target: { value: c.code } } as any);
+                              handleOrgCityChange?.(c.code);
                               setIsOrgCityOpen(false);
                             }}
                             className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
@@ -1421,7 +1421,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            handleOrgBarangayChange?.({ target: { value: '' } } as any);
+                            handleOrgBarangayChange?.('');
                             setIsOrgBarangayOpen(false);
                           }}
                           className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${
@@ -1436,7 +1436,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                             key={b.code}
                             type="button"
                             onClick={() => {
-                              handleOrgBarangayChange?.({ target: { value: b.code } } as any);
+                              handleOrgBarangayChange?.(b.code);
                               setIsOrgBarangayOpen(false);
                             }}
                             className={`w-full text-left px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all ${

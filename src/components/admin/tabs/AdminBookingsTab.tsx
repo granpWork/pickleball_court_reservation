@@ -17,6 +17,10 @@ import {
   SlidersHorizontal,
   Trophy,
   Plus,
+  Mail,
+  Edit3,
+  Loader2,
+  Phone,
 } from 'lucide-react';
 import { type Booking, type UserPermissions, type BookingCategory, BOOKING_CATEGORIES, getBookingScheduleState } from '../adminTypes';
 import { Tag } from 'lucide-react';
@@ -37,9 +41,15 @@ interface AdminBookingsTabProps {
   onDeleteBooking?: (bookingId: string) => void;
   onRefundBooking?: (booking: Booking) => void;
   onOpenManualBookingModal?: () => void;
+  onUpdateManualBooking?: (
+    bookingOrId: Booking | string,
+    updatedData: { userName: string; userEmail: string; userPhone: string; paymentMethod: string; totalCost?: number }
+  ) => Promise<void> | void;
   courts?: any[];
   users?: { id?: string; uid?: string; name?: string; email?: string; photoUrl?: string; avatarUrl?: string; role?: string }[];
   userPermissions?: UserPermissions;
+  currentAdminEmail?: string;
+  currentAdminName?: string;
 }
 
 export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
@@ -58,9 +68,12 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   onDeleteBooking: _onDeleteBooking,
   onRefundBooking,
   onOpenManualBookingModal,
+  onUpdateManualBooking,
   courts = [],
   users = [],
   userPermissions: _userPermissions,
+  currentAdminEmail = '',
+  currentAdminName = '',
 }) => {
   // Calendar View State
   const [bookingsViewMode, _setBookingsViewMode] = useState<'table' | 'calendar'>('table');
@@ -72,6 +85,87 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   const [scheduleFilter, setScheduleFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [selectedBookingDate, setSelectedBookingDate] = useState<string>('');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
+
+  // Edit Manual Booking Modal state
+  const [editingManualBooking, setEditingManualBooking] = useState<Booking | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState<string>('');
+  const [editCustomerEmail, setEditCustomerEmail] = useState<string>('');
+  const [editCustomerPhone, setEditCustomerPhone] = useState<string>('');
+  const [editPaymentMethod, setEditPaymentMethod] = useState<string>('cash');
+  const [editTotalCost, setEditTotalCost] = useState<string>('');
+  const [editSaving, setEditSaving] = useState<boolean>(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const handleOpenEditManualModal = (booking: Booking) => {
+    setEditingManualBooking(booking);
+    setEditCustomerName(booking.user?.name || booking.userName || '');
+    setEditCustomerEmail(booking.user?.email || booking.userEmail || '');
+    setEditCustomerPhone(booking.userPhone || booking.user?.phone || '');
+    setEditPaymentMethod(booking.paymentMethod || 'cash');
+    setEditTotalCost(booking.totalCost !== undefined ? String(booking.totalCost) : '');
+    setEditError(null);
+  };
+
+  const handleSaveEditedManualBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingManualBooking || !onUpdateManualBooking) return;
+    if (!editCustomerName.trim()) {
+      setEditError('Customer Name is required');
+      return;
+    }
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const numCost = editTotalCost.trim() !== '' ? parseFloat(editTotalCost) : undefined;
+      await onUpdateManualBooking(editingManualBooking, {
+        userName: editCustomerName.trim(),
+        userEmail: editCustomerEmail.trim(),
+        userPhone: editCustomerPhone.trim(),
+        paymentMethod: editPaymentMethod,
+        ...(numCost !== undefined && !isNaN(numCost) ? { totalCost: numCost } : {}),
+      });
+      setEditingManualBooking(null);
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to update manual booking details');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const isBookingManual = (b: Booking): boolean => {
+    if (!b) return false;
+    const bId = (b.id || '').toLowerCase();
+    const bBkId = (b.bookingId || '').toLowerCase();
+    const bRef = (b.bookingReference || '').toLowerCase();
+    const bEmail = (b.userEmail || b.user?.email || '').toLowerCase();
+    const bName = (b.userName || b.user?.name || '').toLowerCase();
+    const bPay = (b.paymentMethod || '').toLowerCase();
+
+    return (
+      b.isManual === true ||
+      (b as any).isManualBooking === true ||
+      (b as any).bookingSource === 'manual' ||
+      Boolean(b.bookingCategory) ||
+      bId.includes('manual') ||
+      bId.includes('walkin') ||
+      bId.includes('walk-in') ||
+      bBkId.includes('manual') ||
+      bBkId.includes('walkin') ||
+      bBkId.includes('walk-in') ||
+      bRef.includes('manual') ||
+      bRef.includes('walkin') ||
+      bRef.includes('walk-in') ||
+      bEmail.includes('walkin@') ||
+      bEmail.includes('internal') ||
+      bName.includes('walk-in') ||
+      bName.includes('walkin') ||
+      Boolean(b.createdByAdminEmail) ||
+      bPay === 'cash' ||
+      bPay === 'venue' ||
+      bPay === 'counter' ||
+      bPay === 'on_counter'
+    );
+  };
 
   const displayBookings = filteredBookings.filter((b) => {
     if (selectedBookingDate && b.date !== selectedBookingDate) {
@@ -490,6 +584,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     const isPast = schedState === 'completed';
                     const isCompleted = isPast;
                     const isExpanded = expandedBookingId === b.id;
+                    const isManual = isBookingManual(b);
 
                     const bName = b.user?.name || b.userName || 'Guest';
                     const bEmail = b.user?.email || b.userEmail || '';
@@ -563,6 +658,17 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           </td>
                           <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end space-x-2">
+                              {isManual && onUpdateManualBooking && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditManualModal(b)}
+                                  title="Edit Manual Booking Details"
+                                  className="px-2.5 py-1.5 rounded-xl bg-purple-600/30 border border-purple-500/50 hover:bg-purple-600 hover:text-white text-purple-300 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer hover:scale-[1.02] flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5 text-purple-300" />
+                                  <span>Edit</span>
+                                </button>
+                              )}
                               {b.receiptImageUrl && (
                                 <button onClick={() => onViewReceipt(b)} className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-all" title="View Proof">
                                   <Eye className="w-4 h-4" />
@@ -655,14 +761,6 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                     </div>
                                     <div>
                                       <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-black uppercase tracking-wider text-brand-lime">
-                                          Court Reservation Details
-                                        </span>
-                                        {b.courtType && (
-                                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-brand-lime/20 text-brand-lime border border-brand-lime/40">
-                                            {b.courtType}
-                                          </span>
-                                        )}
                                       </div>
                                       <h4 className="text-base font-extrabold text-white mt-0.5">
                                         {b.courtName || 'Pickleball Court'}
@@ -760,6 +858,32 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                     <span className="text-slate-400">Transaction Time:</span>
                                     <span className="font-semibold text-slate-300">{formatTimestamp(b.createdAt)}</span>
                                   </div>
+                                  {isManual && (
+                                    <>
+                                      <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                        <span className="text-slate-400 font-semibold">Created By Admin Email:</span>
+                                        <span className="font-extrabold text-amber-300 font-mono flex items-center gap-1 text-xs">
+                                          <Mail className="w-3.5 h-3.5 text-amber-400" />
+                                          {b.createdByAdminEmail || currentAdminEmail || 'admin@picklepoint.com'}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                        <span className="text-slate-400 font-semibold">Created By Admin Name:</span>
+                                        <span className="font-extrabold text-purple-300 text-xs">
+                                          {b.createdByAdminName || currentAdminName || 'Admin'}
+                                        </span>
+                                      </div>
+                                      {b.lastModifiedByAdminEmail && (
+                                        <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
+                                          <span className="text-slate-400 font-semibold">Modified By Admin Email:</span>
+                                          <span className="font-extrabold text-amber-300 font-mono flex items-center gap-1 text-xs">
+                                            <Mail className="w-3.5 h-3.5 text-amber-400" />
+                                            {b.lastModifiedByAdminEmail}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
                                   <div className="flex justify-between items-center py-1 border-b border-slate-800/40">
                                     <span className="text-slate-400">Payment Mode:</span>
                                     <span className="font-semibold text-white capitalize">{b.paymentMethod || 'GCash'}</span>
@@ -1151,6 +1275,143 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                 Apply Filters
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT MANUAL BOOKING MODAL */}
+      {editingManualBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-fade-in text-left">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl space-y-0">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-base">Edit Manual Booking</h3>
+                  <p className="text-slate-400 text-xs font-medium">Update customer details & payment method</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingManualBooking(null)}
+                className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveEditedManualBooking} className="p-6 space-y-4">
+              {editError && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium">
+                  {editError}
+                </div>
+              )}
+
+              {/* Customer Name */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-purple-400" /> Full Name <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editCustomerName}
+                  onChange={(e) => setEditCustomerName(e.target.value)}
+                  placeholder="Enter customer full name"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
+                />
+              </div>
+
+              {/* Customer Email */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-purple-400" /> Email Address
+                </label>
+                <input
+                  type="email"
+                  value={editCustomerEmail}
+                  onChange={(e) => setEditCustomerEmail(e.target.value)}
+                  placeholder="customer@example.com"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
+                />
+              </div>
+
+              {/* Customer Phone */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-purple-400" /> Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={editCustomerPhone}
+                  onChange={(e) => setEditCustomerPhone(e.target.value)}
+                  placeholder="0917 123 4567"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
+                />
+              </div>
+
+              {/* Payment Method */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5 text-purple-400" /> Payment Method
+                </label>
+                <select
+                  value={editPaymentMethod}
+                  onChange={(e) => setEditPaymentMethod(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all cursor-pointer"
+                >
+                  <option value="cash">💵 Cash / Counter</option>
+                  <option value="gcash">🔵 GCash</option>
+                  <option value="bank_transfer">🏦 Bank Transfer</option>
+                  <option value="complimentary">🎁 Complimentary / Free</option>
+                  <option value="other">🏢 Other</option>
+                </select>
+              </div>
+
+              {/* Total Cost */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <span className="text-purple-400 font-bold">₱</span> Total Cost (Amount Paid)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editTotalCost}
+                  onChange={(e) => setEditTotalCost(e.target.value)}
+                  placeholder="e.g. 500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                <button
+                  type="button"
+                  disabled={editSaving}
+                  onClick={() => setEditingManualBooking(null)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-extrabold cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving || !editCustomerName.trim()}
+                  className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-black text-xs cursor-pointer shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-all"
+                >
+                  {editSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

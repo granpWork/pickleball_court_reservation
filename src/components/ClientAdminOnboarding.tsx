@@ -15,6 +15,7 @@ import {
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, setDoc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
 import { DEFAULT_OPERATING_HOURS } from '../utils/timeSlotUtils';
+import { safeFetchPsgcJson } from '../services/psgcService';
 
 const REGIONS_FALLBACK = [
   { code: '1300000000', name: 'National Capital Region (NCR)' },
@@ -155,11 +156,9 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
   useEffect(() => {
     const fetchRegions = async () => {
       try {
-        const res = await fetch('https://psgc.cloud/api/regions');
-        const data = await res.json();
+        const data = await safeFetchPsgcJson('https://psgc.cloud/api/regions');
         setRegions(Array.isArray(data) && data.length > 0 ? data : REGIONS_FALLBACK);
       } catch (err) {
-        console.error('Failed to fetch regions, using fallback:', err);
         setRegions(REGIONS_FALLBACK);
       }
     };
@@ -175,11 +174,9 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
       const url = provinceCode
         ? `https://psgc.cloud/api/provinces/${provinceCode}/cities-municipalities`
         : `https://psgc.cloud/api/regions/${regionCode}/cities-municipalities`;
-      const res = await fetch(url);
-      const data = await res.json();
+      const data = await safeFetchPsgcJson(url);
       setCities(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to fetch cities:', err);
       setCities([]);
     }
   };
@@ -190,11 +187,9 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
       return;
     }
     try {
-      const res = await fetch(`https://psgc.cloud/api/cities-municipalities/${cityCode}/barangays`);
-      const data = await res.json();
+      const data = await safeFetchPsgcJson(`https://psgc.cloud/api/cities-municipalities/${cityCode}/barangays`);
       setBarangays(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to fetch barangays:', err);
       setBarangays([]);
     }
   };
@@ -217,14 +212,12 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
 
     if (code) {
       try {
-        const resProv = await fetch(`https://psgc.cloud/api/regions/${code}/provinces`);
-        const provs = await resProv.json();
+        const provs = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${code}/provinces`);
         const hasProvinces = Array.isArray(provs) && provs.length > 0;
         setProvinces(hasProvinces ? provs : []);
 
         if (!hasProvinces) {
-          const resCities = await fetch(`https://psgc.cloud/api/regions/${code}/cities-municipalities`);
-          const cts = await resCities.json();
+          const cts = await safeFetchPsgcJson(`https://psgc.cloud/api/regions/${code}/cities-municipalities`);
           setCities(Array.isArray(cts) ? cts : []);
         }
       } catch (err) {
