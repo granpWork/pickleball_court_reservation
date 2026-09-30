@@ -21,8 +21,9 @@ import {
   Zap,
   Lock,
   Trophy,
+  Calendar,
 } from 'lucide-react';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, getUserEffectivePermissions, isSubscriptionExpired } from './adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, getUserEffectivePermissions, isSubscriptionExpired } from './adminTypes';
 
 interface AdminSidebarProps {
   activeTab: AdminTab;
@@ -30,6 +31,8 @@ interface AdminSidebarProps {
   isSuperAdmin: boolean;
   courtsSubTab?: AdminCourtsSubTab;
   setCourtsSubTab?: (subTab: AdminCourtsSubTab) => void;
+  bookingsSubTab?: AdminBookingsSubTab;
+  setBookingsSubTab?: (subTab: AdminBookingsSubTab) => void;
   settingsSubTab: AdminSettingsSubTab;
   setSettingsSubTab: (subTab: AdminSettingsSubTab) => void;
   settingsSubMenuOpen: boolean;
@@ -59,6 +62,8 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   isSuperAdmin,
   courtsSubTab = 'list',
   setCourtsSubTab = () => {},
+  bookingsSubTab = 'list',
+  setBookingsSubTab = () => {},
   settingsSubTab,
   setSettingsSubTab,
   settingsSubMenuOpen,
@@ -83,6 +88,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
 }) => {
   const [supportSubMenuOpen, setSupportSubMenuOpen] = React.useState(false);
   const [courtsSubMenuOpen, setCourtsSubMenuOpen] = React.useState(true);
+  const [bookingsSubMenuOpen, setBookingsSubMenuOpen] = React.useState(true);
   const isClientAdminRole = user?.role === 'client_admin';
   const isManagerRole = user?.role === 'manager';
 
@@ -318,24 +324,95 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
               {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
             </button>
 
-            <button
-              onClick={() => handleTabClick('bookings')}
-              disabled={isTrialOrSubExpired}
-              title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
-                isTrialOrSubExpired
-                  ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
-                  : activeTab === 'bookings'
-                  ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <LayoutDashboard className="w-4 h-4" />
-                <span>Reservations</span>
-              </div>
-              {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
-            </button>
+            {/* Reservations Main Button with Submenu */}
+            <div className="space-y-1">
+              <button
+                onClick={() => {
+                  if (activeTab !== 'bookings') {
+                    handleTabClick('bookings');
+                    setBookingsSubTab('list');
+                    setBookingsSubMenuOpen(true);
+                  } else {
+                    setBookingsSubMenuOpen(!bookingsSubMenuOpen);
+                  }
+                }}
+                disabled={isTrialOrSubExpired}
+                title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                  isTrialOrSubExpired
+                    ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                    : activeTab === 'bookings'
+                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className={`p-1 rounded-lg transition-colors ${activeTab === 'bookings' ? 'bg-slate-950/20 text-slate-950' : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}`}>
+                    <LayoutDashboard className="w-4 h-4" />
+                  </span>
+                  <span>Reservations</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 flex-shrink-0" />}
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${bookingsSubMenuOpen && activeTab === 'bookings' ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
+
+              {/* Submenu for Reservations */}
+              {bookingsSubMenuOpen && activeTab === 'bookings' && (
+                <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3">
+                  <button
+                    type="button"
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => {
+                      if (!isTrialOrSubExpired) {
+                        handleTabClick('bookings');
+                        setBookingsSubTab('list');
+                        setMobileMenuOpen(false);
+                      }
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : bookingsSubTab === 'list'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <LayoutDashboard className="w-3.5 h-3.5" />
+                      <span>Reservation List</span>
+                    </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isTrialOrSubExpired}
+                    onClick={() => {
+                      if (!isTrialOrSubExpired) {
+                        handleTabClick('bookings');
+                        setBookingsSubTab('calendar');
+                        setMobileMenuOpen(false);
+                      }
+                    }}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                      isTrialOrSubExpired
+                        ? 'opacity-40 cursor-not-allowed text-slate-600'
+                        : bookingsSubTab === 'calendar'
+                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-3.5 h-3.5 text-brand-lime" />
+                      <span>Calendar View</span>
+                    </div>
+                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
+                  </button>
+                </div>
+              )}
+            </div>
 
             {isSuperAdmin && (
               <button

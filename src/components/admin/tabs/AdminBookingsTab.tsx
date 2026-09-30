@@ -22,10 +22,12 @@ import {
   Loader2,
   Phone,
 } from 'lucide-react';
-import { type Booking, type UserPermissions, type BookingCategory, BOOKING_CATEGORIES, getBookingScheduleState } from '../adminTypes';
+import { type Booking, type UserPermissions, type BookingCategory, type AdminBookingsSubTab, BOOKING_CATEGORIES, getBookingScheduleState } from '../adminTypes';
 import { Tag } from 'lucide-react';
 
 interface AdminBookingsTabProps {
+  bookingsSubTab?: AdminBookingsSubTab;
+  setBookingsSubTab?: (subTab: AdminBookingsSubTab) => void;
   bookings: Booking[];
   filteredBookings: Booking[];
   totalRevenue: number;
@@ -53,6 +55,8 @@ interface AdminBookingsTabProps {
 }
 
 export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
+  bookingsSubTab = 'list',
+  setBookingsSubTab = () => {},
   bookings,
   filteredBookings,
   totalRevenue: _totalRevenue,
@@ -76,7 +80,14 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   currentAdminName = '',
 }) => {
   // Calendar View State
-  const [bookingsViewMode, _setBookingsViewMode] = useState<'table' | 'calendar'>('table');
+  const [internalViewMode, setInternalViewMode] = useState<'table' | 'calendar'>('table');
+  const activeViewMode = bookingsSubTab || internalViewMode;
+
+  const handleSetViewMode = (mode: 'list' | 'calendar') => {
+    setBookingsSubTab(mode);
+    setInternalViewMode(mode === 'calendar' ? 'calendar' : 'table');
+  };
+
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [selectedCalendarCourtId, setSelectedCalendarCourtId] = useState<string>('all');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
@@ -379,6 +390,34 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+          {/* View Mode Toggle Switcher */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleSetViewMode('list')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeViewMode !== 'calendar'
+                  ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetViewMode('calendar')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeViewMode === 'calendar'
+                  ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Calendar</span>
+            </button>
+          </div>
+
           {onOpenManualBookingModal && (
             <button
               type="button"
@@ -430,7 +469,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
       </div>
 
       {/* 3. Main Display: Table View vs Calendar View */}
-      {bookingsViewMode === 'table' ? (
+      {activeViewMode !== 'calendar' ? (
         <div className="glass-panel border border-slate-800 rounded-2xl overflow-hidden shadow-xl animate-fade-in">
           {/* MOBILE CARDS VIEW (Visible on small screens < md) */}
           <div className="md:hidden space-y-4 p-4">
@@ -975,30 +1014,138 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
       ) : (
         /* Calendar View Matrix */
         <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6 animate-fade-in">
+          {/* Calendar Controls Bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
-            <div className="flex items-center gap-3">
-              <button onClick={handlePrevMonth} className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"><ChevronLeft className="w-5 h-5" /></button>
-              <h3 className="text-lg font-extrabold text-white min-w-[180px] text-center">{calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
-              <button onClick={handleNextMonth} className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"><ChevronRight className="w-5 h-5" /></button>
-              <button onClick={handleTodayMonth} className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-brand-lime font-bold text-xs">Today</button>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button 
+                type="button"
+                onClick={handlePrevMonth} 
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Previous Month"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <h3 className="text-base sm:text-lg font-black text-white min-w-[160px] sm:min-w-[200px] text-center tracking-tight">
+                {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </h3>
+              <button 
+                type="button"
+                onClick={handleNextMonth} 
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Next Month"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+              <button 
+                type="button"
+                onClick={handleTodayMonth} 
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-brand-lime hover:text-white font-extrabold text-xs transition-colors cursor-pointer border border-brand-lime/30"
+              >
+                Today
+              </button>
             </div>
+
             {courts.length > 0 && (
-              <select value={selectedCalendarCourtId} onChange={(e) => setSelectedCalendarCourtId(e.target.value)} className="bg-slate-950 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-bold">
-                <option value="all">All Courts</option>
-                {courts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <span className="text-xs text-slate-400 font-bold hidden sm:inline">Filter Court:</span>
+                <select 
+                  value={selectedCalendarCourtId} 
+                  onChange={(e) => setSelectedCalendarCourtId(e.target.value)} 
+                  className="bg-slate-950 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-brand-lime transition-all w-full sm:w-auto"
+                >
+                  <option value="all">🏟️ All Courts ({courts.length})</option>
+                  {courts.map((c) => (
+                    <option key={c.id} value={c.id}>Court: {c.name}</option>
+                  ))}
+                </select>
+              </div>
             )}
           </div>
-          <div className="grid grid-cols-7 gap-2 text-center text-xs font-extrabold text-slate-400 uppercase">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <div key={d} className="py-2 bg-slate-900/40 rounded-xl border border-slate-800/60">{d}</div>)}
+
+          {/* Weekday Header */}
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center text-[11px] font-black text-slate-400 uppercase tracking-wider">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+              <div key={d} className="py-2 bg-slate-900/40 rounded-xl border border-slate-800/60">{d}</div>
+            ))}
           </div>
-          <div className="grid grid-cols-7 gap-2">
+
+          {/* Monthly Days Matrix */}
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
             {calendarDays.map((day, idx) => {
               const dayBookings = bookings.filter((b) => b.date === day.dateStr && (selectedCalendarCourtId === 'all' || b.courtId === selectedCalendarCourtId));
+              const activeCount = dayBookings.filter(b => b.status !== 'cancelled').length;
+              const pendingCount = dayBookings.filter(b => b.status === 'pending').length;
+              const isSelected = selectedCalendarDate === day.dateStr;
+
+              const hasBookings = dayBookings.length > 0;
+
               return (
-                <div key={idx} onClick={() => setSelectedCalendarDate(day.dateStr)} className={`min-h-[100px] p-2.5 rounded-2xl border cursor-pointer ${!day.isCurrentMonth ? 'opacity-40' : 'bg-slate-900/50'} hover:border-brand-lime`}>
-                  <span className={`text-xs font-bold ${day.isToday ? 'text-brand-lime' : 'text-slate-300'}`}>{day.dayNum}</span>
-                  {dayBookings.length > 0 && <div className="mt-2 text-[10px] font-bold bg-slate-800 px-2 py-1 rounded">{dayBookings.length} Bookings</div>}
+                <div
+                  key={idx}
+                  onClick={() => {
+                    if (hasBookings) {
+                      setSelectedCalendarDate(day.dateStr);
+                    }
+                  }}
+                  className={`min-h-[90px] sm:min-h-[110px] p-2 rounded-2xl border transition-all flex flex-col justify-between text-left group ${
+                    hasBookings ? 'cursor-pointer' : 'cursor-default'
+                  } ${
+                    !day.isCurrentMonth 
+                      ? 'opacity-30 bg-slate-950/40 border-slate-900/60' 
+                      : isSelected
+                      ? 'bg-slate-900/90 border-brand-lime shadow-lg shadow-brand-lime/10 ring-1 ring-brand-lime/40'
+                      : day.isToday
+                      ? 'bg-slate-900/80 border-brand-lime/60'
+                      : hasBookings
+                      ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/70'
+                      : 'bg-slate-900/20 border-slate-800/40'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-xs font-bold ${
+                      day.isToday 
+                        ? 'text-dark-bg bg-brand-lime px-2 py-0.5 rounded-md font-black shadow-xs' 
+                        : day.isCurrentMonth 
+                        ? 'text-slate-200' 
+                        : 'text-slate-500'
+                    }`}>
+                      {day.dayNum}
+                    </span>
+                    {pendingCount > 0 && (
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title={`${pendingCount} pending booking(s)`} />
+                    )}
+                  </div>
+
+                  {activeCount > 0 ? (
+                    <div className="space-y-1 mt-1">
+                      <div className={`px-2 py-1 rounded-lg text-[10px] font-extrabold flex items-center justify-between gap-1 ${
+                        pendingCount > 0 
+                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' 
+                          : 'bg-brand-lime/15 text-brand-lime border border-brand-lime/30'
+                      }`}>
+                        <span className="truncate">{activeCount} {activeCount === 1 ? 'Booking' : 'Bookings'}</span>
+                        <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                      </div>
+
+                      {/* Micro Preview of booking categories */}
+                      <div className="flex flex-wrap gap-1 max-h-[32px] overflow-hidden">
+                        {dayBookings.slice(0, 3).map((b, bIdx) => {
+                          const cat = getBookingCategoryInfo(b);
+                          return (
+                            <span 
+                              key={bIdx} 
+                              className={`w-1.5 h-1.5 rounded-full ${cat.badgeBg.replace('/40', '')}`}
+                              title={`${b.courtName || 'Court'} - ${cat.label}`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-slate-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                      No bookings
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1006,8 +1153,8 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
         </div>
       )}
 
-      {/* Modal */}
-      {selectedCalendarDate && (
+      {/* Modal - Only shown if selected date has bookings */}
+      {selectedCalendarDate && bookings.some(b => b.date === selectedCalendarDate && (selectedCalendarCourtId === 'all' || b.courtId === selectedCalendarCourtId)) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={() => setSelectedCalendarDate(null)}>
           <div className="glass-panel max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-3xl p-6 bg-slate-950" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-6">

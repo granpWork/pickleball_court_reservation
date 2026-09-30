@@ -1028,8 +1028,18 @@ function App() {
   }
 
   if (currentView === 'admin') {
-    const isAuthorized = user && (user.isAdmin || user.role === 'client_admin' || user.role === 'super_admin' || user.role === 'manager' || user.role === 'editor');
-    
+    const isAuthorized = Boolean(
+      user &&
+        (user.isAdmin ||
+          user.role === 'client_admin' ||
+          user.role === 'super_admin' ||
+          user.role === 'manager' ||
+          user.role === 'editor' ||
+          user.email?.toLowerCase() === 'admin@picklepoint.com') &&
+        user.role !== 'player' &&
+        user.role !== 'client'
+    );
+
     if (!isAuthorized) {
       if (authLoading) {
         return (
@@ -1039,12 +1049,11 @@ function App() {
           </div>
         );
       }
-      // If user specifically requested /pickle-admin URL, render Login; otherwise fall back to landing page
-      if (typeof window !== 'undefined' && window.location.pathname === '/pickle-admin') {
-        return <Login setView={handleSetView} onLoginSuccess={handleLoginSuccess} invitationNotice={invitationNotice} />;
-      }
-      if (typeof window !== 'undefined' && window.location.search) {
+      if (typeof window !== 'undefined') {
         window.history.pushState({}, '', '/');
+      }
+      if (!user) {
+        return <Login setView={handleSetView} onLoginSuccess={handleLoginSuccess} invitationNotice={invitationNotice} />;
       }
       setView('landing');
       return null;

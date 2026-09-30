@@ -12,6 +12,7 @@ import {
   MapPin,
   Building2,
   CheckCircle,
+  CheckCircle2,
   Eye,
   X,
   Navigation,
@@ -135,8 +136,8 @@ export interface OpenPlayRegistration {
   guestEmails?: string[];
   gcashReferenceNumber?: string;
   receiptImageUrl?: string;
-  paymentStatus: 'pending_verification' | 'paid' | 'failed';
-  status: 'pending' | 'approved' | 'cancelled';
+  paymentStatus: 'pending_verification' | 'paid' | 'failed' | 'waitlisted';
+  status: 'pending' | 'approved' | 'cancelled' | 'waitlisted';
   createdAt: string;
   isAddGuestOnly?: boolean;
   primaryPlayerName?: string;
@@ -859,8 +860,76 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     }
   };
 
-  const isAlreadyRegistered = user && registrations.some(r => r.status !== 'cancelled' && ((r.playerEmail || '').toLowerCase() === user.email.toLowerCase() || (user.uid && r.playerUid === user.uid)));
-  const activeRegistrations = useMemo(() => registrations.filter(r => r.status !== 'cancelled'), [registrations]);
+  const [isSubmittingWaitlist, setIsSubmittingWaitlist] = useState(false);
+
+  const isAlreadyWaitlisted = Boolean(
+    user &&
+      registrations.some(
+        (r) =>
+          r.status !== 'cancelled' &&
+          (r.status === 'waitlisted' || r.paymentStatus === 'waitlisted') &&
+          ((r.playerEmail || '').toLowerCase() === user.email.toLowerCase() ||
+            (user.uid && r.playerUid === user.uid))
+      )
+  );
+
+  const isAlreadyRegistered = Boolean(
+    user &&
+      registrations.some(
+        (r) =>
+          r.status !== 'cancelled' &&
+          r.status !== 'waitlisted' &&
+          r.paymentStatus !== 'waitlisted' &&
+          ((r.playerEmail || '').toLowerCase() === user.email.toLowerCase() ||
+            (user.uid && r.playerUid === user.uid))
+      )
+  );
+
+  const activeRegistrations = useMemo(
+    () => registrations.filter((r) => r.status !== 'cancelled' && r.status !== 'waitlisted' && r.paymentStatus !== 'waitlisted'),
+    [registrations]
+  );
+
+  const waitlistedRegistrations = useMemo(
+    () =>
+      registrations
+        .filter((r) => r.status !== 'cancelled' && (r.status === 'waitlisted' || r.paymentStatus === 'waitlisted'))
+        .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()),
+    [registrations]
+  );
+
+  const userWaitlistPosition = useMemo(() => {
+    if (!user || !isAlreadyWaitlisted) return -1;
+    const idx = waitlistedRegistrations.findIndex(
+      (r) =>
+        (r.playerEmail || '').toLowerCase() === user.email.toLowerCase() ||
+        (user.uid && r.playerUid === user.uid)
+    );
+    return idx !== -1 ? idx + 1 : -1;
+  }, [user, isAlreadyWaitlisted, waitlistedRegistrations]);
+
+  const userRegistration = useMemo(() => {
+    if (!user) return null;
+    return (
+      registrations.find(
+        (r) =>
+          r.status !== 'cancelled' &&
+          r.status !== 'waitlisted' &&
+          r.paymentStatus !== 'waitlisted' &&
+          ((r.playerEmail || '').toLowerCase() === user.email.toLowerCase() ||
+            (user.uid && r.playerUid === user.uid))
+      ) || null
+    );
+  }, [user, registrations]);
+
+  const isVerifiedJoining = Boolean(
+    userRegistration && (userRegistration.status === 'approved' || userRegistration.paymentStatus === 'paid')
+  );
+
+  const isPendingJoining = Boolean(
+    userRegistration && (userRegistration.status === 'pending' || userRegistration.paymentStatus === 'pending_verification')
+  );
+
   const approvedRegistrations = useMemo(() => activeRegistrations.filter(r => r.status === 'approved' || r.paymentStatus === 'paid'), [activeRegistrations]);
   const pendingRegistrations = useMemo(() => activeRegistrations.filter(r => r.status === 'pending' || r.paymentStatus === 'pending_verification'), [activeRegistrations]);
 
@@ -871,6 +940,95 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   const isFull = availableSlots <= 0;
   const isExpired = event ? isEventExpired(event.eventDate, event.endTime) : false;
   const fillPercentage = event ? Math.min(100, Math.round((activeRegistrationsCount / event.maxParticipants) * 100)) : 0;
+
+  const handleJoinWaitlist = async () => {
+    if (!event) return;
+    if (!user) {
+      onNavigateToAuth('login');
+      return;
+    }
+    setIsSubmittingWaitlist(true);
+    try {
+      const regId = `waitlist_${event.id}_${user.uid || Date.now()}`;
+      const payload: OpenPlayRegistration = {
+        id: regId,
+        eventId: event.id,
+        eventTitle: event.title,
+        eventDate: event.eventDate,
+        registrationFee: event.registrationFee,
+        playerUid: user.uid || '',
+        playerName: user.name || 'Player',
+        playerEmail: user.email || '',
+        playerPhone: (user as any).phone || '',
+        playerCount: 1,
+        paymentStatus: 'waitlisted',
+        status: 'waitlisted',
+        createdAt: new Date().toISOString(),
+      };
+
+      if (isFirebaseConfigured && db) {
+        try {
+          await setDoc(doc(db, 'openplay_registrations', regId), payload);
+        } catch (e) {
+          console.warn('Firestore setDoc waitlist error:', e);
+        }
+      }
+
+      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || '[]';
+      let localRegs: OpenPlayRegistration[] = [];
+      try {
+        localRegs = JSON.parse(localRegsStr);
+      } catch (e) {}
+      const filtered = localRegs.filter((r) => r.id !== regId);
+      filtered.push(payload);
+      localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(filtered));
+
+      setRegistrations((prev) => [...prev.filter((r) => r.id !== regId), payload]);
+      alert('🎉 You have successfully joined the waiting list for this Open Play session!');
+    } catch (err) {
+      console.error('Failed to join waitlist:', err);
+      alert('Failed to join waitlist. Please try again.');
+    } finally {
+      setIsSubmittingWaitlist(false);
+    }
+  };
+
+  const handleLeaveWaitlist = async () => {
+    if (!event || !user) return;
+    if (!window.confirm('Are you sure you want to leave the waitlist?')) return;
+    setIsSubmittingWaitlist(true);
+    try {
+      const userReg = registrations.find(
+        (r) =>
+          (r.status === 'waitlisted' || r.paymentStatus === 'waitlisted') &&
+          ((r.playerEmail || '').toLowerCase() === user.email.toLowerCase() || (user.uid && r.playerUid === user.uid))
+      );
+      if (!userReg) return;
+
+      if (isFirebaseConfigured && db) {
+        try {
+          await updateDoc(doc(db, 'openplay_registrations', userReg.id), { status: 'cancelled' });
+        } catch (e) {
+          console.warn('Firestore cancel waitlist error:', e);
+        }
+      }
+
+      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || '[]';
+      try {
+        const localRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
+        const updated = localRegs.map((r) => (r.id === userReg.id ? { ...r, status: 'cancelled' as const } : r));
+        localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updated));
+      } catch (e) {}
+
+      setRegistrations((prev) => prev.map((r) => (r.id === userReg.id ? { ...r, status: 'cancelled' as const } : r)));
+      alert('You have left the waitlist.');
+    } catch (err) {
+      console.error('Failed to leave waitlist:', err);
+      alert('Failed to leave waitlist. Please try again.');
+    } finally {
+      setIsSubmittingWaitlist(false);
+    }
+  };
 
   const handleProcessReceiptUpload = (file: File) => {
     const reader = new FileReader();
@@ -1125,39 +1283,57 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                           <Globe className="w-3 h-3 text-brand-lime" /> Live (Published)
                         </span>
                       )}
+
+                      {isVerifiedJoining && (
+                        <span className="px-3 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-md shadow-emerald-500/10 animate-fade-in">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                          <span>JOINING</span>
+                        </span>
+                      )}
+
+                      {isPendingJoining && (
+                        <span className="px-3 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/50 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-md shadow-amber-500/10 animate-fade-in">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          <span>JOINING (PENDING VERIFICATION)</span>
+                        </span>
+                      )}
                     </div>
 
                     <h1 className="text-2xl md:text-4xl font-extrabold text-white leading-tight">{event.title}</h1>
                   </div>
 
-                  {/* Action Button Opposite Title (Book Now or Add Guest) */}
-                  {isAlreadyRegistered ? (
+                  {/* Action Button Opposite Title (Book Now for un-registered users) */}
+                  {!isAlreadyRegistered && (
                     <button
                       type="button"
-                      onClick={() => handleProceedToCheckout(true)}
-                      disabled={isExpired || isFull}
-                      className={`px-7 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center gap-2.5 flex-shrink-0 my-auto border ${
-                        isExpired || isFull
-                          ? 'bg-red-500/10 border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
-                          : 'bg-gradient-to-r from-brand-lime via-[#a6e224] to-emerald-400 text-dark-bg border-brand-lime/40 hover:opacity-95 shadow-xl shadow-brand-lime/20 hover:scale-[1.02] cursor-pointer'
-                      }`}
-                    >
-                      <UserPlus className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
-                      <span>{isExpired ? 'Session Concluded' : isFull ? 'Full — No Guest Slots' : `+ Add Guest (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleProceedToCheckout(false)}
-                      disabled={isExpired || isFull}
+                      onClick={isFull ? handleJoinWaitlist : () => handleProceedToCheckout(false)}
+                      disabled={isExpired || (isFull && isAlreadyWaitlisted)}
                       className={`px-7 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center gap-2.5 flex-shrink-0 my-auto ${
-                        isExpired || isFull
+                        isExpired
                           ? 'bg-red-500/10 border border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
+                          : isFull
+                          ? isAlreadyWaitlisted
+                            ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 cursor-not-allowed opacity-80 select-none'
+                            : 'bg-amber-400 text-dark-bg hover:bg-amber-300 shadow-xl shadow-amber-400/20 hover:scale-[1.02] cursor-pointer'
                           : 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] shadow-xl shadow-brand-lime/10 hover:scale-[1.02] cursor-pointer'
                       }`}
                     >
-                      <Sparkles className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
-                      <span>{isExpired ? 'Session Concluded' : isFull ? 'FULL — SESSION BOOKED OUT' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+                      {isExpired ? (
+                        <Sparkles className="w-4.5 h-4.5 text-red-400" />
+                      ) : isFull ? (
+                        <Clock className={`w-4.5 h-4.5 ${isAlreadyWaitlisted ? 'text-amber-400' : 'text-dark-bg'}`} />
+                      ) : (
+                        <Sparkles className="w-4.5 h-4.5 text-dark-bg" />
+                      )}
+                      <span>
+                        {isExpired
+                          ? 'Session Concluded'
+                          : isFull
+                          ? isAlreadyWaitlisted
+                            ? `Position #${userWaitlistPosition} on Waitlist`
+                            : 'Join Waitlist'
+                          : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}
+                      </span>
                     </button>
                   )}
                 </div>
@@ -1389,9 +1565,49 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
             )}
 
             {/* CASE 1: Event Completed or Cancelled */}
-            {!isExpired && event.status !== 'active' && (
-              <div className="p-6 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-bold text-center">
-                This Open Play event is currently marked as <strong className="uppercase">{event.status}</strong> and is no longer accepting new player entries.
+            {/* CASE 2: User Already Registered & Joining */}
+            {!isExpired && event.status === 'active' && isAlreadyRegistered && user && (
+              <div className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-left flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl shadow-emerald-500/5 animate-fade-in mb-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0 shadow ring-2 ring-emerald-500/20">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-black uppercase tracking-wider text-emerald-300">
+                        {isVerifiedJoining ? "You're In! Spot Confirmed" : "Registration Received"}
+                      </h3>
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        isVerifiedJoining
+                          ? 'bg-emerald-400 text-dark-bg'
+                          : 'bg-amber-400 text-dark-bg'
+                      }`}>
+                        {isVerifiedJoining ? '🟢 JOINING' : '⏳ PENDING VERIFICATION'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 mt-1">
+                      {isVerifiedJoining
+                        ? `Your spot for ${event.title} is verified and confirmed. See you on court!`
+                        : 'Your registration is submitted and pending host payment verification.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleProceedToCheckout(true)}
+                    disabled={isExpired || isFull}
+                    className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 border ${
+                      isExpired || isFull
+                        ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-emerald-500 text-dark-bg border-emerald-400 hover:bg-emerald-400 shadow-md cursor-pointer'
+                    }`}
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    <span>+ Add Guest</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1427,50 +1643,102 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
             {/* CASE 4: Not Registered, User Authenticated, Capacity Reached */}
             {event.status === 'active' && !isAlreadyRegistered && user && isFull && (
-              <div className="p-6 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 text-center">
-                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-red-400" />
-                <h3 className="text-sm font-black uppercase tracking-wider">Registration Capacity Reached</h3>
-                <p className="text-xs text-slate-300 mt-1">
-                  All {event.maxParticipants} slots for this Open Play session have been filled. Please check back later for cancellations or future events.
-                </p>
+              <div>
+                {isAlreadyWaitlisted ? (
+                  <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-left flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-amber-500/5 animate-fade-in">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow">
+                        <Clock className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-black uppercase tracking-wider text-amber-300">You are on the Waiting List!</h3>
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-400 text-dark-bg">
+                            Position #{userWaitlistPosition}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-300 mt-1">
+                          You are #{userWaitlistPosition} in line out of {waitlistedRegistrations.length} waitlisted players. We will notify you if a spot opens up!
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLeaveWaitlist}
+                      disabled={isSubmittingWaitlist}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 border border-amber-500/40 text-amber-300 hover:text-white text-xs font-extrabold uppercase tracking-wider hover:bg-amber-500/20 transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0"
+                    >
+                      {isSubmittingWaitlist ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                      <span>Leave Waitlist</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-left space-y-4 shadow-lg shadow-amber-500/5 animate-fade-in">
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0 shadow">
+                        <AlertCircle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black uppercase tracking-wider text-amber-300">Registration Capacity Reached</h3>
+                        <p className="text-xs text-slate-300 mt-1">
+                          All {event.maxParticipants} slots for this Open Play session have been filled. Join the waiting list to secure your position in line if a player cancels!
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleJoinWaitlist}
+                      disabled={isSubmittingWaitlist}
+                      className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:opacity-95 shadow-xl shadow-amber-500/20 hover:scale-[1.01] transition-all cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {isSubmittingWaitlist ? <Loader2 className="w-4.5 h-4.5 animate-spin" /> : <Clock className="w-4.5 h-4.5" />}
+                      <span>Join Waiting List Now</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
 
           </div>
 
-          {/* Action Button (Book Now or Add Guest) */}
-          <div className="mt-8 flex justify-end">
-            {isAlreadyRegistered ? (
+          {/* Action Button (Book Now or Join Waitlist for unregistered players) */}
+          {!isAlreadyRegistered && (
+            <div className="mt-8 flex justify-end">
               <button
                 type="button"
-                onClick={() => handleProceedToCheckout(true)}
-                disabled={isExpired || isFull}
-                className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 border ${
-                  isExpired || isFull
-                    ? 'bg-red-500/10 border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
-                    : 'bg-gradient-to-r from-brand-lime via-[#a6e224] to-emerald-400 text-dark-bg border-brand-lime/40 hover:opacity-95 shadow-xl shadow-brand-lime/20 hover:scale-[1.02] cursor-pointer'
-                }`}
-              >
-                <UserPlus className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
-                <span>{isExpired ? 'Session Concluded' : isFull ? 'Full — No Guest Slots' : `+ Add Guest (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleProceedToCheckout(false)}
-                disabled={isExpired || isFull}
+                onClick={isFull ? handleJoinWaitlist : () => handleProceedToCheckout(false)}
+                disabled={isExpired || (isFull && isAlreadyWaitlisted)}
                 className={`w-full sm:w-auto px-8 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 ${
-                  isExpired || isFull
+                  isExpired
                     ? 'bg-red-500/10 border border-red-500/30 text-red-400 cursor-not-allowed opacity-80 select-none'
+                    : isFull
+                    ? isAlreadyWaitlisted
+                      ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 cursor-not-allowed opacity-80 select-none'
+                      : 'bg-amber-400 text-dark-bg hover:bg-amber-300 shadow-xl shadow-amber-400/20 hover:scale-[1.02] cursor-pointer'
                     : 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] shadow-xl shadow-brand-lime/10 hover:scale-[1.02] cursor-pointer'
                 }`}
               >
-                <Sparkles className={`w-4.5 h-4.5 ${isExpired || isFull ? 'text-red-400' : 'text-dark-bg'}`} />
-                <span>{isExpired ? 'Session Concluded' : isFull ? 'FULL — SESSION BOOKED OUT' : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}</span>
+                {isExpired ? (
+                  <Sparkles className="w-4.5 h-4.5 text-red-400" />
+                ) : isFull ? (
+                  <Clock className={`w-4.5 h-4.5 ${isAlreadyWaitlisted ? 'text-amber-400' : 'text-dark-bg'}`} />
+                ) : (
+                  <Sparkles className="w-4.5 h-4.5 text-dark-bg" />
+                )}
+                <span>
+                  {isExpired
+                    ? 'Session Concluded'
+                    : isFull
+                    ? isAlreadyWaitlisted
+                      ? `Position #${userWaitlistPosition} on Waitlist`
+                      : 'Join Waitlist'
+                    : `Book Now (${event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'})`}
+                </span>
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* BOTTOM ROSTER & EVENT HUB (PARTICIPANTS, WAITING LIST, & SESSION CHAT) */}
           {(() => {
@@ -1536,7 +1804,19 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
             const maxParticipants = event?.maxParticipants || 16;
             const participants = allAttendees.slice(0, maxParticipants);
-            const waitlist = allAttendees.slice(maxParticipants);
+
+            // Construct waitlist: explicit waitlisted registrations + overflow attendees
+            const explicitWaitlist: ParticipantCard[] = waitlistedRegistrations.map((reg) => ({
+              id: `${reg.id}-waitlist`,
+              name: reg.playerName || reg.userName || 'Player',
+              type: 'primary',
+              photoUrl: (reg as any).photoUrl || (reg as any).playerPhotoUrl || (reg as any).avatarUrl,
+              isApproved: false,
+              dateStr: reg.createdAt ? reg.createdAt.split('T')[0] : 'Waitlisted',
+              registrationId: reg.id,
+            }));
+            const overflowWaitlist = allAttendees.slice(maxParticipants);
+            const waitlist = [...explicitWaitlist, ...overflowWaitlist];
 
             const filteredParticipants = participants.filter((p) =>
               p.name.toLowerCase().includes(rosterSearch.toLowerCase())

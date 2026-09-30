@@ -39,7 +39,10 @@ import {
   Bell,
   Clock,
   UserPlus,
+  Hourglass,
 } from 'lucide-react';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db, isFirebaseConfigured } from '../../../firebase';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { type OpenPlayRegistrationItem } from './AdminOpenPlayTab';
 import {
@@ -111,7 +114,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   // Roster View state
   const [rosterViewMode, setRosterViewMode] = useState<'cards' | 'list' | 'table'>('cards');
   const [rosterSearchQuery, setRosterSearchQuery] = useState('');
-  const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest'>('all');
+  const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest' | 'waitlist'>('all');
   const [copiedShareLink, setCopiedShareLink] = useState<boolean>(false);
 
   // Poster Lightbox Modal State
@@ -225,9 +228,96 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   // Filter registrations specifically for this event
   const eventRegs = registrations.filter((r) => r.eventId === event.id);
 
+  const activeEventRegs = eventRegs.filter((r) => r.status !== 'cancelled' && r.status !== 'waitlisted' && r.paymentStatus !== 'waitlisted');
+  const waitlistEventRegs = eventRegs
+    .filter((r) => r.status !== 'cancelled' && (r.status === 'waitlisted' || r.paymentStatus === 'waitlisted'))
+    .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  const handlePromoteWaitlistedPlayer = async (regId: string) => {
+    setActionLoadingId(regId);
+    try {
+      if (isFirebaseConfigured && db) {
+        try {
+          await updateDoc(doc(db, 'openplay_registrations', regId), {
+            status: 'approved',
+            paymentStatus: 'paid',
+          });
+        } catch (e) {
+          console.warn('Firestore promote error:', e);
+        }
+      }
+      const updateLocal = (str: string | null) => {
+        if (!str) return;
+        try {
+          const updated = JSON.parse(str).map((r: any) =>
+            r.id === regId ? { ...r, status: 'approved', paymentStatus: 'paid' } : r
+          );
+          return JSON.stringify(updated);
+        } catch {
+          return null;
+        }
+      };
+      const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+      const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+      const updatedLs = updateLocal(lsStr);
+      const updatedSs = updateLocal(ssStr);
+      if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+      if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+      alert('🎉 Player successfully promoted from waitlist to active roster!');
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to promote waitlisted player:', err);
+      alert('Failed to promote player.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleRemoveWaitlistedPlayer = async (regId: string) => {
+    if (!window.confirm('Remove this player from the waiting list?')) return;
+    setActionLoadingId(regId);
+    try {
+      if (isFirebaseConfigured && db) {
+        try {
+          await updateDoc(doc(db, 'openplay_registrations', regId), { status: 'cancelled' });
+        } catch (e) {
+          console.warn('Firestore remove waitlist error:', e);
+        }
+      }
+      const updateLocal = (str: string | null) => {
+        if (!str) return;
+        try {
+          const updated = JSON.parse(str).map((r: any) =>
+            r.id === regId ? { ...r, status: 'cancelled' } : r
+          );
+          return JSON.stringify(updated);
+        } catch {
+          return null;
+        }
+      };
+      const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+      const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+      const updatedLs = updateLocal(lsStr);
+      const updatedSs = updateLocal(ssStr);
+      if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+      if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+      alert('Player removed from waitlist.');
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to remove player from waitlist:', err);
+      alert('Failed to remove player.');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
   // Build complete attendees list expanding primary players and guests
   const allAttendees: RosterAttendee[] = [];
-  eventRegs.forEach((reg) => {
+  activeEventRegs.forEach((reg) => {
     const primaryName = reg.playerName || reg.userName || 'Player';
     const primaryEmail = reg.playerEmail || reg.userEmail || '';
     const primaryPhone = reg.playerPhone || reg.userPhone || '';
@@ -283,7 +373,27 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     }
   });
 
-  const filteredAttendees = allAttendees.filter((att) => {
+  const waitlistAttendees: RosterAttendee[] = [];
+  waitlistEventRegs.forEach((reg) => {
+    waitlistAttendees.push({
+      id: `${reg.id}-waitlist`,
+      registrationId: reg.id,
+      type: 'primary',
+      name: reg.playerName || reg.userName || 'Waitlisted Player',
+      email: reg.playerEmail || reg.userEmail || '',
+      phone: reg.playerPhone || reg.userPhone || '',
+      photoUrl: (reg as any).photoUrl || (reg as any).playerPhotoUrl || (reg as any).userPhoto,
+      paymentStatus: 'waitlisted',
+      status: 'waitlisted',
+      gcashReferenceNumber: reg.gcashReferenceNumber,
+      receiptImageUrl: reg.receiptImageUrl,
+      createdAt: reg.createdAt,
+    });
+  });
+
+  const displayAttendees = rosterFilterRole === 'waitlist' ? waitlistAttendees : allAttendees;
+
+  const filteredAttendees = displayAttendees.filter((att) => {
     if (rosterFilterRole === 'primary' && att.type !== 'primary') return false;
     if (rosterFilterRole === 'guest' && att.type !== 'guest') return false;
     if (!rosterSearchQuery.trim()) return true;
@@ -1172,6 +1282,17 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
               >
                 Guests ({guestCount})
               </button>
+              <button
+                onClick={() => setRosterFilterRole('waitlist')}
+                className={`px-3 py-1.5 rounded-xl font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  rosterFilterRole === 'waitlist'
+                    ? 'bg-amber-400 text-dark-bg border border-amber-400/50 shadow-sm'
+                    : 'text-amber-400 hover:text-amber-300'
+                }`}
+              >
+                <Hourglass className="w-3.5 h-3.5" />
+                <span>Waitlist ({waitlistAttendees.length})</span>
+              </button>
             </div>
           </div>
 
@@ -1199,6 +1320,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
               {filteredAttendees.map((att, idx) => {
+                const isWaitlisted = att.status === 'waitlisted' || att.paymentStatus === 'waitlisted';
                 const isApproved = att.status === 'approved' || att.paymentStatus === 'paid';
                 const isPending = att.paymentStatus === 'pending_verification';
 
@@ -1206,23 +1328,39 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                   <div
                     key={att.id}
                     className={`glass-panel border rounded-2xl p-4 space-y-3 relative transition-all shadow-md flex flex-col justify-between ${
-                      attendanceMap[att.id] ? 'border-brand-lime/50 bg-slate-900/90 ring-1 ring-brand-lime/30' : 'border-slate-800 hover:border-slate-700'
+                      isWaitlisted
+                        ? 'border-amber-500/40 bg-slate-900/90 ring-1 ring-amber-500/20'
+                        : attendanceMap[att.id]
+                        ? 'border-brand-lime/50 bg-slate-900/90 ring-1 ring-brand-lime/30'
+                        : 'border-slate-800 hover:border-slate-700'
                     }`}
                   >
                     <div>
                       <div className="flex items-center justify-between gap-2 mb-2.5">
-                        <span className="px-2 py-0.5 rounded-md bg-slate-800 text-[10px] font-black text-slate-300 font-mono">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black font-mono ${
+                          isWaitlisted ? 'bg-amber-400 text-dark-bg' : 'bg-slate-800 text-slate-300'
+                        }`}>
                           #{idx + 1}
                         </span>
                         <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
-                          att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/40' : 'bg-purple-950/40 text-purple-300 border border-purple-800/50'
+                          isWaitlisted
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : att.type === 'primary'
+                            ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/40'
+                            : 'bg-purple-950/40 text-purple-300 border border-purple-800/50'
                         }`}>
-                          {att.type === 'primary' ? 'Primary Player' : `Guest #${att.guestIndex}`}
+                          {isWaitlisted ? `Queue Position #${idx + 1}` : att.type === 'primary' ? 'Primary Player' : `Guest #${att.guestIndex}`}
                         </span>
                         <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ml-auto ${
-                          isApproved ? 'bg-brand-emerald/10 text-brand-emerald border border-brand-emerald/30' : isPending ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'
+                          isWaitlisted
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : isApproved
+                            ? 'bg-brand-emerald/10 text-brand-emerald border border-brand-emerald/30'
+                            : isPending
+                            ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30'
+                            : 'bg-red-500/10 text-red-400 border border-red-500/30'
                         }`}>
-                          {isApproved ? '✓ Paid' : isPending ? '⏳ Pending' : '✕ Failed'}
+                          {isWaitlisted ? '⏳ Waitlisted' : isApproved ? '✓ Paid' : isPending ? '⏳ Pending' : '✕ Failed'}
                         </span>
                       </div>
 
@@ -1258,27 +1396,50 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     </div>
 
                     <div className="pt-3 border-t border-slate-800/80 text-[11px] space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => toggleAttendance(att.id)}
-                        className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
-                          attendanceMap[att.id]
-                            ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
-                            : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
-                        }`}
-                      >
-                        {attendanceMap[att.id] ? (
-                          <>
-                            <CheckCircle2 className="w-4 h-4 text-dark-bg" />
-                            <span>🟢 PRESENT</span>
-                          </>
-                        ) : (
-                          <>
-                            <UserCheck className="w-4 h-4 text-slate-400" />
-                            <span>MARK PRESENT</span>
-                          </>
-                        )}
-                      </button>
+                      {isWaitlisted ? (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handlePromoteWaitlistedPlayer(att.registrationId)}
+                            disabled={actionLoadingId === att.registrationId}
+                            className="flex-1 py-2 px-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                          >
+                            {actionLoadingId === att.registrationId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                            <span>Promote to Roster</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveWaitlistedPlayer(att.registrationId)}
+                            disabled={actionLoadingId === att.registrationId}
+                            className="py-2 px-3 rounded-xl bg-slate-900 border border-red-500/40 text-red-400 hover:bg-red-500/20 font-extrabold text-xs uppercase transition-all flex items-center justify-center gap-1 cursor-pointer"
+                            title="Remove from waitlist"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => toggleAttendance(att.id)}
+                          className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
+                            attendanceMap[att.id]
+                              ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
+                              : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
+                          }`}
+                        >
+                          {attendanceMap[att.id] ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 text-dark-bg" />
+                              <span>🟢 PRESENT</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserCheck className="w-4 h-4 text-slate-400" />
+                              <span>MARK PRESENT</span>
+                            </>
+                          )}
+                        </button>
+                      )}
 
                       {att.gcashReferenceNumber && (
                         <div className="flex items-center justify-between text-slate-300 pt-1">

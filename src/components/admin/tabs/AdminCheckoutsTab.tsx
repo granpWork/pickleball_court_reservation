@@ -596,18 +596,20 @@ Thank you!`;
                             <button
                               type="button"
                               onClick={() => handleOpenEditManualModal(booking)}
-                              className="px-3 py-1.5 rounded-xl bg-purple-600/30 border border-purple-500/50 hover:bg-purple-600 hover:text-white text-purple-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all"
+                              title="Edit details"
+                              className="p-2 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                             >
-                              <Edit3 className="w-3.5 h-3.5" /> Edit Details
+                              <Edit3 className="w-4 h-4" />
                             </button>
                           )}
                           {proofUrl && (
                             <button
                               type="button"
                               onClick={() => onViewReceipt(proofUrl)}
-                              className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-brand-lime font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                              title="View proof of payment"
+                              className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-brand-lime hover:bg-slate-700 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                             >
-                              <Eye className="w-3.5 h-3.5" /> Proof
+                              <Eye className="w-4 h-4" />
                             </button>
                           )}
 
@@ -616,16 +618,18 @@ Thank you!`;
                               <button
                                 type="button"
                                 onClick={() => onApproveBooking(booking)}
-                                className="px-3.5 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-black text-xs uppercase cursor-pointer shadow hover:bg-[#a6e224]"
+                                title="Approve payment"
+                                className="p-2 rounded-xl bg-brand-lime text-dark-bg hover:bg-[#a6e224] transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                               >
-                                Approve
+                                <Check className="w-4 h-4 stroke-[3]" />
                               </button>
                               <button
                                 type="button"
                                 onClick={() => onRejectBooking(booking)}
-                                className="px-3 py-1.5 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 font-extrabold text-xs uppercase cursor-pointer hover:bg-red-900 hover:text-white"
+                                title="Reject payment"
+                                className="p-2 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 hover:bg-red-600 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                               >
-                                Reject
+                                <X className="w-4 h-4 stroke-[2.5]" />
                               </button>
                             </>
                           )}
@@ -811,40 +815,41 @@ Thank you!`;
                                     <button
                                       type="button"
                                       onClick={() => handleOpenEditManualModal(booking)}
-                                      title="Edit Manual Booking Details"
-                                      className="px-2.5 py-1.5 rounded-xl bg-purple-600/30 border border-purple-500/50 hover:bg-purple-600 hover:text-white text-purple-300 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer hover:scale-[1.02] flex items-center gap-1.5 shadow-sm"
+                                      title="Edit details"
+                                      className="p-2 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                                     >
-                                      <Edit3 className="w-3.5 h-3.5 text-purple-300" />
-                                      <span>Edit</span>
+                                      <Edit3 className="w-4 h-4" />
                                     </button>
                                   )}
                                   {/* View Proof of Payment Receipt Button */}
                                   {proofUrl && (
                                     <button
+                                      type="button"
                                       onClick={() => onViewReceipt(proofUrl)}
-                                      title="View Proof of Payment Receipt"
-                                      className="px-2.5 py-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 text-brand-lime hover:bg-slate-700 hover:text-white font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer hover:scale-[1.02] flex items-center gap-1.5 shadow-sm"
+                                      title="View proof of payment"
+                                      className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-brand-lime hover:bg-slate-700 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                                     >
-                                      <Eye className="w-3.5 h-3.5 text-brand-lime" />
-                                      <span>Proof</span>
+                                      <Eye className="w-4 h-4" />
                                     </button>
                                   )}
 
                                   {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
                                     <>
                                       <button
+                                        type="button"
                                         onClick={() => onApproveBooking(booking)}
-                                        title="Approve Payment"
-                                        className="px-2.5 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow hover:scale-[1.02]"
+                                        title="Approve payment"
+                                        className="p-2 rounded-xl bg-brand-lime text-dark-bg hover:bg-[#a6e224] transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                                       >
-                                        Approve
+                                        <Check className="w-4 h-4 stroke-[3]" />
                                       </button>
                                       <button
+                                        type="button"
                                         onClick={() => onRejectBooking(booking)}
-                                        title="Reject Payment & Cancel Booking"
-                                        className="px-2.5 py-1.5 rounded-xl bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer hover:scale-[1.02]"
+                                        title="Reject payment"
+                                        className="p-2 rounded-xl bg-red-950/40 border border-red-900/50 text-red-400 hover:bg-red-600 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                                       >
-                                        Reject
+                                        <X className="w-4 h-4 stroke-[2.5]" />
                                       </button>
                                     </>
                                   )}

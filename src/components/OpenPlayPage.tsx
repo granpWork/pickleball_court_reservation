@@ -13,6 +13,7 @@ import {
   DollarSign,
   Share2,
   Check,
+  CheckCircle2,
   ChevronDown
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -505,6 +506,28 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
 
               const durationStr = calculateEventDuration(event.startTime, event.endTime);
 
+              const userSession = (() => {
+                try {
+                  const s = localStorage.getItem('picklepoint_session');
+                  return s ? JSON.parse(s) : null;
+                } catch (e) {
+                  return null;
+                }
+              })();
+
+              const isUserJoining = Boolean(
+                userSession &&
+                  registrations.some(
+                    (r) =>
+                      r.eventId === event.id &&
+                      r.status !== 'cancelled' &&
+                      r.status !== 'waitlisted' &&
+                      r.paymentStatus !== 'waitlisted' &&
+                      ((r.playerEmail || '').toLowerCase() === (userSession.email || '').toLowerCase() ||
+                        (userSession.uid && (r.playerUid === userSession.uid || (r as any).userId === userSession.uid)))
+                  )
+              );
+
               return (
                 <div
                   key={event.id}
@@ -512,6 +535,8 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
                   className={`glass-panel rounded-2xl overflow-hidden flex flex-col justify-between transition-all duration-300 border group cursor-pointer ${
                     isExpired
                       ? 'border-slate-800/60 bg-slate-950/40 opacity-85 hover:border-slate-700'
+                      : isUserJoining
+                      ? 'border-emerald-500/60 bg-slate-900/90 ring-1 ring-emerald-500/30 hover:shadow-2xl hover:shadow-emerald-500/10'
                       : 'glass-panel-hover border-slate-800 hover:shadow-2xl hover:shadow-black/50 hover:border-brand-lime/50'
                   }`}
                 >
@@ -566,6 +591,13 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
                       )}
 
                       <div className="absolute top-3 left-3 flex items-center gap-1.5 flex-wrap">
+                        {isUserJoining && (
+                          <div className="px-3 py-1 rounded-full bg-emerald-500/95 backdrop-blur-md border border-emerald-400/60 text-dark-bg text-[10px] font-black uppercase tracking-wider shadow-lg flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-dark-bg" />
+                            <span>JOINING</span>
+                          </div>
+                        )}
+
                         {isExpired ? (
                           <div className="px-3 py-1 rounded-full bg-amber-500/90 backdrop-blur-md border border-amber-400/50 text-dark-bg text-[10px] font-black uppercase tracking-wider shadow">
                             ⏰ Concluded

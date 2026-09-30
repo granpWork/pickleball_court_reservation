@@ -16,7 +16,7 @@ import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
 import { AdminScoreboardTab } from './admin/tabs/AdminScoreboardTab';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminCompaniesSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -399,6 +399,41 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const currentUserUid = user?.uid || 'unknown';
   const currentUserEmail = user?.email?.toLowerCase() || '';
   const isSuperAdmin = currentUserEmail === 'admin@picklepoint.com' || user?.role === 'super_admin';
+  const isAuthorizedAdmin = Boolean(
+    user &&
+      (user.isAdmin ||
+        user.role === 'client_admin' ||
+        user.role === 'super_admin' ||
+        user.role === 'manager' ||
+        user.role === 'editor' ||
+        currentUserEmail === 'admin@picklepoint.com') &&
+      user.role !== 'player' &&
+      user.role !== 'client'
+  );
+
+  if (!isAuthorizedAdmin) {
+    return (
+      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-3xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 mb-4 shadow-xl">
+          <AlertTriangle className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-black uppercase tracking-wider text-white mb-2">Access Restricted</h2>
+        <p className="text-sm text-slate-400 max-w-md mb-6">
+          The Admin Dashboard is strictly reserved for venue hosts and facility administrators. Regular player accounts are not permitted to access this portal.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== 'undefined') window.history.pushState({}, '', '/');
+            setView('landing');
+          }}
+          className="px-6 py-3 rounded-2xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/20"
+        >
+          Return to Player Home
+        </button>
+      </div>
+    );
+  }
 
   // Security guard for un-onboarded Client Admins trying to load Admin Dashboard directly
   useEffect(() => {
@@ -464,6 +499,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   });
 
   const [courtsSubTab, setCourtsSubTab] = useState<AdminCourtsSubTab>('list');
+  const [bookingsSubTab, setBookingsSubTab] = useState<AdminBookingsSubTab>('list');
   const [companiesSubTab] = useState<AdminCompaniesSubTab>('all');
 
   useEffect(() => {
@@ -6826,6 +6862,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         isSuperAdmin={isSuperAdmin}
         courtsSubTab={courtsSubTab}
         setCourtsSubTab={setCourtsSubTab}
+        bookingsSubTab={bookingsSubTab}
+        setBookingsSubTab={setBookingsSubTab}
         settingsSubTab={settingsSubTab}
         setSettingsSubTab={setSettingsSubTab}
         settingsSubMenuOpen={settingsSubMenuOpen}
@@ -6998,6 +7036,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'bookings' && (
             <AdminBookingsTab
+              bookingsSubTab={bookingsSubTab}
+              setBookingsSubTab={setBookingsSubTab}
               bookings={bookings}
               filteredBookings={filteredBookings}
               totalRevenue={totalRevenue}

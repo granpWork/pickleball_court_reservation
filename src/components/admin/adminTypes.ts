@@ -200,6 +200,7 @@ export function getUserEffectivePermissions(user?: { role?: string; permissions?
 export type SubscriptionPlan = 'trial' | 'monthly' | 'yearly' | 'lifetime' | 'custom';
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'expired';
 export type AdminCourtsSubTab = 'list' | 'manual_booking';
+export type AdminBookingsSubTab = 'list' | 'calendar';
 export type AdminCompaniesSubTab = 'all' | 'reviews';
 
 export interface UserAccount {

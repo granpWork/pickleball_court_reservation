@@ -111,8 +111,6 @@ export default function Checkout({
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [receiptLightboxImage, setReceiptLightboxImage] = useState<string | null>(null);
   const [liveBookingStatus, setLiveBookingStatus] = useState<'pending_verification' | 'approved' | 'paid' | 'cancelled' | 'rejected' | 'pending'>('pending_verification');
-  const [isCancellingSubmittedBooking, setIsCancellingSubmittedBooking] = useState(false);
-  const [isCancelConfirmModalOpen, setIsCancelConfirmModalOpen] = useState(false);
 
   const checkLiveBookingStatus = async (targetRef: string) => {
     if (!targetRef) return;
@@ -178,97 +176,6 @@ export default function Checkout({
       }
     } catch (err) {
       console.warn('Live status check error:', err);
-    }
-  };
-
-  const handleCancelSubmittedBooking = async () => {
-    if (!bookingRef) return;
-    setIsCancellingSubmittedBooking(true);
-    try {
-      const targetRef = bookingRef;
-      const cancelTimestamp = new Date().toISOString();
-
-      // 1. Update Firestore bookings
-      if (isFirebaseConfigured && db) {
-        try {
-          await updateDoc(doc(db, 'bookings', targetRef), {
-            status: 'cancelled',
-            paymentStatus: 'cancelled',
-            cancelledAt: cancelTimestamp,
-            cancelledBy: user?.email || 'player',
-          });
-        } catch (err) {
-          console.warn('Firestore cancel update error:', err);
-        }
-
-        try {
-          const opRef = doc(db, 'openplay_registrations', targetRef);
-          const opSnap = await getDoc(opRef);
-          if (opSnap.exists()) {
-            await updateDoc(opRef, {
-              status: 'cancelled',
-              paymentStatus: 'cancelled',
-              cancelledAt: cancelTimestamp,
-            });
-          }
-        } catch (err) {}
-      }
-
-      // 2. Update LocalStorage picklepoint_bookings
-      try {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr);
-          const updated = localBookings.map((b: any) => {
-            if (b.id === targetRef || b.bookingId === targetRef || b.bookingReference === targetRef) {
-              return {
-                ...b,
-                status: 'cancelled',
-                paymentStatus: 'cancelled',
-                cancelledAt: cancelTimestamp,
-              };
-            }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-        }
-      } catch (e) {}
-
-      // 3. Update LocalStorage picklepoint_openplay_registrations
-      try {
-        const regStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
-        if (regStr) {
-          const localRegs = JSON.parse(regStr);
-          const updated = localRegs.map((r: any) => {
-            if (r.id === targetRef || r.registrationId === targetRef || r.bookingId === targetRef) {
-              return {
-                ...r,
-                status: 'cancelled',
-                paymentStatus: 'cancelled',
-                cancelledAt: cancelTimestamp,
-              };
-            }
-            return r;
-          });
-          localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updated));
-        }
-      } catch (e) {}
-
-      // 4. Remove last submitted saved state from storage
-      try {
-        sessionStorage.removeItem('picklepoint_last_submitted_booking');
-        localStorage.removeItem('picklepoint_last_submitted_booking');
-      } catch (e) {}
-
-      // 5. Update local state & trigger instant calendar unblock dispatch
-      setLiveBookingStatus('cancelled');
-      window.dispatchEvent(new Event('picklepoint_booking_added'));
-      window.dispatchEvent(new Event('storage'));
-    } catch (err) {
-      console.error('Error cancelling reservation:', err);
-    } finally {
-      setIsCancellingSubmittedBooking(false);
-      setIsCancelConfirmModalOpen(false);
     }
   };
 
@@ -1614,60 +1521,6 @@ export default function Checkout({
               >
                 <CheckCircle className="w-4 h-4 text-brand-lime" /> Home
               </button>
-            </div>
-
-            {!isApproved && (
-              <button
-                type="button"
-                onClick={() => setIsCancelConfirmModalOpen(true)}
-                className="w-full py-3 rounded-2xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/60 text-red-400 font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md"
-              >
-                <X className="w-4 h-4" /> Cancel Reservation & Release Time Slot
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Modal Dialog for Cancelling Submitted Pending Reservation */}
-        {isCancelConfirmModalOpen && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-[#0e1424] border border-red-500/30 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
-              <div className="flex items-center gap-3 text-red-400">
-                <div className="p-3 rounded-2xl bg-red-500/10 border border-red-500/20 flex-shrink-0">
-                  <X className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white">Cancel Pending Reservation?</h3>
-                  <p className="text-xs text-slate-400 font-mono">Ref: {bookingRef}</p>
-                </div>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Are you sure you want to cancel this pending checkout? This will cancel reference <strong className="text-white font-mono">{bookingRef}</strong> and immediately release the reserved time slot(s) on the calendar back to available.
-              </p>
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  disabled={isCancellingSubmittedBooking}
-                  onClick={() => setIsCancelConfirmModalOpen(false)}
-                  className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
-                >
-                  Keep Reservation
-                </button>
-                <button
-                  type="button"
-                  disabled={isCancellingSubmittedBooking}
-                  onClick={handleCancelSubmittedBooking}
-                  className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-red-600/30"
-                >
-                  {isCancellingSubmittedBooking ? (
-                    <span>Cancelling...</span>
-                  ) : (
-                    <>
-                      <X className="w-4 h-4" /> Confirm Cancel
-                    </>
-                  )}
-                </button>
-              </div>
             </div>
           </div>
         )}

@@ -150,7 +150,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
             <div className="hidden lg:flex items-center gap-3 xl:gap-4 flex-shrink-0">
               {user ? (
                 <>
-                  {(user.isAdmin || user.email.toLowerCase() === 'admin@picklepoint.com') && (
+                  {(user.isAdmin || user.role === 'client_admin' || user.role === 'super_admin' || user.role === 'manager' || user.email.toLowerCase() === 'admin@picklepoint.com') && user.role !== 'player' && (
                     <button
                       onClick={() => {
                         window.history.pushState({}, '', '/pickle-admin');
@@ -268,7 +268,7 @@ export default function Header({ user, onLogout, setView, currentView = 'landing
           <div className="flex flex-col gap-3 pt-4">
             {user ? (
               <>
-                {(user.isAdmin || user.email.toLowerCase() === 'admin@picklepoint.com') && (
+                {(user.isAdmin || user.role === 'client_admin' || user.role === 'super_admin' || user.role === 'manager' || user.email.toLowerCase() === 'admin@picklepoint.com') && user.role !== 'player' && (
                   <button
                     onClick={() => {
                       setIsOpen(false);
