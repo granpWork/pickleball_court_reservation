@@ -40,6 +40,8 @@ import {
   Clock,
   UserPlus,
   Hourglass,
+  BookOpen,
+  ShieldAlert,
 } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../../../firebase';
@@ -119,6 +121,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
   // Poster Lightbox Modal State
   const [isPosterModalOpen, setIsPosterModalOpen] = useState<boolean>(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState<boolean>(false);
 
   // Flexible Game Start Reminder Modal & Dispatch State
   const [isReminderModalOpen, setIsReminderModalOpen] = useState<boolean>(false);
@@ -898,7 +901,30 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 </div>
               )}
             </div>
+
+            {/* Modal Alert Trigger Card for Session Rules, Format & Description */}
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800 flex items-center justify-between gap-3 shadow-md mt-2">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shrink-0">
+                  <BookOpen className="w-4.5 h-4.5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-white uppercase tracking-wider">Session Guide & Venue Rules</h4>
+                  <p className="text-[11px] text-slate-400">Description, play format, court rotation & house rules</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsRulesModalOpen(true)}
+                className="px-3.5 py-2 rounded-xl bg-brand-lime/15 hover:bg-brand-lime/25 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:scale-[1.02] shrink-0"
+              >
+                <Eye className="w-4 h-4 text-brand-lime" />
+                <span>View Rules & Play Format</span>
+              </button>
+            </div>
           </div>
+
 
           {/* Action Toolbar Row next to Copy Shareable Link */}
           <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-800 text-xs mt-auto">
@@ -1845,6 +1871,112 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
           </div>
         </div>
       )}
+      {/* Event Rules & Guidelines Modal Alert */}
+      {isRulesModalOpen && (
+        <div
+          onClick={() => setIsRulesModalOpen(false)}
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-2xl w-full max-h-[85vh] rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl p-6 sm:p-8 flex flex-col overflow-hidden text-left"
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center">
+                  <BookOpen className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white uppercase tracking-wider">Session Guide & Rules</h3>
+                  <p className="text-xs text-slate-400">Open Play overview, format & court guidelines</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setIsRulesModalOpen(false)}
+                className="p-2 rounded-full bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content Scrollable Area */}
+            <div className="overflow-y-auto custom-scrollbar space-y-5 pr-1 text-xs text-slate-300">
+              {/* Description Section */}
+              <div className="space-y-2 p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
+                <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-brand-lime">
+                  <FileText className="w-4 h-4" /> Description & Overview
+                </h4>
+                <p className="whitespace-pre-line text-slate-300 leading-relaxed">
+                  {event.description || 'Welcome to this Open Play session! Grab your paddle, join the queue, meet fellow players, and enjoy quality games on court.'}
+                </p>
+              </div>
+
+              {/* Play Format Section */}
+              <div className="space-y-2.5 p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20">
+                <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-purple-300">
+                  <Repeat className="w-4 h-4" /> Play Format & Court Rotation
+                </h4>
+                <div className="p-2.5 rounded-xl bg-purple-950/60 border border-purple-500/30 text-purple-200">
+                  <span className="font-extrabold block mb-0.5 text-purple-300">Active Rotation Rule:</span>
+                  {(!event.rotationRule || event.rotationRule === 'winners_stay') && (
+                    <span>👑 <strong>Winners Stay:</strong> Winning pair stays on court for max 2 consecutive matches. Losers rotate off to paddle rack.</span>
+                  )}
+                  {event.rotationRule === 'all_4_rotate' && (
+                    <span>🔄 <strong>All 4 Rotate:</strong> All four players step off after game completion.</span>
+                  )}
+                  {event.rotationRule === 'split_winners' && (
+                    <span>🔀 <strong>Split Winners:</strong> Winning pair splits partners for match #2.</span>
+                  )}
+                </div>
+                <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px] pl-1">
+                  <li><strong>Scoring:</strong> Rally scoring to 11 points (win by 2) or 15 points.</li>
+                  <li><strong>Paddle Rack:</strong> Stack your paddle in order at court entrance table.</li>
+                  <li><strong>Warm-Up:</strong> Max 3-minute warm-up limit before match serve.</li>
+                </ul>
+              </div>
+
+              {/* Venue House Rules Section */}
+              <div className="space-y-2 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-amber-400">
+                  <ShieldAlert className="w-4 h-4" /> Venue House Rules
+                </h4>
+                <ul className="space-y-2 text-[11px] text-slate-300">
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <span><strong>Non-Marking Shoes:</strong> Non-marking court shoes or athletic sneakers strictly required.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <span><strong>Check-in Punctuality:</strong> Arrive 10 minutes prior to session start.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <span><strong>Sportsmanship:</strong> Maintain clear line calls and respectful court conduct.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-400 font-bold">•</span>
+                    <span><strong>Safety:</strong> Store gear outside court lines in designated seating areas.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-4 mt-4 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsRulesModalOpen(false)}
+                className="px-6 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-md"
+              >
+                Got It, Close Guide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
