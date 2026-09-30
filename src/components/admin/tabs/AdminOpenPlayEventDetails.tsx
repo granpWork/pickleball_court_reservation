@@ -815,12 +815,6 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
               </div>
             </div>
 
-            {/* Description Block */}
-            {event.description && (
-              <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 text-sm font-semibold text-slate-200 leading-relaxed break-words whitespace-pre-line">
-                {event.description}
-              </div>
-            )}
 
             {/* Open Minimalist Metadata Section (No Individual Card Boxes) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6 text-sm text-slate-200 min-w-0 py-1">
