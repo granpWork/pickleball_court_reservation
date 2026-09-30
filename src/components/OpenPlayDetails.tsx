@@ -29,8 +29,6 @@ import {
   Search,
   MessageCircle,
   CornerUpLeft,
-  ChevronDown,
-  ChevronUp,
   FileText,
   ShieldAlert,
   BookOpen,
@@ -180,16 +178,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   const [companyInfo, setCompanyInfo] = useState<{ name: string; logoUrl: string }>({ name: '', logoUrl: '' });
   const [associatedCourt, setAssociatedCourt] = useState<AssignedCourtInfo | null>(null);
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
-  const [openAccordionSections, setOpenAccordionSections] = useState<Record<string, boolean>>({
-    description: true,
-    format: true,
-    rules: true,
-  });
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
-
-  const toggleAccordion = (key: string) => {
-    setOpenAccordionSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
   void step; void setStep; void playerPhone; void gcashRef; void receiptImage; void submitting; void setSubmitting;
 
 
@@ -1574,146 +1563,26 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                   </div>
                 </div>
 
-                {/* Interactive Accordion: Description, Play Format & Venue House Rules */}
-                <div className="space-y-3 mb-6">
-                  <div className="flex items-center justify-between px-1">
-                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                      <BookOpen className="w-3.5 h-3.5 text-brand-lime" /> Event Guide & Guidelines
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setIsRulesModalOpen(true)}
-                      className="text-[11px] font-extrabold text-brand-lime hover:text-[#a6e224] flex items-center gap-1.5 cursor-pointer hover:underline transition-colors"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>View as Modal Alert</span>
-                    </button>
+                {/* Modal Alert Trigger Button Card */}
+                <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-dark-bg border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shrink-0">
+                      <BookOpen className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-white uppercase tracking-wider">Session Guide & Venue House Rules</h4>
+                      <p className="text-[11px] text-slate-400">Description, play format, court rotation & venue rules</p>
+                    </div>
                   </div>
 
-                  {/* Accordion 1: Description */}
-                  <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-sm transition-all">
-                    <button
-                      type="button"
-                      onClick={() => toggleAccordion('description')}
-                      className="w-full p-3.5 text-left flex items-center justify-between gap-3 hover:bg-slate-800/40 transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime shrink-0">
-                          <FileText className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-black text-white uppercase tracking-wider">Description & Overview</h4>
-                          <p className="text-[11px] text-slate-400 line-clamp-1">
-                            {event.description ? event.description.substring(0, 65) + '...' : 'Session details and event overview.'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="p-1 rounded-lg bg-slate-800/80 text-slate-400 shrink-0">
-                        {openAccordionSections.description ? <ChevronUp className="w-4 h-4 text-brand-lime" /> : <ChevronDown className="w-4 h-4" />}
-                      </div>
-                    </button>
-
-                    {openAccordionSections.description && (
-                      <div className="px-4 pb-4 pt-1 border-t border-slate-800/80 text-xs text-slate-300 leading-relaxed animate-fade-in">
-                        <p className="whitespace-pre-line text-slate-300">
-                          {event.description || 'Welcome to this Open Play session! Grab your paddle, join the queue, meet fellow players, and enjoy quality games on court.'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Accordion 2: Play Format & Rotation */}
-                  <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-sm transition-all">
-                    <button
-                      type="button"
-                      onClick={() => toggleAccordion('format')}
-                      className="w-full p-3.5 text-left flex items-center justify-between gap-3 hover:bg-slate-800/40 transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
-                          <Repeat className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-black text-white uppercase tracking-wider">Play Format & Rotation Rules</h4>
-                          <div className="text-[11px] text-purple-300 font-extrabold flex items-center gap-1.5">
-                            {(!event.rotationRule || event.rotationRule === 'winners_stay') && '👑 Winners Stay, Losers Rotate (Max 2 games stay)'}
-                            {event.rotationRule === 'all_4_rotate' && '🔄 All 4 Players Rotate Off'}
-                            {event.rotationRule === 'split_winners' && '🔀 Split Winners & Rotate'}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="p-1 rounded-lg bg-slate-800/80 text-slate-400 shrink-0">
-                        {openAccordionSections.format ? <ChevronUp className="w-4 h-4 text-purple-400" /> : <ChevronDown className="w-4 h-4" />}
-                      </div>
-                    </button>
-
-                    {openAccordionSections.format && (
-                      <div className="px-4 pb-4 pt-2 border-t border-slate-800/80 text-xs text-slate-300 space-y-2.5 animate-fade-in">
-                        <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-200">
-                          <span className="font-extrabold block mb-0.5 text-purple-300">Active Rotation Rule:</span>
-                          {(!event.rotationRule || event.rotationRule === 'winners_stay') && (
-                            <span>👑 <strong>Winners Stay:</strong> Winning team stays for a maximum of 2 consecutive matches to maintain fast rotations.</span>
-                          )}
-                          {event.rotationRule === 'all_4_rotate' && (
-                            <span>🔄 <strong>All 4 Rotate:</strong> All four players step off after game completion to allow the next 4 in line to play.</span>
-                          )}
-                          {event.rotationRule === 'split_winners' && (
-                            <span>🔀 <strong>Split Winners:</strong> The winning pair splits partners for their second game to balance matchplay.</span>
-                          )}
-                        </div>
-                        <ul className="list-disc list-inside space-y-1.5 text-slate-400 text-[11px] pl-1">
-                          <li><strong>Scoring Format:</strong> Rally scoring to 11 points (win by 2) or 15 points straight depending on court queue length.</li>
-                          <li><strong>Paddle Stacking:</strong> Place your paddle in order at the paddle rack/bench area upon arrival.</li>
-                          <li><strong>Warm-up Period:</strong> 3-minute warm-up limit before initiating first serve of each match.</li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Accordion 3: Venue House Rules */}
-                  <div className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden shadow-sm transition-all">
-                    <button
-                      type="button"
-                      onClick={() => toggleAccordion('rules')}
-                      className="w-full p-3.5 text-left flex items-center justify-between gap-3 hover:bg-slate-800/40 transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
-                          <ShieldAlert className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-black text-white uppercase tracking-wider">Venue House Rules & Guidelines</h4>
-                          <p className="text-[11px] text-slate-400">Footwear, court etiquette, safety & sportsmanship standards.</p>
-                        </div>
-                      </div>
-                      <div className="p-1 rounded-lg bg-slate-800/80 text-slate-400 shrink-0">
-                        {openAccordionSections.rules ? <ChevronUp className="w-4 h-4 text-amber-400" /> : <ChevronDown className="w-4 h-4" />}
-                      </div>
-                    </button>
-
-                    {openAccordionSections.rules && (
-                      <div className="px-4 pb-4 pt-2 border-t border-slate-800/80 text-xs text-slate-300 space-y-2 animate-fade-in">
-                        <ul className="space-y-2 text-[11px] text-slate-300">
-                          <li className="flex items-start gap-2">
-                            <span className="text-amber-400 font-bold">•</span>
-                            <span><strong>Non-Marking Court Shoes:</strong> Only non-marking court shoes or athletic sneakers are permitted on playing surfaces.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="text-amber-400 font-bold">•</span>
-                            <span><strong>Punctuality & Arrival:</strong> Please check in 10-15 minutes prior to session start time.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="text-amber-400 font-bold">•</span>
-                            <span><strong>Fair Play & Line Calls:</strong> Call out line decisions honestly and maintain high sportsmanship at all times.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="text-amber-400 font-bold">•</span>
-                            <span><strong>Safety & Equipment Area:</strong> Keep bags, water bottles, and personal items in designated spectator seating outside play bounds.</span>
-                          </li>
-                        </ul>
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsRulesModalOpen(true)}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-brand-lime/15 hover:bg-brand-lime/25 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm hover:scale-[1.02] shrink-0"
+                  >
+                    <Eye className="w-4 h-4 text-brand-lime" />
+                    <span>View Rules & Play Format</span>
+                  </button>
                 </div>
               </div>
 
