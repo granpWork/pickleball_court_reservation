@@ -646,6 +646,11 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         </button>
 
         <div className="flex items-center gap-2 ml-auto">
+          {event.isDupr && (
+            <span className="px-3 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+              ⚡ DUPR RATED
+            </span>
+          )}
           {event.status === 'draft' ? (
             <button
               type="button"

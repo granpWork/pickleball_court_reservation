@@ -84,6 +84,7 @@ export interface OpenPlayEvent {
   isRecurring?: boolean;
   recurrencePattern?: string;
   recurrenceGroupId?: string;
+  isDupr?: boolean;
 }
 
 export interface AssignedCourtInfo {
@@ -1447,6 +1448,12 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                     <div className="flex items-center gap-1.5 text-brand-lime">
                       <Trophy className="w-4 h-4" /> Open Play Event
                     </div>
+
+                    {event.isDupr && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                        ⚡ DUPR RATED
+                      </span>
+                    )}
 
                     {event.status === 'draft' ? (
                       <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">

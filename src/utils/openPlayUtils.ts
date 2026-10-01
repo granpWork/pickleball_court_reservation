@@ -270,6 +270,7 @@ export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => 
     courtNames: Array.isArray(data.courtNames) ? data.courtNames : undefined,
     isRecurring: data.isRecurring || false,
     recurrencePattern: data.recurrencePattern,
-    recurrenceGroupId: data.recurrenceGroupId
+    recurrenceGroupId: data.recurrenceGroupId,
+    isDupr: Boolean(data.isDupr ?? data.isDUPR ?? false)
   };
 };

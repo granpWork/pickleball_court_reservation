@@ -1029,6 +1029,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [openPlayCourtIds, setOpenPlayCourtIds] = useState<string[]>([]);
   const [openPlayRotationRule, setOpenPlayRotationRule] = useState<'winners_stay' | 'all_4_rotate' | 'split_winners'>('winners_stay');
   const [openPlayStatusSetting, setOpenPlayStatusSetting] = useState<'draft' | 'active'>('draft');
+  const [isDuprOpenPlay, setIsDuprOpenPlay] = useState<boolean>(false);
   
   // Recurring / Looping Event States
   const [isRecurringEnabled, setIsRecurringEnabled] = useState<boolean>(false);
@@ -1222,6 +1223,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayGcashAccountId(personalAccounts[0]?.id || 'global');
     setOpenPlayRotationRule('winners_stay');
     setOpenPlayStatusSetting('draft');
+    setIsDuprOpenPlay(false);
     setIsRecurringEnabled(false);
     setRecurringDays([currentDayName || 'tuesday']);
     setRecurringWeeksCount(4);
@@ -1265,6 +1267,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
     setOpenPlayGcashAccountId(selectedAccId);
     
+    setIsDuprOpenPlay(Boolean(event.isDupr));
     setIsRecurringEnabled(event.isRecurring || false);
     setRecurringDays([dayNames[eventDay] || 'tuesday']);
     setRecurringWeeksCount(4);
@@ -1340,6 +1343,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         isRecurring: true,
         recurrencePattern: recurrencePatternLabel,
         recurrenceGroupId: groupId,
+        isDupr: isDuprOpenPlay,
       }));
 
       setActionLoading('batch');
@@ -1450,7 +1454,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       courtNames: selectedCourtNames,
       isRecurring: editingOpenPlay?.isRecurring || isRecurringEnabled,
       recurrencePattern: editingOpenPlay?.recurrencePattern,
-      recurrenceGroupId: editingOpenPlay?.recurrenceGroupId
+      recurrenceGroupId: editingOpenPlay?.recurrenceGroupId,
+      isDupr: isDuprOpenPlay
     };
 
     setActionLoading(eventId);
@@ -11039,6 +11044,74 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     placeholder="e.g. 123 Sports Complex, Makati City"
                     className="w-full bg-slate-900 border border-dark-border text-white text-xs font-medium rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime transition-all"
                   />
+                </div>
+
+                {/* DUPR RATING SPECIFICATION RADIO TOGGLE */}
+                <div className="space-y-2 md:col-span-2 p-4 rounded-2xl bg-slate-900/90 border border-dark-border">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                    <div>
+                      <label className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                        <Trophy className="w-3.5 h-3.5 text-brand-lime" /> DUPR Rating Session Status *
+                      </label>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Specify whether this Open Play session is registered and rated under DUPR.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                    {/* Radio Option 1: Regular Open Play */}
+                    <div
+                      onClick={() => setIsDuprOpenPlay(false)}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between select-none ${
+                        !isDuprOpenPlay
+                          ? 'bg-slate-800/80 border-slate-600 text-white shadow-md'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="text-xs font-black text-white flex items-center gap-1.5">
+                            🎾 Regular Open Play
+                          </span>
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                            !isDuprOpenPlay ? 'bg-slate-400 border-slate-400 text-slate-950' : 'border-slate-700 bg-slate-900'
+                          }`}>
+                            {!isDuprOpenPlay && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Casual / Social Open Play. Match scores are played for fun and are not submitted to DUPR.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Radio Option 2: DUPR Open Play */}
+                    <div
+                      onClick={() => setIsDuprOpenPlay(true)}
+                      className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between select-none ${
+                        isDuprOpenPlay
+                          ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/10'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <span className="text-xs font-black text-amber-400 flex items-center gap-1.5">
+                            ⚡ DUPR Rated Open Play
+                          </span>
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                            isDuprOpenPlay ? 'bg-amber-500 border-amber-500 text-slate-950' : 'border-slate-700 bg-slate-900'
+                          }`}>
+                            {isDuprOpenPlay && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Official DUPR session. Matches played will be recorded and submitted to DUPR for player rating calculation.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Court Selection Section (Select 1, Multiple, or All Courts) */}

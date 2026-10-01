@@ -1227,16 +1227,7 @@ function App() {
   if (currentView === 'profile') {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
-        {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
-
-        {/* Main Content Area */}
-        <main className="flex-grow pt-20">
-          <Profile user={user} setView={handleSetView} onLogout={handleLogout} />
-        </main>
-
-        {/* Footer Branding & Newsletter */}
-        <Footer setView={handleSetView} />
+        <Profile user={user} setView={handleSetView} onLogout={handleLogout} />
         {renderDeactivatedModal()}
       </div>
     );

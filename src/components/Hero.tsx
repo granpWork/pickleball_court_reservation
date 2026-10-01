@@ -1556,7 +1556,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                             )}
 
                             {/* Top Left Category Pill */}
-                            <div className="absolute top-3 left-3 flex items-center gap-1.5">
+                            <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5">
                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider backdrop-blur-md shadow-md ${
                                 event.category === 'Beginner' ? 'bg-emerald-950/90 text-emerald-400 border border-emerald-500/30' :
                                 event.category === 'Intermediate' ? 'bg-amber-950/90 text-amber-400 border border-amber-500/30' :
@@ -1565,6 +1565,12 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                               }`}>
                                 {event.category || 'Open to All'}
                               </span>
+
+                              {event.isDupr && (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider backdrop-blur-md shadow-md bg-amber-950/90 text-amber-300 border border-amber-500/50 flex items-center gap-1">
+                                  ⚡ DUPR
+                                </span>
+                              )}
                             </div>
                           </div>
 

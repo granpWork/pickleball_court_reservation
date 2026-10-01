@@ -507,6 +507,9 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                               ) : (
                                 <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-brand-lime/20 text-brand-lime border border-brand-lime/30">Active</span>
                               )}
+                              {event.isDupr && (
+                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">⚡ DUPR</span>
+                              )}
                               <span>{event.title}</span>
                             </div>
                           </td>
@@ -644,6 +647,13 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                         <div className="px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-cyan-300 text-[10px] font-extrabold uppercase tracking-wider">
                           {event.category || 'Open Play'}
                         </div>
+
+                        {/* DUPR Tag */}
+                        {event.isDupr && (
+                          <div className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                            <span>⚡ DUPR RATED</span>
+                          </div>
+                        )}
 
                         {/* Capacity Tag */}
                         {isFull && !isExpired && (

@@ -257,6 +257,7 @@ export default function Checkout({
     return [];
   });
   const [guestEmailErrors, setGuestEmailErrors] = useState<{ [key: number]: string }>({});
+  const [guestNameErrors, setGuestNameErrors] = useState<{ [key: number]: string }>({});
 
   const handlePlayerCountChange = (newCount: number) => {
     const minCount = 1;
@@ -281,6 +282,19 @@ export default function Checkout({
       updated[index] = { ...updated[index], [field]: value };
       return updated;
     });
+
+    if (field === 'name') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        setGuestNameErrors(prev => ({ ...prev, [index]: 'Guest name is required' }));
+      } else {
+        setGuestNameErrors(prev => {
+          const updated = { ...prev };
+          delete updated[index];
+          return updated;
+        });
+      }
+    }
 
     if (field === 'email') {
       const trimmed = value.trim();
@@ -738,6 +752,25 @@ export default function Checkout({
       setError('Please enter your mobile contact number.');
       return false;
     }
+
+    if (isOpenPlay && guests.length > 0) {
+      const nameErrors: { [key: number]: string } = {};
+      let hasMissingGuestName = false;
+
+      guests.forEach((g, idx) => {
+        if (!g.name.trim()) {
+          nameErrors[idx] = `Guest #${idx + 1} name is required`;
+          hasMissingGuestName = true;
+        }
+      });
+
+      if (hasMissingGuestName) {
+        setGuestNameErrors(nameErrors);
+        setError('Please enter full names for all guest(s) before proceeding.');
+        return false;
+      }
+    }
+
     setError('');
     return true;
   };
@@ -1795,14 +1828,24 @@ export default function Checkout({
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                   <div>
-                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">Guest Name</label>
+                                    <label className="text-[10px] font-bold text-slate-400 block mb-1">
+                                      Guest #{idx + 1} Name <span className="text-rose-400 font-bold">* (Required)</span>
+                                    </label>
                                     <input
                                       type="text"
+                                      required
                                       placeholder={`e.g. Guest ${idx + 1} Name`}
                                       value={guest.name}
                                       onChange={(e) => handleGuestChange(idx, 'name', e.target.value)}
-                                      className="w-full bg-slate-900 border border-slate-800 text-white rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-brand-lime"
+                                      className={`w-full bg-slate-900 border text-white rounded-lg px-3 py-2 text-xs focus:outline-none ${
+                                        guestNameErrors[idx] ? 'border-red-500 focus:border-red-500' : 'border-slate-800 focus:border-brand-lime'
+                                      }`}
                                     />
+                                    {guestNameErrors[idx] && (
+                                      <span className="text-[10px] text-red-400 mt-1 block font-semibold">
+                                        {guestNameErrors[idx]}
+                                      </span>
+                                    )}
                                   </div>
 
                                   <div>

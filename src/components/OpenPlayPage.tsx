@@ -614,6 +614,12 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
                           </div>
                         )}
 
+                        {event.isDupr && (
+                          <div className="px-2.5 py-1 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow">
+                            <span>⚡ DUPR RATED</span>
+                          </div>
+                        )}
+
                         {event.isRecurring && (
                           <div className="px-2.5 py-0.5 rounded-full bg-purple-500/20 backdrop-blur-md border border-purple-500/40 text-purple-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
                             <Repeat className="w-2.5 h-2.5" />
