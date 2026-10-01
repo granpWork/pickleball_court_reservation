@@ -1714,36 +1714,8 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
 
 
-            {/* CASE 3: Not Registered & User NOT Authenticated */}
-            {!isExpired && event.status === 'active' && !isAlreadyRegistered && !user && (
-              <div className="p-8 rounded-3xl bg-slate-900/60 border border-slate-800 text-center animate-fade-in">
-                <div className="w-12 h-12 rounded-2xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime mx-auto mb-4">
-                  <Lock className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-white mb-1.5">Sign In Required to Register</h3>
-                <p className="text-xs text-slate-400 max-w-md mx-auto mb-6">
-                  Are you a new or returning player? Please sign in or create an account to secure your spot for this Open Play event.
-                </p>
-                
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 max-w-sm mx-auto">
-                  <button
-                    onClick={() => onNavigateToAuth('login')}
-                    className="w-full py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg hover:scale-[1.01]"
-                  >
-                    Log In to Register
-                  </button>
-                  <button
-                    onClick={() => onNavigateToAuth('register')}
-                    className="w-full py-3 rounded-xl bg-slate-800 border border-slate-700 text-white font-extrabold text-xs uppercase tracking-wider hover:bg-slate-700 transition-all cursor-pointer"
-                  >
-                    Create New Account
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* CASE 4: Not Registered, User Authenticated, Capacity Reached */}
-            {event.status === 'active' && !isAlreadyRegistered && user && isFull && (
+            {/* CASE 4: Not Registered & Capacity Reached */}
+            {event.status === 'active' && !isAlreadyRegistered && isFull && (
               <div>
                 {isAlreadyWaitlisted ? (
                   <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-left flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-amber-500/5 animate-fade-in">
