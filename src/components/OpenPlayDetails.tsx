@@ -1752,8 +1752,8 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
           </div>
         </div>
 
-        {/* 3. Roster & Live Chat Hub - Full Width Container */}
-        <div className="w-full glass-panel border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl">
+        {/* 3. Roster & Live Chat Hub - Full Width Unboxed Section */}
+        <div className="w-full pt-8 mt-8 border-t border-slate-800/80 space-y-6">
           {/* BOTTOM ROSTER & EVENT HUB (PARTICIPANTS, WAITING LIST, & SESSION CHAT) */}
           {(() => {
             interface ParticipantCard {

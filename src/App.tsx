@@ -10,7 +10,6 @@ import Checkout from './components/Checkout';
 import BookingStatus from './components/BookingStatus';
 import UploadReceiptPage from './components/UploadReceiptPage';
 import OpenPlayDetails from './components/OpenPlayDetails';
-import OpenPlayPage from './components/OpenPlayPage';
 import Bootcamp from './components/Bootcamp';
 import Profile from './components/Profile';
 import ClientAdminOnboarding from './components/ClientAdminOnboarding';
@@ -995,7 +994,10 @@ function App() {
             onNavigateToAuth={(mode) => setView(mode)} 
             onBack={() => {
               handleSelectOpenPlayEvent(null);
-              setView('openplay');
+              if (typeof window !== 'undefined') {
+                window.history.pushState({}, '', '/');
+              }
+              handleSetView('landing');
             }} 
           />
         </main>
@@ -1090,7 +1092,13 @@ function App() {
           <main className="flex-grow pt-20">
             <OpenPlayDetails
               eventId={openPlayEventId}
-              onBack={() => setOpenPlayEventId(null)}
+              onBack={() => {
+                setOpenPlayEventId(null);
+                if (typeof window !== 'undefined') {
+                  window.history.pushState({}, '', '/');
+                }
+                handleSetView('landing');
+              }}
               user={user}
               setView={handleSetView}
               setCheckoutDetails={setCheckoutDetails}
@@ -1105,27 +1113,11 @@ function App() {
       );
     }
 
-    return (
-      <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
-        {/* Header Navigation */}
-        <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
-
-        {/* Main Content Area */}
-        <main className="flex-grow">
-          <OpenPlayPage
-            onSelectEvent={(eventId) => {
-              window.scrollTo({ top: 0, behavior: 'instant' });
-              handleSelectOpenPlayEvent(eventId);
-            }}
-            setView={handleSetView}
-          />
-        </main>
-
-        {/* Footer Branding & Newsletter */}
-        <Footer />
-        {renderDeactivatedModal()}
-      </div>
-    );
+    if (typeof window !== 'undefined' && window.location.pathname === '/open-play') {
+      window.history.pushState({}, '', '/');
+    }
+    handleSetView('landing');
+    return null;
   }
 
   if (currentView === 'bootcamp') {
