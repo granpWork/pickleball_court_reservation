@@ -157,6 +157,11 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
         const url = new URL(window.location.href);
         url.searchParams.set('tab', tab);
         window.history.replaceState(null, '', url.toString());
+
+        const resultsElement = document.getElementById('venues-results');
+        if (resultsElement) {
+          resultsElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       }
     } catch (e) {}
   };
@@ -623,7 +628,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
   }, [openPlayEvents, openPlayTab, searchQuery, searchDate, openPlayCategoryFilter, courts]);
 
   return (
-    <section className="relative z-20 pt-32 pb-24 md:pt-40 md:pb-36 overflow-hidden">
+    <section className="relative z-20 pt-32 pb-32 md:pt-40 md:pb-36 overflow-hidden">
       {/* Background Decorative Gradients */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-brand-emerald/10 blur-[120px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[10%] right-[-10%] w-[50%] h-[50%] bg-brand-lime/10 blur-[120px] rounded-full pointer-events-none"></div>
@@ -966,11 +971,11 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
             
             {/* Segmented View Switcher Bar */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-              <div className="flex items-center gap-2 bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
+              <div className="hidden sm:flex items-center gap-2 bg-slate-950/80 p-1.5 rounded-2xl border border-slate-800/80 shadow-inner">
                 <button
                   type="button"
                   onClick={() => handleTabChange('courts')}
-                  className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer flex items-center gap-2.5 ${
+                  className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-normal transition-all cursor-pointer flex items-center gap-2.5 ${
                     activeTab === 'courts'
                       ? 'bg-brand-lime text-slate-950 shadow-md shadow-brand-lime/20 scale-[1.02]'
                       : 'text-slate-400 hover:text-white hover:bg-slate-900'
@@ -978,17 +983,12 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 >
                   <Building2 className="w-4 h-4" />
                   <span>Book Courts</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                    activeTab === 'courts' ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-800 text-slate-300'
-                  }`}>
-                    {sortedVenues.length}
-                  </span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => handleTabChange('openplay')}
-                  className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all cursor-pointer flex items-center gap-2.5 ${
+                  className={`px-4 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-normal transition-all cursor-pointer flex items-center gap-2.5 ${
                     activeTab === 'openplay'
                       ? 'bg-brand-lime text-slate-950 shadow-md shadow-brand-lime/20 scale-[1.02]'
                       : 'text-slate-400 hover:text-white hover:bg-slate-900'
@@ -996,11 +996,6 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 >
                   <Trophy className="w-4 h-4" />
                   <span>Open Play</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                    activeTab === 'openplay' ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-800 text-slate-300'
-                  }`}>
-                    {filteredOpenPlayEvents.length}
-                  </span>
                 </button>
               </div>
 
@@ -1662,6 +1657,43 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
             </>
           )}
 
+        </div>
+      </div>
+
+      {/* Mobile Bottom Fixed Navigation Bar (Fixed at bottom on mobile view < sm) */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 sm:hidden bg-slate-950/95 backdrop-blur-xl border-t border-slate-800/80 px-4 py-2 shadow-[0_-10px_35px_rgba(0,0,0,0.85)] pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <div className="max-w-md mx-auto grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => handleTabChange('courts')}
+            className={`relative flex flex-col items-center justify-center py-2 px-3 rounded-2xl transition-all cursor-pointer ${
+              activeTab === 'courts'
+                ? 'bg-brand-lime/15 text-brand-lime font-normal shadow-sm shadow-brand-lime/10'
+                : 'text-slate-400 hover:text-white font-normal hover:bg-slate-900/60'
+            }`}
+          >
+            {activeTab === 'courts' && (
+              <span className="absolute -top-2.5 w-8 h-1 rounded-full bg-brand-lime shadow-[0_0_12px_rgba(181,245,41,0.8)]" />
+            )}
+            <Building2 className={`w-5 h-5 mb-0.5 ${activeTab === 'courts' ? 'text-brand-lime scale-110' : 'text-slate-400'}`} />
+            <span className="text-xs tracking-tight font-normal">Book Courts</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleTabChange('openplay')}
+            className={`relative flex flex-col items-center justify-center py-2 px-3 rounded-2xl transition-all cursor-pointer ${
+              activeTab === 'openplay'
+                ? 'bg-brand-lime/15 text-brand-lime font-normal shadow-sm shadow-brand-lime/10'
+                : 'text-slate-400 hover:text-white font-normal hover:bg-slate-900/60'
+            }`}
+          >
+            {activeTab === 'openplay' && (
+              <span className="absolute -top-2.5 w-8 h-1 rounded-full bg-brand-lime shadow-[0_0_12px_rgba(181,245,41,0.8)]" />
+            )}
+            <Trophy className={`w-5 h-5 mb-0.5 ${activeTab === 'openplay' ? 'text-brand-lime scale-110' : 'text-slate-400'}`} />
+            <span className="text-xs tracking-tight font-normal">Open Play</span>
+          </button>
         </div>
       </div>
     </section>
