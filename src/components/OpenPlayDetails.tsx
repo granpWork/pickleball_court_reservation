@@ -18,7 +18,6 @@ import {
   Sparkles,
   Repeat,
   UserPlus,
-  Award,
   EyeOff,
   Globe,
   MessageSquare,
@@ -1182,15 +1181,15 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       {lightboxImage && (
         <div 
           onClick={() => setLightboxImage(null)} 
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 cursor-zoom-out animate-fade-in"
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 cursor-zoom-out animate-fade-in"
         >
           <div 
             onClick={(e) => e.stopPropagation()}
-            className="relative max-w-5xl max-h-[90vh] w-full rounded-3xl overflow-y-auto custom-scrollbar bg-slate-950 border border-slate-800 shadow-2xl p-3 sm:p-5 flex flex-col items-center cursor-default"
+            className="relative max-w-5xl max-h-[85dvh] w-full rounded-2xl sm:rounded-3xl overflow-y-auto custom-scrollbar bg-slate-950 border border-slate-800 shadow-2xl p-3 sm:p-5 flex flex-col items-center cursor-default mx-auto my-auto"
           >
             <button 
               onClick={() => setLightboxImage(null)}
-              className="sticky top-2 right-2 self-end z-20 p-2.5 rounded-full bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors shadow-lg cursor-pointer"
+              className="sticky top-2 right-2 self-end z-20 p-2.5 rounded-full bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors shadow-lg cursor-pointer touch-manipulation"
               title="Close Fullscreen View"
             >
               <X className="w-5 h-5" />
@@ -1209,46 +1208,46 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       {isRulesModalOpen && (
         <div
           onClick={() => setIsRulesModalOpen(false)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fade-in"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="relative max-w-2xl w-full max-h-[85vh] rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl p-6 sm:p-8 flex flex-col overflow-hidden"
+            className="relative max-w-2xl w-full max-h-[85dvh] rounded-2xl sm:rounded-3xl bg-slate-950 border border-slate-800 shadow-2xl p-4 sm:p-6 md:p-8 flex flex-col overflow-hidden text-left mx-auto my-auto"
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center">
-                  <BookOpen className="w-5 h-5" />
+            <div className="flex items-center justify-between pb-3 sm:pb-4 mb-3 sm:mb-4 border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shrink-0">
+                  <BookOpen className="w-4.5 h-4.5 sm:w-5 sm:h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base sm:text-lg font-black text-white uppercase tracking-wider">Session Guide & Rules</h3>
-                  <p className="text-xs text-slate-400">Open Play overview, format & court guidelines</p>
+                  <h3 className="text-sm sm:text-lg font-black text-white uppercase tracking-wider">Session Guide & Rules</h3>
+                  <p className="text-[11px] sm:text-xs text-slate-400">Open Play overview, format & court guidelines</p>
                 </div>
               </div>
 
               <button
                 onClick={() => setIsRulesModalOpen(false)}
-                className="p-2 rounded-full bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-2 rounded-full bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0 touch-manipulation"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Content Scrollable Area */}
-            <div className="overflow-y-auto custom-scrollbar space-y-5 pr-1 text-xs text-slate-300">
+            <div className="overflow-y-auto custom-scrollbar space-y-4 sm:space-y-5 pr-1 text-xs text-slate-300 min-h-0 flex-1">
               {/* Description Section */}
-              <div className="space-y-2 p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
+              <div className="space-y-2 p-3.5 sm:p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
                 <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-brand-lime">
                   <FileText className="w-4 h-4" /> Description & Overview
                 </h4>
-                <p className="whitespace-pre-line text-slate-300 leading-relaxed">
+                <p className="whitespace-pre-line text-slate-300 leading-relaxed text-[11px] sm:text-xs">
                   {event.description || 'Welcome to this Open Play session! Grab your paddle, join the queue, meet fellow players, and enjoy quality games on court.'}
                 </p>
               </div>
 
               {/* Play Format Section */}
-              <div className="space-y-2.5 p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20">
+              <div className="space-y-2.5 p-3.5 sm:p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20">
                 <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-purple-300">
                   <Repeat className="w-4 h-4" /> Play Format & Court Rotation
                 </h4>
@@ -1272,7 +1271,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
               </div>
 
               {/* Venue House Rules Section */}
-              <div className="space-y-2 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+              <div className="space-y-2 p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20">
                 <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-amber-400">
                   <ShieldAlert className="w-4 h-4" /> Venue House Rules
                 </h4>
@@ -1298,11 +1297,11 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
             </div>
 
             {/* Modal Footer */}
-            <div className="pt-4 mt-4 border-t border-slate-800 flex justify-end">
+            <div className="pt-3 sm:pt-4 mt-3 sm:mt-4 border-t border-slate-800 flex justify-end shrink-0">
               <button
                 type="button"
                 onClick={() => setIsRulesModalOpen(false)}
-                className="px-6 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-md"
+                className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-md flex items-center justify-center touch-manipulation active:scale-[0.98]"
               >
                 Got It, Close Guide
               </button>
@@ -1463,101 +1462,83 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                   )}
                 </div>
 
-                {/* 6-Stat Highlight Cards Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
-                  {/* Date */}
-                  <div className="p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime flex-shrink-0">
-                      <Calendar className="w-5 h-5" />
+                {/* Organized Key Info Grid (Matching UI Screenshot Layout with Existing Dynamic Data) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8 pt-4 pb-2 text-left">
+                  {/* 1. DATE & SCHEDULE */}
+                  <div className="border-l-2 border-brand-lime pl-4 space-y-1">
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Calendar className="w-4 h-4 text-brand-lime shrink-0" />
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider">DATE & SCHEDULE</span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Date</div>
-                      <div className="text-xs font-black text-white truncate">{getFormattedEventDate(event.eventDate)}</div>
+                    <div className="text-sm sm:text-base font-extrabold text-white leading-tight">
+                      {getFormattedEventDate(event.eventDate)}
                     </div>
-                  </div>
-
-                  {/* Time Slot */}
-                  <div className="p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
-                      <Clock className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time Slot</div>
-                      <div className="text-xs font-black text-white flex items-center gap-1 truncate">
-                        <span>{formatTime12h(event.startTime)} - {formatTime12h(event.endTime)}</span>
-                      </div>
+                    <div className="text-xs sm:text-sm font-extrabold text-brand-lime">
+                      {formatTime12h(event.startTime)} - {formatTime12h(event.endTime)}
                     </div>
                   </div>
 
-                  {/* Reserved Courts */}
-                  <div className="p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime flex-shrink-0">
-                      <Building2 className="w-5 h-5" />
+                  {/* 2. VENUE LOCATION */}
+                  <div className="border-l-2 border-emerald-500 pl-4 space-y-1">
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider">VENUE LOCATION</span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Reserved Courts</div>
-                      <div className="text-xs font-black text-white truncate">
-                        {event.courtNames && event.courtNames.length > 0 ? event.courtNames.join(', ') : 'Venue Facility Courts'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Skill Level & Format */}
-                  <div className="p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 flex-shrink-0">
-                      <Award className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Skill Level & Format</div>
-                      <div className="text-xs font-black text-amber-300 uppercase tracking-wider truncate">
-                        {event.category || 'Open to All'}
-                      </div>
+                    <div className="text-xs sm:text-sm font-medium text-slate-200 leading-snug break-words">
+                      {associatedCourt ? (
+                        [associatedCourt.name, associatedCourt.location, associatedCourt.barangay, associatedCourt.municipality, associatedCourt.province].filter(Boolean).join(', ')
+                      ) : (
+                        event.location || 'Venue Location'
+                      )}
                     </div>
                   </div>
 
-                  {/* Location */}
-                  <div className="p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-brand-emerald/10 border border-brand-emerald/20 flex items-center justify-center text-brand-emerald flex-shrink-0">
-                        <MapPin className="w-5 h-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Location</div>
-                        <div className="text-xs font-black text-white truncate">
-                          {event.location ? splitAddressComponents(event.location).primary : 'Venue Location'}
-                        </div>
-                      </div>
+                  {/* 3. ASSIGNED COURTS */}
+                  <div className="border-l-2 border-brand-lime pl-4 space-y-1">
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Building2 className="w-4 h-4 text-brand-lime shrink-0" />
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider">ASSIGNED COURTS</span>
                     </div>
-                    {event.location && (
-                      <button
-                        type="button"
-                        onClick={() => setIsMapModalOpen(true)}
-                        className="p-1.5 rounded-lg bg-brand-emerald/10 hover:bg-brand-emerald/20 border border-brand-emerald/30 text-brand-emerald text-[11px] font-bold shrink-0 cursor-pointer transition-all"
-                        title="View Map"
-                      >
-                        Map
-                      </button>
-                    )}
+                    <div className="text-xs sm:text-sm font-extrabold text-white">
+                      {event.courtNames && event.courtNames.length > 0 ? (
+                        `${event.courtNames.length} ${event.courtNames.length === 1 ? 'Court' : 'Courts'}: ${event.courtNames.join(', ')}`
+                      ) : (
+                        'Venue Facility Courts'
+                      )}
+                    </div>
                   </div>
 
-                  {/* Session Guide & Venue House Rules Card (Opens Modal Alert) */}
-                  <div className="p-3.5 rounded-2xl bg-slate-900/70 border border-slate-800 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-brand-lime/10 border border-brand-lime/20 flex items-center justify-center text-brand-lime flex-shrink-0">
-                        <BookOpen className="w-5 h-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Session Guide & Rules</div>
-                        <div className="text-xs font-black text-white truncate">House Rules & Format</div>
-                      </div>
+                  {/* 4. CAPACITY & SKILL LEVEL */}
+                  <div className="border-l-2 border-blue-500 pl-4 space-y-1">
+                    <div className="flex items-center gap-2 text-slate-400">
+                      <Users className="w-4 h-4 text-blue-400 shrink-0" />
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider">CAPACITY & SKILL LEVEL</span>
                     </div>
+                    <div className="text-xs sm:text-sm font-extrabold text-white">
+                      {event.maxParticipants} Max Players • {event.category || 'All Skill Levels'}
+                    </div>
+                  </div>
+
+                  {/* Row 3 Left: 5. VIEW MAP BUTTON */}
+                  <div className="flex items-center w-full sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setIsMapModalOpen(true)}
+                      className="w-full sm:w-auto px-5 py-3 min-h-[44px] rounded-full border border-emerald-500/60 text-emerald-400 hover:bg-emerald-500/10 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md inline-flex items-center justify-center gap-2 touch-manipulation active:scale-[0.98]"
+                    >
+                      <MapPin className="w-4 h-4 text-emerald-400" />
+                      <span>View Location Map</span>
+                    </button>
+                  </div>
+
+                  {/* Row 3 Right: 6. VIEW RULES BUTTON */}
+                  <div className="flex items-center w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={() => setIsRulesModalOpen(true)}
-                      className="p-1.5 rounded-lg bg-brand-lime/10 hover:bg-brand-lime/20 border border-brand-lime/30 text-brand-lime text-[11px] font-bold shrink-0 cursor-pointer transition-all"
-                      title="View Rules & Play Format"
+                      className="w-full sm:w-auto px-5 py-3 min-h-[44px] rounded-full border border-brand-lime/60 text-brand-lime hover:bg-brand-lime/10 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md inline-flex items-center justify-center gap-2 touch-manipulation active:scale-[0.98]"
                     >
-                      Rules
+                      View Rules & Play Format
                     </button>
                   </div>
                 </div>
@@ -2221,17 +2202,17 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       </div>
       {/* LOCATION MAP MODAL */}
       {isMapModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-left">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85dvh] text-left mx-auto my-auto">
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-950/60">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shadow-sm">
-                  <MapPin className="w-5 h-5 text-brand-lime" />
+            <div className="p-3.5 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-2 sm:gap-3 bg-slate-950/60 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shadow-sm shrink-0">
+                  <MapPin className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-brand-lime" />
                 </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-white">Venue Location Map</h3>
-                  <p className="text-xs text-slate-400 truncate max-w-md">
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-extrabold text-white truncate">Venue Location Map</h3>
+                  <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-xs sm:max-w-md">
                     {associatedCourt ? (
                       [associatedCourt.name, associatedCourt.location, associatedCourt.barangay, associatedCourt.municipality, associatedCourt.province].filter(Boolean).join(', ')
                     ) : (
@@ -2241,13 +2222,13 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {directionsUrl && (
                   <a
                     href={directionsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-3.5 py-1.5 rounded-xl bg-brand-lime/10 hover:bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                    className="px-3 py-2 sm:px-3.5 sm:py-1.5 min-h-[36px] sm:min-h-[auto] rounded-xl bg-brand-lime/10 hover:bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm touch-manipulation active:scale-[0.98]"
                   >
                     <Navigation className="w-3.5 h-3.5" />
                     <span className="hidden sm:inline">Get Directions</span>
@@ -2257,7 +2238,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
 
                 <button
                   onClick={() => setIsMapModalOpen(false)}
-                  className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer touch-manipulation"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -2265,8 +2246,8 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 space-y-4 overflow-y-auto">
-              <div className="w-full aspect-[16/9] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 relative shadow-inner">
+            <div className="p-3.5 sm:p-5 space-y-4 overflow-y-auto min-h-0 flex-1">
+              <div className="w-full h-52 sm:h-80 md:h-96 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 relative shadow-inner">
                 {parsedMapInfo?.embedUrl ? (
                   <iframe
                     title="Location Map"
@@ -2276,7 +2257,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                     allowFullScreen
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs font-mono">
+                  <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs font-mono p-4 text-center">
                     Map preview unavailable for this location.
                   </div>
                 )}
@@ -2284,10 +2265,10 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex justify-end">
+            <div className="p-3.5 sm:p-4 border-t border-slate-800 bg-slate-950/60 flex justify-end shrink-0">
               <button
                 onClick={() => setIsMapModalOpen(false)}
-                className="px-6 py-2 rounded-xl bg-slate-800 border border-slate-700 text-white font-extrabold text-xs uppercase tracking-wider hover:bg-slate-700 transition-all cursor-pointer"
+                className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl bg-slate-800 border border-slate-700 text-white font-extrabold text-xs uppercase tracking-wider hover:bg-slate-700 transition-all cursor-pointer flex items-center justify-center touch-manipulation active:scale-[0.98]"
               >
                 Close Map
               </button>

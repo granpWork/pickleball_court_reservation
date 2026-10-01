@@ -3410,66 +3410,106 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     fetchRegions();
   }, []);
 
+  // Sync refs for event listeners & onSnapshot filtering to prevent infinite re-subscription loops
+  const courtsRef = useRef(courts);
+  const isSuperAdminRef = useRef(isSuperAdmin);
+  const currentUserUidRef = useRef(currentUserUid);
+  const currentUserEmailRef = useRef(currentUserEmail);
+  const myCompanyRef = useRef(myCompany);
+  const userRef = useRef(user);
+
+  useEffect(() => {
+    courtsRef.current = courts;
+    isSuperAdminRef.current = isSuperAdmin;
+    currentUserUidRef.current = currentUserUid;
+    currentUserEmailRef.current = currentUserEmail;
+    myCompanyRef.current = myCompany;
+    userRef.current = user;
+  }, [courts, isSuperAdmin, currentUserUid, currentUserEmail, myCompany, user]);
+
+  // Tab visibility tracker to pause background work when user leaves tab idle
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   // Real-time Firestore onSnapshot & cross-tab storage listener for Bookings / Checkouts
   useEffect(() => {
     let unsubscribeBookings: (() => void) | null = null;
+    let unsubscribeCompanies: (() => void) | null = null;
 
     if (isFirebaseConfigured && db) {
       try {
         unsubscribeBookings = onSnapshot(collection(db!, 'bookings'), (snapshot) => {
-            const bookingMap = new Map<string, Booking>();
+          if (document.hidden) return; // Skip heavy state updates when tab is hidden
 
-            // 1. Include local storage base
-            try {
-              const localBookingsStr = localStorage.getItem('picklepoint_bookings');
-              if (localBookingsStr) {
-                const localBookings = JSON.parse(localBookingsStr) as Booking[];
-                localBookings.forEach((b) => {
-                  const key = b.bookingReference || b.bookingId || b.id;
-                  if (key) bookingMap.set(key, { ...b, id: key });
-                });
-              }
-            } catch (e) {}
+          const bookingMap = new Map<string, Booking>();
 
-            // 2. Real-time updates from Firestore
-            snapshot.forEach((docSnap) => {
-              const data = docSnap.data() as Booking;
-              const key = data.bookingReference || docSnap.id;
-              bookingMap.set(key, { ...data, id: key });
-            });
-
-            let loadedBookings: Booking[] = Array.from(bookingMap.values());
-
-            // 3. Filter for active venue host
-            if (!isSuperAdmin) {
-              const ownedCourtIds = courts.map((c) => c.id);
-              loadedBookings = loadedBookings.filter((b) => {
-                const isOwnedCourt = ownedCourtIds.includes(b.courtId);
-                const isOwnedByUid = b.courtOwnerId && b.courtOwnerId === currentUserUid;
-                const isOwnedByEmail = b.ownerEmail && currentUserEmail && b.ownerEmail.toLowerCase() === currentUserEmail.toLowerCase();
-                const isOwnedByCompanyName = myCompany?.name && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === myCompany.name.toLowerCase();
-                const isOwnedByCompanyId = myCompany?.id && (b as any).companyId && (b as any).companyId === myCompany.id;
-                const isUserCompanyMatch = (user as any)?.companyName && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === (user as any).companyName.toLowerCase();
-                return isOwnedCourt || isOwnedByUid || isOwnedByEmail || isOwnedByCompanyName || isOwnedByCompanyId || isUserCompanyMatch;
+          // 1. Include local storage base
+          try {
+            const localBookingsStr = localStorage.getItem('picklepoint_bookings');
+            if (localBookingsStr) {
+              const localBookings = JSON.parse(localBookingsStr) as Booking[];
+              localBookings.forEach((b) => {
+                const key = b.bookingReference || b.bookingId || b.id;
+                if (key) bookingMap.set(key, { ...b, id: key });
               });
             }
+          } catch (e) {}
 
-            loadedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setBookings(loadedBookings);
-          }, (err) => {
-            console.warn('Real-time bookings subscription error:', err);
+          // 2. Real-time updates from Firestore
+          snapshot.forEach((docSnap) => {
+            const data = docSnap.data() as Booking;
+            const key = data.bookingReference || docSnap.id;
+            bookingMap.set(key, { ...data, id: key });
           });
-        } catch (err) {
-          console.warn('Failed to initialize real-time bookings listener:', err);
-        }
+
+          let loadedBookings: Booking[] = Array.from(bookingMap.values());
+
+          // 3. Filter for active venue host using current refs
+          if (!isSuperAdminRef.current) {
+            const ownedCourtIds = courtsRef.current.map((c) => c.id);
+            loadedBookings = loadedBookings.filter((b) => {
+              const isOwnedCourt = ownedCourtIds.includes(b.courtId);
+              const isOwnedByUid = b.courtOwnerId && b.courtOwnerId === currentUserUidRef.current;
+              const isOwnedByEmail = b.ownerEmail && currentUserEmailRef.current && b.ownerEmail.toLowerCase() === currentUserEmailRef.current.toLowerCase();
+              const isOwnedByCompanyName = myCompanyRef.current?.name && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === myCompanyRef.current.name.toLowerCase();
+              const isOwnedByCompanyId = myCompanyRef.current?.id && (b as any).companyId && (b as any).companyId === myCompanyRef.current.id;
+              const isUserCompanyMatch = (userRef.current as any)?.companyName && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === (userRef.current as any).companyName.toLowerCase();
+              return isOwnedCourt || isOwnedByUid || isOwnedByEmail || isOwnedByCompanyName || isOwnedByCompanyId || isUserCompanyMatch;
+            });
+          }
+
+          loadedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          // Cap stored bookings to 300 max items in memory
+          if (loadedBookings.length > 300) {
+            loadedBookings = loadedBookings.slice(0, 300);
+          }
+          setBookings(loadedBookings);
+        }, (err) => {
+          console.warn('Real-time bookings subscription error:', err);
+        });
+      } catch (err) {
+        console.warn('Failed to initialize real-time bookings listener:', err);
       }
 
-    // Real-time Firestore onSnapshot for companies
-    let unsubscribeCompanies: (() => void) | null = null;
-    if (isFirebaseConfigured && db) {
       try {
-        unsubscribeCompanies = onSnapshot(collection(db!, 'companies'), () => {
-          fetchData();
+        unsubscribeCompanies = onSnapshot(collection(db!, 'companies'), (snapshot) => {
+          if (document.hidden) return; // Skip background processing when tab is hidden
+          const loadedCompanies: Company[] = [];
+          snapshot.forEach((docSnap) => {
+            loadedCompanies.push({ id: docSnap.id, ...docSnap.data() } as Company);
+          });
+          if (loadedCompanies.length > 0) {
+            setCompanies(loadedCompanies);
+          }
+        }, (err) => {
+          console.warn('Failed to initialize real-time companies listener:', err);
         });
       } catch (err) {
         console.warn('Failed to initialize real-time companies listener:', err);
@@ -3478,6 +3518,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     // Cross-tab & Custom event listeners
     const handleStorageChange = (e: StorageEvent) => {
+      if (document.hidden) return;
       if (
         e.key === 'picklepoint_bookings' ||
         e.key === 'picklepoint_openplay_registrations' ||
@@ -3489,6 +3530,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     };
 
     const handleCompanyUpdate = () => {
+      if (document.hidden) return;
       fetchData();
     };
 
@@ -3501,7 +3543,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('picklepoint_company_updated', handleCompanyUpdate);
     };
-  }, [courts, isSuperAdmin, currentUserUid, currentUserEmail, myCompany]);
+  }, []);
 
 
 
@@ -3824,6 +3866,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const intervalMs = Math.max(1, intervalMins) * 60 * 1000;
 
     const intervalId = setInterval(() => {
+      if (document.hidden) return;
       const currentPendingCount = bookings.filter(
         b => b.paymentStatus === 'pending_verification' || (b.status === 'pending' && b.paymentMethod)
       ).length;
