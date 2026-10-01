@@ -634,14 +634,25 @@ function App() {
             const needsOnboarding = role === 'client_admin' && !companyId;
 
             const uData = userDocSnap.exists() ? userDocSnap.data() : {};
+            const effectiveCompanyName = companyName || uData.companyName || matchedInvite?.company || '';
+            const resolvedName =
+              (firebaseUser.displayName && uData.name && effectiveCompanyName && uData.name.trim().toLowerCase() === effectiveCompanyName.trim().toLowerCase())
+                ? firebaseUser.displayName
+                : (uData.name || firebaseUser.displayName || 'Player');
+
+            // If Firestore stored name was identical to companyName, sync Firestore with Gmail registered displayName
+            if (firebaseUser.displayName && uData.name && effectiveCompanyName && uData.name.trim().toLowerCase() === effectiveCompanyName.trim().toLowerCase()) {
+              updateDoc(userDocRef, { name: firebaseUser.displayName }).catch(() => {});
+            }
+
             const loadedUser = {
               uid: firebaseUser.uid,
-              name: uData.name || firebaseUser.displayName || 'Player',
+              name: resolvedName,
               email: firebaseUser.email || '',
               role: role,
               status: status,
               companyId: companyId || uData.companyId || (matchedInvite as any)?.companyId || '',
-              companyName: companyName || uData.companyName || matchedInvite?.company || '',
+              companyName: effectiveCompanyName,
               invitedBy: uData.invitedBy || (matchedInvite as any)?.invitedBy || '',
               permissions: uData.permissions || (matchedInvite as any)?.permissions,
               isAdmin: isAdmin,
@@ -650,6 +661,7 @@ function App() {
 
             setUser(loadedUser);
             localStorage.setItem('picklepoint_session', JSON.stringify(loadedUser));
+
 
             if (needsOnboarding) {
               sessionStorage.removeItem('picklepoint_checkout_details');
