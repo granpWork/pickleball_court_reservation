@@ -45,6 +45,7 @@ interface CheckoutProps {
   };
   setCheckoutDetails: (details: any) => void;
   setSelectedCourtId: (id: string) => void;
+  setOpenPlayEventId?: (id: string | null) => void;
 }
 
 export default function Checkout({ 
@@ -52,7 +53,8 @@ export default function Checkout({
   user, 
   checkoutDetails, 
   setCheckoutDetails, 
-  setSelectedCourtId 
+  setSelectedCourtId,
+  setOpenPlayEventId
 }: CheckoutProps) {
   // Billing details
   const userPhoneVal = (user as any)?.phone || (user as any)?.mobileNumber || (user as any)?.gcashNumber || (user as any)?.gcashPhone || (user as any)?.contactNumber || '';
@@ -62,6 +64,7 @@ export default function Checkout({
   
   // 3-Step Stepper Wizard State & Scroll Ref
   const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1);
+  const [mobileStage, setMobileStage] = useState<'summary' | 'process'>('summary');
   const stepperRef = useRef<HTMLDivElement>(null);
 
   const scrollToStepper = () => {
@@ -228,6 +231,24 @@ export default function Checkout({
   // Open Play Guest (+1 / +2) States
   const isOpenPlay = checkoutDetails?.type === 'open_play' || checkoutDetails?.type === 'openplay' || !!checkoutDetails?.openPlayEventId;
   const isAddGuestOnly = (checkoutDetails as any)?.isAddGuestOnly === true;
+
+  const handleBackToScheduling = () => {
+    const targetOpenPlayId = checkoutDetails?.openPlayEventId || (isOpenPlay ? checkoutDetails?.courtId : null);
+    if (isOpenPlay && targetOpenPlayId) {
+      if (setOpenPlayEventId) {
+        setOpenPlayEventId(targetOpenPlayId);
+      }
+      if (typeof window !== 'undefined') {
+        window.history.pushState({}, '', `/?eventId=${targetOpenPlayId}`);
+      }
+      setView('openplay');
+    } else {
+      if (checkoutDetails?.courtId) {
+        setSelectedCourtId(checkoutDetails.courtId);
+      }
+      setView('details');
+    }
+  };
   const [playerCount, setPlayerCount] = useState<number>((checkoutDetails as any)?.initialGuestCount || 1);
   const [guests, setGuests] = useState<{ name: string; email: string }[]>(() => {
     if ((checkoutDetails as any)?.isAddGuestOnly) {
@@ -1509,7 +1530,7 @@ export default function Checkout({
                     localStorage.removeItem('picklepoint_last_submitted_booking');
                   } catch (e) {}
                   setCheckoutDetails(null);
-                  setView('details');
+                  handleBackToScheduling();
                 }}
                 className="w-full py-3.5 rounded-2xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-white transition-all font-sans font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer shadow-md hover:scale-[1.01]"
               >
@@ -1535,8 +1556,8 @@ export default function Checkout({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 font-sans animate-fade-in">
       {/* Top Breadcrumb Back button */}
       <button
-        onClick={() => setView('details')}
-        className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-xs font-bold uppercase tracking-wider mb-6 cursor-pointer"
+        onClick={handleBackToScheduling}
+        className={`${mobileStage === 'summary' ? 'inline-flex' : 'hidden lg:inline-flex'} items-center gap-2 text-slate-400 hover:text-white transition-colors text-xs font-bold uppercase tracking-wider mb-6 cursor-pointer`}
       >
         <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Scheduling
       </button>
@@ -1544,8 +1565,26 @@ export default function Checkout({
       <div className="flex flex-col lg:grid lg:grid-cols-12 gap-8 items-stretch lg:items-start w-full">
         
         {/* Left Column - Billing and GCash Payment Forms (Lg spans 7) */}
-        <div className="lg:col-span-7 order-2 lg:order-1 space-y-6 w-full">
+        <div className={`${mobileStage === 'process' ? 'block' : 'hidden lg:block'} lg:col-span-7 order-2 lg:order-1 space-y-6 w-full animate-fade-in`}>
           
+          {/* Mobile Back to Order Summary Banner */}
+          <div className="lg:hidden mb-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileStage('summary');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="w-full py-3 px-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-bold text-xs flex items-center justify-between transition-all cursor-pointer shadow-md active:scale-[0.98]"
+            >
+              <span className="flex items-center gap-2">
+                <ArrowLeft className="w-4 h-4 text-brand-lime" />
+                <span>Back to Order Summary</span>
+              </span>
+              <span className="text-brand-lime font-mono font-black text-xs">₱{finalTotal}</span>
+            </button>
+          </div>
+
           {/* STEP PROGRESS TRACKER BAR */}
           <div ref={stepperRef} className="glass-panel border border-slate-800 rounded-3xl p-4 shadow-xl w-full scroll-mt-24">
             <div className="flex items-center justify-between relative px-2">
@@ -2176,7 +2215,7 @@ export default function Checkout({
         </div>
 
         {/* Right Column - Booking Summary Card (Lg spans 5) */}
-        <div className="lg:col-span-5 lg:sticky lg:top-[96px] order-1 lg:order-2 space-y-6 w-full">
+        <div className={`${mobileStage === 'summary' ? 'block' : 'hidden lg:block'} lg:col-span-5 lg:sticky lg:top-[96px] order-1 lg:order-2 space-y-6 w-full animate-fade-in`}>
           <div className="glass-panel rounded-3xl p-6 border border-slate-800 shadow-2xl space-y-5 w-full">
             <div className="pb-3.5 border-b border-slate-800/40 -mx-6 px-6">
               <h3 className="text-base font-semibold text-white">Booking Summary</h3>
@@ -2383,13 +2422,27 @@ export default function Checkout({
                 <span className="text-brand-lime font-sans text-xl">₱{finalTotal}</span>
               </div>
 
-              {/* Primary Submit Button under Total Payment Due */}
+              {/* Primary Action Buttons under Total Payment Due */}
               <div className="pt-4 border-t border-slate-800/40">
+                {/* Mobile View CTA: Confirm & Proceed to Reservation Process */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileStage('process');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="w-full lg:hidden py-4 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider flex items-center justify-center gap-2 hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/20 cursor-pointer uppercase active:scale-[0.98]"
+                >
+                  <span>Confirm GCash & Booking</span>
+                  <ArrowRight className="w-4 h-4 text-dark-bg" />
+                </button>
+
+                {/* Desktop View / Final Process Submit Button */}
                 <button
                   type="submit"
                   form="checkout-form"
                   disabled={isProcessing}
-                  className="w-full py-4 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider flex items-center justify-center gap-1.5 hover:scale-[1.01] hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/10 cursor-pointer uppercase border-none outline-none"
+                  className="hidden lg:flex w-full py-4 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider items-center justify-center gap-1.5 hover:scale-[1.01] hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/10 cursor-pointer uppercase border-none outline-none"
                 >
                   {isProcessing ? (
                     <>

@@ -981,7 +981,7 @@ function App() {
     );
   }
 
-  if (openPlayEventId && currentView !== 'login' && currentView !== 'register') {
+  if (openPlayEventId && currentView !== 'login' && currentView !== 'register' && currentView !== 'checkout') {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />
@@ -1188,6 +1188,7 @@ function App() {
             checkoutDetails={checkoutDetails}
             setCheckoutDetails={setCheckoutDetails}
             setSelectedCourtId={setSelectedCourtId}
+            setOpenPlayEventId={setOpenPlayEventId}
           />
         </main>
 
