@@ -13,8 +13,6 @@ import {
   CheckCircle2,
   Eye,
   X,
-  Navigation,
-  ExternalLink,
   Sparkles,
   Repeat,
   UserPlus,
@@ -33,7 +31,7 @@ import {
 
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { db, isFirebaseConfigured } from '../firebase';
-import { doc, getDoc, collection, getDocs, setDoc, query, where, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, setDoc, query, where, updateDoc, onSnapshot, arrayUnion, deleteDoc } from 'firebase/firestore';
 
 export interface OpenPlayChatMessage {
   id: string;
@@ -44,6 +42,8 @@ export interface OpenPlayChatMessage {
   message: string;
   createdAt: string;
   isHost?: boolean;
+  senderRole?: 'client_admin' | 'manager' | 'super_admin' | 'host' | 'player' | string;
+  senderTitle?: string;
   senderStatus?: 'approved' | 'pending' | 'waitlisted';
   replyTo?: {
     messageId: string;
@@ -174,7 +174,6 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [companyInfo, setCompanyInfo] = useState<{ name: string; logoUrl: string }>({ name: '', logoUrl: '' });
   const [associatedCourt, setAssociatedCourt] = useState<AssignedCourtInfo | null>(null);
-  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   void step; void setStep; void playerPhone; void gcashRef; void receiptImage; void submitting; void setSubmitting;
 
@@ -369,13 +368,34 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       return false;
     });
 
-    const isHost = Boolean(
+    const userRoleStr = (user.role || '').toLowerCase();
+    const isSuperAdmin = userRoleStr === 'super_admin' || userRoleStr === 'admin' || Boolean(user.isAdmin);
+    const isClientAdmin = userRoleStr === 'client_admin';
+    const isManager = userRoleStr === 'manager';
+    const isCreator = Boolean(
       event &&
-        (event.createdByUid === user.uid ||
-          event.createdByEmail === user.email ||
-          user.role === 'admin' ||
-          user.isAdmin)
+        ((user.uid && event.createdByUid === user.uid) ||
+          (user.email && event.createdByEmail?.toLowerCase() === user.email.toLowerCase()))
     );
+
+    const isHost = isCreator || isClientAdmin || isManager || isSuperAdmin;
+
+    let senderRole: 'client_admin' | 'manager' | 'super_admin' | 'host' | 'player' = 'player';
+    let senderTitle = '';
+
+    if (isSuperAdmin) {
+      senderRole = 'super_admin';
+      senderTitle = 'System Admin';
+    } else if (isClientAdmin) {
+      senderRole = 'client_admin';
+      senderTitle = 'Client Admin';
+    } else if (isManager) {
+      senderRole = 'manager';
+      senderTitle = 'Venue Manager';
+    } else if (isHost) {
+      senderRole = 'host';
+      senderTitle = 'Event Host';
+    }
 
     // Determine status tag (approved, pending, or waitlisted)
     let statusTag: 'approved' | 'pending' | 'waitlisted' = 'pending';
@@ -400,11 +420,13 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
       id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       eventId,
       senderUid: user.uid || 'user_anon',
-      senderName: user.name || user.email || 'Player',
+      senderName: user.name || user.email || (isClientAdmin ? 'Client Admin' : isManager ? 'Venue Manager' : 'Player'),
       senderPhotoUrl: (user as any).photoUrl || (user as any).avatarUrl || `https://robohash.org/${encodeURIComponent(user.name || 'player')}?set=set4`,
       message: msgText,
       createdAt: new Date().toISOString(),
       isHost,
+      senderRole,
+      senderTitle,
       senderStatus: statusTag,
       replyTo: currentReply,
       reactions: {},
@@ -449,6 +471,44 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     } catch (e) {}
 
     setIsSendingChat(false);
+  };
+
+  const handleDeleteChatMessage = async (messageId: string) => {
+    if (!eventId || !messageId || !user) return;
+    const targetMsg = chatMessages.find((m) => m.id === messageId);
+    if (!targetMsg) return;
+
+    const userRoleStr = (user.role || '').toLowerCase();
+    const canDelete =
+      userRoleStr === 'client_admin' ||
+      userRoleStr === 'manager' ||
+      userRoleStr === 'super_admin' ||
+      userRoleStr === 'admin' ||
+      Boolean(user.isAdmin) ||
+      (event && (event.createdByUid === user.uid || event.createdByEmail === user.email)) ||
+      targetMsg.senderUid === user.uid;
+
+    if (!canDelete) return;
+
+    if (!window.confirm('Delete this chat message for all attendees?')) return;
+
+    const updatedMsgs = chatMessages.filter((m) => m.id !== messageId);
+    setChatMessages(updatedMsgs);
+
+    if (isFirebaseConfigured && db) {
+      try {
+        await deleteDoc(doc(db!, 'openplay_events', eventId, 'messages', messageId));
+        await setDoc(doc(db!, 'openplay_events', eventId), { chatFeed: updatedMsgs }, { merge: true });
+      } catch (err) {
+        console.warn('[PicklePoint Chat] Error deleting chat message:', err);
+      }
+    }
+
+    try {
+      const localKey = `picklepoint_op_chat_${eventId}`;
+      localStorage.setItem(localKey, JSON.stringify(updatedMsgs));
+      window.dispatchEvent(new Event('storage'));
+    } catch (e) {}
   };
 
   const handleToggleReaction = async (msgId: string, emoji: string) => {
@@ -800,6 +860,17 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     }
     return '';
   }, [associatedCourt, parsedMapInfo, event]);
+  const handleOpenGoogleMaps = (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    if (!directionsUrl) return;
+
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      window.location.href = directionsUrl;
+    } else {
+      window.open(directionsUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
 
   const displayCompanyName = event?.companyName || companyInfo.name || 'PicklePoint Venue Host';
   const displayCompanyLogo = companyInfo.logoUrl || event?.companyLogoUrl || '';
@@ -1523,7 +1594,8 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                   <div className="flex items-center w-full sm:w-auto">
                     <button
                       type="button"
-                      onClick={() => setIsMapModalOpen(true)}
+                      onClick={handleOpenGoogleMaps}
+                      title="Open location in Google Maps"
                       className="w-full sm:w-auto px-5 py-3 min-h-[44px] rounded-full border border-emerald-500/60 text-emerald-400 hover:bg-emerald-500/10 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md inline-flex items-center justify-center gap-2 touch-manipulation active:scale-[0.98]"
                     >
                       <MapPin className="w-4 h-4 text-emerald-400" />
@@ -2015,10 +2087,26 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                                     <div className={`flex items-center gap-1.5 flex-wrap text-[10px] ${isCurrentUser ? 'justify-end' : 'justify-start'}`}>
                                       <span className="font-bold text-white">{msg.senderName}</span>
 
-                                      {/* SENDER STATUS TAG BADGES */}
-                                      {msg.isHost ? (
-                                        <span className="px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-extrabold uppercase text-[8px]">
-                                          Host
+                                      {/* SENDER STATUS / ROLE TAG BADGES */}
+                                      {msg.senderRole === 'super_admin' ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-extrabold uppercase text-[8px] flex items-center gap-1 shadow-sm">
+                                          <ShieldAlert className="w-2.5 h-2.5 text-amber-400" />
+                                          System Admin
+                                        </span>
+                                      ) : msg.senderRole === 'client_admin' ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40 font-extrabold uppercase text-[8px] flex items-center gap-1 shadow-sm">
+                                          <Building2 className="w-2.5 h-2.5 text-sky-400" />
+                                          Client Admin
+                                        </span>
+                                      ) : msg.senderRole === 'manager' ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-extrabold uppercase text-[8px] flex items-center gap-1 shadow-sm">
+                                          <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />
+                                          Venue Manager
+                                        </span>
+                                      ) : msg.isHost || msg.senderRole === 'host' ? (
+                                        <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-extrabold uppercase text-[8px] flex items-center gap-1 shadow-sm">
+                                          <Trophy className="w-2.5 h-2.5 text-purple-400" />
+                                          Event Host
                                         </span>
                                       ) : isSenderWaitlisted || msg.senderStatus === 'waitlisted' ? (
                                         <span className="px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 border border-amber-400/50 font-extrabold uppercase text-[8px] flex items-center gap-0.5">
@@ -2042,7 +2130,17 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                                     <div
                                       className={`p-3 rounded-2xl text-xs leading-relaxed inline-block break-words relative group ${
                                         isCurrentUser
-                                          ? 'bg-purple-600 text-white rounded-tr-none'
+                                          ? msg.senderRole === 'client_admin'
+                                            ? 'bg-sky-600 text-white rounded-tr-none shadow-md'
+                                            : msg.senderRole === 'manager'
+                                            ? 'bg-emerald-600 text-white rounded-tr-none shadow-md'
+                                            : 'bg-purple-600 text-white rounded-tr-none shadow-md'
+                                          : msg.senderRole === 'client_admin'
+                                          ? 'bg-slate-950/95 border-2 border-sky-500/50 text-slate-100 rounded-tl-none shadow-lg'
+                                          : msg.senderRole === 'manager'
+                                          ? 'bg-slate-950/95 border-2 border-emerald-500/50 text-slate-100 rounded-tl-none shadow-lg'
+                                          : msg.isHost || msg.senderRole === 'host' || msg.senderRole === 'super_admin'
+                                          ? 'bg-slate-950/95 border-2 border-purple-500/50 text-slate-100 rounded-tl-none shadow-lg'
                                           : 'bg-slate-950/90 border border-slate-800 text-slate-200 rounded-tl-none'
                                       }`}
                                     >
@@ -2089,7 +2187,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                                       )}
                                     </div>
 
-                                    {/* Message Quick Actions Bar (Reply & Reactions) */}
+                                    {/* Message Quick Actions Bar (Reply, Reactions & Delete) */}
                                     {!isConcluded && user && (
                                       <div className={`flex items-center gap-2 pt-0.5 text-[10px] text-slate-400 ${isCurrentUser ? 'justify-end' : 'justify-start'}`}>
                                         <button
@@ -2113,6 +2211,19 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                                             </button>
                                           ))}
                                         </div>
+
+                                        {/* Quick Delete Action for Admin, Manager, Host, or Message Author */}
+                                        {((user.role === 'client_admin' || user.role === 'manager' || user.role === 'super_admin' || user.role === 'admin' || user.isAdmin || (event && (event.createdByUid === user.uid || event.createdByEmail === user.email)) || msg.senderUid === user.uid)) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteChatMessage(msg.id)}
+                                            title="Delete message"
+                                            className="hover:text-red-400 flex items-center gap-1 transition-colors cursor-pointer text-slate-500 hover:text-red-400"
+                                          >
+                                            <X className="w-3 h-3" />
+                                            <span className="hidden sm:inline">Delete</span>
+                                          </button>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -2200,82 +2311,6 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
           })()}
         </div>
       </div>
-      {/* LOCATION MAP MODAL */}
-      {isMapModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col max-h-[85dvh] text-left mx-auto my-auto">
-            {/* Modal Header */}
-            <div className="p-3.5 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-2 sm:gap-3 bg-slate-950/60 shrink-0">
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shadow-sm shrink-0">
-                  <MapPin className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-brand-lime" />
-                </div>
-                <div className="min-w-0">
-                  <h3 className="text-sm sm:text-base font-extrabold text-white truncate">Venue Location Map</h3>
-                  <p className="text-[11px] sm:text-xs text-slate-400 truncate max-w-xs sm:max-w-md">
-                    {associatedCourt ? (
-                      [associatedCourt.name, associatedCourt.location, associatedCourt.barangay, associatedCourt.municipality, associatedCourt.province].filter(Boolean).join(', ')
-                    ) : (
-                      event?.location
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {directionsUrl && (
-                  <a
-                    href={directionsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 sm:px-3.5 sm:py-1.5 min-h-[36px] sm:min-h-[auto] rounded-xl bg-brand-lime/10 hover:bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm touch-manipulation active:scale-[0.98]"
-                  >
-                    <Navigation className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Get Directions</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-
-                <button
-                  onClick={() => setIsMapModalOpen(false)}
-                  className="p-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer touch-manipulation"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-3.5 sm:p-5 space-y-4 overflow-y-auto min-h-0 flex-1">
-              <div className="w-full h-52 sm:h-80 md:h-96 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 relative shadow-inner">
-                {parsedMapInfo?.embedUrl ? (
-                  <iframe
-                    title="Location Map"
-                    src={parsedMapInfo.embedUrl}
-                    className="w-full h-full border-0"
-                    loading="lazy"
-                    allowFullScreen
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-slate-500 text-xs font-mono p-4 text-center">
-                    Map preview unavailable for this location.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-3.5 sm:p-4 border-t border-slate-800 bg-slate-950/60 flex justify-end shrink-0">
-              <button
-                onClick={() => setIsMapModalOpen(false)}
-                className="w-full sm:w-auto px-6 py-3 min-h-[44px] rounded-xl bg-slate-800 border border-slate-700 text-white font-extrabold text-xs uppercase tracking-wider hover:bg-slate-700 transition-all cursor-pointer flex items-center justify-center touch-manipulation active:scale-[0.98]"
-              >
-                Close Map
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
