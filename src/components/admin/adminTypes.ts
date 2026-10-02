@@ -660,3 +660,62 @@ export const REGIONS_FALLBACK = [
   { code: "1600000000", name: "Region XIII (Caraga)" },
   { code: "1900000000", name: "Bangsamoro Autonomous Region In Muslim Mindanao (BARMM)" }
 ];
+
+export interface OpenPlayMatchPlayer {
+  id: string;
+  name: string;
+  photoUrl?: string;
+  skillLevel?: string;
+  type?: 'primary' | 'guest';
+}
+
+export interface OpenPlayMatch {
+  id: string;
+  eventId: string;
+  round: number;
+  courtName: string;
+  courtId?: string;
+  gameType: 'doubles' | 'singles';
+  targetPoints: number;
+  status: 'scheduled' | 'in_progress' | 'completed';
+  teamRed: {
+    players: OpenPlayMatchPlayer[];
+    score: number;
+  };
+  teamBlue: {
+    players: OpenPlayMatchPlayer[];
+    score: number;
+  };
+  winner?: 'red' | 'blue' | 'tie';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OpenPlayMatchRosterItem {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  photoUrl?: string;
+  type: 'primary' | 'guest';
+  status: 'active' | 'resting' | 'absent';
+  skillLevel?: string;
+}
+
+export interface PlayerMatchStats {
+  playerId: string;
+  playerName: string;
+  playerType: 'primary' | 'guest';
+  totalMatches: number;
+  completedMatches: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  winRate: number;
+  pointsScored: number;
+  pointsConceded: number;
+  pointDiff: number;
+  courtsBreakdown: Record<string, number>;
+}
+
+

@@ -74,6 +74,7 @@ interface AdminOpenPlayEventDetailsProps {
   onOpenManualBookingModal?: (event: OpenPlayEvent) => void;
   onOpenQrModal: (event: OpenPlayEvent) => void;
   onOpenJsonModal: (event: OpenPlayEvent) => void;
+  onOpenMatchManagement?: (event: OpenPlayEvent) => void;
   formatEventDateLong?: (dateStr: string) => string;
   formatTime12h?: (time24h: string) => string;
 }
@@ -110,6 +111,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   onOpenManualBookingModal,
   onOpenQrModal,
   onOpenJsonModal,
+  onOpenMatchManagement,
   formatEventDateLong = (d) => d,
   formatTime12h = (t) => t,
 }) => {
@@ -573,6 +575,48 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     setTimeout(() => setDispatchStatusToast(null), 5000);
   };
 
+  const handleExportRosterJson = () => {
+    const rosterData = {
+      eventId: event.id,
+      eventTitle: event.title,
+      eventDate: event.eventDate,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      location: event.location || '',
+      category: event.category || 'Open Play',
+      exportedAt: new Date().toISOString(),
+      totalAttendees: displayAttendees.length,
+      roster: displayAttendees.map((att) => ({
+        id: att.id,
+        name: att.name,
+        email: att.email && !att.email.toLowerCase().startsWith('shared (') ? att.email : '',
+        phone: att.phone || '',
+        type: att.type,
+        status: att.status,
+        paymentStatus: att.paymentStatus,
+        ...(att.hostName ? { hostName: att.hostName } : {}),
+        ...(att.gcashReferenceNumber ? { gcashReferenceNumber: att.gcashReferenceNumber } : {}),
+      })),
+    };
+
+    const jsonString = JSON.stringify(rosterData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeTitle = (event.title || 'openplay').toLowerCase().replace(/[^a-z0-9]/g, '_');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `roster_names_emails_${safeTitle}_${event.eventDate || 'data'}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setDispatchStatusToast({
+      type: 'success',
+      message: `📄 Roster JSON file exported successfully (${displayAttendees.length} players & guests)!`,
+    });
+    setTimeout(() => setDispatchStatusToast(null), 5000);
+  };
+
   return (
     <div className="animate-fade-in space-y-6 text-left">
       {/* Toast Alert for Copied Share Link / Email Dispatch */}
@@ -927,6 +971,18 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
           {/* Action Toolbar Row next to Copy Shareable Link */}
           <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-800 text-xs mt-auto">
+            {onOpenMatchManagement && (
+              <button
+                type="button"
+                onClick={() => onOpenMatchManagement(event)}
+                className="py-2 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/25 transition-all hover:scale-[1.02]"
+                title="Create, auto-generate, assign courts, edit and score open play matches"
+              >
+                <Trophy className="w-4 h-4 text-brand-lime" />
+                <span>Matches / Court Matrix</span>
+              </button>
+            )}
+
             {onOpenManualBookingModal && (
               <button
                 type="button"
@@ -1234,6 +1290,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
               className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all font-bold text-xs cursor-pointer shadow-sm"
             >
               <span>Clear Marks</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleExportRosterJson}
+              className="px-3.5 py-2 rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 hover:text-white transition-all font-extrabold text-xs cursor-pointer shadow-sm flex items-center gap-1.5"
+              title="Export roster player names and emails in JSON format"
+            >
+              <FileCode className="w-4 h-4 text-purple-400" />
+              <span>Export Roster JSON</span>
             </button>
           </div>
         </div>

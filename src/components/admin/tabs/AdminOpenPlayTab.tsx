@@ -25,6 +25,7 @@ import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { OpenPlayJsonModal } from '../modals/OpenPlayJsonModal';
 import { OpenPlayQrModal } from '../modals/OpenPlayQrModal';
 import { AdminOpenPlayEventDetails } from './AdminOpenPlayEventDetails';
+import { AdminOpenPlayMatchManagement } from './AdminOpenPlayMatchManagement';
 
 import { type UserPermissions } from '../adminTypes';
 
@@ -142,6 +143,9 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
     isOpen: false,
     event: null,
   });
+
+  // Open Play Match Management State
+  const [matchManagementEvent, setMatchManagementEvent] = useState<OpenPlayEvent | null>(null);
 
   const DEFAULT_OPENPLAY_IMAGE = 'https://images.unsplash.com/photo-1599474924187-334a4ae5bd3c?auto=format&fit=crop&w=800&q=80';
 
@@ -335,7 +339,13 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
 
   return (
     <div className="text-left">
-      {selectedEventForRegs ? (
+      {matchManagementEvent ? (
+        <AdminOpenPlayMatchManagement
+          event={matchManagementEvent}
+          registrations={openPlayRegistrations}
+          onBack={() => setMatchManagementEvent(null)}
+        />
+      ) : selectedEventForRegs ? (
         <AdminOpenPlayEventDetails
           event={selectedEventForRegs}
           registrations={openPlayRegistrations}
@@ -350,6 +360,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           onOpenManualBookingModal={onOpenManualBookingModal}
           onOpenQrModal={handleOpenQrForEvent}
           onOpenJsonModal={handleOpenJsonForEvent}
+          onOpenMatchManagement={(evt) => setMatchManagementEvent(evt)}
           formatEventDateLong={formatEventDateLong}
           formatTime12h={formatTime12h}
         />
