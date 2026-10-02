@@ -1929,10 +1929,7 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
                 {/* TAB 1: PARTICIPANTS */}
                 {rosterTab === 'participants' && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                      <span>
-                        Showing <strong className="text-white">{filteredParticipants.length}</strong> of {participants.length} session slots filled
-                      </span>
+                    <div className="flex items-center justify-end text-xs text-slate-400 mb-2">
                       <span className="font-semibold text-slate-400">
                         {confirmedCount} Confirmed • {pendingCount} Pending Review
                       </span>
