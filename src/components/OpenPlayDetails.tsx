@@ -219,6 +219,31 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
     fetchEventDetails();
   }, [eventId]);
 
+  useEffect(() => {
+    if (event) {
+      document.title = `${event.title} | Book Picklecourt Open Play`;
+      const setMetaTag = (property: string, content: string) => {
+        let element = document.querySelector(`meta[property="${property}"]`);
+        if (!element) {
+          element = document.createElement('meta');
+          element.setAttribute('property', property);
+          document.head.appendChild(element);
+        }
+        element.setAttribute('content', content);
+      };
+
+      setMetaTag('og:title', `${event.title} - Open Play Session`);
+      setMetaTag(
+        'og:description',
+        `${event.category} session on ${formatEventDateLong(event.eventDate)} at ${formatTime12h(event.startTime)} - ${formatTime12h(event.endTime)}. ${event.location || ''}`
+      );
+      if (event.posterImageUrl) {
+        setMetaTag('og:image', event.posterImageUrl);
+        setMetaTag('og:image:secure_url', event.posterImageUrl);
+      }
+    }
+  }, [event]);
+
   // Real-time Isolated Subcollection Chat Sync & Concluded Event Cleansing
   useEffect(() => {
     if (!eventId) return;
