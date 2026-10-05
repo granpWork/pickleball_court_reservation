@@ -944,6 +944,13 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
     const durationText = calculateDuration(event.startTime, event.endTime);
     const slotString = `${formatTime12h(event.startTime)} - ${formatTime12h(event.endTime)}${durationText ? ` (${durationText})` : ''}`;
 
+    const isDuprEvent = Boolean(
+      event.isDupr ||
+      /dupr/i.test(event.title || '') ||
+      /dupr/i.test(event.category || '') ||
+      /dupr/i.test(event.skillLevel || '')
+    );
+
     const checkoutPayload = {
       type: 'open_play',
       openPlayEventId: event.id,
@@ -970,6 +977,7 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
       gcashQrCode: event.gcashQrCode,
       isAddGuestOnly: isAddGuestMode,
       initialGuestCount: isAddGuestMode ? 1 : 0,
+      isDupr: isDuprEvent,
     };
 
     if (setCheckoutDetails) {

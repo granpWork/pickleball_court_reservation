@@ -3,7 +3,7 @@ import {
   ArrowLeft, ArrowRight, CheckCircle, Calendar, Clock, 
   MapPin, User, Mail, Phone, ShieldCheck, 
   Download, Lock, Check, Shield, X,
-  Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap
+  Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap, Trophy
 } from 'lucide-react';
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -42,6 +42,7 @@ interface CheckoutProps {
     gcashName?: string;
     gcashNumber?: string;
     gcashQrCode?: string;
+    isDupr?: boolean;
   };
   setCheckoutDetails: (details: any) => void;
   setSelectedCourtId: (id: string) => void;
@@ -58,9 +59,11 @@ export default function Checkout({
 }: CheckoutProps) {
   // Billing details
   const userPhoneVal = (user as any)?.phone || (user as any)?.mobileNumber || (user as any)?.gcashNumber || (user as any)?.gcashPhone || (user as any)?.contactNumber || '';
+  const userDuprVal = (user as any)?.duprId || (typeof window !== 'undefined' ? localStorage.getItem('picklepoint_user_duprId') || '' : '');
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(userPhoneVal);
+  const [duprId, setDuprId] = useState(userDuprVal);
   
   // 3-Step Stepper Wizard State & Scroll Ref
   const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1);
@@ -231,6 +234,14 @@ export default function Checkout({
   // Open Play Guest (+1 / +2) States
   const isOpenPlay = checkoutDetails?.type === 'open_play' || checkoutDetails?.type === 'openplay' || !!checkoutDetails?.openPlayEventId;
   const isAddGuestOnly = (checkoutDetails as any)?.isAddGuestOnly === true;
+  const isDuprSession = Boolean(
+    isOpenPlay && (
+      (checkoutDetails as any)?.isDupr === true ||
+      /dupr/i.test((checkoutDetails as any)?.openPlayTitle || '') ||
+      /dupr/i.test((checkoutDetails as any)?.openPlayCategory || '') ||
+      /dupr/i.test((checkoutDetails as any)?.courtType || '')
+    )
+  );
 
   const handleBackToScheduling = () => {
     const targetOpenPlayId = checkoutDetails?.openPlayEventId || (isOpenPlay ? checkoutDetails?.courtId : null);
@@ -249,8 +260,12 @@ export default function Checkout({
       setView('details');
     }
   };
-  const [playerCount, setPlayerCount] = useState<number>((checkoutDetails as any)?.initialGuestCount || 1);
+  const [playerCount, setPlayerCount] = useState<number>(() => {
+    if (isDuprSession) return 1;
+    return (checkoutDetails as any)?.initialGuestCount || 1;
+  });
   const [guests, setGuests] = useState<{ name: string; email: string }[]>(() => {
+    if (isDuprSession) return [];
     if ((checkoutDetails as any)?.isAddGuestOnly) {
       return Array.from({ length: (checkoutDetails as any)?.initialGuestCount || 1 }, () => ({ name: '', email: '' }));
     }
@@ -260,6 +275,11 @@ export default function Checkout({
   const [guestNameErrors, setGuestNameErrors] = useState<{ [key: number]: string }>({});
 
   const handlePlayerCountChange = (newCount: number) => {
+    if (isDuprSession) {
+      setPlayerCount(1);
+      setGuests([]);
+      return;
+    }
     const minCount = 1;
     const maxCount = checkoutDetails?.maxAvailableSlots || 16;
     const clamped = Math.max(minCount, Math.min(maxCount, newCount));
@@ -1008,6 +1028,7 @@ export default function Checkout({
       userName: name,
       userEmail: email,
       userPhone: phone,
+      duprId: duprId.trim(),
       paymentMethod: resolvedPaymentMethod,
       paymentStatus: resolvedPaymentStatus,
       bookingReference: refNum,
@@ -1023,6 +1044,7 @@ export default function Checkout({
         isAddGuestOnly,
         primaryPlayerName: name,
         primaryPlayerEmail: email,
+        duprId: duprId.trim(),
         playerCount: isAddGuestOnly ? playerCount : playerCount,
         guestCount: isAddGuestOnly ? playerCount : guests.length,
         guests: validGuests,
@@ -1032,11 +1054,20 @@ export default function Checkout({
       user: {
         name,
         email,
+        phone,
+        duprId: duprId.trim(),
         uid: user?.uid || 'anonymous'
       }
     };
 
     const cleanPayload = JSON.parse(JSON.stringify(docPayload));
+
+    // Sync player's DUPR ID to their Firestore user profile document
+    if (user?.uid && isFirebaseConfigured && db && duprId.trim()) {
+      try {
+        updateDoc(doc(db, 'users', user.uid), { duprId: duprId.trim() }).catch(() => {});
+      } catch (err) {}
+    }
 
     // Update voucher usage in both Firestore & LocalStorage
     if (appliedVoucher) {
@@ -1214,6 +1245,11 @@ export default function Checkout({
     }
     if (!name.trim() || !email.trim() || !phone.trim()) {
       setError('Please fill in your contact information.');
+      setIsErrorModalOpen(true);
+      return;
+    }
+    if (isDuprSession && !duprId.trim()) {
+      setError('DUPR ID is required for DUPR rated Open Play sessions.');
       setIsErrorModalOpen(true);
       return;
     }
@@ -1746,21 +1782,69 @@ export default function Checkout({
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
-                        <Phone className="w-3.5 h-3.5 text-brand-lime" /> GCash Mobile Number
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        placeholder="09171234567"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
-                        className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
-                      />
-                      <span className="text-[10px] text-slate-500 block leading-normal">
-                        Enter the phone number associated with the payment for tracking.
-                      </span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10.5px] font-bold text-slate-400 flex items-center gap-1">
+                          <Phone className="w-3.5 h-3.5 text-brand-lime" /> GCash Mobile Number <span className="text-rose-400 font-bold">*</span>
+                        </label>
+                        <input
+                          type="tel"
+                          required
+                          placeholder="09171234567"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                          className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
+                        />
+                        <span className="text-[10px] text-slate-500 block leading-normal">
+                          Phone number associated with payment tracking.
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10.5px] font-bold text-slate-400 flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <Trophy className="w-3.5 h-3.5 text-brand-lime" /> DUPR ID
+                            {isDuprSession && <span className="text-amber-400 font-bold">*</span>}
+                          </span>
+                          {isDuprSession && (
+                            <span className="text-[9.5px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/30 font-bold uppercase">
+                              Required for DUPR
+                            </span>
+                          )}
+                        </label>
+                        <input
+                          type="text"
+                          required={isDuprSession}
+                          placeholder="e.g. DUPR-123456 or Profile Name"
+                          value={duprId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDuprId(val);
+                            if (typeof window !== 'undefined') {
+                              try {
+                                localStorage.setItem('picklepoint_user_duprId', val.trim());
+                              } catch (err) {}
+                            }
+                          }}
+                          className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
+                        />
+                        <div className="flex items-center justify-between text-[10px] mt-1 gap-2 flex-wrap">
+                          <span className="text-slate-500">
+                            {isDuprSession
+                              ? 'Required for DUPR rated sessions.'
+                              : 'Optional DUPR profile ID.'}
+                          </span>
+                          <a
+                            href="https://dashboard.dupr.com/signup"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-brand-lime hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>Don't have one? Sign up for DUPR</span>
+                            <ExternalLink className="w-3 h-3 text-brand-lime" />
+                          </a>
+                        </div>
+                      </div>
                     </div>
 
                     {/* OPEN PLAY GUEST (+1 / +2) QUANTITY & EMAIL SELECTOR */}
@@ -1768,18 +1852,27 @@ export default function Checkout({
                       <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 animate-fade-in text-left mt-4">
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
                           <div>
-                            <h4 className="text-xs md:text-sm font-bold text-white flex items-center gap-2">
+                            <h4 className="text-xs md:text-sm font-bold text-white flex items-center gap-2 flex-wrap">
                               <Users className="w-4 h-4 text-brand-lime" /> Reserve Spots / Bring Guests (+1)
+                              {isDuprSession && (
+                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-extrabold tracking-wide">
+                                  Disabled for DUPR
+                                </span>
+                              )}
                             </h4>
-                            <p className="text-[11px] text-slate-400 mt-0.5">Select total spots to reserve for yourself and your guests.</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {isDuprSession
+                                ? 'Guest reservations (+1) are disabled for DUPR rated sessions.'
+                                : 'Select total spots to reserve for yourself and your guests.'}
+                            </p>
                           </div>
 
                           {/* Stepper Quantity Control */}
-                          <div className="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 shadow-inner">
+                          <div className={`flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 shadow-inner ${isDuprSession ? 'opacity-50 cursor-not-allowed' : ''}`}>
                             <button
                               type="button"
                               onClick={() => handlePlayerCountChange(playerCount - 1)}
-                              disabled={playerCount <= 1}
+                              disabled={isDuprSession || playerCount <= 1}
                               className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                             >
                               -
@@ -1804,13 +1897,26 @@ export default function Checkout({
                             <button
                               type="button"
                               onClick={() => handlePlayerCountChange(playerCount + 1)}
-                              disabled={playerCount >= (checkoutDetails?.maxAvailableSlots || 16)}
+                              disabled={isDuprSession || playerCount >= (checkoutDetails?.maxAvailableSlots || 16)}
                               className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-brand-lime font-extrabold text-sm flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                             >
                               +
                             </button>
                           </div>
                         </div>
+
+                        {/* DUPR Rating Notice */}
+                        {isDuprSession && (
+                          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2.5">
+                            <Trophy className="w-4.5 h-4.5 text-amber-400 shrink-0 mt-0.5" />
+                            <div>
+                              <span className="font-bold text-amber-300 block">DUPR Rated Session Restriction</span>
+                              <p className="text-[11px] text-amber-200/80 mt-0.5 leading-relaxed">
+                                Bringing guests is disabled for DUPR rated sessions. Each player must sign up individually with their own account for accurate DUPR ID.
+                              </p>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Guest Input List */}
                         {guests.length > 0 && (
