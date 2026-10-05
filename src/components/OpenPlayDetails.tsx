@@ -148,6 +148,7 @@ export interface OpenPlayRegistration {
 
 interface OpenPlayDetailsProps {
   eventId: string;
+  initialEvent?: OpenPlayEvent;
   user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null;
   onNavigateToAuth: (mode: 'login' | 'register') => void;
   onBack: () => void;
@@ -160,10 +161,10 @@ const chatBroadcastChannel =
     ? new BroadcastChannel('picklepoint_openplay_chat_channel')
     : null;
 
-export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBack, setCheckoutDetails, setView }: OpenPlayDetailsProps) {
-  const [event, setEvent] = useState<OpenPlayEvent | null>(null);
+export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigateToAuth, onBack, setCheckoutDetails, setView }: OpenPlayDetailsProps) {
+  const [event, setEvent] = useState<OpenPlayEvent | null>(initialEvent || null);
   const [registrations, setRegistrations] = useState<OpenPlayRegistration[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(!initialEvent);
   const [error, setError] = useState('');
   
   // Registration Form States
@@ -548,168 +549,216 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
     );
   };
 
-  const fetchEventDetails = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      let foundEvent: OpenPlayEvent | null = null;
-      let foundRegs: OpenPlayRegistration[] = [];
+  const getLocalEventData = (targetEventId: string) => {
+    let cachedEvent: OpenPlayEvent | null = initialEvent || null;
+    let cachedCourt: AssignedCourtInfo | null = null;
+    let cachedCompInfo: { name: string; logoUrl: string } = { name: '', logoUrl: '' };
+    const regMap = new Map<string, OpenPlayRegistration>();
 
-      if (isFirebaseConfigured && db) {
-        try {
-          const eventSnap = await getDoc(doc(db!, 'openplay_events', eventId));
-          if (eventSnap.exists()) {
-            foundEvent = { id: eventSnap.id, ...eventSnap.data() } as OpenPlayEvent;
-          }
-        } catch (e) {
-          console.warn('Firestore fetch event failed, trying localStorage:', e);
-        }
-      }
-
-      if (!foundEvent) {
-        const localEventsStr = localStorage.getItem('picklepoint_openplay_events');
+    if (!cachedEvent) {
+      try {
+        const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
         if (localEventsStr) {
           const localEvents = JSON.parse(localEventsStr) as OpenPlayEvent[];
-          foundEvent = localEvents.find(e => e.id === eventId) || null;
+          cachedEvent = localEvents.find((e) => e.id === targetEventId) || null;
         }
-      }
+      } catch (e) {}
+    }
 
-      // Fetch company logo and name from companies or users collection
-      if (foundEvent) {
-        let compName = foundEvent.companyName || '';
-        let compLogo = foundEvent.companyLogoUrl || '';
+    if (cachedEvent) {
+      const compName = cachedEvent.companyName || '';
+      const compLogo = cachedEvent.companyLogoUrl || '';
 
-        if (isFirebaseConfigured && db) {
-          if (foundEvent.companyId) {
-            try {
-              const compSnap = await getDoc(doc(db!, 'companies', foundEvent.companyId));
-              if (compSnap.exists()) {
-                const compData = compSnap.data();
-                compName = compName || compData.name || compData.companyName || '';
-                compLogo = compLogo || compData.logoUrl || compData.logo || '';
-              }
-            } catch (e) {}
-          }
-          if ((!compName || !compLogo) && foundEvent.createdByUid) {
-            try {
-              const userSnap = await getDoc(doc(db!, 'users', foundEvent.createdByUid));
-              if (userSnap.exists()) {
-                const uData = userSnap.data();
-                compName = compName || uData.companyName || uData.name || '';
-                compLogo = compLogo || uData.companyLogoUrl || uData.logoUrl || '';
-              }
-            } catch (e) {}
-          }
-        }
-        setCompanyInfo({ name: compName || 'PicklePoint Venue Host', logoUrl: compLogo });
-
-        // Fetch associated court details for exact location & map pin matching View Court Details page
-        let matchedCourt: AssignedCourtInfo | null = null;
-        const targetCourtId = (foundEvent.courtIds && foundEvent.courtIds.length > 0) ? foundEvent.courtIds[0] : null;
-
-        if (targetCourtId && isFirebaseConfigured && db) {
-          try {
-            const courtSnap = await getDoc(doc(db!, 'courts', targetCourtId));
-            if (courtSnap.exists()) {
-              const cData = courtSnap.data();
-              matchedCourt = {
-                id: courtSnap.id,
-                name: cData.name || '',
-                location: cData.location || '',
-                barangay: cData.barangay || '',
-                municipality: cData.municipality || '',
-                province: cData.province || '',
-                mapUrl: cData.mapUrl || '',
-                latitude: cData.latitude,
-                longitude: cData.longitude,
-              };
-            }
-          } catch (cErr) {
-            console.warn('Failed to read court from Firestore:', cErr);
-          }
-        }
-
-        if (!matchedCourt) {
-          const localCourtsStr = localStorage.getItem('picklepoint_courts');
-          if (localCourtsStr) {
-            try {
-              const localCourts = JSON.parse(localCourtsStr) as any[];
-              const foundC = localCourts.find((c: any) =>
-                (targetCourtId && c.id === targetCourtId) ||
-                (foundEvent?.companyId && c.companyId === foundEvent.companyId) ||
-                (foundEvent?.createdByUid && c.ownerId === foundEvent.createdByUid)
-              );
-              if (foundC) {
-                matchedCourt = {
-                  id: foundC.id,
-                  name: foundC.name || '',
-                  location: foundC.location || '',
-                  barangay: foundC.barangay || '',
-                  municipality: foundC.municipality || '',
-                  province: foundC.province || '',
-                  mapUrl: foundC.mapUrl || '',
-                  latitude: foundC.latitude,
-                  longitude: foundC.longitude,
-                };
-              }
-            } catch (e) {}
-          }
-        }
-
-        setAssociatedCourt(matchedCourt);
-      }
-
-      // Fetch registrations / bookings for this event (unified bookings + fallback)
-      const regMap = new Map<string, OpenPlayRegistration>();
-
-      // 1. Check LocalStorage
+      const targetCourtId = cachedEvent.courtIds && cachedEvent.courtIds.length > 0 ? cachedEvent.courtIds[0] : null;
       try {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const allBookings = JSON.parse(bookingsStr);
-          allBookings.forEach((b: any) => {
-            if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId === eventId && b.status !== 'cancelled') {
-              const regId = b.id || b.bookingReference;
-              regMap.set(regId, {
-                id: regId,
-                eventId: b.openPlayEventId,
-                eventTitle: b.openPlayTitle || b.courtName,
-                playerUid: b.userId || b.user?.uid || '',
-                playerName: b.user?.name || b.userName || 'Player',
-                playerEmail: b.user?.email || b.userEmail || '',
-                playerPhone: b.userPhone,
-                playerCount: b.playerCount || 1,
-                guestCount: b.guestCount || (b.guests?.length || 0),
-                guests: b.guests || [],
-                guestNames: b.guestNames || [],
-                guestEmails: b.guestEmails || [],
-                gcashReferenceNumber: b.gcashReferenceNumber,
-                paymentStatus: b.paymentStatus || 'paid',
-                status: b.status || 'approved',
-                createdAt: b.createdAt || new Date().toISOString(),
-                isAddGuestOnly: b.isAddGuestOnly === true,
-                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
-                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
-              });
-            }
-          });
-        }
-        const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations');
-        if (localRegsStr) {
-          const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
-          allRegs.forEach((r) => {
-            if (r.eventId === eventId && !regMap.has(r.id)) regMap.set(r.id, r);
-          });
+        const localCourtsStr = localStorage.getItem('picklepoint_courts');
+        if (localCourtsStr) {
+          const localCourts = JSON.parse(localCourtsStr) as any[];
+          const foundC = localCourts.find(
+            (c: any) =>
+              (targetCourtId && c.id === targetCourtId) ||
+              (cachedEvent?.companyId && c.companyId === cachedEvent.companyId) ||
+              (cachedEvent?.createdByUid && c.ownerId === cachedEvent.createdByUid)
+          );
+          if (foundC) {
+            cachedCourt = {
+              id: foundC.id,
+              name: foundC.name || '',
+              location: foundC.location || '',
+              barangay: foundC.barangay || '',
+              municipality: foundC.municipality || '',
+              province: foundC.province || '',
+              mapUrl: foundC.mapUrl || '',
+              latitude: foundC.latitude,
+              longitude: foundC.longitude,
+            };
+          }
         }
       } catch (e) {}
 
-      // 2. Fetch from Firestore
+      cachedCompInfo = { name: compName || 'PicklePoint Venue Host', logoUrl: compLogo };
+    }
+
+    try {
+      const bookingsStr = localStorage.getItem('picklepoint_bookings');
+      if (bookingsStr) {
+        const allBookings = JSON.parse(bookingsStr);
+        allBookings.forEach((b: any) => {
+          if (
+            (b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) &&
+            b.openPlayEventId === targetEventId &&
+            b.status !== 'cancelled'
+          ) {
+            const regId = b.id || b.bookingReference;
+            regMap.set(regId, {
+              id: regId,
+              eventId: b.openPlayEventId,
+              eventTitle: b.openPlayTitle || b.courtName,
+              playerUid: b.userId || b.user?.uid || '',
+              playerName: b.user?.name || b.userName || 'Player',
+              playerEmail: b.user?.email || b.userEmail || '',
+              playerPhone: b.userPhone,
+              playerCount: b.playerCount || 1,
+              guestCount: b.guestCount || (b.guests?.length || 0),
+              guests: b.guests || [],
+              guestNames: b.guestNames || [],
+              guestEmails: b.guestEmails || [],
+              gcashReferenceNumber: b.gcashReferenceNumber,
+              paymentStatus: b.paymentStatus || 'paid',
+              status: b.status || 'approved',
+              createdAt: b.createdAt || new Date().toISOString(),
+              isAddGuestOnly: b.isAddGuestOnly === true,
+              primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+              primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+            });
+          }
+        });
+      }
+      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations');
+      if (localRegsStr) {
+        const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
+        allRegs.forEach((r) => {
+          if (r.eventId === targetEventId && !regMap.has(r.id)) regMap.set(r.id, r);
+        });
+      }
+    } catch (e) {}
+
+    return {
+      cachedEvent,
+      cachedCourt,
+      cachedCompInfo,
+      cachedRegs: Array.from(regMap.values()),
+    };
+  };
+
+  const fetchEventDetails = async () => {
+    setError('');
+
+    // Instant local hydration (0ms latency display when event is cached or passed)
+    const localData = getLocalEventData(eventId);
+    let hasLoadedFromCache = false;
+
+    if (localData.cachedEvent) {
+      setEvent(localData.cachedEvent);
+      setCompanyInfo(localData.cachedCompInfo);
+      if (localData.cachedCourt) setAssociatedCourt(localData.cachedCourt);
+      setRegistrations(localData.cachedRegs);
+      setLoading(false);
+      hasLoadedFromCache = true;
+    } else {
+      setLoading(true);
+    }
+
+    try {
       if (isFirebaseConfigured && db) {
-        try {
-          // Query bookings collection
-          const bQuery = query(collection(db!, 'bookings'), where('openPlayEventId', '==', eventId));
-          const bSnap = await getDocs(bQuery);
-          bSnap.forEach(dSnap => {
+        // Concurrently query event document and registrations/bookings in parallel
+        const bQuery = query(collection(db!, 'bookings'), where('openPlayEventId', '==', eventId));
+        const qQuery = query(collection(db!, 'openplay_registrations'), where('eventId', '==', eventId));
+
+        const [eventResult, bSnapResult, regsSnapResult] = await Promise.allSettled([
+          getDoc(doc(db!, 'openplay_events', eventId)),
+          getDocs(bQuery),
+          getDocs(qQuery),
+        ]);
+
+        let foundEvent: OpenPlayEvent | null = localData.cachedEvent;
+
+        if (eventResult.status === 'fulfilled' && eventResult.value.exists()) {
+          foundEvent = { id: eventResult.value.id, ...eventResult.value.data() } as OpenPlayEvent;
+          setEvent(foundEvent);
+          setLoading(false); // Display event immediately once event doc is fetched!
+        }
+
+        if (foundEvent) {
+          let compName = foundEvent.companyName || '';
+          let compLogo = foundEvent.companyLogoUrl || '';
+          const targetCourtId = foundEvent.courtIds && foundEvent.courtIds.length > 0 ? foundEvent.courtIds[0] : null;
+
+          const secondaryPromises: Promise<any>[] = [];
+
+          if (foundEvent.companyId) {
+            secondaryPromises.push(
+              getDoc(doc(db!, 'companies', foundEvent.companyId))
+                .then((snap) => {
+                  if (snap.exists()) {
+                    const compData = snap.data();
+                    compName = compName || compData.name || compData.companyName || '';
+                    compLogo = compLogo || compData.logoUrl || compData.logo || '';
+                  }
+                })
+                .catch(() => {})
+            );
+          }
+
+          if ((!compName || !compLogo) && foundEvent.createdByUid) {
+            secondaryPromises.push(
+              getDoc(doc(db!, 'users', foundEvent.createdByUid))
+                .then((snap) => {
+                  if (snap.exists()) {
+                    const uData = snap.data();
+                    compName = compName || uData.companyName || uData.name || '';
+                    compLogo = compLogo || uData.companyLogoUrl || uData.logoUrl || '';
+                  }
+                })
+                .catch(() => {})
+            );
+          }
+
+          let matchedCourt: AssignedCourtInfo | null = localData.cachedCourt;
+          if (targetCourtId) {
+            secondaryPromises.push(
+              getDoc(doc(db!, 'courts', targetCourtId))
+                .then((snap) => {
+                  if (snap.exists()) {
+                    const cData = snap.data();
+                    matchedCourt = {
+                      id: snap.id,
+                      name: cData.name || '',
+                      location: cData.location || '',
+                      barangay: cData.barangay || '',
+                      municipality: cData.municipality || '',
+                      province: cData.province || '',
+                      mapUrl: cData.mapUrl || '',
+                      latitude: cData.latitude,
+                      longitude: cData.longitude,
+                    };
+                  }
+                })
+                .catch(() => {})
+            );
+          }
+
+          await Promise.allSettled(secondaryPromises);
+
+          setCompanyInfo({ name: compName || 'PicklePoint Venue Host', logoUrl: compLogo });
+          if (matchedCourt) setAssociatedCourt(matchedCourt);
+        }
+
+        const regMap = new Map<string, OpenPlayRegistration>();
+        localData.cachedRegs.forEach((r) => regMap.set(r.id, r));
+
+        if (bSnapResult.status === 'fulfilled') {
+          bSnapResult.value.forEach((dSnap) => {
             const b = dSnap.data();
             if (b.status !== 'cancelled') {
               const regId = dSnap.id;
@@ -736,28 +785,24 @@ export default function OpenPlayDetails({ eventId, user, onNavigateToAuth, onBac
               });
             }
           });
+        }
 
-          // Query legacy openplay_registrations collection
-          const q = query(collection(db!, 'openplay_registrations'), where('eventId', '==', eventId));
-          const regsSnap = await getDocs(q);
-          regsSnap.forEach(dSnap => {
+        if (regsSnapResult.status === 'fulfilled') {
+          regsSnapResult.value.forEach((dSnap) => {
             const regData = dSnap.data() as OpenPlayRegistration;
             if (!regMap.has(dSnap.id)) {
               regMap.set(dSnap.id, { ...regData, id: dSnap.id });
             }
           });
-        } catch (e) {
-          console.warn('Firestore fetch registrations error:', e);
         }
+
+        setRegistrations(Array.from(regMap.values()));
       }
-
-      foundRegs = Array.from(regMap.values());
-
-      setEvent(foundEvent);
-      setRegistrations(foundRegs);
     } catch (err) {
       console.error('Failed to load Open Play event details:', err);
-      setError('Could not load Open Play event details.');
+      if (!hasLoadedFromCache) {
+        setError('Could not load Open Play event details.');
+      }
     } finally {
       setLoading(false);
     }

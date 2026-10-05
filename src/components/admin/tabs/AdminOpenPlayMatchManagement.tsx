@@ -16,6 +16,7 @@ import {
   BarChart2,
   Download,
   Copy,
+  RotateCcw,
 } from 'lucide-react';
 import {
   collection,
@@ -33,9 +34,32 @@ import {
   type OpenPlayMatch,
   type OpenPlayMatchPlayer,
   type OpenPlayMatchRosterItem,
-  type ScoreboardMatch,
   type PlayerMatchStats,
 } from '../adminTypes';
+
+const parseTimeToMinutes = (timeStr?: string): number => {
+  if (!timeStr) return 0;
+  const trimmed = timeStr.trim();
+  let h = 0;
+  let m = 0;
+  if (trimmed.includes(':')) {
+    const parts = trimmed.split(':');
+    h = parseInt(parts[0], 10) || 0;
+    m = parseInt(parts[1]?.substring(0, 2) || '0', 10) || 0;
+    if (trimmed.toLowerCase().includes('pm') && h < 12) h += 12;
+    if (trimmed.toLowerCase().includes('am') && h === 12) h = 0;
+  }
+  return h * 60 + m;
+};
+
+const calculateSessionDurationMinutes = (startTime?: string, endTime?: string): number => {
+  if (!startTime || !endTime) return 240; // Default 4 hours (240 mins)
+  const startMins = parseTimeToMinutes(startTime);
+  let endMins = parseTimeToMinutes(endTime);
+  if (endMins <= startMins) endMins += 24 * 60;
+  const diff = endMins - startMins;
+  return diff > 0 ? diff : 240;
+};
 
 interface AdminOpenPlayMatchManagementProps {
   event: OpenPlayEvent;
@@ -48,7 +72,6 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   event,
   registrations,
   onBack,
-  onNavigateToScoreboard,
 }) => {
   // Assigned courts fallback
   const assignedCourts = useMemo(() => {
@@ -66,15 +89,66 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [rosterPool, setRosterPool] = useState<OpenPlayMatchRosterItem[]>([]);
 
   // Filter States
-  const [selectedRoundFilter, setSelectedRoundFilter] = useState<string>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'completed' | 'active'>('all');
   const [selectedCourtFilter, setSelectedCourtFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Modals
   const [isAutoGenModalOpen, setIsAutoGenModalOpen] = useState<boolean>(false);
-  const [autoGenRounds, setAutoGenRounds] = useState<number>(3);
+  const [autoGenAlgorithm, setAutoGenAlgorithm] = useState<'individual_scramble' | 'random_rotational'>('individual_scramble');
+  const [autoGenRounds, setAutoGenRounds] = useState<number>(24);
   const [autoGenGameType, setAutoGenGameType] = useState<'doubles' | 'singles'>('doubles');
   const [autoGenTargetPoints, setAutoGenTargetPoints] = useState<number>(11);
+
+  // Paddle Rack Queue State
+  const [paddleRackQueue, setPaddleRackQueue] = useState<OpenPlayMatchRosterItem[]>([]);
+
+  // Auto-Gen Math Formula Inputs & Calculation
+  const [targetGamesPerPlayer, setTargetGamesPerPlayer] = useState<number>(8);
+  const [sessionDurationMinutes, setSessionDurationMinutes] = useState<number>(() =>
+    calculateSessionDurationMinutes(event.startTime, event.endTime)
+  );
+
+  // Dynamic Formula Math Calculation:
+  // 1. Total Matches = (P players * G games) / K players per match
+  // 2. Total Rounds = ceil(Total Matches / C courts)
+  // 3. Est Time per Match = D minutes / Total Rounds
+  const formulaMath = useMemo(() => {
+    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
+    const activeCount = paddleRackQueue.length > 0
+      ? paddleRackQueue.filter((p) => p.status === 'active').length
+      : activeFromPool.length || 12;
+
+    const playersPerMatch = autoGenGameType === 'doubles' ? 4 : 2;
+    const courtCount = assignedCourts.length || 1;
+
+    // Total matches required = (P * G) / K
+    const totalMatches = Math.ceil((activeCount * targetGamesPerPlayer) / playersPerMatch);
+
+    // Total rounds needed = ceil(Total Matches / Courts)
+    const calculatedRounds = Math.max(1, Math.ceil(totalMatches / courtCount));
+
+    // Est. minutes per match = Duration / Total Rounds
+    const duration = sessionDurationMinutes > 0 ? sessionDurationMinutes : 240;
+    const timePerMatch = Math.round(duration / calculatedRounds);
+
+    const isFastPaced = timePerMatch <= 10;
+
+    return {
+      activeCount,
+      playersPerMatch,
+      courtCount,
+      totalMatches,
+      calculatedRounds,
+      timePerMatch,
+      isFastPaced,
+    };
+  }, [rosterPool, paddleRackQueue, autoGenGameType, assignedCourts, targetGamesPerPlayer, sessionDurationMinutes]);
+
+  // Synchronize autoGenRounds with formulaMath.calculatedRounds
+  useEffect(() => {
+    setAutoGenRounds(formulaMath.calculatedRounds);
+  }, [formulaMath.calculatedRounds]);
 
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
   const [editingMatch, setEditingMatch] = useState<OpenPlayMatch | null>(null);
@@ -91,9 +165,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Player Report Modal State
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [reportSortField, setReportSortField] = useState<'matches' | 'winRate' | 'pointDiff' | 'name'>('matches');
+
+  // Delete Confirmation Modal State
+  const [deletingMatch, setDeletingMatch] = useState<OpenPlayMatch | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -297,7 +373,25 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     }
 
     setRosterPool(initialPool);
+    setPaddleRackQueue(initialPool.filter((p) => p.status === 'active'));
   }, [event.id, registrations, event.skillLevel]);
+
+  // Keep Paddle Rack Queue synced with active players in roster pool
+  useEffect(() => {
+    setPaddleRackQueue((prev) => {
+      const activeFromPool = rosterPool.filter((p) => p.status === 'active');
+      if (prev.length === 0) return activeFromPool;
+      // Filter out players no longer active
+      const activeIds = new Set(activeFromPool.map((p) => p.id));
+      const filteredPrev = prev.filter((p) => activeIds.has(p.id));
+      // Append any new active players not yet in queue
+      const existingIds = new Set(filteredPrev.map((p) => p.id));
+      const newlyAdded = activeFromPool.filter((p) => !existingIds.has(p.id));
+      return [...filteredPrev, ...newlyAdded];
+    });
+  }, [rosterPool]);
+
+
 
   // Save roster pool status changes to localStorage
   const saveRosterPool = (updated: OpenPlayMatchRosterItem[]) => {
@@ -469,12 +563,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     let winner: 'red' | 'blue' | 'tie' | undefined = match.winner;
     let status: 'scheduled' | 'in_progress' | 'completed' = match.status;
 
-    if (newRedScore > 0 || newBlueScore > 0) {
+    if (status !== 'completed' && (newRedScore > 0 || newBlueScore > 0)) {
       status = 'in_progress';
     }
 
-    if (newRedScore >= match.targetPoints || newBlueScore >= match.targetPoints) {
-      status = 'completed';
+    if (status === 'completed') {
       if (newRedScore > newBlueScore) winner = 'red';
       else if (newBlueScore > newRedScore) winner = 'blue';
       else winner = 'tie';
@@ -492,9 +585,64 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     persistSingleMatch(updated);
   };
 
-  // Auto Generation Algorithm (Multi-Court Round Robin)
+  // Complete Match Action
+  const handleCompleteMatch = (matchId: string) => {
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+
+    const redScore = match.teamRed.score;
+    const blueScore = match.teamBlue.score;
+
+    let winner: 'red' | 'blue' | 'tie' = 'tie';
+    if (redScore > blueScore) winner = 'red';
+    else if (blueScore > redScore) winner = 'blue';
+
+    const winnerName =
+      winner === 'red'
+        ? match.teamRed.players.map((p) => p.name).join(' & ') || 'Team Red'
+        : winner === 'blue'
+        ? match.teamBlue.players.map((p) => p.name).join(' & ') || 'Team Blue'
+        : 'Tied Game';
+
+    const updated: OpenPlayMatch = {
+      ...match,
+      status: 'completed',
+      winner,
+      updatedAt: new Date().toISOString(),
+    };
+
+    persistSingleMatch(updated);
+    showToast(
+      winner === 'tie'
+        ? `🤝 Match marked as Completed! (Tie ${redScore}-${blueScore})`
+        : `🏆 Match Completed! Winner: ${winnerName} (${redScore}-${blueScore})`
+    );
+  };
+
+  // Reopen Match Action
+  const handleReopenMatch = (matchId: string) => {
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+
+    const updated: OpenPlayMatch = {
+      ...match,
+      status: 'in_progress',
+      winner: undefined,
+      wasReopened: true,
+      updatedAt: new Date().toISOString(),
+    };
+
+    persistSingleMatch(updated);
+    showToast('Match reopened for editing.');
+  };
+
+  // Auto Generation Algorithm (Individual Round Robin Scramble vs Random Matrix)
   const handleGenerateMatches = () => {
-    const activePlayers = rosterPool.filter((p) => p.status === 'active');
+    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
+    const activePlayers = paddleRackQueue.length > 0
+      ? paddleRackQueue.filter((p) => p.status === 'active')
+      : activeFromPool;
+
     const playersPerMatch = autoGenGameType === 'doubles' ? 4 : 2;
 
     if (activePlayers.length < playersPerMatch) {
@@ -504,52 +652,133 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
     const newMatches: OpenPlayMatch[] = [];
     const courtCount = assignedCourts.length;
-    let availablePool = [...activePlayers];
 
-    // Simple rotational pairing algorithm
-    for (let r = 1; r <= autoGenRounds; r++) {
-      // Shuffle pool for varied pairings per round
-      const shuffled = [...availablePool].sort(() => Math.random() - 0.5);
-      const matchesInRound = Math.floor(shuffled.length / playersPerMatch);
+    if (autoGenAlgorithm === 'individual_scramble') {
+      // CONTINUOUS PADDLE RACK QUEUE & 1&4 vs 2&3 PAIRING SPLIT RULE
+      let queue = [...activePlayers];
 
-      for (let m = 0; m < matchesInRound; m++) {
-        const courtName = assignedCourts[m % courtCount] || `Court ${(m % courtCount) + 1}`;
-        const matchPlayers = shuffled.slice(m * playersPerMatch, (m + 1) * playersPerMatch);
+      for (let r = 1; r <= autoGenRounds; r++) {
+        for (let cIdx = 0; cIdx < courtCount; cIdx++) {
+          if (queue.length < playersPerMatch) break;
+          const courtName = assignedCourts[cIdx] || `Court ${cIdx + 1}`;
 
-        let teamRedPlayers: OpenPlayMatchPlayer[] = [];
-        let teamBluePlayers: OpenPlayMatchPlayer[] = [];
+          if (autoGenGameType === 'doubles') {
+            // Pull top 4 from front of queue: [P1, P2, P3, P4]
+            const p1 = queue.shift()!;
+            const p2 = queue.shift()!;
+            const p3 = queue.shift()!;
+            const p4 = queue.shift()!;
 
-        if (autoGenGameType === 'doubles') {
-          teamRedPlayers = matchPlayers.slice(0, 2).map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
-          teamBluePlayers = matchPlayers.slice(2, 4).map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
-        } else {
-          teamRedPlayers = [matchPlayers[0]].map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
-          teamBluePlayers = [matchPlayers[1]].map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
+            // 1 & 4 vs 2 & 3 Pairing Split Rule:
+            // Team Red = [P1, P4] (1st & 4th in queue)
+            // Team Blue = [P2, P3] (2nd & 3rd in queue)
+            const teamRedPlayers: OpenPlayMatchPlayer[] = [
+              { id: p1.id, name: p1.name, photoUrl: p1.photoUrl, skillLevel: p1.skillLevel },
+              { id: p4.id, name: p4.name, photoUrl: p4.photoUrl, skillLevel: p4.skillLevel },
+            ];
+            const teamBluePlayers: OpenPlayMatchPlayer[] = [
+              { id: p2.id, name: p2.name, photoUrl: p2.photoUrl, skillLevel: p2.skillLevel },
+              { id: p3.id, name: p3.name, photoUrl: p3.photoUrl, skillLevel: p3.skillLevel },
+            ];
+
+            // Return all 4 players to the back of the queue in rotated order
+            queue.push(p1, p4, p2, p3);
+
+            const matchId = `op-scramble-${event.id}-r${r}-c${cIdx + 1}-${Date.now()}`;
+            newMatches.push({
+              id: matchId,
+              eventId: event.id,
+              round: r,
+              courtName,
+              gameType: 'doubles',
+              targetPoints: autoGenTargetPoints,
+              status: 'scheduled',
+              teamRed: { players: teamRedPlayers, score: 0 },
+              teamBlue: { players: teamBluePlayers, score: 0 },
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          } else {
+            // Singles (1v1): Pull top 2
+            const p1 = queue.shift()!;
+            const p2 = queue.shift()!;
+
+            const teamRedPlayers: OpenPlayMatchPlayer[] = [
+              { id: p1.id, name: p1.name, photoUrl: p1.photoUrl, skillLevel: p1.skillLevel },
+            ];
+            const teamBluePlayers: OpenPlayMatchPlayer[] = [
+              { id: p2.id, name: p2.name, photoUrl: p2.photoUrl, skillLevel: p2.skillLevel },
+            ];
+
+            queue.push(p1, p2);
+
+            const matchId = `op-scramble-${event.id}-r${r}-c${cIdx + 1}-${Date.now()}`;
+            newMatches.push({
+              id: matchId,
+              eventId: event.id,
+              round: r,
+              courtName,
+              gameType: 'singles',
+              targetPoints: autoGenTargetPoints,
+              status: 'scheduled',
+              teamRed: { players: teamRedPlayers, score: 0 },
+              teamBlue: { players: teamBluePlayers, score: 0 },
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          }
         }
+      }
 
-        const matchId = `op-match-${event.id}-r${r}-m${m + 1}-${Date.now()}`;
-        const matchRecord: OpenPlayMatch = {
-          id: matchId,
-          eventId: event.id,
-          round: r,
-          courtName,
-          gameType: autoGenGameType,
-          targetPoints: autoGenTargetPoints,
-          status: 'scheduled',
-          teamRed: { players: teamRedPlayers, score: 0 },
-          teamBlue: { players: teamBluePlayers, score: 0 },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+      setPaddleRackQueue(queue);
+    } else {
+      // Random Rotational Matrix
+      let availablePool = [...activePlayers];
+      for (let r = 1; r <= autoGenRounds; r++) {
+        const shuffled = [...availablePool].sort(() => Math.random() - 0.5);
+        const matchesInRound = Math.floor(shuffled.length / playersPerMatch);
 
-        newMatches.push(matchRecord);
+        for (let m = 0; m < matchesInRound; m++) {
+          const courtName = assignedCourts[m % courtCount] || `Court ${(m % courtCount) + 1}`;
+          const matchPlayers = shuffled.slice(m * playersPerMatch, (m + 1) * playersPerMatch);
+
+          let teamRedPlayers: OpenPlayMatchPlayer[] = [];
+          let teamBluePlayers: OpenPlayMatchPlayer[] = [];
+
+          if (autoGenGameType === 'doubles') {
+            teamRedPlayers = matchPlayers.slice(0, 2).map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
+            teamBluePlayers = matchPlayers.slice(2, 4).map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
+          } else {
+            teamRedPlayers = [matchPlayers[0]].map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
+            teamBluePlayers = [matchPlayers[1]].map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
+          }
+
+          const matchId = `op-match-${event.id}-r${r}-m${m + 1}-${Date.now()}`;
+          newMatches.push({
+            id: matchId,
+            eventId: event.id,
+            round: r,
+            courtName,
+            gameType: autoGenGameType,
+            targetPoints: autoGenTargetPoints,
+            status: 'scheduled',
+            teamRed: { players: teamRedPlayers, score: 0 },
+            teamBlue: { players: teamBluePlayers, score: 0 },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
       }
     }
 
     const combined = [...matches, ...newMatches];
     persistMatches(combined);
     setIsAutoGenModalOpen(false);
-    showToast(`⚡ Generated ${newMatches.length} matches across ${courtCount} assigned court(s)!`);
+    showToast(
+      autoGenAlgorithm === 'individual_scramble'
+        ? `⚡ Individual Scramble: Generated ${newMatches.length} matches (1&4 vs 2&3 split) across ${courtCount} assigned court(s)!`
+        : `⚡ Generated ${newMatches.length} matches across ${courtCount} assigned court(s)!`
+    );
   };
 
   // Manual Match Save
@@ -655,62 +884,12 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     saveRosterPool(updated);
   };
 
-  // Launch Scoreboard Sync
-  const handleLaunchScoreboard = (match: OpenPlayMatch) => {
-    const scoreboardId = `sb-${match.id}`;
-    const sbMatch: ScoreboardMatch = {
-      id: scoreboardId,
-      openPlayId: event.id,
-      openPlayTitle: event.title,
-      matchTitle: `${event.title} - Round ${match.round} (${match.courtName})`,
-      gameType: match.gameType,
-      targetPoints: match.targetPoints,
-      winByTwo: true,
-      teamRed: {
-        name: match.teamRed.players.map((p) => p.name).join(' & ') || 'Team Red',
-        score: match.teamRed.score,
-        players: match.teamRed.players.map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl })),
-      },
-      teamBlue: {
-        name: match.teamBlue.players.map((p) => p.name).join(' & ') || 'Team Blue',
-        score: match.teamBlue.score,
-        players: match.teamBlue.players.map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl })),
-      },
-      servingTeam: 'red',
-      serverNumber: 1,
-      firstServeOfGameDone: true,
-      status: match.status === 'completed' ? 'completed' : 'live',
-      history: [],
-      createdAt: match.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
 
-    // Store in localStorage scoreboards
-    try {
-      const existingStr = localStorage.getItem('picklepoint_scoreboards');
-      let existingList: ScoreboardMatch[] = existingStr ? JSON.parse(existingStr) : [];
-      if (!Array.isArray(existingList)) existingList = [];
-      const idx = existingList.findIndex((m) => m.id === scoreboardId);
-      if (idx >= 0) existingList[idx] = sbMatch;
-      else existingList.push(sbMatch);
-      localStorage.setItem('picklepoint_scoreboards', JSON.stringify(existingList));
-    } catch (e) {}
-
-    // Store in Firestore scoreboards
-    if (isFirebaseConfigured && db) {
-      setDoc(doc(db, 'scoreboards', scoreboardId), sbMatch).catch(console.warn);
-    }
-
-    if (onNavigateToScoreboard) {
-      onNavigateToScoreboard(match);
-    } else {
-      showToast('🏆 Match synced to Scoreboard! Select Scoreboard tab in Admin to view.');
-    }
-  };
 
   // Filtered Matches
   const filteredMatches = matches.filter((m) => {
-    if (selectedRoundFilter !== 'all' && m.round.toString() !== selectedRoundFilter) return false;
+    if (selectedStatusFilter === 'completed' && m.status !== 'completed') return false;
+    if (selectedStatusFilter === 'active' && m.status === 'completed') return false;
     if (selectedCourtFilter !== 'all' && m.courtName !== selectedCourtFilter) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -881,64 +1060,74 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       {/* Filters & Search Row */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-        {/* Round Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
-          <span className="text-slate-400 font-bold text-[11px] uppercase shrink-0 mr-1">Rounds:</span>
-          <button
-            type="button"
-            onClick={() => setSelectedRoundFilter('all')}
-            className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
-              selectedRoundFilter === 'all'
-                ? 'bg-brand-lime text-dark-bg'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            All ({matches.length})
-          </button>
-          {availableRounds.map((r) => (
+        <div className="flex items-center gap-3 overflow-x-auto w-full sm:w-auto">
+          {/* Status Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto shrink-0">
+            <span className="text-slate-400 font-bold text-[11px] uppercase shrink-0 mr-1">Status:</span>
             <button
-              key={r}
               type="button"
-              onClick={() => setSelectedRoundFilter(r.toString())}
+              onClick={() => setSelectedStatusFilter('all')}
               className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
-                selectedRoundFilter === r.toString()
-                  ? 'bg-purple-600 text-white'
+                selectedStatusFilter === 'all'
+                  ? 'bg-brand-lime text-dark-bg'
                   : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
               }`}
             >
-              Round {r}
+              All ({matches.length})
             </button>
-          ))}
-        </div>
+            <button
+              type="button"
+              onClick={() => setSelectedStatusFilter('active')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
+                selectedStatusFilter === 'active'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              Active ({matches.length - completedCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedStatusFilter('completed')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
+                selectedStatusFilter === 'completed'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              Completed ({completedCount})
+            </button>
+          </div>
 
-        {/* Court Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
-          <span className="text-slate-400 font-bold text-[11px] uppercase shrink-0 mr-1">Courts:</span>
-          <button
-            type="button"
-            onClick={() => setSelectedCourtFilter('all')}
-            className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
-              selectedCourtFilter === 'all'
-                ? 'bg-blue-500 text-white'
-                : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            All Courts
-          </button>
-          {assignedCourts.map((court, idx) => (
+          {/* Court Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto shrink-0 border-l border-slate-800/80 pl-3">
+            <span className="text-slate-400 font-bold text-[11px] uppercase shrink-0 mr-1">Courts:</span>
             <button
-              key={idx}
               type="button"
-              onClick={() => setSelectedCourtFilter(court)}
+              onClick={() => setSelectedCourtFilter('all')}
               className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
-                selectedCourtFilter === court
-                  ? 'bg-brand-emerald text-dark-bg'
+                selectedCourtFilter === 'all'
+                  ? 'bg-blue-500 text-white'
                   : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
               }`}
             >
-              {court}
+              All Courts
             </button>
-          ))}
+            {assignedCourts.map((court, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setSelectedCourtFilter(court)}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
+                  selectedCourtFilter === court
+                    ? 'bg-brand-emerald text-dark-bg'
+                    : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {court}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Search */}
@@ -954,7 +1143,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         </div>
       </div>
 
-      {/* Matches Grid */}
+      {/* Matches Grid (2 Columns Max) */}
       {isLoading ? (
         <div className="p-12 text-center text-slate-400 space-y-3">
           <RefreshCw className="w-8 h-8 animate-spin text-brand-lime mx-auto" />
@@ -982,11 +1171,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           {filteredMatches.map((m) => (
             <div
               key={m.id}
-              className={`rounded-3xl border p-4 transition-all shadow-lg flex flex-col justify-between space-y-4 ${
+              className={`rounded-3xl border p-4 sm:p-5 transition-all shadow-lg flex flex-col justify-between space-y-4 ${
                 m.status === 'completed'
                   ? 'bg-slate-900/40 border-slate-800/90'
                   : m.status === 'in_progress'
@@ -996,10 +1185,15 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             >
               {/* Card Header: Round, Court Selector & Status */}
               <div className="flex items-center justify-between gap-2 text-xs pb-3 border-b border-slate-800/80">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="px-2.5 py-0.5 rounded-lg bg-purple-950/60 border border-purple-800/60 text-purple-300 font-extrabold text-[11px]">
                     Round {m.round}
                   </span>
+                  {m.wasReopened && (
+                    <span className="px-2 py-0.5 rounded-lg bg-amber-950/60 border border-amber-500/50 text-amber-300 font-extrabold text-[10px] flex items-center gap-1 shadow-sm" title="This match was previously completed and reopened for score adjustment.">
+                      <RotateCcw className="w-3 h-3 text-amber-400" /> Reopened
+                    </span>
+                  )}
                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                     {m.gameType} ({m.targetPoints} pts)
                   </span>
@@ -1022,108 +1216,123 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 </div>
               </div>
 
-              {/* Team Red vs Team Blue Display */}
-              <div className="space-y-3 py-1">
-                {/* Team Red */}
-                <div
-                  className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
-                    m.winner === 'red'
-                      ? 'bg-red-950/30 border-red-500/50 text-red-200'
-                      : 'bg-slate-950/60 border-slate-800 text-slate-200'
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-black uppercase text-red-400 tracking-wider mb-1 flex items-center gap-1">
+              {/* Card Body: Side-by-Side Teams (Team Red Left | VS Center | Team Blue Right) */}
+              <div className="grid grid-cols-1 md:grid-cols-11 items-center gap-3 py-1">
+                {/* Team Red (Left Side) */}
+                <div className="md:col-span-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-2xl border border-slate-800/60">
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="text-[10px] font-black uppercase text-red-400 tracking-wider flex items-center gap-1">
                       <span>Team Red</span>
-                      {m.winner === 'red' && <Trophy className="w-3 h-3 text-amber-400 inline" />}
+                      {m.winner === 'red' && <Trophy className="w-3.5 h-3.5 text-amber-400 inline" />}
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       {m.teamRed.players.map((p, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
+                        <div key={idx} className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
                             <img
                               src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
                               alt={p.name}
                               className="w-full h-full object-cover"
                             />
                           </div>
-                          <span className="font-bold text-xs truncate text-white">{p.name}</span>
+                          <span className="font-normal text-sm truncate text-slate-100">{p.name}</span>
                         </div>
                       ))}
                     </div>
                   </div>
 
                   {/* Team Red Score Controls */}
-                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-900 border border-slate-800 p-1 rounded-xl">
+                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-950 border border-slate-800 p-1.5 rounded-xl self-start sm:self-center">
                     <button
                       type="button"
+                      disabled={m.status === 'completed'}
                       onClick={() => updateMatchScore(m.id, 'red', -1)}
-                      className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs flex items-center justify-center cursor-pointer"
+                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                        m.status === 'completed'
+                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
+                      }`}
                     >
                       -
                     </button>
-                    <span className="w-8 text-center font-mono font-black text-lg text-red-400">
+                    <span className={`w-9 text-center font-mono font-black text-xl ${
+                      m.status === 'completed' ? 'text-slate-400' : 'text-red-400'
+                    }`}>
                       {m.teamRed.score}
                     </span>
                     <button
                       type="button"
+                      disabled={m.status === 'completed'}
                       onClick={() => updateMatchScore(m.id, 'red', 1)}
-                      className="w-6 h-6 rounded-lg bg-red-600 hover:bg-red-500 text-white font-black text-xs flex items-center justify-center cursor-pointer"
+                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                        m.status === 'completed'
+                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                          : 'bg-red-600 hover:bg-red-500 text-white cursor-pointer shadow-sm'
+                      }`}
                     >
                       +
                     </button>
                   </div>
                 </div>
 
-                <div className="text-center font-mono text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">
-                  VS
+                {/* VS Divider Badge */}
+                <div className="md:col-span-1 flex flex-col items-center justify-center py-1 shrink-0">
+                  <span className="px-3 py-1.5 rounded-full bg-slate-950 border border-slate-800 text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest shadow-inner">
+                    VS
+                  </span>
                 </div>
 
-                {/* Team Blue */}
-                <div
-                  className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
-                    m.winner === 'blue'
-                      ? 'bg-blue-950/30 border-blue-500/50 text-blue-200'
-                      : 'bg-slate-950/60 border-slate-800 text-slate-200'
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-black uppercase text-blue-400 tracking-wider mb-1 flex items-center gap-1">
+                {/* Team Blue (Right Side) */}
+                <div className="md:col-span-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-2xl border border-slate-800/60">
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="text-[10px] font-black uppercase text-blue-400 tracking-wider flex items-center gap-1">
                       <span>Team Blue</span>
-                      {m.winner === 'blue' && <Trophy className="w-3 h-3 text-amber-400 inline" />}
+                      {m.winner === 'blue' && <Trophy className="w-3.5 h-3.5 text-amber-400 inline" />}
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       {m.teamBlue.players.map((p, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
+                        <div key={idx} className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
                             <img
                               src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
                               alt={p.name}
                               className="w-full h-full object-cover"
                             />
                           </div>
-                          <span className="font-bold text-xs truncate text-white">{p.name}</span>
+                          <span className="font-normal text-sm truncate text-slate-100">{p.name}</span>
                         </div>
                       ))}
                     </div>
                   </div>
 
                   {/* Team Blue Score Controls */}
-                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-900 border border-slate-800 p-1 rounded-xl">
+                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-950 border border-slate-800 p-1.5 rounded-xl self-start sm:self-center">
                     <button
                       type="button"
+                      disabled={m.status === 'completed'}
                       onClick={() => updateMatchScore(m.id, 'blue', -1)}
-                      className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-black text-xs flex items-center justify-center cursor-pointer"
+                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                        m.status === 'completed'
+                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
+                      }`}
                     >
                       -
                     </button>
-                    <span className="w-8 text-center font-mono font-black text-lg text-blue-400">
+                    <span className={`w-9 text-center font-mono font-black text-xl ${
+                      m.status === 'completed' ? 'text-slate-400' : 'text-blue-400'
+                    }`}>
                       {m.teamBlue.score}
                     </span>
                     <button
                       type="button"
+                      disabled={m.status === 'completed'}
                       onClick={() => updateMatchScore(m.id, 'blue', 1)}
-                      className="w-6 h-6 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-black text-xs flex items-center justify-center cursor-pointer"
+                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                        m.status === 'completed'
+                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                          : 'bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shadow-sm'
+                      }`}
                     >
                       +
                     </button>
@@ -1131,29 +1340,63 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 </div>
               </div>
 
-              {/* Card Footer Actions */}
+              {/* Card Footer Actions (Status on left, Complete + Edit + Delete on right) */}
               <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 text-xs">
-                <button
-                  type="button"
-                  onClick={() => handleLaunchScoreboard(m)}
-                  className="px-3 py-1.5 rounded-xl bg-brand-lime/15 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-[11px] flex items-center gap-1.5 transition-all cursor-pointer"
-                  title="Launch live digital scoreboard for this match"
-                >
-                  <Trophy className="w-3.5 h-3.5" /> Scoreboard
-                </button>
+                <div className="min-w-0">
+                  {m.status === 'completed' ? (
+                    <span className="text-brand-lime font-black text-[11px] flex items-center gap-1 truncate">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                      Completed ({m.winner === 'red' ? 'Team Red Win' : m.winner === 'blue' ? 'Team Blue Win' : 'Tie Game'})
+                    </span>
+                  ) : m.teamRed.score > m.teamBlue.score ? (
+                    <span className="text-red-400 font-bold text-[10px] uppercase tracking-wider truncate block">
+                      🔴 Red Leading ({m.teamRed.score}-{m.teamBlue.score})
+                    </span>
+                  ) : m.teamBlue.score > m.teamRed.score ? (
+                    <span className="text-blue-400 font-bold text-[10px] uppercase tracking-wider truncate block">
+                      🔵 Blue Leading ({m.teamBlue.score}-{m.teamRed.score})
+                    </span>
+                  ) : m.teamRed.score > 0 ? (
+                    <span className="text-purple-300 font-bold text-[10px] uppercase tracking-wider truncate block">
+                      🤝 Game Tied ({m.teamRed.score}-{m.teamBlue.score})
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 text-[10px] italic">Scheduled</span>
+                  )}
+                </div>
 
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {m.status !== 'completed' ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCompleteMatch(m.id)}
+                      className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black text-[11px] flex items-center gap-1 shadow-sm transition-all cursor-pointer hover:scale-[1.02]"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" /> Complete
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleReopenMatch(m.id)}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-slate-700"
+                      title="Reopen match to edit score"
+                    >
+                      <RotateCcw className="w-3 h-3 text-slate-400" /> Reopen
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => openEditModal(m)}
                     className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
-                    title="Edit match"
+                    title="Edit match details"
                   >
-                    <Edit2 className="w-3.5 h-3.5" />
+                    <Edit2 className="w-3.5 h-3.5 text-slate-400" />
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => deleteMatch(m.id)}
+                    onClick={() => setDeletingMatch(m)}
                     className="p-1.5 rounded-xl bg-slate-800 hover:bg-red-900/60 text-slate-400 hover:text-red-300 transition-all cursor-pointer"
                     title="Delete match"
                   >
@@ -1186,6 +1429,18 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
             <div className="space-y-4 text-xs">
               <div>
+                <label className="block text-slate-400 font-bold mb-1">Matchmaking Format Algorithm</label>
+                <select
+                  value={autoGenAlgorithm}
+                  onChange={(e) => setAutoGenAlgorithm(e.target.value as any)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-brand-lime font-extrabold focus:outline-none focus:border-brand-lime"
+                >
+                  <option value="individual_scramble">⚡ Individual Round Robin Scramble (Continuous Queue & 1&4 vs 2&3 Split)</option>
+                  <option value="random_rotational">🎲 Random Rotational Matrix</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-slate-400 font-bold mb-1">Assigned Session Courts ({assignedCourts.length})</label>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {assignedCourts.map((c, i) => (
@@ -1197,56 +1452,182 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 <p className="text-[11px] text-slate-500 mt-1">Generated matches will automatically rotate across these courts.</p>
               </div>
 
+              {/* DYNAMIC MATCH CALCULATOR & SESSION ESTIMATOR */}
+              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-brand-lime" />
+                    <span className="font-extrabold text-white text-xs uppercase tracking-wide">Match & Session Calculator</span>
+                  </div>
+                  <span className="text-[10px] font-mono bg-brand-lime/10 text-brand-lime px-2 py-0.5 rounded-full border border-brand-lime/30 font-bold">
+                    Formula Active
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">Target Games / Player</label>
+                    <select
+                      value={targetGamesPerPlayer}
+                      onChange={(e) => setTargetGamesPerPlayer(parseInt(e.target.value, 10))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-brand-lime font-black focus:outline-none focus:border-brand-lime"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16].map((g) => (
+                        <option key={g} value={g}>
+                          {g} {g === 1 ? 'game' : 'games'} / player
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">Session Duration</label>
+                    <select
+                      value={sessionDurationMinutes}
+                      onChange={(e) => setSessionDurationMinutes(parseInt(e.target.value, 10))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-cyan-300 font-black focus:outline-none focus:border-brand-lime"
+                    >
+                      <option value={120}>120 mins (2 hrs)</option>
+                      <option value={180}>180 mins (3 hrs)</option>
+                      <option value={240}>240 mins (4 hrs)</option>
+                      <option value={300}>300 mins (5 hrs)</option>
+                      <option value={360}>360 mins (6 hrs)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-bold mb-1">Game Mode</label>
+                    <select
+                      value={autoGenGameType}
+                      onChange={(e) => setAutoGenGameType(e.target.value as any)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-1.5 text-white font-bold focus:outline-none focus:border-brand-lime"
+                    >
+                      <option value="doubles">Doubles (4 players)</option>
+                      <option value="singles">Singles (2 players)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* FORMULA DISPLAY STATS */}
+                <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                  <div className="p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Matches</div>
+                    <div className="text-base font-black text-brand-lime font-mono mt-0.5">
+                      {formulaMath.totalMatches} <span className="text-[10px] font-sans font-normal text-slate-400">matches</span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 mt-0.5 font-mono">
+                      ({formulaMath.activeCount}P × {targetGamesPerPlayer}G)/{formulaMath.playersPerMatch}
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total Rounds</div>
+                    <div className="text-base font-black text-purple-300 font-mono mt-0.5">
+                      {formulaMath.calculatedRounds} <span className="text-[10px] font-sans font-normal text-slate-400">rounds</span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 mt-0.5 font-mono">
+                      {formulaMath.totalMatches}M ÷ {formulaMath.courtCount} {formulaMath.courtCount === 1 ? 'court' : 'courts'}
+                    </div>
+                  </div>
+
+                  <div className="p-2 rounded-xl bg-slate-900 border border-slate-800/80">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Time / Game</div>
+                    <div className="text-base font-black text-cyan-300 font-mono mt-0.5">
+                      {formulaMath.timePerMatch} <span className="text-[10px] font-sans font-normal text-slate-400">mins</span>
+                    </div>
+                    <div className="text-[9px] text-slate-500 mt-0.5 font-mono">
+                      {sessionDurationMinutes}m ÷ {formulaMath.calculatedRounds}R
+                    </div>
+                  </div>
+                </div>
+
+                {/* SCORING FORMAT RECOMMENDATION NOTICE (TAGALOG / ENGLISH) */}
+                <div className={`p-3 rounded-xl border text-[11px] leading-relaxed space-y-1 ${
+                  formulaMath.isFastPaced
+                    ? 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                    : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-200'
+                }`}>
+                  <div className="font-extrabold flex items-center gap-1.5">
+                    {formulaMath.isFastPaced ? (
+                      <>
+                        <Zap className="w-3.5 h-3.5 text-amber-400" /> Recommended: Rally Scoring to 15 or Timed Games (8-10 mins)
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" /> Recommended: Standard Side-Out Scoring (11 or 15 points)
+                      </>
+                    )}
+                  </div>
+                  <p className="text-[10.5px]">
+                    {formulaMath.isFastPaced ? (
+                      <>
+                        May <strong>{sessionDurationMinutes} minutes</strong> kayo sa court para sa <strong>{formulaMath.activeCount} players</strong> ({targetGamesPerPlayer} games bawat isa).
+                        Kaya mabilis ang takbo, kadalasan gumagamit ng <strong>rally scoring hanggang 15</strong> (win by 1 o sudden death sa 14-14) o kaya <strong>timed games (8-10 minutes)</strong>. Hindi uubra ang standard side-out scoring to 11 kasi aabutin 'yun ng siyam-siyam at kukulangin ang time!
+                      </>
+                    ) : (
+                      <>
+                        May sapat na oras (<strong>{formulaMath.timePerMatch} mins bawat game</strong>) para makapaglaro ang bawat player ng {targetGamesPerPlayer} games. Uubra ang <strong>standard side-out scoring to 11 o 15 points</strong>.
+                      </>
+                    )}
+                  </p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Number of Rounds</label>
+                  <label className="block text-slate-400 font-bold mb-1">Rounds to Generate</label>
                   <select
                     value={autoGenRounds}
                     onChange={(e) => setAutoGenRounds(parseInt(e.target.value, 10))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-brand-lime"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-brand-lime font-mono"
                   >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((r) => (
+                    {Array.from({ length: 30 }, (_, i) => i + 1).map((r) => (
                       <option key={r} value={r}>
-                        {r} {r === 1 ? 'Round' : 'Rounds'}
+                        {r} {r === 1 ? 'Round' : 'Rounds'} {r === formulaMath.calculatedRounds ? '(Formula Calculated)' : ''}
                       </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Game Format</label>
+                  <label className="block text-slate-400 font-bold mb-1">Target Points per Match</label>
                   <select
-                    value={autoGenGameType}
-                    onChange={(e) => setAutoGenGameType(e.target.value as any)}
+                    value={autoGenTargetPoints}
+                    onChange={(e) => setAutoGenTargetPoints(parseInt(e.target.value, 10))}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-brand-lime"
                   >
-                    <option value="doubles">Doubles (2v2)</option>
-                    <option value="singles">Singles (1v1)</option>
+                    <option value={11}>11 Points (Standard Side-Out)</option>
+                    <option value={15}>15 Points (Rally Scoring / Win by 1)</option>
+                    <option value={21}>21 Points</option>
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-400 font-bold mb-1">Target Points per Match</label>
-                <select
-                  value={autoGenTargetPoints}
-                  onChange={(e) => setAutoGenTargetPoints(parseInt(e.target.value, 10))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-brand-lime"
-                >
-                  <option value={11}>11 Points (Standard)</option>
-                  <option value={15}>15 Points</option>
-                  <option value={21}>21 Points</option>
-                </select>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-800/50 space-y-1">
-                <div className="font-bold text-purple-300 text-xs flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-purple-400" /> Active Roster: {activeCount} Players
+              {autoGenAlgorithm === 'individual_scramble' ? (
+                <div className="p-3.5 rounded-2xl bg-purple-950/40 border border-purple-800/60 text-purple-200 space-y-1.5 text-xs">
+                  <div className="font-extrabold text-brand-lime flex items-center gap-1.5">
+                    <Zap className="w-4 h-4 text-brand-lime" /> Individual Scramble: 1&4 vs 2&3 Split Rule
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Pulls top 4 players from paddle rack queue <code className="text-purple-300 font-mono font-bold">[P1, P2, P3, P4]</code>:
+                    <br />
+                    • <strong>Team Red:</strong> P1 (1st) & P4 (4th in queue)
+                    <br />
+                    • <strong>Team Blue:</strong> P2 (2nd) & P3 (3rd in queue)
+                    <br />
+                    Prevents adjacent queue neighbors from repeatedly partnering together across rotations.
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Matches will be created by pairing active players into {autoGenGameType} teams across {assignedCourts.length} assigned court(s).
-                </p>
-              </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-800/50 space-y-1">
+                  <div className="font-bold text-purple-300 text-xs flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-purple-400" /> Active Roster: {formulaMath.activeCount} Players
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Matches will be created by pairing active players into {autoGenGameType} teams across {assignedCourts.length} assigned court(s).
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
@@ -1706,6 +2087,53 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
         );
       })()}
+      {/* MODAL 5: DELETE MATCH CONFIRMATION ALERT */}
+      {deletingMatch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="glass-panel border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="p-2.5 rounded-2xl bg-red-950/60 border border-red-800/60">
+                <Trash2 className="w-6 h-6 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">Delete Match Confirmation</h3>
+                <p className="text-[11px] text-slate-400">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+              <div className="text-slate-300 font-medium leading-relaxed">
+                Are you sure you want to delete <strong>Match (Round {deletingMatch.round} • {deletingMatch.courtName})</strong>?
+              </div>
+              <div className="text-[11px] text-slate-500 font-mono">
+                Teams: {deletingMatch.teamRed.players.map((p) => p.name).join(' & ')} vs {deletingMatch.teamBlue.players.map((p) => p.name).join(' & ')}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingMatch(null)}
+                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (deletingMatch) {
+                    deleteMatch(deletingMatch.id);
+                    setDeletingMatch(null);
+                  }
+                }}
+                className="px-4.5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
+              >
+                Delete Match Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

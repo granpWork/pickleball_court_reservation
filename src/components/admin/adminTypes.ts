@@ -687,6 +687,7 @@ export interface OpenPlayMatch {
     score: number;
   };
   winner?: 'red' | 'blue' | 'tie';
+  wasReopened?: boolean;
   createdAt: string;
   updatedAt: string;
 }
