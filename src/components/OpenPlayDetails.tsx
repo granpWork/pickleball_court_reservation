@@ -144,6 +144,8 @@ export interface OpenPlayRegistration {
   isAddGuestOnly?: boolean;
   primaryPlayerName?: string;
   primaryPlayerEmail?: string;
+  duprId?: string;
+  adminDuprId?: string;
 }
 
 interface OpenPlayDetailsProps {

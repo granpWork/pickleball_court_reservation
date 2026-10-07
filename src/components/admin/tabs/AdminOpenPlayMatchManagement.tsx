@@ -316,6 +316,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       const isAddGuestOnly = reg.isAddGuestOnly === true || (reg as any).isAddGuestOnly === true;
 
+      const duprId = reg.duprId || (reg as any).user?.duprId || '';
+      const adminDuprId = reg.adminDuprId || '';
+
       if (!isAddGuestOnly) {
         initialPool.push({
           id: `${reg.id}-primary`,
@@ -326,6 +329,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           type: 'primary',
           status: 'active',
           skillLevel: event.skillLevel || 'Intermediate',
+          duprId,
+          adminDuprId,
         });
       }
 
@@ -347,6 +352,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           type: 'guest',
           status: 'active',
           skillLevel: event.skillLevel || 'Intermediate',
+          duprId: (reg.guests?.[gIdx] as any)?.duprId || '',
+          adminDuprId: (reg.guests?.[gIdx] as any)?.adminDuprId || '',
         });
       }
     });
@@ -1883,7 +1890,14 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                       </div>
                       <div className="truncate min-w-0">
                         <div className="font-bold text-white truncate">{p.name}</div>
-                        <div className="text-[10px] text-slate-400 capitalize">{p.type} • {p.skillLevel || 'Player'}</div>
+                        <div className="text-[10px] text-slate-400 capitalize flex items-center gap-1.5 flex-wrap">
+                          <span>{p.type} • {p.skillLevel || 'Player'}</span>
+                          {(p.adminDuprId || p.duprId) && (
+                            <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-bold ${p.adminDuprId ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-brand-lime/10 text-brand-lime border border-brand-lime/30'}`}>
+                              ⚡ DUPR: {p.adminDuprId || p.duprId} {p.adminDuprId ? '(Temp)' : ''}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 

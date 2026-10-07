@@ -76,6 +76,8 @@ export interface OpenPlayRegistrationItem {
   primaryPlayerName?: string;
   primaryPlayerEmail?: string;
   registrationFee?: number;
+  duprId?: string;
+  adminDuprId?: string;
 }
 
 interface AdminOpenPlayTabProps {

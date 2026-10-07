@@ -701,6 +701,8 @@ export interface OpenPlayMatchRosterItem {
   type: 'primary' | 'guest';
   status: 'active' | 'resting' | 'absent';
   skillLevel?: string;
+  duprId?: string;
+  adminDuprId?: string;
 }
 
 export interface PlayerMatchStats {
