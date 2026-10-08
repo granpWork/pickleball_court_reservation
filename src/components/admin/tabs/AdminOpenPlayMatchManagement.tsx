@@ -17,6 +17,7 @@ import {
   Download,
   Copy,
   RotateCcw,
+  UploadCloud,
 } from 'lucide-react';
 import {
   collection,
@@ -203,6 +204,269 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   // Delete Confirmation Modal State
   const [deletingMatch, setDeletingMatch] = useState<OpenPlayMatch | null>(null);
+
+  // JSON Upload Modal State
+  const [isJsonModalOpen, setIsJsonModalOpen] = useState<boolean>(false);
+  const [jsonTargetRound, setJsonTargetRound] = useState<number>(1);
+  const [jsonInputText, setJsonInputText] = useState<string>('');
+  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [isCopySuccess, setIsCopySuccess] = useState<boolean>(false);
+
+  const sampleJsonTemplate = `[
+  {
+    "matchName": "Game 1",
+    "teamRed": [
+      { "name": "Tristan jude Osea", "dupr": "Q9MOO53", "rate": "" },
+      { "name": "John Michael Matubis", "dupr": "ORXXE7", "rate": "3.5" }
+    ],
+    "teamBlue": [
+      { "name": "Sergej Pons", "dupr": "VG6RP7", "rate": "3" },
+      { "name": "Bryan", "dupr": "LPX7ZZ", "rate": "3.8" }
+    ]
+  },
+  {
+    "matchName": "Game 2",
+    "teamRed": [
+      { "name": "che matubis", "dupr": "VG2Y96", "rate": "3.5" },
+      { "name": "Melai", "dupr": "Lai", "rate": "3.5" }
+    ],
+    "teamBlue": [
+      { "name": "Arcadio  Fernandez", "dupr": "Y04XYG", "rate": "3.5" },
+      { "name": "Geran Peredo", "dupr": "P4MLGG", "rate": "2.6" }
+    ]
+  },
+  {
+    "matchName": "Game 3",
+    "teamRed": [
+      { "name": "Derick Jon", "dupr": "RGDK2E", "rate": "3.8" },
+      { "name": "geronimo antonio vera peredo", "dupr": "NNRR5N", "rate": "3.8" }
+    ],
+    "teamBlue": [
+      { "name": "Trisha Mae Orias", "dupr": "VG604P", "rate": "3.5" },
+      { "name": "Alizza Mae Joven", "dupr": "0PG924", "rate": "2.5" }
+    ]
+  },
+  {
+    "matchName": "Game 4",
+    "teamRed": [
+      { "name": "Tristan jude Osea", "dupr": "Q9MOO53", "rate": "" },
+      { "name": "Sergej Pons", "dupr": "VG6RP7", "rate": "3" }
+    ],
+    "teamBlue": [
+      { "name": "John Michael Matubis", "dupr": "ORXXE7", "rate": "3.5" },
+      { "name": "Bryan", "dupr": "LPX7ZZ", "rate": "3.8" }
+    ]
+  }
+]`;
+
+  const openJsonUploadModal = (targetRound?: number) => {
+    const roundToUse = targetRound || (allActiveRounds.length ? Math.max(...allActiveRounds) : 1);
+    setJsonTargetRound(roundToUse);
+    setJsonInputText('');
+    setJsonError(null);
+    setIsJsonModalOpen(true);
+  };
+
+  const handleCopySampleJson = () => {
+    navigator.clipboard.writeText(sampleJsonTemplate);
+    setIsCopySuccess(true);
+    setTimeout(() => setIsCopySuccess(false), 2500);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result as string;
+      if (content) {
+        setJsonInputText(content);
+        setJsonError(null);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleProcessImportJson = () => {
+    if (!jsonInputText.trim()) {
+      setJsonError('Please paste JSON content or select a .json file.');
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(jsonInputText);
+      let rawItems: any[] = [];
+
+      if (Array.isArray(parsed)) {
+        rawItems = parsed;
+      } else if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed.matches)) {
+          rawItems = parsed.matches;
+        } else if (Array.isArray(parsed.roster)) {
+          setJsonError('The pasted JSON is a roster file rather than a match schedule. Please provide match objects with teamRed and teamBlue arrays.');
+          return;
+        } else if (Array.isArray(parsed.rounds)) {
+          parsed.rounds.forEach((rObj: any) => {
+            if (Array.isArray(rObj.matches)) {
+              rObj.matches.forEach((mObj: any) => {
+                rawItems.push({ ...mObj, round: rObj.round || rObj.roundNum || jsonTargetRound });
+              });
+            }
+          });
+        }
+      }
+
+      if (rawItems.length === 0) {
+        setJsonError('No match items found in JSON. Expected format: array of match objects [ { teamRed: [...], teamBlue: [...] } ].');
+        return;
+      }
+
+      let currentPool = [...rosterPool];
+      let poolUpdated = false;
+      const createdMatches: OpenPlayMatch[] = [];
+
+      const findOrRegisterPlayer = (pNode: any): OpenPlayMatchPlayer => {
+        let nameStr = '';
+        let nodeDupr = '';
+        let nodeRate = '';
+
+        if (typeof pNode === 'string') {
+          nameStr = pNode.trim();
+        } else if (pNode && typeof pNode === 'object') {
+          nameStr = (pNode.name || pNode.playerName || pNode.player || '').trim();
+          nodeDupr = (pNode.dupr || pNode.duprId || '').trim();
+          nodeRate = (pNode.rate || pNode.duprRating || '').toString().trim();
+        }
+
+        if (!nameStr) {
+          nameStr = 'Unknown Player';
+        }
+
+        const normalizedName = nameStr.toLowerCase();
+        let rosterMatch = currentPool.find((rp) => rp.name.trim().toLowerCase() === normalizedName);
+
+        if (rosterMatch) {
+          let shouldUpdateRoster = false;
+          let updatedAdminDuprId = rosterMatch.adminDuprId;
+          let updatedAdminDuprRating = rosterMatch.adminDuprRating;
+
+          if (nodeDupr && !rosterMatch.adminDuprId && !rosterMatch.duprId) {
+            updatedAdminDuprId = nodeDupr;
+            shouldUpdateRoster = true;
+          }
+          if (nodeRate && !rosterMatch.adminDuprRating && !rosterMatch.duprRating) {
+            updatedAdminDuprRating = nodeRate;
+            shouldUpdateRoster = true;
+          }
+
+          if (shouldUpdateRoster) {
+            currentPool = currentPool.map((rp) =>
+              rp.id === rosterMatch!.id
+                ? { ...rp, adminDuprId: updatedAdminDuprId, adminDuprRating: updatedAdminDuprRating }
+                : rp
+            );
+            poolUpdated = true;
+          }
+
+          return {
+            id: rosterMatch.id,
+            name: rosterMatch.name,
+            photoUrl: rosterMatch.photoUrl,
+            skillLevel: rosterMatch.skillLevel,
+            type: rosterMatch.type,
+            duprId: updatedAdminDuprId || rosterMatch.duprId || nodeDupr,
+            duprRating: updatedAdminDuprRating || rosterMatch.duprRating || nodeRate,
+          };
+        } else {
+          const newId = `guest-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+          const newGuest: OpenPlayMatchRosterItem = {
+            id: newId,
+            name: nameStr,
+            type: 'guest',
+            status: 'active',
+            adminDuprId: nodeDupr || undefined,
+            adminDuprRating: nodeRate || undefined,
+          };
+
+          currentPool.push(newGuest);
+          poolUpdated = true;
+
+          return {
+            id: newId,
+            name: nameStr,
+            photoUrl: `https://robohash.org/${encodeURIComponent(nameStr)}?set=set4`,
+            type: 'guest',
+            duprId: nodeDupr || undefined,
+            duprRating: nodeRate || undefined,
+          };
+        }
+      };
+
+      rawItems.forEach((mItem: any, idx: number) => {
+        const targetRoundNum = parseInt(mItem.round || jsonTargetRound, 10) || jsonTargetRound;
+        const courtName =
+          mItem.courtName ||
+          mItem.court ||
+          assignedCourts[idx % assignedCourts.length] ||
+          'Court 1';
+
+        const existingMatchesInRoundCount = matches.filter((m) => m.round === targetRoundNum).length;
+        const matchName =
+          mItem.matchName ||
+          mItem.title ||
+          mItem.game ||
+          `Game ${existingMatchesInRoundCount + idx + 1}`;
+
+        const rawRed = Array.isArray(mItem.teamRed) ? mItem.teamRed : Array.isArray(mItem.red) ? mItem.red : [];
+        const rawBlue = Array.isArray(mItem.teamBlue) ? mItem.teamBlue : Array.isArray(mItem.blue) ? mItem.blue : [];
+
+        const teamRedPlayers = rawRed.map(findOrRegisterPlayer);
+        const teamBluePlayers = rawBlue.map(findOrRegisterPlayer);
+
+        const newMatch: OpenPlayMatch = {
+          id: `opm-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          eventId: event.id,
+          round: targetRoundNum,
+          matchName,
+          courtName,
+          gameType: teamRedPlayers.length === 1 && teamBluePlayers.length === 1 ? 'singles' : 'doubles',
+          targetPoints: mItem.targetPoints || 11,
+          status: 'scheduled',
+          teamRed: {
+            players: teamRedPlayers,
+            score: 0,
+          },
+          teamBlue: {
+            players: teamBluePlayers,
+            score: 0,
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        createdMatches.push(newMatch);
+      });
+
+      if (createdMatches.length === 0) {
+        setJsonError('No valid match objects could be parsed.');
+        return;
+      }
+
+      if (poolUpdated) {
+        setRosterPool(currentPool);
+      }
+
+      createdMatches.forEach((m) => persistSingleMatch(m));
+
+      const importedRounds = Array.from(new Set(createdMatches.map((m) => m.round)));
+      setCreatedRounds((prev) => Array.from(new Set([...prev, ...importedRounds])));
+
+      setIsJsonModalOpen(false);
+      showToast(`⚡ Successfully imported ${createdMatches.length} ${createdMatches.length === 1 ? 'match' : 'matches'} via JSON!`);
+    } catch (err: any) {
+      setJsonError(`Invalid JSON syntax: ${err.message || 'Please check your JSON formatting.'}`);
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -1148,6 +1412,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
           <button
             type="button"
+            onClick={() => openJsonUploadModal()}
+            className="py-2.5 px-4 rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
+            title="Import matches into Round N from JSON data or file upload"
+          >
+            <UploadCloud className="w-4 h-4 text-amber-400" />
+            <span>📥 Upload Matches JSON</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsRosterModalOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-slate-200 font-extrabold text-xs flex items-center gap-2 cursor-pointer transition-all"
           >
@@ -1277,13 +1551,22 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               No matches have been generated yet for this session. Click '+ Add New Round', 'Auto-Generate Round Robin' or '+ Create Manual Match' to get started.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsAutoGenModalOpen(true)}
-            className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
-          >
-            <Zap className="w-4 h-4 text-brand-lime" /> Auto-Generate Match Matrix
-          </button>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsAutoGenModalOpen(true)}
+              className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
+            >
+              <Zap className="w-4 h-4 text-brand-lime" /> Auto-Generate Match Matrix
+            </button>
+            <button
+              type="button"
+              onClick={() => openJsonUploadModal()}
+              className="px-5 py-2.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-md hover:scale-[1.02] transition-all"
+            >
+              <UploadCloud className="w-4 h-4 text-amber-400" /> Upload Matches JSON
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-8">
@@ -1308,14 +1591,26 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => openNewManualMatchModal(roundNum)}
-                    className="py-1.5 px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add Match to Round {roundNum}</span>
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => openJsonUploadModal(roundNum)}
+                      className="py-1.5 px-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                      title={`Upload JSON match data to Round ${roundNum}`}
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>Upload JSON to Round {roundNum}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openNewManualMatchModal(roundNum)}
+                      className="py-1.5 px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Match to Round {roundNum}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Round Matches List */}
@@ -2449,6 +2744,124 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 className="px-4.5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
               >
                 Delete Match Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: UPLOAD MATCHES VIA JSON */}
+      {isJsonModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="glass-panel border border-slate-800 rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-2xl bg-amber-950/60 border border-amber-800/60 text-amber-300">
+                  <UploadCloud className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-white">Upload Matches via JSON Data</h3>
+                  <p className="text-xs text-slate-400">Import games directly into Round N from JSON file or text snippet</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsJsonModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Target Round Selection & Import Mode Options */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Target Import Round</label>
+                <select
+                  value={jsonTargetRound}
+                  onChange={(e) => setJsonTargetRound(parseInt(e.target.value, 10))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-brand-lime font-black focus:outline-none focus:border-brand-lime"
+                >
+                  {Array.from({ length: Math.max(15, allActiveRounds.length + 2) }, (_, i) => i + 1).map((r) => (
+                    <option key={r} value={r}>
+                      Import into Round {r} {allActiveRounds.includes(r) ? '(Active)' : '(New)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Upload JSON File (.json)</label>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleFileUpload}
+                  className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-amber-300 hover:file:bg-slate-700 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* JSON Textarea Input */}
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <label className="text-slate-400 font-bold">Paste JSON Content</label>
+                <button
+                  type="button"
+                  onClick={handleCopySampleJson}
+                  className="text-[11px] font-bold text-brand-lime hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Copy className="w-3 h-3 text-brand-lime" />
+                  <span>{isCopySuccess ? '✓ Sample Copied!' : '📋 Copy Sample JSON Template'}</span>
+                </button>
+              </div>
+              <textarea
+                rows={10}
+                placeholder={`Paste match JSON here... e.g.\n[\n  {\n    "matchName": "Game 1",\n    "teamRed": [{ "name": "Tristan jude Osea", "dupr": "Q9MOO53", "rate": "" }],\n    "teamBlue": [{ "name": "Sergej Pons", "dupr": "VG6RP7", "rate": "3" }]\n  }\n]`}
+                value={jsonInputText}
+                onChange={(e) => {
+                  setJsonInputText(e.target.value);
+                  setJsonError(null);
+                }}
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-white font-mono text-xs focus:outline-none focus:border-amber-400 leading-relaxed"
+              />
+            </div>
+
+            {/* Validation Error Message */}
+            {jsonError && (
+              <div className="p-3 rounded-xl bg-red-950/60 border border-red-800/60 text-red-300 text-xs font-semibold leading-relaxed flex items-start gap-2">
+                <X className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <div>{jsonError}</div>
+              </div>
+            )}
+
+            {/* Helper Info Banner */}
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 space-y-1">
+              <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-amber-400" /> Automated Importer Features:
+              </div>
+              <ul className="list-disc list-inside space-y-0.5 text-slate-300">
+                <li>Auto-assigns active session courts (<code className="text-brand-lime font-mono">Court 1</code>, <code className="text-brand-lime font-mono">Court 2</code>) sequentially.</li>
+                <li>Matches player names with active roster and updates missing DUPR IDs & Ratings automatically.</li>
+                <li>Auto-registers missing players as <strong>Guest Players</strong> so no match fails to load.</li>
+              </ul>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsJsonModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleProcessImportJson}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-dark-bg font-extrabold text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all flex items-center gap-1.5"
+              >
+                <UploadCloud className="w-4 h-4 text-dark-bg" />
+                <span>Import Matches to Round {jsonTargetRound}</span>
               </button>
             </div>
           </div>
