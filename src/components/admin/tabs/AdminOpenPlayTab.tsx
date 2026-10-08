@@ -56,6 +56,7 @@ export interface OpenPlayRegistrationItem {
   eventId: string;
   eventTitle?: string;
   userId?: string;
+  playerUid?: string;
   userName?: string;
   userEmail?: string;
   userPhone?: string;

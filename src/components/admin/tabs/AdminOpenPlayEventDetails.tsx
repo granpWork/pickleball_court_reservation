@@ -43,7 +43,7 @@ import {
   BookOpen,
   ShieldAlert,
 } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, setDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../../../firebase';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { type OpenPlayRegistrationItem } from './AdminOpenPlayTab';
@@ -245,13 +245,26 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     const trimmed = newTempDuprId.trim();
     setIsSavingDupr(true);
     try {
+      const targetReg = registrations.find((r) => r.id === registrationId);
+      const targetUid = targetReg?.playerUid || (targetReg as any)?.userId || (targetReg as any)?.user?.uid;
+
       if (isFirebaseConfigured && db) {
         try {
-          await updateDoc(doc(db, 'openplay_registrations', registrationId), {
-            adminDuprId: trimmed,
-          });
+          await setDoc(doc(db, 'openplay_registrations', registrationId), { adminDuprId: trimmed }, { merge: true });
         } catch (e) {
-          console.warn('Firestore update adminDuprId error:', e);
+          console.warn('Firestore setDoc openplay_registrations adminDuprId error:', e);
+        }
+        try {
+          await setDoc(doc(db, 'bookings', registrationId), { adminDuprId: trimmed }, { merge: true });
+        } catch (e) {
+          console.warn('Firestore setDoc bookings adminDuprId error:', e);
+        }
+        if (targetUid) {
+          try {
+            await setDoc(doc(db, 'users', targetUid), { adminDuprId: trimmed, duprId: trimmed }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc users adminDuprId error:', e);
+          }
         }
       }
       const updateLocal = (str: string | null) => {
@@ -388,13 +401,26 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     const trimmed = newTempRating.trim();
     setIsSavingDuprRating(true);
     try {
+      const targetReg = registrations.find((r) => r.id === registrationId);
+      const targetUid = targetReg?.playerUid || (targetReg as any)?.userId || (targetReg as any)?.user?.uid;
+
       if (isFirebaseConfigured && db) {
         try {
-          await updateDoc(doc(db, 'openplay_registrations', registrationId), {
-            adminDuprRating: trimmed,
-          });
+          await setDoc(doc(db, 'openplay_registrations', registrationId), { adminDuprRating: trimmed }, { merge: true });
         } catch (e) {
-          console.warn('Firestore update adminDuprRating error:', e);
+          console.warn('Firestore setDoc openplay_registrations adminDuprRating error:', e);
+        }
+        try {
+          await setDoc(doc(db, 'bookings', registrationId), { adminDuprRating: trimmed }, { merge: true });
+        } catch (e) {
+          console.warn('Firestore setDoc bookings adminDuprRating error:', e);
+        }
+        if (targetUid) {
+          try {
+            await setDoc(doc(db, 'users', targetUid), { adminDuprRating: trimmed, duprRating: trimmed }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc users adminDuprRating error:', e);
+          }
         }
       }
       const updateLocal = (str: string | null) => {

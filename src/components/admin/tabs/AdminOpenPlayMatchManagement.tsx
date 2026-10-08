@@ -162,6 +162,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [isRosterModalOpen, setIsRosterModalOpen] = useState<boolean>(false);
   const [newPlayerName, setNewPlayerName] = useState<string>('');
   const [newPlayerSkill, setNewPlayerSkill] = useState<string>('Intermediate');
+  const [newPlayerDuprId, setNewPlayerDuprId] = useState<string>('');
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -877,10 +878,12 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       type: 'guest',
       status: 'active',
       skillLevel: newPlayerSkill,
+      adminDuprId: newPlayerDuprId.trim() || undefined,
     };
     const updated = [...rosterPool, newItem];
     saveRosterPool(updated);
     setNewPlayerName('');
+    setNewPlayerDuprId('');
     showToast(`Added ${newItem.name} to player pool.`);
   };
 
@@ -1848,13 +1851,20 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             {/* Quick Add Custom Player */}
             <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
               <span className="text-xs font-bold text-slate-300 block">+ Add Custom / Walk-in Player</span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                 <input
                   type="text"
                   placeholder="Player Name..."
                   value={newPlayerName}
                   onChange={(e) => setNewPlayerName(e.target.value)}
-                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+                  className="flex-1 min-w-[120px] bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+                />
+                <input
+                  type="text"
+                  placeholder="DUPR ID (Optional)"
+                  value={newPlayerDuprId}
+                  onChange={(e) => setNewPlayerDuprId(e.target.value)}
+                  className="w-32 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono placeholder-slate-500 focus:outline-none focus:border-amber-400"
                 />
                 <select
                   value={newPlayerSkill}
@@ -1868,7 +1878,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 <button
                   type="button"
                   onClick={handleAddCustomPlayer}
-                  className="px-3 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224]"
+                  className="px-3 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] shrink-0"
                 >
                   Add
                 </button>
