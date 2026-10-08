@@ -318,6 +318,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       const duprId = reg.duprId || (reg as any).user?.duprId || '';
       const adminDuprId = reg.adminDuprId || '';
+      const duprRating = reg.duprRating || (reg as any).user?.duprRating || '';
+      const adminDuprRating = reg.adminDuprRating || '';
 
       if (!isAddGuestOnly) {
         initialPool.push({
@@ -331,6 +333,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           skillLevel: event.skillLevel || 'Intermediate',
           duprId,
           adminDuprId,
+          duprRating,
+          adminDuprRating,
         });
       }
 
@@ -354,6 +358,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           skillLevel: event.skillLevel || 'Intermediate',
           duprId: (reg.guests?.[gIdx] as any)?.duprId || '',
           adminDuprId: (reg.guests?.[gIdx] as any)?.adminDuprId || '',
+          duprRating: (reg.guests?.[gIdx] as any)?.duprRating || '',
+          adminDuprRating: (reg.guests?.[gIdx] as any)?.adminDuprRating || '',
         });
       }
     });
@@ -1895,6 +1901,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                           {(p.adminDuprId || p.duprId) && (
                             <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-bold ${p.adminDuprId ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-brand-lime/10 text-brand-lime border border-brand-lime/30'}`}>
                               ⚡ DUPR: {p.adminDuprId || p.duprId} {p.adminDuprId ? '(Temp)' : ''}
+                            </span>
+                          )}
+                          {(p.adminDuprRating || p.duprRating) && (
+                            <span className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-bold ${p.adminDuprRating ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-brand-lime/10 text-brand-lime border border-brand-lime/30'}`}>
+                              ⭐ RATE: {p.adminDuprRating || p.duprRating} {p.adminDuprRating ? '(Temp)' : ''}
                             </span>
                           )}
                         </div>

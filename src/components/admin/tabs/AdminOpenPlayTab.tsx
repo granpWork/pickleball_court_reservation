@@ -78,6 +78,8 @@ export interface OpenPlayRegistrationItem {
   registrationFee?: number;
   duprId?: string;
   adminDuprId?: string;
+  duprRating?: string;
+  adminDuprRating?: string;
 }
 
 interface AdminOpenPlayTabProps {

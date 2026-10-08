@@ -1573,7 +1573,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       return;
     }
     
-    const headers = ['Attendee Name', 'Participant Role', 'DUPR ID', 'Host Player', 'Email', 'Phone', 'GCash Reference', 'Payment Status', 'Registration Status', 'Date Registered'];
+    const headers = ['Attendee Name', 'Participant Role', 'DUPR ID', 'DUPR Rate', 'Host Player', 'Email', 'Phone', 'GCash Reference', 'Payment Status', 'Registration Status', 'Date Registered'];
     
     const rows: (string | number)[][] = [];
     
@@ -1582,6 +1582,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const primaryEmail = r.playerEmail || r.userEmail || '';
       const primaryPhone = r.playerPhone || r.userPhone || '';
       const primaryDupr = r.adminDuprId || r.duprId || (r as any).user?.duprId || '';
+      const primaryDuprRating = r.adminDuprRating || r.duprRating || (r as any).user?.duprRating || '';
       const gcashRef = r.gcashReferenceNumber || '';
       const paymentStatus = r.paymentStatus || 'pending';
       const status = r.status || 'pending';
@@ -1592,6 +1593,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         `"${primaryName.replace(/"/g, '""')}"`,
         '"Primary Player"',
         `"${primaryDupr.replace(/"/g, '""')}"`,
+        `"${primaryDuprRating.replace(/"/g, '""')}"`,
         '"-"',
         `"${primaryEmail.replace(/"/g, '""')}"`,
         `"${primaryPhone.replace(/"/g, '""')}"`,
@@ -1609,11 +1611,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         const guestName = r.guests?.[i]?.name || r.guestNames?.[i] || `Guest #${i + 1} (${primaryName})`;
         const guestEmail = r.guests?.[i]?.email || r.guestEmails?.[i] || `Shared (${primaryEmail})`;
         const guestDupr = (r.guests?.[i] as any)?.adminDuprId || (r.guests?.[i] as any)?.duprId || '';
+        const guestDuprRating = (r.guests?.[i] as any)?.adminDuprRating || (r.guests?.[i] as any)?.duprRating || '';
         
         rows.push([
           `"${guestName.replace(/"/g, '""')}"`,
           '"Guest"',
           `"${guestDupr.replace(/"/g, '""')}"`,
+          `"${guestDuprRating.replace(/"/g, '""')}"`,
           `"${primaryName.replace(/"/g, '""')}"`,
           `"${guestEmail.replace(/"/g, '""')}"`,
           `"${primaryPhone.replace(/"/g, '""')}"`,

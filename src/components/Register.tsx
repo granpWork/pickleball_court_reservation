@@ -225,6 +225,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
               companyName: verifiedInviteData?.company || '',
               permissions: verifiedInviteData?.permissions || undefined,
               status: 'active',
+              duprId: '',
+              duprRating: '',
               needsOnboarding: isClientAdminInvite,
               subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
               subscriptionStatus: verifiedInviteData?.subscriptionStatus || 'active',

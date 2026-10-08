@@ -88,6 +88,8 @@ export interface RosterAttendee {
   phone: string;
   duprId?: string;
   adminDuprId?: string;
+  duprRating?: string;
+  adminDuprRating?: string;
   playerUid?: string;
   photoUrl?: string;
   hostName?: string;
@@ -377,6 +379,57 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     }
   };
 
+  // DUPR Rating State & Handler
+  const [editingDuprRatingFor, setEditingDuprRatingFor] = useState<string | null>(null);
+  const [tempDuprRatingInput, setTempDuprRatingInput] = useState<string>('');
+  const [isSavingDuprRating, setIsSavingDuprRating] = useState<boolean>(false);
+
+  const handleSaveAdminDuprRating = async (registrationId: string, newTempRating: string) => {
+    const trimmed = newTempRating.trim();
+    setIsSavingDuprRating(true);
+    try {
+      if (isFirebaseConfigured && db) {
+        try {
+          await updateDoc(doc(db, 'openplay_registrations', registrationId), {
+            adminDuprRating: trimmed,
+          });
+        } catch (e) {
+          console.warn('Firestore update adminDuprRating error:', e);
+        }
+      }
+      const updateLocal = (str: string | null) => {
+        if (!str) return;
+        try {
+          const updated = JSON.parse(str).map((r: any) =>
+            r.id === registrationId ? { ...r, adminDuprRating: trimmed } : r
+          );
+          return JSON.stringify(updated);
+        } catch {
+          return null;
+        }
+      };
+      const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+      const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+      const updatedLs = updateLocal(lsStr);
+      const updatedSs = updateLocal(ssStr);
+      if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+      if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+      setLocalRegOverrides((prev) => ({
+        ...prev,
+        [registrationId]: { ...(prev[registrationId] || {}), adminDuprRating: trimmed },
+      }));
+
+      setEditingDuprRatingFor(null);
+      setTempDuprRatingInput('');
+    } catch (err) {
+      console.error('Failed to save admin temp DUPR Rating:', err);
+      alert('Failed to save DUPR Rating.');
+    } finally {
+      setIsSavingDuprRating(false);
+    }
+  };
+
   // Build complete attendees list expanding primary players and guests
   const allAttendees: RosterAttendee[] = [];
   activeEventRegs.forEach((reg) => {
@@ -386,6 +439,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     const primaryPhoto = (reg as any).photoUrl || (reg as any).userPhoto;
     const duprId = reg.duprId || (reg as any).user?.duprId || '';
     const adminDuprId = reg.adminDuprId || '';
+    const duprRating = reg.duprRating || (reg as any).user?.duprRating || '';
+    const adminDuprRating = reg.adminDuprRating || '';
     const playerUid = (reg as any).playerUid || (reg as any).userId || (reg as any).user?.uid || '';
     const gcashRef = reg.gcashReferenceNumber || '';
     const paymentStatus = reg.paymentStatus || 'pending';
@@ -402,6 +457,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         phone: primaryPhone,
         duprId,
         adminDuprId,
+        duprRating,
+        adminDuprRating,
         playerUid,
         photoUrl: primaryPhoto,
         paymentStatus,
@@ -431,6 +488,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         phone: primaryPhone,
         duprId: (reg.guests?.[gIdx] as any)?.duprId || '',
         adminDuprId: (reg.guests?.[gIdx] as any)?.adminDuprId || '',
+        duprRating: (reg.guests?.[gIdx] as any)?.duprRating || '',
+        adminDuprRating: (reg.guests?.[gIdx] as any)?.adminDuprRating || '',
         photoUrl: gPhoto,
         hostName: hostName,
         guestIndex: gIdx + 1,
@@ -454,6 +513,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       phone: reg.playerPhone || reg.userPhone || '',
       duprId: reg.duprId || (reg as any).user?.duprId || '',
       adminDuprId: reg.adminDuprId || '',
+      duprRating: reg.duprRating || (reg as any).user?.duprRating || '',
+      adminDuprRating: reg.adminDuprRating || '',
       playerUid: (reg as any).playerUid || (reg as any).userId || (reg as any).user?.uid || '',
       photoUrl: (reg as any).photoUrl || (reg as any).playerPhotoUrl || (reg as any).userPhoto,
       paymentStatus: 'waitlisted',
@@ -478,7 +539,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       (att.hostName && att.hostName.toLowerCase().includes(q)) ||
       (att.gcashReferenceNumber && att.gcashReferenceNumber.toLowerCase().includes(q)) ||
       (att.adminDuprId && att.adminDuprId.toLowerCase().includes(q)) ||
-      (att.duprId && att.duprId.toLowerCase().includes(q))
+      (att.duprId && att.duprId.toLowerCase().includes(q)) ||
+      (att.adminDuprRating && att.adminDuprRating.toLowerCase().includes(q)) ||
+      (att.duprRating && att.duprRating.toLowerCase().includes(q))
     );
   });
 
@@ -1619,6 +1682,71 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                           </div>
                         )}
                       </div>
+
+                      {/* DUPR Rating Display & Inline Edit */}
+                      <div className="mt-1.5 pt-1.5 border-t border-slate-800/60 text-xs">
+                        {editingDuprRatingFor === att.id ? (
+                          <div className="flex items-center gap-1.5 w-full">
+                            <input
+                              type="text"
+                              placeholder="Rate e.g. 3.5..."
+                              value={tempDuprRatingInput}
+                              onChange={(e) => setTempDuprRatingInput(e.target.value)}
+                              className="w-full bg-slate-950 border border-amber-500/60 rounded-lg px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              disabled={isSavingDuprRating}
+                              onClick={() => handleSaveAdminDuprRating(att.registrationId, tempDuprRatingInput)}
+                              className="p-1.5 rounded-lg bg-amber-500 text-dark-bg font-extrabold hover:bg-amber-400 transition-all cursor-pointer flex-shrink-0"
+                              title="Save Temp DUPR Rate"
+                            >
+                              {isSavingDuprRating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setEditingDuprRatingFor(null); setTempDuprRatingInput(''); }}
+                              className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer flex-shrink-0"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between w-full gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-[10px] font-black uppercase text-amber-400 flex items-center gap-1 flex-shrink-0">
+                                ⭐ RATE:
+                              </span>
+                              {att.adminDuprRating ? (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[11px] truncate" title={`Admin Temp DUPR Rate: ${att.adminDuprRating}`}>
+                                  {att.adminDuprRating} <span className="text-[9px] text-amber-400 font-normal ml-0.5">(Temp)</span>
+                                </span>
+                              ) : att.duprRating ? (
+                                <span className="px-2 py-0.5 rounded-md bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-mono font-bold text-[11px] truncate">
+                                  {att.duprRating}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500 text-xs italic">Not set</span>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingDuprRatingFor(att.id);
+                                setTempDuprRatingInput(att.adminDuprRating || att.duprRating || '');
+                              }}
+                              className="text-[10px] text-brand-lime hover:underline font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer flex-shrink-0 ml-1"
+                              title="Set temporary DUPR Rate (Admin perspective)"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                              <span>{att.adminDuprRating || att.duprRating ? 'Edit' : '+ Add Temp Rate'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="pt-3 border-t border-slate-800/80 text-[11px] space-y-2">
@@ -1719,7 +1847,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                       <div className="font-normal text-white text-base md:text-lg flex items-center gap-2">
                         <span>{att.name}</span>
                         <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
-                          att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime' : 'bg-purple-950/40 text-purple-300'
+                          att.type === 'primary' ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/30' : 'bg-purple-950/40 text-purple-300 border border-purple-800/50'
                         }`}>
                           {att.type === 'primary' ? 'Primary' : `Guest (${att.hostName})`}
                         </span>
@@ -1727,7 +1855,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                       <div className="text-slate-300 text-xs md:text-sm mt-0.5 flex flex-wrap items-center gap-2">
                         <span>{att.email} • {att.phone || 'No phone'}</span>
                         <span className="text-slate-700">|</span>
-                        <span className="text-[10px] font-black uppercase text-amber-400">⚡ DUPR:</span>
+                        <span className="text-[10px] font-black uppercase text-amber-400">⚡ DUPR ID:</span>
                         {att.adminDuprId ? (
                           <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px]">
                             {att.adminDuprId} <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
@@ -1739,6 +1867,21 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         ) : (
                           <span className="text-slate-500 text-[10px] italic">Not set</span>
                         )}
+
+                        <span className="text-slate-700">|</span>
+                        <span className="text-[10px] font-black uppercase text-amber-400">⭐ RATE:</span>
+                        {att.adminDuprRating ? (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px]">
+                            {att.adminDuprRating} <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
+                          </span>
+                        ) : att.duprRating ? (
+                          <span className="px-1.5 py-0.5 rounded bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-mono font-bold text-[10px]">
+                            {att.duprRating}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-[10px] italic">Not set</span>
+                        )}
+
                         <button
                           type="button"
                           onClick={() => {
@@ -1747,10 +1890,10 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                             setRosterViewMode('cards');
                           }}
                           className="text-[10px] text-brand-lime hover:underline font-bold uppercase cursor-pointer flex items-center gap-0.5 ml-1"
-                          title="Edit temp DUPR ID"
+                          title="Edit temp DUPR info"
                         >
                           <Edit2 className="w-2.5 h-2.5" />
-                          <span>{att.adminDuprId || att.duprId ? 'Edit' : '+ Add Temp'}</span>
+                          <span>Edit</span>
                         </button>
                       </div>
                     </div>
@@ -1803,7 +1946,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                   <tr className="border-b border-slate-800 bg-slate-900/80 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
                     <th className="py-4 px-4">#</th>
                     <th className="py-4 px-4">Attendee Name & Role</th>
-                    <th className="py-4 px-4">DUPR ID</th>
+                    <th className="py-4 px-4">DUPR ID & Rate</th>
                     <th className="py-4 px-4">Contact Info</th>
                     <th className="py-4 px-4">Payment & Ref</th>
                     <th className="py-4 px-4 text-center">Attendance</th>
@@ -1850,30 +1993,60 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 font-mono text-xs">
-                            <div className="flex items-center gap-1.5">
-                              {att.adminDuprId ? (
-                                <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-xs">
-                                  {att.adminDuprId} <span className="text-[9px] text-amber-400 font-normal">(Temp)</span>
-                                </span>
-                              ) : att.duprId ? (
-                                <span className="px-2 py-0.5 rounded bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-xs">
-                                  {att.duprId}
-                                </span>
-                              ) : (
-                                <span className="text-slate-500 italic text-xs">Not set</span>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingDuprIdFor(att.id);
-                                  setTempDuprInput(att.adminDuprId || att.duprId || '');
-                                  setRosterViewMode('cards');
-                                }}
-                                className="text-brand-lime hover:underline text-[10px] font-bold uppercase ml-1 cursor-pointer"
-                                title="Edit temp DUPR ID"
-                              >
-                                <Edit2 className="w-3 h-3 inline" />
-                              </button>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] text-amber-400 font-bold">ID:</span>
+                                {att.adminDuprId ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
+                                    {att.adminDuprId} <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
+                                  </span>
+                                ) : att.duprId ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-[11px]">
+                                    {att.duprId}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500 italic text-[11px]">Not set</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingDuprIdFor(att.id);
+                                    setTempDuprInput(att.adminDuprId || att.duprId || '');
+                                    setRosterViewMode('cards');
+                                  }}
+                                  className="text-brand-lime hover:underline text-[9px] font-bold uppercase ml-0.5 cursor-pointer"
+                                  title="Edit temp DUPR ID"
+                                >
+                                  <Edit2 className="w-2.5 h-2.5 inline" />
+                                </button>
+                              </div>
+
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] text-amber-400 font-bold">RATE:</span>
+                                {att.adminDuprRating ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
+                                    {att.adminDuprRating} <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
+                                  </span>
+                                ) : att.duprRating ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-[11px]">
+                                    {att.duprRating}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500 italic text-[11px]">Not set</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingDuprRatingFor(att.id);
+                                    setTempDuprRatingInput(att.adminDuprRating || att.duprRating || '');
+                                    setRosterViewMode('cards');
+                                  }}
+                                  className="text-brand-lime hover:underline text-[9px] font-bold uppercase ml-0.5 cursor-pointer"
+                                  title="Edit temp DUPR Rating"
+                                >
+                                  <Edit2 className="w-2.5 h-2.5 inline" />
+                                </button>
+                              </div>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-slate-300 text-xs md:text-sm">

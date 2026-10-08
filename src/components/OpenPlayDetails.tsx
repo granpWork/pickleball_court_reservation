@@ -146,6 +146,8 @@ export interface OpenPlayRegistration {
   primaryPlayerEmail?: string;
   duprId?: string;
   adminDuprId?: string;
+  duprRating?: string;
+  adminDuprRating?: string;
 }
 
 interface OpenPlayDetailsProps {

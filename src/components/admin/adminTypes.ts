@@ -209,6 +209,12 @@ export interface UserAccount {
   email: string;
   role?: UserRole | string;
   status?: 'active' | 'inactive' | 'pending' | 'deleted';
+  phone?: string;
+  duprId?: string;
+  duprRating?: string;
+  adminDuprId?: string;
+  adminDuprRating?: string;
+  skillLevel?: string;
   companyId?: string;
   companyName?: string;
   permissions?: UserPermissions;
@@ -703,6 +709,8 @@ export interface OpenPlayMatchRosterItem {
   skillLevel?: string;
   duprId?: string;
   adminDuprId?: string;
+  duprRating?: string;
+  adminDuprRating?: string;
 }
 
 export interface PlayerMatchStats {

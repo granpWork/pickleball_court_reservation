@@ -64,6 +64,7 @@ export default function Checkout({
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(userPhoneVal);
   const [duprId, setDuprId] = useState(userDuprVal);
+  const [duprError, setDuprError] = useState<string | null>(null);
   
   // 3-Step Stepper Wizard State & Scroll Ref
   const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1);
@@ -773,6 +774,13 @@ export default function Checkout({
       return false;
     }
 
+    if (!duprId.trim()) {
+      setDuprError('DUPR ID is required to complete registration.');
+      setError('DUPR ID is required. Please enter your DUPR ID or profile name.');
+      return false;
+    }
+    setDuprError(null);
+
     if (isOpenPlay && guests.length > 0) {
       const nameErrors: { [key: number]: string } = {};
       let hasMissingGuestName = false;
@@ -1062,11 +1070,23 @@ export default function Checkout({
 
     const cleanPayload = JSON.parse(JSON.stringify(docPayload));
 
-    // Sync player's DUPR ID to their Firestore user profile document
-    if (user?.uid && isFirebaseConfigured && db && duprId.trim()) {
+    // Sync player's DUPR ID to their Firestore user profile document & local storage
+    if (duprId.trim()) {
       try {
-        updateDoc(doc(db, 'users', user.uid), { duprId: duprId.trim() }).catch(() => {});
-      } catch (err) {}
+        localStorage.setItem('picklepoint_user_duprId', duprId.trim());
+        const uStr = localStorage.getItem('picklepoint_user');
+        if (uStr) {
+          const uObj = JSON.parse(uStr);
+          uObj.duprId = duprId.trim();
+          localStorage.setItem('picklepoint_user', JSON.stringify(uObj));
+        }
+      } catch (e) {}
+
+      if (user?.uid && isFirebaseConfigured && db) {
+        try {
+          updateDoc(doc(db, 'users', user.uid), { duprId: duprId.trim() }).catch(() => {});
+        } catch (err) {}
+      }
     }
 
     // Update voucher usage in both Firestore & LocalStorage
@@ -1820,17 +1840,24 @@ export default function Checkout({
                           onChange={(e) => {
                             const val = e.target.value;
                             setDuprId(val);
+                            if (val.trim()) setDuprError(null);
                             if (typeof window !== 'undefined') {
                               try {
                                 localStorage.setItem('picklepoint_user_duprId', val.trim());
                               } catch (err) {}
                             }
                           }}
-                          className="w-full bg-slate-900/60 border border-slate-800 hover:border-slate-700 text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 transition-all"
+                          className={`w-full bg-slate-900/60 border text-slate-200 rounded-xl px-4 py-3 text-xs focus:outline-none transition-all ${
+                            duprError
+                              ? 'border-red-500/80 ring-1 ring-red-500/30'
+                              : 'border-slate-800 hover:border-slate-700 focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20'
+                          }`}
                         />
                         <div className="flex items-center justify-between text-[10px] mt-1 gap-2 flex-wrap">
-                          <span className="text-slate-500">
-                            {isDuprSession
+                          <span className={duprError ? 'text-red-400 font-semibold' : 'text-slate-500'}>
+                            {duprError
+                              ? duprError
+                              : isDuprSession
                               ? 'Required for DUPR rated sessions.'
                               : 'Optional DUPR profile ID.'}
                           </span>
@@ -2571,40 +2598,18 @@ export default function Checkout({
                 <span className="text-brand-lime font-sans text-xl">₱{finalTotal}</span>
               </div>
 
-              {/* Primary Action Buttons under Total Payment Due */}
-              <div className="pt-4 border-t border-slate-800/40">
-                {/* Mobile View CTA: Confirm & Proceed to Reservation Process */}
+              {/* Mobile Single-Column CTA: Confirm & Proceed to Reservation Process */}
+              <div className="pt-4 border-t border-slate-800/40 lg:hidden">
                 <button
                   type="button"
                   onClick={() => {
                     setMobileStage('process');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className="w-full lg:hidden py-4 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider flex items-center justify-center gap-2 hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/20 cursor-pointer uppercase active:scale-[0.98]"
+                  className="w-full py-4 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider flex items-center justify-center gap-2 hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/20 cursor-pointer uppercase active:scale-[0.98]"
                 >
                   <span>Confirm GCash & Booking</span>
                   <ArrowRight className="w-4 h-4 text-dark-bg" />
-                </button>
-
-                {/* Desktop View / Final Process Submit Button */}
-                <button
-                  type="submit"
-                  form="checkout-form"
-                  disabled={isProcessing}
-                  className="hidden lg:flex w-full py-4 rounded-2xl bg-brand-lime text-dark-bg font-black text-xs tracking-wider items-center justify-center gap-1.5 hover:scale-[1.01] hover:bg-[#a6e224] transition-all shadow-xl shadow-brand-lime/10 cursor-pointer uppercase border-none outline-none"
-                >
-                  {isProcessing ? (
-                    <>
-                      <span className="w-3.5 h-3.5 border-2 border-slate-650 border-t-dark-bg rounded-full animate-spin"></span>
-                      Saving Reservation...
-                    </>
-                  ) : isFullyCoveredByVoucher ? (
-                    <>
-                      <Sparkles className="w-4 h-4" /> Confirm Free Rebooking (₱0)
-                    </>
-                  ) : (
-                    `Confirm GCash & Book (₱${finalTotal})`
-                  )}
                 </button>
               </div>
             </div>
