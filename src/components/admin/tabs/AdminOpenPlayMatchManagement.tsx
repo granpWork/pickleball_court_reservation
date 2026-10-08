@@ -598,6 +598,56 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     showToast(`Match court updated to ${newCourt}`);
   };
 
+  // Start / Set Match Ongoing
+  const handleStartMatch = (matchId: string) => {
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+
+    const updated: OpenPlayMatch = {
+      ...match,
+      status: 'in_progress',
+      winner: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    persistSingleMatch(updated);
+    showToast('🔵 Match marked as LIVE ONGOING!');
+  };
+
+  // Direct Score Input Handler (Keyboard input)
+  const handleDirectScoreChange = (matchId: string, team: 'red' | 'blue', valStr: string) => {
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+
+    const parsedVal = Math.max(0, parseInt(valStr, 10) || 0);
+    const newRedScore = team === 'red' ? parsedVal : match.teamRed.score;
+    const newBlueScore = team === 'blue' ? parsedVal : match.teamBlue.score;
+
+    let winner: 'red' | 'blue' | 'tie' | undefined = match.winner;
+    let status: 'scheduled' | 'in_progress' | 'completed' = match.status;
+
+    if (status !== 'completed' && (newRedScore > 0 || newBlueScore > 0)) {
+      status = 'in_progress';
+    }
+
+    if (status === 'completed') {
+      if (newRedScore > newBlueScore) winner = 'red';
+      else if (newBlueScore > newRedScore) winner = 'blue';
+      else winner = 'tie';
+    }
+
+    const updated: OpenPlayMatch = {
+      ...match,
+      status,
+      winner,
+      teamRed: { ...match.teamRed, score: newRedScore },
+      teamBlue: { ...match.teamBlue, score: newBlueScore },
+      updatedAt: new Date().toISOString(),
+    };
+
+    persistSingleMatch(updated);
+  };
+
   // Score Updater
   const updateMatchScore = (matchId: string, team: 'red' | 'blue', delta: number) => {
     const match = matches.find((m) => m.id === matchId);
@@ -1389,11 +1439,17 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               >
                                 -
                               </button>
-                              <span className={`w-9 text-center font-mono font-black text-xl ${
-                                m.status === 'completed' ? 'text-slate-400' : 'text-red-400'
-                              }`}>
-                                {m.teamRed.score}
-                              </span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={99}
+                                disabled={m.status === 'completed'}
+                                value={m.teamRed.score}
+                                onChange={(e) => handleDirectScoreChange(m.id, 'red', e.target.value)}
+                                className={`w-12 text-center font-mono font-black text-xl bg-slate-900 border border-slate-700/80 rounded-lg py-0.5 focus:outline-none focus:border-brand-lime ${
+                                  m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-red-400'
+                                }`}
+                              />
                               <button
                                 type="button"
                                 disabled={m.status === 'completed'}
@@ -1474,11 +1530,17 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               >
                                 -
                               </button>
-                              <span className={`w-9 text-center font-mono font-black text-xl ${
-                                m.status === 'completed' ? 'text-slate-400' : 'text-blue-400'
-                              }`}>
-                                {m.teamBlue.score}
-                              </span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={99}
+                                disabled={m.status === 'completed'}
+                                value={m.teamBlue.score}
+                                onChange={(e) => handleDirectScoreChange(m.id, 'blue', e.target.value)}
+                                className={`w-12 text-center font-mono font-black text-xl bg-slate-900 border border-slate-700/80 rounded-lg py-0.5 focus:outline-none focus:border-brand-lime ${
+                                  m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-blue-400'
+                                }`}
+                              />
                               <button
                                 type="button"
                                 disabled={m.status === 'completed'}
@@ -1496,31 +1558,37 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                         </div>
 
                         {/* Card Footer Actions */}
-                        <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 text-xs">
-                          <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 text-xs flex-wrap">
+                          <div className="min-w-0 flex items-center gap-2">
                             {m.status === 'completed' ? (
-                              <span className="text-brand-lime font-black text-[11px] flex items-center gap-1 truncate">
+                              <span className="text-brand-lime font-black text-[11px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/30 truncate">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
                                 Completed ({m.winner === 'red' ? 'Team Red Win' : m.winner === 'blue' ? 'Team Blue Win' : 'Tie Game'})
                               </span>
-                            ) : m.teamRed.score > m.teamBlue.score ? (
-                              <span className="text-red-400 font-bold text-[10px] uppercase tracking-wider truncate block">
-                                🔴 Red Leading ({m.teamRed.score}-{m.teamBlue.score})
-                              </span>
-                            ) : m.teamBlue.score > m.teamRed.score ? (
-                              <span className="text-blue-400 font-bold text-[10px] uppercase tracking-wider truncate block">
-                                🔵 Blue Leading ({m.teamBlue.score}-{m.teamRed.score})
-                              </span>
-                            ) : m.teamRed.score > 0 ? (
-                              <span className="text-purple-300 font-bold text-[10px] uppercase tracking-wider truncate block">
-                                🤝 Game Tied ({m.teamRed.score}-{m.teamBlue.score})
+                            ) : m.status === 'in_progress' ? (
+                              <span className="text-blue-300 font-black text-[11px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-950/60 border border-blue-500/40 shadow-sm animate-pulse">
+                                <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping inline-block" />
+                                LIVE ONGOING ({m.teamRed.score} - {m.teamBlue.score})
                               </span>
                             ) : (
-                              <span className="text-slate-500 text-[10px] italic">Scheduled</span>
+                              <span className="text-slate-400 font-bold text-[11px] px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800">
+                                ⏳ Scheduled
+                              </span>
                             )}
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                            {m.status === 'scheduled' && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartMatch(m.id)}
+                                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-[11px] flex items-center gap-1 shadow-sm transition-all cursor-pointer hover:scale-[1.02]"
+                                title="Mark match as active/ongoing on court"
+                              >
+                                ▶ Start Match
+                              </button>
+                            )}
+
                             {m.status !== 'completed' ? (
                               <button
                                 type="button"
@@ -1534,9 +1602,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                                 type="button"
                                 onClick={() => handleReopenMatch(m.id)}
                                 className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-slate-700"
-                                title="Reopen match to edit score"
+                                title="Reopen match to edit score or resume play"
                               >
-                                <RotateCcw className="w-3 h-3 text-slate-400" /> Reopen
+                                <RotateCcw className="w-3 h-3 text-slate-400" /> Reopen Match
                               </button>
                             )}
 
