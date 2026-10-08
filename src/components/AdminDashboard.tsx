@@ -2828,6 +2828,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 isAddGuestOnly: b.isAddGuestOnly === true,
                 primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
                 primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+                duprId: b.duprId || b.user?.duprId || '',
+                adminDuprId: b.adminDuprId || '',
+                duprRating: b.duprRating || b.user?.duprRating || '',
+                adminDuprRating: b.adminDuprRating || '',
               } as OpenPlayRegistration);
             }
           });
@@ -2836,7 +2840,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         if (localRegsStr) {
           const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
           allRegs.forEach((r) => {
-            if (r.eventId && !regMap.has(r.id)) regMap.set(r.id, r);
+            if (r.eventId) {
+              const existing = regMap.get(r.id);
+              if (existing) {
+                regMap.set(r.id, {
+                  ...existing,
+                  adminDuprId: r.adminDuprId || existing.adminDuprId || '',
+                  adminDuprRating: r.adminDuprRating || existing.adminDuprRating || '',
+                  duprId: r.duprId || existing.duprId || '',
+                  duprRating: r.duprRating || existing.duprRating || '',
+                });
+              } else {
+                regMap.set(r.id, r);
+              }
+            }
           });
         }
       } catch (e) {}
@@ -2850,6 +2867,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             const b = dSnap.data();
             if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId && b.status !== 'cancelled') {
               const regId = dSnap.id;
+              const existing = regMap.get(regId);
               regMap.set(regId, {
                 id: regId,
                 eventId: b.openPlayEventId,
@@ -2870,6 +2888,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 isAddGuestOnly: b.isAddGuestOnly === true,
                 primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
                 primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+                duprId: b.duprId || b.user?.duprId || existing?.duprId || '',
+                adminDuprId: b.adminDuprId || existing?.adminDuprId || '',
+                duprRating: b.duprRating || b.user?.duprRating || existing?.duprRating || '',
+                adminDuprRating: b.adminDuprRating || existing?.adminDuprRating || '',
               } as OpenPlayRegistration);
             }
           });
@@ -2877,8 +2899,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           // Query openplay_registrations collection
           const regsSnap = await getDocs(collection(db, 'openplay_registrations'));
           regsSnap.forEach((dSnap) => {
-            if (!regMap.has(dSnap.id)) {
-              regMap.set(dSnap.id, { id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
+            const rData = dSnap.data();
+            const existing = regMap.get(dSnap.id);
+            if (existing) {
+              regMap.set(dSnap.id, {
+                ...existing,
+                ...rData,
+                adminDuprId: rData.adminDuprId || existing.adminDuprId || '',
+                adminDuprRating: rData.adminDuprRating || existing.adminDuprRating || '',
+                duprId: rData.duprId || existing.duprId || '',
+                duprRating: rData.duprRating || existing.duprRating || '',
+              });
+            } else {
+              regMap.set(dSnap.id, { id: dSnap.id, ...rData } as OpenPlayRegistration);
             }
           });
         } catch (err) {
