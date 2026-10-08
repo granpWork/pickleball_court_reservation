@@ -2845,6 +2845,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               if (existing) {
                 regMap.set(r.id, {
                   ...existing,
+                  guests: Array.isArray(r.guests) && r.guests.length > 0 ? r.guests : (existing.guests || []),
                   adminDuprId: r.adminDuprId || existing.adminDuprId || '',
                   adminDuprRating: r.adminDuprRating || existing.adminDuprRating || '',
                   duprId: r.duprId || existing.duprId || '',
@@ -2905,6 +2906,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               regMap.set(dSnap.id, {
                 ...existing,
                 ...rData,
+                guests: (Array.isArray(rData.guests) && rData.guests.length > 0) ? rData.guests : (existing.guests || []),
                 adminDuprId: rData.adminDuprId || existing.adminDuprId || '',
                 adminDuprRating: rData.adminDuprRating || existing.adminDuprRating || '',
                 duprId: rData.duprId || existing.duprId || '',

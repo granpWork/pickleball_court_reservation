@@ -1861,10 +1861,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 />
                 <input
                   type="text"
-                  placeholder="DUPR ID (Optional)"
+                  placeholder="DUPR e.g. RGDK2E"
                   value={newPlayerDuprId}
                   onChange={(e) => setNewPlayerDuprId(e.target.value)}
-                  className="w-32 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  className="w-36 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono placeholder-slate-500 focus:outline-none focus:border-amber-400 uppercase"
                 />
                 <select
                   value={newPlayerSkill}

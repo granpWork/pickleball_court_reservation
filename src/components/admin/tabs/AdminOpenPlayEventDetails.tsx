@@ -236,59 +236,137 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   })();
 
   // Local Reg Overrides State (for instant DUPR ID reactivity)
-  const [localRegOverrides, setLocalRegOverrides] = useState<Record<string, { adminDuprId?: string }>>({});
+  const [localRegOverrides, setLocalRegOverrides] = useState<Record<string, any>>({});
   const [editingDuprIdFor, setEditingDuprIdFor] = useState<string | null>(null);
   const [tempDuprInput, setTempDuprInput] = useState<string>('');
   const [isSavingDupr, setIsSavingDupr] = useState<boolean>(false);
 
-  const handleSaveAdminDuprId = async (registrationId: string, newTempDuprId: string) => {
+  // Guest Deletion Modal State
+  const [guestToDelete, setGuestToDelete] = useState<RosterAttendee | null>(null);
+  const [isDeletingGuest, setIsDeletingGuest] = useState<boolean>(false);
+  const [localMaxParticipants, setLocalMaxParticipants] = useState<number | null>(null);
+
+  const handleSaveAdminDuprId = async (
+    registrationId: string,
+    newTempDuprId: string,
+    attType: 'primary' | 'guest' = 'primary',
+    guestIndex?: number
+  ) => {
     const trimmed = newTempDuprId.trim();
     setIsSavingDupr(true);
     try {
-      const targetReg = registrations.find((r) => r.id === registrationId);
-      const targetUid = targetReg?.playerUid || (targetReg as any)?.userId || (targetReg as any)?.user?.uid;
+      const rawReg = registrations.find((r) => r.id === registrationId);
+      if (!rawReg) return;
+      const targetReg = localRegOverrides[registrationId]
+        ? { ...rawReg, ...localRegOverrides[registrationId] }
+        : rawReg;
 
-      if (isFirebaseConfigured && db) {
-        try {
-          await setDoc(doc(db, 'openplay_registrations', registrationId), { adminDuprId: trimmed }, { merge: true });
-        } catch (e) {
-          console.warn('Firestore setDoc openplay_registrations adminDuprId error:', e);
+      if (attType === 'guest' && guestIndex !== undefined && guestIndex > 0) {
+        const gIdx = guestIndex - 1;
+        let existingGuests = Array.isArray(targetReg.guests) ? [...targetReg.guests] : [];
+        if (existingGuests.length === 0 && Array.isArray(targetReg.guestNames)) {
+          existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
+            name,
+            email: targetReg.guestEmails?.[i] || '',
+          }));
         }
-        try {
-          await setDoc(doc(db, 'bookings', registrationId), { adminDuprId: trimmed }, { merge: true });
-        } catch (e) {
-          console.warn('Firestore setDoc bookings adminDuprId error:', e);
+
+        while (existingGuests.length <= gIdx) {
+          const defaultName = targetReg.guestNames?.[existingGuests.length] || `Guest #${existingGuests.length + 1}`;
+          const defaultEmail = targetReg.guestEmails?.[existingGuests.length] || '';
+          existingGuests.push({ name: defaultName, email: defaultEmail });
         }
-        if (targetUid) {
+
+        existingGuests[gIdx] = {
+          ...existingGuests[gIdx],
+          name: existingGuests[gIdx]?.name || targetReg.guestNames?.[gIdx] || `Guest #${gIdx + 1}`,
+          email: existingGuests[gIdx]?.email || targetReg.guestEmails?.[gIdx] || '',
+          adminDuprId: trimmed,
+        };
+
+        if (isFirebaseConfigured && db) {
           try {
-            await setDoc(doc(db, 'users', targetUid), { adminDuprId: trimmed, duprId: trimmed }, { merge: true });
+            await setDoc(doc(db, 'openplay_registrations', registrationId), { guests: existingGuests }, { merge: true });
           } catch (e) {
-            console.warn('Firestore setDoc users adminDuprId error:', e);
+            console.warn('Firestore setDoc openplay_registrations guests adminDuprId error:', e);
+          }
+          try {
+            await setDoc(doc(db, 'bookings', registrationId), { guests: existingGuests }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc bookings guests adminDuprId error:', e);
           }
         }
-      }
-      const updateLocal = (str: string | null) => {
-        if (!str) return;
-        try {
-          const updated = JSON.parse(str).map((r: any) =>
-            r.id === registrationId ? { ...r, adminDuprId: trimmed } : r
-          );
-          return JSON.stringify(updated);
-        } catch {
-          return null;
-        }
-      };
-      const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
-      const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
-      const updatedLs = updateLocal(lsStr);
-      const updatedSs = updateLocal(ssStr);
-      if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
-      if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
 
-      setLocalRegOverrides((prev) => ({
-        ...prev,
-        [registrationId]: { ...(prev[registrationId] || {}), adminDuprId: trimmed },
-      }));
+        const updateLocalGuests = (str: string | null) => {
+          if (!str) return;
+          try {
+            const updated = JSON.parse(str).map((r: any) =>
+              r.id === registrationId ? { ...r, guests: existingGuests } : r
+            );
+            return JSON.stringify(updated);
+          } catch {
+            return null;
+          }
+        };
+        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+        const updatedLs = updateLocalGuests(lsStr);
+        const updatedSs = updateLocalGuests(ssStr);
+        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [registrationId]: {
+            ...(prev[registrationId] || {}),
+            guests: existingGuests,
+          },
+        }));
+      } else {
+        const targetUid = targetReg.playerUid || (targetReg as any)?.userId || (targetReg as any)?.user?.uid;
+
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', registrationId), { adminDuprId: trimmed }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc openplay_registrations adminDuprId error:', e);
+          }
+          try {
+            await setDoc(doc(db, 'bookings', registrationId), { adminDuprId: trimmed }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc bookings adminDuprId error:', e);
+          }
+          if (targetUid) {
+            try {
+              await setDoc(doc(db, 'users', targetUid), { adminDuprId: trimmed, duprId: trimmed }, { merge: true });
+            } catch (e) {
+              console.warn('Firestore setDoc users adminDuprId error:', e);
+            }
+          }
+        }
+        const updateLocal = (str: string | null) => {
+          if (!str) return;
+          try {
+            const updated = JSON.parse(str).map((r: any) =>
+              r.id === registrationId ? { ...r, adminDuprId: trimmed } : r
+            );
+            return JSON.stringify(updated);
+          } catch {
+            return null;
+          }
+        };
+        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+        const updatedLs = updateLocal(lsStr);
+        const updatedSs = updateLocal(ssStr);
+        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [registrationId]: { ...(prev[registrationId] || {}), adminDuprId: trimmed },
+        }));
+      }
 
       setEditingDuprIdFor(null);
       setTempDuprInput('');
@@ -397,54 +475,127 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   const [tempDuprRatingInput, setTempDuprRatingInput] = useState<string>('');
   const [isSavingDuprRating, setIsSavingDuprRating] = useState<boolean>(false);
 
-  const handleSaveAdminDuprRating = async (registrationId: string, newTempRating: string) => {
+  const handleSaveAdminDuprRating = async (
+    registrationId: string,
+    newTempRating: string,
+    attType: 'primary' | 'guest' = 'primary',
+    guestIndex?: number
+  ) => {
     const trimmed = newTempRating.trim();
     setIsSavingDuprRating(true);
     try {
-      const targetReg = registrations.find((r) => r.id === registrationId);
-      const targetUid = targetReg?.playerUid || (targetReg as any)?.userId || (targetReg as any)?.user?.uid;
+      const rawReg = registrations.find((r) => r.id === registrationId);
+      if (!rawReg) return;
+      const targetReg = localRegOverrides[registrationId]
+        ? { ...rawReg, ...localRegOverrides[registrationId] }
+        : rawReg;
 
-      if (isFirebaseConfigured && db) {
-        try {
-          await setDoc(doc(db, 'openplay_registrations', registrationId), { adminDuprRating: trimmed }, { merge: true });
-        } catch (e) {
-          console.warn('Firestore setDoc openplay_registrations adminDuprRating error:', e);
+      if (attType === 'guest' && guestIndex !== undefined && guestIndex > 0) {
+        const gIdx = guestIndex - 1;
+        let existingGuests = Array.isArray(targetReg.guests) ? [...targetReg.guests] : [];
+        if (existingGuests.length === 0 && Array.isArray(targetReg.guestNames)) {
+          existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
+            name,
+            email: targetReg.guestEmails?.[i] || '',
+          }));
         }
-        try {
-          await setDoc(doc(db, 'bookings', registrationId), { adminDuprRating: trimmed }, { merge: true });
-        } catch (e) {
-          console.warn('Firestore setDoc bookings adminDuprRating error:', e);
+
+        while (existingGuests.length <= gIdx) {
+          const defaultName = targetReg.guestNames?.[existingGuests.length] || `Guest #${existingGuests.length + 1}`;
+          const defaultEmail = targetReg.guestEmails?.[existingGuests.length] || '';
+          existingGuests.push({ name: defaultName, email: defaultEmail });
         }
-        if (targetUid) {
+
+        existingGuests[gIdx] = {
+          ...existingGuests[gIdx],
+          name: existingGuests[gIdx]?.name || targetReg.guestNames?.[gIdx] || `Guest #${gIdx + 1}`,
+          email: existingGuests[gIdx]?.email || targetReg.guestEmails?.[gIdx] || '',
+          adminDuprRating: trimmed,
+        };
+
+        if (isFirebaseConfigured && db) {
           try {
-            await setDoc(doc(db, 'users', targetUid), { adminDuprRating: trimmed, duprRating: trimmed }, { merge: true });
+            await setDoc(doc(db, 'openplay_registrations', registrationId), { guests: existingGuests }, { merge: true });
           } catch (e) {
-            console.warn('Firestore setDoc users adminDuprRating error:', e);
+            console.warn('Firestore setDoc openplay_registrations guests adminDuprRating error:', e);
+          }
+          try {
+            await setDoc(doc(db, 'bookings', registrationId), { guests: existingGuests }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc bookings guests adminDuprRating error:', e);
           }
         }
-      }
-      const updateLocal = (str: string | null) => {
-        if (!str) return;
-        try {
-          const updated = JSON.parse(str).map((r: any) =>
-            r.id === registrationId ? { ...r, adminDuprRating: trimmed } : r
-          );
-          return JSON.stringify(updated);
-        } catch {
-          return null;
-        }
-      };
-      const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
-      const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
-      const updatedLs = updateLocal(lsStr);
-      const updatedSs = updateLocal(ssStr);
-      if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
-      if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
 
-      setLocalRegOverrides((prev) => ({
-        ...prev,
-        [registrationId]: { ...(prev[registrationId] || {}), adminDuprRating: trimmed },
-      }));
+        const updateLocalGuests = (str: string | null) => {
+          if (!str) return;
+          try {
+            const updated = JSON.parse(str).map((r: any) =>
+              r.id === registrationId ? { ...r, guests: existingGuests } : r
+            );
+            return JSON.stringify(updated);
+          } catch {
+            return null;
+          }
+        };
+        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+        const updatedLs = updateLocalGuests(lsStr);
+        const updatedSs = updateLocalGuests(ssStr);
+        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [registrationId]: {
+            ...(prev[registrationId] || {}),
+            guests: existingGuests,
+          },
+        }));
+      } else {
+        const targetUid = targetReg.playerUid || (targetReg as any)?.userId || (targetReg as any)?.user?.uid;
+
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', registrationId), { adminDuprRating: trimmed }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc openplay_registrations adminDuprRating error:', e);
+          }
+          try {
+            await setDoc(doc(db, 'bookings', registrationId), { adminDuprRating: trimmed }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc bookings adminDuprRating error:', e);
+          }
+          if (targetUid) {
+            try {
+              await setDoc(doc(db, 'users', targetUid), { adminDuprRating: trimmed, duprRating: trimmed }, { merge: true });
+            } catch (e) {
+              console.warn('Firestore setDoc users adminDuprRating error:', e);
+            }
+          }
+        }
+        const updateLocal = (str: string | null) => {
+          if (!str) return;
+          try {
+            const updated = JSON.parse(str).map((r: any) =>
+              r.id === registrationId ? { ...r, adminDuprRating: trimmed } : r
+            );
+            return JSON.stringify(updated);
+          } catch {
+            return null;
+          }
+        };
+        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+        const updatedLs = updateLocal(lsStr);
+        const updatedSs = updateLocal(ssStr);
+        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [registrationId]: { ...(prev[registrationId] || {}), adminDuprRating: trimmed },
+        }));
+      }
 
       setEditingDuprRatingFor(null);
       setTempDuprRatingInput('');
@@ -453,6 +604,111 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       alert('Failed to save DUPR Rating.');
     } finally {
       setIsSavingDuprRating(false);
+    }
+  };
+
+  // Handler to Delete Guest & Adjust Event Max Participants Capacity
+  const handleConfirmDeleteGuest = async () => {
+    if (!guestToDelete) return;
+    setIsDeletingGuest(true);
+    try {
+      const regId = guestToDelete.registrationId;
+      const gIndex = (guestToDelete.guestIndex || 1) - 1; // 0-based index
+      const rawReg = registrations.find((r) => r.id === regId);
+      if (!rawReg) return;
+      const targetReg = localRegOverrides[regId]
+        ? { ...rawReg, ...localRegOverrides[regId] }
+        : rawReg;
+
+      let existingGuests = Array.isArray(targetReg.guests) ? [...targetReg.guests] : [];
+      if (existingGuests.length === 0 && Array.isArray(targetReg.guestNames)) {
+        existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
+          name,
+          email: targetReg.guestEmails?.[i] || '',
+        }));
+      }
+
+      // Remove guest at gIndex
+      if (gIndex >= 0 && gIndex < existingGuests.length) {
+        existingGuests.splice(gIndex, 1);
+      }
+
+      const newPlayerCount = Math.max(1, (targetReg.playerCount || 1) - 1);
+      const newGuestCount = Math.max(0, (targetReg.guestCount || (existingGuests.length + 1)) - 1);
+
+      // 1. Update Firestore registration & booking
+      if (isFirebaseConfigured && db) {
+        const updatePayload = {
+          guests: existingGuests,
+          guestNames: existingGuests.map((g) => g.name).filter(Boolean),
+          guestEmails: existingGuests.map((g) => g.email).filter(Boolean),
+          playerCount: newPlayerCount,
+          guestCount: newGuestCount,
+        };
+
+        try {
+          await setDoc(doc(db, 'openplay_registrations', regId), updatePayload, { merge: true });
+        } catch (e) {
+          console.warn('Firestore setDoc openplay_registrations delete guest error:', e);
+        }
+        try {
+          await setDoc(doc(db, 'bookings', regId), updatePayload, { merge: true });
+        } catch (e) {
+          console.warn('Firestore setDoc bookings delete guest error:', e);
+        }
+
+        // 2. Adjust Event Max Participants Capacity (e.g. 12 -> 11)
+        const currentMax = localMaxParticipants !== null ? localMaxParticipants : (event.maxParticipants || 16);
+        const newMaxCapacity = Math.max(1, currentMax - 1);
+
+        try {
+          await updateDoc(doc(db, 'openplay_events', event.id), {
+            maxParticipants: newMaxCapacity,
+            maxPlayers: newMaxCapacity,
+          });
+        } catch (e) {
+          console.warn('Firestore updateDoc openplay_events maxParticipants error:', e);
+        }
+
+        setLocalMaxParticipants(newMaxCapacity);
+        event.maxParticipants = newMaxCapacity;
+      }
+
+      // Update local storage & overrides
+      setLocalRegOverrides((prev) => ({
+        ...prev,
+        [regId]: {
+          ...(prev[regId] || {}),
+          guests: existingGuests,
+          playerCount: newPlayerCount,
+          guestCount: newGuestCount,
+        },
+      }));
+
+      const updateLocalDel = (str: string | null) => {
+        if (!str) return;
+        try {
+          const updated = JSON.parse(str).map((r: any) =>
+            r.id === regId ? { ...r, guests: existingGuests, playerCount: newPlayerCount, guestCount: newGuestCount } : r
+          );
+          return JSON.stringify(updated);
+        } catch {
+          return null;
+        }
+      };
+      const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+      const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+      const updatedLs = updateLocalDel(lsStr);
+      const updatedSs = updateLocalDel(ssStr);
+      if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+      if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+      setGuestToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete guest:', err);
+      alert('Failed to delete guest.');
+    } finally {
+      setIsDeletingGuest(false);
     }
   };
 
@@ -572,7 +828,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   });
 
   // KPI Calculations
-  const maxCapacity = event.maxParticipants || 16;
+  const maxCapacity = localMaxParticipants !== null ? localMaxParticipants : (event.maxParticipants || 16);
   const totalHeadcount = allAttendees.length;
   const isFull = totalHeadcount >= maxCapacity;
   const primaryCount = allAttendees.filter((a) => a.type === 'primary').length;
@@ -1612,6 +1868,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         }`}>
                           {isWaitlisted ? '⏳ Waitlisted' : isApproved ? '✓ Paid' : isPending ? '⏳ Pending' : '✕ Failed'}
                         </span>
+                        {att.type === 'guest' && (
+                          <button
+                            type="button"
+                            onClick={() => setGuestToDelete(att)}
+                            className="p-1 rounded-lg bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/30 transition-all cursor-pointer flex-shrink-0"
+                            title="Delete Guest from Roster"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-3 mb-2">
@@ -1650,16 +1916,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                           <div className="flex items-center gap-1.5 w-full">
                             <input
                               type="text"
-                              placeholder="Temp DUPR ID..."
+                              placeholder="e.g. RGDK2E..."
                               value={tempDuprInput}
                               onChange={(e) => setTempDuprInput(e.target.value)}
-                              className="w-full bg-slate-950 border border-amber-500/60 rounded-lg px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                              className="w-full bg-slate-950 border border-amber-500/60 rounded-lg px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 uppercase font-mono"
                               autoFocus
                             />
                             <button
                               type="button"
                               disabled={isSavingDupr}
-                              onClick={() => handleSaveAdminDuprId(att.registrationId, tempDuprInput)}
+                              onClick={() => handleSaveAdminDuprId(att.registrationId, tempDuprInput, att.type, att.guestIndex)}
                               className="p-1.5 rounded-lg bg-amber-500 text-dark-bg font-extrabold hover:bg-amber-400 transition-all cursor-pointer flex-shrink-0"
                               title="Save Temp DUPR ID"
                             >
@@ -1724,7 +1990,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                             <button
                               type="button"
                               disabled={isSavingDuprRating}
-                              onClick={() => handleSaveAdminDuprRating(att.registrationId, tempDuprRatingInput)}
+                              onClick={() => handleSaveAdminDuprRating(att.registrationId, tempDuprRatingInput, att.type, att.guestIndex)}
                               className="p-1.5 rounded-lg bg-amber-500 text-dark-bg font-extrabold hover:bg-amber-400 transition-all cursor-pointer flex-shrink-0"
                               title="Save Temp DUPR Rate"
                             >
@@ -1957,6 +2223,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     }`}>
                       {att.status === 'approved' || att.paymentStatus === 'paid' ? '✓ Confirmed' : att.paymentStatus === 'pending_verification' ? '⏳ Pending' : '✕ Rejected'}
                     </span>
+                    {att.type === 'guest' && (
+                      <button
+                        type="button"
+                        onClick={() => setGuestToDelete(att)}
+                        className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/30 transition-all cursor-pointer"
+                        title="Delete Guest from Roster"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))
@@ -2122,6 +2398,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                 </>
                               )}
                             </button>
+                            {att.type === 'guest' && (
+                              <button
+                                type="button"
+                                onClick={() => setGuestToDelete(att)}
+                                className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/30 transition-all cursor-pointer ml-2"
+                                title="Delete Guest from Roster"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 inline" />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -2426,6 +2712,74 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 className="px-6 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-md"
               >
                 Got It, Close Guide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Guest Confirmation Modal */}
+      {guestToDelete && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-5 relative animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5 text-red-400 font-black text-base uppercase tracking-wider">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+                <span>Remove Guest from Roster</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGuestToDelete(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-300">
+              <p className="text-sm">
+                Are you sure you want to remove <strong className="text-white">{guestToDelete.name}</strong> from this event roster?
+              </p>
+
+              <div className="p-3.5 rounded-2xl bg-red-950/20 border border-red-500/30 text-red-200 space-y-1.5">
+                <div className="font-bold flex items-center gap-1 text-red-400 text-xs">
+                  <AlertCircle className="w-4 h-4" /> Capacity & Roster Impact:
+                </div>
+                <ul className="list-disc list-inside text-[11.5px] space-y-1 text-slate-300">
+                  <li>Guest <strong>{guestToDelete.name}</strong> will be deleted from the primary booking ({guestToDelete.hostName || 'Host'}).</li>
+                  <li>
+                    Max players capacity will adjust from <strong className="text-amber-400">{maxCapacity}</strong> to <strong className="text-brand-lime">{Math.max(1, maxCapacity - 1)}</strong>.
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingGuest}
+                onClick={() => setGuestToDelete(null)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingGuest}
+                onClick={handleConfirmDeleteGuest}
+                className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-red-600/20"
+              >
+                {isDeletingGuest ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Removing Guest...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Confirm Delete & Adjust Capacity</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

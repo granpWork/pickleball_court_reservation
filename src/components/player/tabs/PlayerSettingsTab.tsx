@@ -143,11 +143,11 @@ export const PlayerSettingsTab: React.FC<PlayerSettingsTabProps> = ({
               type="text"
               value={duprId}
               onChange={(e) => setDuprId(e.target.value)}
-              placeholder="e.g. DUPR-123456 or Profile Name"
-              className="w-full bg-slate-950 border border-amber-500/30 text-amber-300 font-mono text-xs font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-amber-400 transition-all"
+              placeholder="e.g. RGDK2E"
+              className="w-full bg-slate-950 border border-amber-500/30 text-amber-300 font-mono text-xs font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-amber-400 transition-all uppercase"
             />
             <p className="text-[11px] text-slate-400">
-              Saving your DUPR ID automatically populates your rating ID whenever you register for DUPR Rated Open Play events.
+              Saving your 6-character DUPR ID (e.g. RGDK2E) automatically populates your rating ID whenever you register for DUPR Rated Open Play events.
             </p>
           </div>
 

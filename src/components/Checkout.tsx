@@ -776,7 +776,7 @@ export default function Checkout({
 
     if (!duprId.trim()) {
       setDuprError('DUPR ID is required to complete registration.');
-      setError('DUPR ID is required. Please enter your DUPR ID or profile name.');
+      setError('DUPR ID is required. Please enter your 6-character DUPR ID (e.g. RGDK2E).');
       return false;
     }
     setDuprError(null);
@@ -1835,7 +1835,7 @@ export default function Checkout({
                         <input
                           type="text"
                           required={isDuprSession}
-                          placeholder="e.g. DUPR-123456 or Profile Name"
+                          placeholder="e.g. RGDK2E"
                           value={duprId}
                           onChange={(e) => {
                             const val = e.target.value;
