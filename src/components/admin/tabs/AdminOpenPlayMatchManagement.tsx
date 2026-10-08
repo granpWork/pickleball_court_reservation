@@ -1813,7 +1813,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       {/* MODAL 2: MANUAL MATCH CREATOR / EDITOR */}
       {isManualModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-          <div className="glass-panel border border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
+          <div className="glass-panel border border-slate-800 rounded-3xl max-w-3xl md:max-w-4xl w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-lg font-black text-white">
                 {editingMatch ? 'Edit Match' : 'Create Manual Match'}
@@ -1887,10 +1887,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Team Red Selection */}
                 <div className="p-3.5 rounded-2xl bg-red-950/20 border border-red-800/40 space-y-2">
-                  <div className="font-extrabold text-red-400 text-xs">
-                    Team Red Players ({selectedRedPlayers.length} / {manualGameType === 'doubles' ? 2 : 1})
+                  <div className="font-extrabold text-red-400 text-xs flex items-center justify-between">
+                    <span>Team Red Players</span>
+                    <span className="font-mono bg-red-950 border border-red-800/60 px-2 py-0.5 rounded text-[11px]">
+                      {selectedRedPlayers.length} / {manualGameType === 'doubles' ? 2 : 1}
+                    </span>
                   </div>
-                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                  <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
                     {rosterPool.map((p) => {
                       const isRed = selectedRedPlayers.includes(p.id);
                       const isBlue = selectedBluePlayers.includes(p.id);
@@ -1911,28 +1914,38 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               setSelectedRedPlayers([...selectedRedPlayers, p.id]);
                             }
                           }}
-                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between text-xs font-semibold transition-all ${
+                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all ${
                             isRed
-                              ? 'bg-red-600 text-white border-red-500'
+                              ? 'bg-red-600 text-white border-red-500 shadow-md'
                               : isBlue
                               ? 'opacity-30 cursor-not-allowed bg-slate-900 border-slate-800'
                               : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                           }`}
                         >
-                          <div className="min-w-0 pr-2">
-                            <div className="truncate flex items-center gap-1.5">
-                              <span className="truncate">{p.name}</span>
-                              {p.type === 'guest' && (
-                                <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {/* Profile Picture Avatar */}
+                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
+                              <img
+                                src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                alt={p.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate flex items-center gap-1.5">
+                                <span className="truncate font-extrabold">{p.name}</span>
+                                {p.type === 'guest' && (
+                                  <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
+                                )}
+                              </div>
+                              {(effectiveDupr || effectiveRating) && (
+                                <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
+                                  {effectiveDupr && <span>ID: {effectiveDupr}</span>}
+                                  {effectiveDupr && effectiveRating && <span> • </span>}
+                                  {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                                </div>
                               )}
                             </div>
-                            {(effectiveDupr || effectiveRating) && (
-                              <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
-                                {effectiveDupr && <span>ID: {effectiveDupr}</span>}
-                                {effectiveDupr && effectiveRating && <span> • </span>}
-                                {effectiveRating && <span>Rate: {effectiveRating}</span>}
-                              </div>
-                            )}
                           </div>
                           {isRed && <Check className="w-4 h-4 text-white shrink-0" />}
                         </button>
@@ -1943,10 +1956,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
                 {/* Team Blue Selection */}
                 <div className="p-3.5 rounded-2xl bg-blue-950/20 border border-blue-800/40 space-y-2">
-                  <div className="font-extrabold text-blue-400 text-xs">
-                    Team Blue Players ({selectedBluePlayers.length} / {manualGameType === 'doubles' ? 2 : 1})
+                  <div className="font-extrabold text-blue-400 text-xs flex items-center justify-between">
+                    <span>Team Blue Players</span>
+                    <span className="font-mono bg-blue-950 border border-blue-800/60 px-2 py-0.5 rounded text-[11px]">
+                      {selectedBluePlayers.length} / {manualGameType === 'doubles' ? 2 : 1}
+                    </span>
                   </div>
-                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
+                  <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
                     {rosterPool.map((p) => {
                       const isRed = selectedRedPlayers.includes(p.id);
                       const isBlue = selectedBluePlayers.includes(p.id);
@@ -1967,17 +1983,26 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               setSelectedBluePlayers([...selectedBluePlayers, p.id]);
                             }
                           }}
-                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between text-xs font-semibold transition-all ${
+                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all ${
                             isBlue
-                              ? 'bg-blue-600 text-white border-blue-500'
+                              ? 'bg-blue-600 text-white border-blue-500 shadow-md'
                               : isRed
                               ? 'opacity-30 cursor-not-allowed bg-slate-900 border-slate-800'
                               : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                           }`}
                         >
-                          <div className="min-w-0 pr-2">
-                            <div className="truncate flex items-center gap-1.5">
-                              <span className="truncate">{p.name}</span>
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {/* Profile Picture Avatar */}
+                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
+                              <img
+                                src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                alt={p.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate flex items-center gap-1.5">
+                                <span className="truncate font-extrabold">{p.name}</span>
                               {p.type === 'guest' && (
                                 <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
                               )}
@@ -1990,7 +2015,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               </div>
                             )}
                           </div>
-                          {isBlue && <Check className="w-4 h-4 text-white shrink-0" />}
+                        </div>
+                        {isBlue && <Check className="w-4 h-4 text-white shrink-0" />}
                         </button>
                       );
                     })}
