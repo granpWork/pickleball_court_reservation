@@ -244,7 +244,6 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   // Guest Deletion Modal State
   const [guestToDelete, setGuestToDelete] = useState<RosterAttendee | null>(null);
   const [isDeletingGuest, setIsDeletingGuest] = useState<boolean>(false);
-  const [localMaxParticipants, setLocalMaxParticipants] = useState<number | null>(null);
 
   const handleSaveAdminDuprId = async (
     registrationId: string,
@@ -607,7 +606,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     }
   };
 
-  // Handler to Delete Guest & Adjust Event Max Participants Capacity
+  // Handler to Delete Guest (Keeping Total Max Players Capacity Fixed)
   const handleConfirmDeleteGuest = async () => {
     if (!guestToDelete) return;
     setIsDeletingGuest(true);
@@ -656,22 +655,6 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         } catch (e) {
           console.warn('Firestore setDoc bookings delete guest error:', e);
         }
-
-        // 2. Adjust Event Max Participants Capacity (e.g. 12 -> 11)
-        const currentMax = localMaxParticipants !== null ? localMaxParticipants : (event.maxParticipants || 16);
-        const newMaxCapacity = Math.max(1, currentMax - 1);
-
-        try {
-          await updateDoc(doc(db, 'openplay_events', event.id), {
-            maxParticipants: newMaxCapacity,
-            maxPlayers: newMaxCapacity,
-          });
-        } catch (e) {
-          console.warn('Firestore updateDoc openplay_events maxParticipants error:', e);
-        }
-
-        setLocalMaxParticipants(newMaxCapacity);
-        event.maxParticipants = newMaxCapacity;
       }
 
       // Update local storage & overrides
@@ -828,7 +811,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   });
 
   // KPI Calculations
-  const maxCapacity = localMaxParticipants !== null ? localMaxParticipants : (event.maxParticipants || 16);
+  const maxCapacity = event.maxParticipants || 16;
   const totalHeadcount = allAttendees.length;
   const isFull = totalHeadcount >= maxCapacity;
   const primaryCount = allAttendees.filter((a) => a.type === 'primary').length;
@@ -1002,15 +985,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       exportedAt: new Date().toISOString(),
       totalAttendees: displayAttendees.length,
       roster: displayAttendees.map((att) => ({
-        id: att.id,
         name: att.name,
-        email: att.email && !att.email.toLowerCase().startsWith('shared (') ? att.email : '',
-        phone: att.phone || '',
-        type: att.type,
-        status: att.status,
-        paymentStatus: att.paymentStatus,
-        ...(att.hostName ? { hostName: att.hostName } : {}),
-        ...(att.gcashReferenceNumber ? { gcashReferenceNumber: att.gcashReferenceNumber } : {}),
+        dupr: att.adminDuprId || att.duprId || '',
+        rate: att.adminDuprRating || att.duprRating || '',
       })),
     };
 
@@ -1020,7 +997,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     const link = document.createElement('a');
     const safeTitle = (event.title || 'openplay').toLowerCase().replace(/[^a-z0-9]/g, '_');
     link.setAttribute('href', url);
-    link.setAttribute('download', `roster_names_emails_${safeTitle}_${event.eventDate || 'data'}.json`);
+    link.setAttribute('download', `roster_${safeTitle}_${event.eventDate || 'data'}.json`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1711,7 +1688,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
               type="button"
               onClick={handleExportRosterJson}
               className="px-3.5 py-2 rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 hover:text-white transition-all font-extrabold text-xs cursor-pointer shadow-sm flex items-center gap-1.5"
-              title="Export roster player names and emails in JSON format"
+              title="Export roster player name, DUPR ID, and rating in JSON format"
             >
               <FileCode className="w-4 h-4 text-purple-400" />
               <span>Export Roster JSON</span>
@@ -2743,12 +2720,12 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
               <div className="p-3.5 rounded-2xl bg-red-950/20 border border-red-500/30 text-red-200 space-y-1.5">
                 <div className="font-bold flex items-center gap-1 text-red-400 text-xs">
-                  <AlertCircle className="w-4 h-4" /> Capacity & Roster Impact:
+                  <AlertCircle className="w-4 h-4" /> Roster & Capacity Impact:
                 </div>
                 <ul className="list-disc list-inside text-[11.5px] space-y-1 text-slate-300">
-                  <li>Guest <strong>{guestToDelete.name}</strong> will be deleted from the primary booking ({guestToDelete.hostName || 'Host'}).</li>
+                  <li>Guest <strong>{guestToDelete.name}</strong> will be removed from the primary booking ({guestToDelete.hostName || 'Host'}).</li>
                   <li>
-                    Max players capacity will adjust from <strong className="text-amber-400">{maxCapacity}</strong> to <strong className="text-brand-lime">{Math.max(1, maxCapacity - 1)}</strong>.
+                    Total max capacity remains at <strong className="text-amber-400">{maxCapacity}</strong> players (<strong className="text-brand-lime">1 spot will open up</strong> for new registrations).
                   </li>
                 </ul>
               </div>
@@ -2777,7 +2754,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
-                    <span>Confirm Delete & Adjust Capacity</span>
+                    <span>Confirm Delete Guest</span>
                   </>
                 )}
               </button>
