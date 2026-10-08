@@ -159,3 +159,16 @@ input[type="date"]::-webkit-date-and-time-value {
   min-height: 1.2em;
 }
 
+/* Hide native number input spinner buttons (up/down arrows) */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+

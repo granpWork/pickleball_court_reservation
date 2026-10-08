@@ -1443,10 +1443,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                                 type="number"
                                 min={0}
                                 max={99}
+                                inputMode="numeric"
                                 disabled={m.status === 'completed'}
                                 value={m.teamRed.score}
                                 onChange={(e) => handleDirectScoreChange(m.id, 'red', e.target.value)}
-                                className={`w-12 text-center font-mono font-black text-xl bg-slate-900 border border-slate-700/80 rounded-lg py-0.5 focus:outline-none focus:border-brand-lime ${
+                                className={`w-12 text-center font-mono font-black text-xl bg-slate-900 border border-slate-700/80 rounded-lg py-0.5 focus:outline-none focus:border-brand-lime [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                                   m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-red-400'
                                 }`}
                               />
@@ -1534,10 +1535,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                                 type="number"
                                 min={0}
                                 max={99}
+                                inputMode="numeric"
                                 disabled={m.status === 'completed'}
                                 value={m.teamBlue.score}
                                 onChange={(e) => handleDirectScoreChange(m.id, 'blue', e.target.value)}
-                                className={`w-12 text-center font-mono font-black text-xl bg-slate-900 border border-slate-700/80 rounded-lg py-0.5 focus:outline-none focus:border-brand-lime ${
+                                className={`w-12 text-center font-mono font-black text-xl bg-slate-900 border border-slate-700/80 rounded-lg py-0.5 focus:outline-none focus:border-brand-lime [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                                   m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-blue-400'
                                 }`}
                               />
