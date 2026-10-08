@@ -673,12 +673,15 @@ export interface OpenPlayMatchPlayer {
   photoUrl?: string;
   skillLevel?: string;
   type?: 'primary' | 'guest';
+  duprId?: string;
+  duprRating?: string;
 }
 
 export interface OpenPlayMatch {
   id: string;
   eventId: string;
   round: number;
+  matchName?: string;
   courtName: string;
   courtId?: string;
   gameType: 'doubles' | 'singles';

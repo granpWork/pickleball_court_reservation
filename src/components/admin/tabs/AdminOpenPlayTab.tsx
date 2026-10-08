@@ -348,7 +348,13 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
         <AdminOpenPlayMatchManagement
           event={matchManagementEvent}
           registrations={openPlayRegistrations}
-          onBack={() => setMatchManagementEvent(null)}
+          onBack={() => {
+            if (matchManagementEvent) {
+              handleSelectEvent(matchManagementEvent);
+            }
+            setMatchManagementEvent(null);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
         />
       ) : selectedEventForRegs ? (
         <AdminOpenPlayEventDetails

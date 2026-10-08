@@ -152,12 +152,44 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
   const [editingMatch, setEditingMatch] = useState<OpenPlayMatch | null>(null);
+  const [manualMatchName, setManualMatchName] = useState<string>('');
   const [manualRound, setManualRound] = useState<number>(1);
   const [manualCourt, setManualCourt] = useState<string>(assignedCourts[0] || 'Court 1');
   const [manualGameType, setManualGameType] = useState<'doubles' | 'singles'>('doubles');
   const [manualTargetPoints, setManualTargetPoints] = useState<number>(11);
   const [selectedRedPlayers, setSelectedRedPlayers] = useState<string[]>([]);
   const [selectedBluePlayers, setSelectedBluePlayers] = useState<string[]>([]);
+
+  // Created rounds state
+  const [createdRounds, setCreatedRounds] = useState<number[]>([]);
+
+  // Compute all active/available rounds
+  const allActiveRounds = useMemo(() => {
+    const roundsFromMatches = matches.map((m) => m.round);
+    const setRounds = new Set([...roundsFromMatches, ...createdRounds, 1]);
+    return Array.from(setRounds).sort((a, b) => a - b);
+  }, [matches, createdRounds]);
+
+  const handleAddNewRound = () => {
+    const maxRound = allActiveRounds.length ? Math.max(...allActiveRounds) : 0;
+    const nextRound = maxRound + 1;
+    setCreatedRounds((prev) => [...prev, nextRound]);
+    showToast(`⚡ Round ${nextRound} created! Click "+ Add Match to Round ${nextRound}" to create matches.`);
+  };
+
+  const openNewManualMatchModal = (targetRound?: number) => {
+    setEditingMatch(null);
+    const roundToUse = targetRound || (allActiveRounds.length ? Math.max(...allActiveRounds) : 1);
+    const existingCountInRound = matches.filter((m) => m.round === roundToUse).length;
+    setManualMatchName(`Game ${existingCountInRound + 1}`);
+    setManualRound(roundToUse);
+    setManualCourt(assignedCourts[0] || 'Court 1');
+    setManualGameType('doubles');
+    setManualTargetPoints(11);
+    setSelectedRedPlayers([]);
+    setSelectedBluePlayers([]);
+    setIsManualModalOpen(true);
+  };
 
   const [isRosterModalOpen, setIsRosterModalOpen] = useState<boolean>(false);
   const [newPlayerName, setNewPlayerName] = useState<string>('');
@@ -667,6 +699,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const newMatches: OpenPlayMatch[] = [];
     const courtCount = assignedCourts.length;
 
+    const mapRosterToMatchPlayer = (p: OpenPlayMatchRosterItem): OpenPlayMatchPlayer => ({
+      id: p.id,
+      name: p.name,
+      photoUrl: p.photoUrl,
+      skillLevel: p.skillLevel,
+      type: p.type,
+      duprId: p.adminDuprId || p.duprId || undefined,
+      duprRating: p.adminDuprRating || p.duprRating || undefined,
+    });
+
     if (autoGenAlgorithm === 'individual_scramble') {
       // CONTINUOUS PADDLE RACK QUEUE & 1&4 vs 2&3 PAIRING SPLIT RULE
       let queue = [...activePlayers];
@@ -687,12 +729,12 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             // Team Red = [P1, P4] (1st & 4th in queue)
             // Team Blue = [P2, P3] (2nd & 3rd in queue)
             const teamRedPlayers: OpenPlayMatchPlayer[] = [
-              { id: p1.id, name: p1.name, photoUrl: p1.photoUrl, skillLevel: p1.skillLevel },
-              { id: p4.id, name: p4.name, photoUrl: p4.photoUrl, skillLevel: p4.skillLevel },
+              mapRosterToMatchPlayer(p1),
+              mapRosterToMatchPlayer(p4),
             ];
             const teamBluePlayers: OpenPlayMatchPlayer[] = [
-              { id: p2.id, name: p2.name, photoUrl: p2.photoUrl, skillLevel: p2.skillLevel },
-              { id: p3.id, name: p3.name, photoUrl: p3.photoUrl, skillLevel: p3.skillLevel },
+              mapRosterToMatchPlayer(p2),
+              mapRosterToMatchPlayer(p3),
             ];
 
             // Return all 4 players to the back of the queue in rotated order
@@ -703,6 +745,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               id: matchId,
               eventId: event.id,
               round: r,
+              matchName: `Game ${newMatches.length + 1}`,
               courtName,
               gameType: 'doubles',
               targetPoints: autoGenTargetPoints,
@@ -718,10 +761,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             const p2 = queue.shift()!;
 
             const teamRedPlayers: OpenPlayMatchPlayer[] = [
-              { id: p1.id, name: p1.name, photoUrl: p1.photoUrl, skillLevel: p1.skillLevel },
+              mapRosterToMatchPlayer(p1),
             ];
             const teamBluePlayers: OpenPlayMatchPlayer[] = [
-              { id: p2.id, name: p2.name, photoUrl: p2.photoUrl, skillLevel: p2.skillLevel },
+              mapRosterToMatchPlayer(p2),
             ];
 
             queue.push(p1, p2);
@@ -731,6 +774,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               id: matchId,
               eventId: event.id,
               round: r,
+              matchName: `Game ${newMatches.length + 1}`,
               courtName,
               gameType: 'singles',
               targetPoints: autoGenTargetPoints,
@@ -760,11 +804,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           let teamBluePlayers: OpenPlayMatchPlayer[] = [];
 
           if (autoGenGameType === 'doubles') {
-            teamRedPlayers = matchPlayers.slice(0, 2).map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
-            teamBluePlayers = matchPlayers.slice(2, 4).map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
+            teamRedPlayers = matchPlayers.slice(0, 2).map(mapRosterToMatchPlayer);
+            teamBluePlayers = matchPlayers.slice(2, 4).map(mapRosterToMatchPlayer);
           } else {
-            teamRedPlayers = [matchPlayers[0]].map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
-            teamBluePlayers = [matchPlayers[1]].map((p) => ({ id: p.id, name: p.name, photoUrl: p.photoUrl, skillLevel: p.skillLevel }));
+            teamRedPlayers = [matchPlayers[0]].map(mapRosterToMatchPlayer);
+            teamBluePlayers = [matchPlayers[1]].map(mapRosterToMatchPlayer);
           }
 
           const matchId = `op-match-${event.id}-r${r}-m${m + 1}-${Date.now()}`;
@@ -772,6 +816,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             id: matchId,
             eventId: event.id,
             round: r,
+            matchName: `Game ${newMatches.length + 1}`,
             courtName,
             gameType: autoGenGameType,
             targetPoints: autoGenTargetPoints,
@@ -811,6 +856,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           name: item ? item.name : 'Player',
           photoUrl: item?.photoUrl,
           skillLevel: item?.skillLevel,
+          type: item?.type,
+          duprId: item?.adminDuprId || item?.duprId || undefined,
+          duprRating: item?.adminDuprRating || item?.duprRating || undefined,
         };
       });
     };
@@ -822,6 +870,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const updated: OpenPlayMatch = {
         ...editingMatch,
         round: manualRound,
+        matchName: manualMatchName.trim() || `Game ${manualRound}`,
         courtName: manualCourt,
         gameType: manualGameType,
         targetPoints: manualTargetPoints,
@@ -837,6 +886,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         id: matchId,
         eventId: event.id,
         round: manualRound,
+        matchName: manualMatchName.trim() || `Game ${matches.filter(m => m.round === manualRound).length + 1}`,
         courtName: manualCourt,
         gameType: manualGameType,
         targetPoints: manualTargetPoints,
@@ -852,6 +902,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
     setIsManualModalOpen(false);
     setEditingMatch(null);
+    setManualMatchName('');
     setSelectedRedPlayers([]);
     setSelectedBluePlayers([]);
   };
@@ -859,6 +910,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   // Open Edit Modal
   const openEditModal = (match: OpenPlayMatch) => {
     setEditingMatch(match);
+    setManualMatchName(match.matchName || `Game ${match.round}`);
     setManualRound(match.round);
     setManualCourt(match.courtName);
     setManualGameType(match.gameType);
@@ -917,8 +969,6 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     return true;
   });
 
-  // Calculate distinct rounds
-  const availableRounds = Array.from(new Set(matches.map((m) => m.round))).sort((a, b) => a - b);
   const activeCount = rosterPool.filter((p) => p.status === 'active').length;
   const restingCount = rosterPool.filter((p) => p.status === 'resting').length;
   const completedCount = matches.filter((m) => m.status === 'completed').length;
@@ -940,7 +990,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-800 flex-wrap">
         <button
           type="button"
-          onClick={onBack}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onBack) onBack();
+          }}
           className="inline-flex items-center gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01]"
         >
           <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Session Details
@@ -1018,6 +1071,15 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
+            onClick={handleAddNewRound}
+            className="py-2.5 px-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02]"
+          >
+            <Plus className="w-4 h-4 text-white" />
+            <span>+ Add New Round</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsAutoGenModalOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02]"
           >
@@ -1027,16 +1089,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
           <button
             type="button"
-            onClick={() => {
-              setEditingMatch(null);
-              setManualRound(availableRounds.length ? Math.max(...availableRounds) : 1);
-              setManualCourt(assignedCourts[0] || 'Court 1');
-              setManualGameType('doubles');
-              setManualTargetPoints(11);
-              setSelectedRedPlayers([]);
-              setSelectedBluePlayers([]);
-              setIsManualModalOpen(true);
-            }}
+            onClick={() => openNewManualMatchModal()}
             className="py-2.5 px-4 rounded-2xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02]"
           >
             <Plus className="w-4 h-4 text-dark-bg" />
@@ -1159,269 +1212,360 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         </div>
       </div>
 
-      {/* Matches Grid (2 Columns Max) */}
+      {/* Round-Grouped Matches Matrix */}
       {isLoading ? (
         <div className="p-12 text-center text-slate-400 space-y-3">
           <RefreshCw className="w-8 h-8 animate-spin text-brand-lime mx-auto" />
           <p className="text-xs font-semibold">Loading open play matches...</p>
         </div>
-      ) : filteredMatches.length === 0 ? (
+      ) : allActiveRounds.length === 0 && matches.length === 0 ? (
         <div className="glass-panel p-12 text-center rounded-3xl border border-slate-800 space-y-4">
           <Trophy className="w-12 h-12 text-slate-600 mx-auto" />
           <div className="space-y-1">
             <h3 className="text-base font-bold text-white">No Matches Found</h3>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              {matches.length === 0
-                ? "No matches have been generated yet for this session. Click 'Auto-Generate Round Robin' or '+ Create Manual Match' to get started."
-                : 'No matches match your current round or court filter.'}
+              No matches have been generated yet for this session. Click '+ Add New Round', 'Auto-Generate Round Robin' or '+ Create Manual Match' to get started.
             </p>
           </div>
-          {matches.length === 0 && (
-            <button
-              type="button"
-              onClick={() => setIsAutoGenModalOpen(true)}
-              className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
-            >
-              <Zap className="w-4 h-4 text-brand-lime" /> Auto-Generate Match Matrix
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsAutoGenModalOpen(true)}
+            className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
+          >
+            <Zap className="w-4 h-4 text-brand-lime" /> Auto-Generate Match Matrix
+          </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {filteredMatches.map((m) => (
-            <div
-              key={m.id}
-              className={`rounded-3xl border p-4 sm:p-5 transition-all shadow-lg flex flex-col justify-between space-y-4 ${
-                m.status === 'completed'
-                  ? 'bg-slate-900/40 border-slate-800/90'
-                  : m.status === 'in_progress'
-                  ? 'bg-blue-950/20 border-blue-500/40 ring-1 ring-blue-500/30'
-                  : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              {/* Card Header: Round, Court Selector & Status */}
-              <div className="flex items-center justify-between gap-2 text-xs pb-3 border-b border-slate-800/80">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="px-2.5 py-0.5 rounded-lg bg-purple-950/60 border border-purple-800/60 text-purple-300 font-extrabold text-[11px]">
-                    Round {m.round}
-                  </span>
-                  {m.wasReopened && (
-                    <span className="px-2 py-0.5 rounded-lg bg-amber-950/60 border border-amber-500/50 text-amber-300 font-extrabold text-[10px] flex items-center gap-1 shadow-sm" title="This match was previously completed and reopened for score adjustment.">
-                      <RotateCcw className="w-3 h-3 text-amber-400" /> Reopened
+        <div className="space-y-8">
+          {allActiveRounds.map((roundNum) => {
+            const matchesInRound = filteredMatches.filter((m) => m.round === roundNum);
+
+            // Hide round block when search/filter active and no match fits
+            if (matchesInRound.length === 0 && (selectedStatusFilter !== 'all' || selectedCourtFilter !== 'all' || searchQuery.trim())) {
+              return null;
+            }
+
+            return (
+              <div key={roundNum} className="space-y-4 border border-slate-800/80 bg-slate-950/40 p-4 sm:p-5 rounded-3xl shadow-xl">
+                {/* Round Section Header */}
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <span className="px-3.5 py-1 rounded-xl bg-purple-950/80 border border-purple-600/50 text-purple-300 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                      <Trophy className="w-3.5 h-3.5 text-purple-400" /> Round {roundNum}
                     </span>
-                  )}
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                    {m.gameType} ({m.targetPoints} pts)
-                  </span>
+                    <span className="text-xs text-slate-400 font-semibold">
+                      ({matchesInRound.length} {matchesInRound.length === 1 ? 'match' : 'matches'})
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openNewManualMatchModal(roundNum)}
+                    className="py-1.5 px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Match to Round {roundNum}</span>
+                  </button>
                 </div>
 
-                {/* Inline Court Assignment Selector */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <Building2 className="w-3.5 h-3.5 text-brand-lime" />
-                  <select
-                    value={m.courtName}
-                    onChange={(e) => handleInlineCourtChange(m.id, e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-0.5 text-[11px] font-bold text-brand-lime cursor-pointer focus:outline-none focus:border-brand-lime"
-                  >
-                    {assignedCourts.map((c, i) => (
-                      <option key={i} value={c}>
-                        {c}
-                      </option>
+                {/* Round Matches List */}
+                {matchesInRound.length === 0 ? (
+                  <div className="p-6 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/30">
+                    <p className="text-xs text-slate-400">No matches created for Round {roundNum} yet.</p>
+                    <button
+                      type="button"
+                      onClick={() => openNewManualMatchModal(roundNum)}
+                      className="mt-2 text-xs font-bold text-brand-lime hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" /> Create first match for Round {roundNum}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {matchesInRound.map((m) => (
+                      <div
+                        key={m.id}
+                        className={`rounded-3xl border p-4 sm:p-5 transition-all shadow-lg flex flex-col justify-between space-y-4 ${
+                          m.status === 'completed'
+                            ? 'bg-slate-900/40 border-slate-800/90'
+                            : m.status === 'in_progress'
+                            ? 'bg-blue-950/20 border-blue-500/40 ring-1 ring-blue-500/30'
+                            : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {/* Card Header: Match Name, Round, Court Selector & Status */}
+                        <div className="flex items-center justify-between gap-2 text-xs pb-3 border-b border-slate-800/80">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-black text-sm text-white flex items-center gap-1.5">
+                              🎮 {m.matchName || `Game ${m.round}`}
+                            </span>
+                            <span className="px-2.5 py-0.5 rounded-lg bg-purple-950/60 border border-purple-800/60 text-purple-300 font-extrabold text-[11px]">
+                              Round {m.round}
+                            </span>
+                            {m.wasReopened && (
+                              <span className="px-2 py-0.5 rounded-lg bg-amber-950/60 border border-amber-500/50 text-amber-300 font-extrabold text-[10px] flex items-center gap-1 shadow-sm" title="This match was reopened for score adjustment.">
+                                <RotateCcw className="w-3 h-3 text-amber-400" /> Reopened
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                              {m.gameType} ({m.targetPoints} pts)
+                            </span>
+                          </div>
+
+                          {/* Inline Court Assignment Selector */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Building2 className="w-3.5 h-3.5 text-brand-lime" />
+                            <select
+                              value={m.courtName}
+                              onChange={(e) => handleInlineCourtChange(m.id, e.target.value)}
+                              className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-0.5 text-[11px] font-bold text-brand-lime cursor-pointer focus:outline-none focus:border-brand-lime"
+                            >
+                              {assignedCourts.map((c, i) => (
+                                <option key={i} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Card Body: Side-by-Side Teams with DUPR & Rate Pills */}
+                        <div className="grid grid-cols-1 md:grid-cols-11 items-center gap-3 py-1">
+                          {/* Team Red (Left Side) */}
+                          <div className="md:col-span-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-2xl border border-slate-800/60">
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              <div className="text-[10px] font-black uppercase text-red-400 tracking-wider flex items-center gap-1">
+                                <span>Team Red</span>
+                                {m.winner === 'red' && <Trophy className="w-3.5 h-3.5 text-amber-400 inline" />}
+                              </div>
+                              <div className="space-y-2">
+                                {m.teamRed.players.map((p, idx) => (
+                                  <div key={idx} className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
+                                      <img
+                                        src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                        alt={p.name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-sm truncate text-slate-100 flex items-center gap-1.5">
+                                        <span>{p.name}</span>
+                                        {p.type === 'guest' && (
+                                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase">Guest</span>
+                                        )}
+                                      </div>
+                                      {(p.duprId || p.duprRating) && (
+                                        <div className="flex items-center gap-1.5 text-[10px] font-mono mt-0.5 flex-wrap">
+                                          {p.duprId && (
+                                            <span className="bg-cyan-950/60 border border-cyan-800/60 px-1.5 py-0.2 rounded text-cyan-300 font-bold">
+                                              ID: {p.duprId}
+                                            </span>
+                                          )}
+                                          {p.duprRating && (
+                                            <span className="bg-amber-950/60 border border-amber-800/60 px-1.5 py-0.2 rounded text-amber-300 font-bold">
+                                              Rate: {p.duprRating}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Team Red Score Controls */}
+                            <div className="flex items-center gap-1.5 shrink-0 bg-slate-950 border border-slate-800 p-1.5 rounded-xl self-start sm:self-center">
+                              <button
+                                type="button"
+                                disabled={m.status === 'completed'}
+                                onClick={() => updateMatchScore(m.id, 'red', -1)}
+                                className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                                  m.status === 'completed'
+                                    ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
+                                }`}
+                              >
+                                -
+                              </button>
+                              <span className={`w-9 text-center font-mono font-black text-xl ${
+                                m.status === 'completed' ? 'text-slate-400' : 'text-red-400'
+                              }`}>
+                                {m.teamRed.score}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={m.status === 'completed'}
+                                onClick={() => updateMatchScore(m.id, 'red', 1)}
+                                className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                                  m.status === 'completed'
+                                    ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                                    : 'bg-red-600 hover:bg-red-500 text-white cursor-pointer shadow-sm'
+                                }`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* VS Divider Badge */}
+                          <div className="md:col-span-1 flex flex-col items-center justify-center py-1 shrink-0">
+                            <span className="px-3 py-1.5 rounded-full bg-slate-950 border border-slate-800 text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest shadow-inner">
+                              VS
+                            </span>
+                          </div>
+
+                          {/* Team Blue (Right Side) */}
+                          <div className="md:col-span-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-2xl border border-slate-800/60">
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              <div className="text-[10px] font-black uppercase text-blue-400 tracking-wider flex items-center gap-1">
+                                <span>Team Blue</span>
+                                {m.winner === 'blue' && <Trophy className="w-3.5 h-3.5 text-amber-400 inline" />}
+                              </div>
+                              <div className="space-y-2">
+                                {m.teamBlue.players.map((p, idx) => (
+                                  <div key={idx} className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
+                                      <img
+                                        src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                        alt={p.name}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-sm truncate text-slate-100 flex items-center gap-1.5">
+                                        <span>{p.name}</span>
+                                        {p.type === 'guest' && (
+                                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase">Guest</span>
+                                        )}
+                                      </div>
+                                      {(p.duprId || p.duprRating) && (
+                                        <div className="flex items-center gap-1.5 text-[10px] font-mono mt-0.5 flex-wrap">
+                                          {p.duprId && (
+                                            <span className="bg-cyan-950/60 border border-cyan-800/60 px-1.5 py-0.2 rounded text-cyan-300 font-bold">
+                                              ID: {p.duprId}
+                                            </span>
+                                          )}
+                                          {p.duprRating && (
+                                            <span className="bg-amber-950/60 border border-amber-800/60 px-1.5 py-0.2 rounded text-amber-300 font-bold">
+                                              Rate: {p.duprRating}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Team Blue Score Controls */}
+                            <div className="flex items-center gap-1.5 shrink-0 bg-slate-950 border border-slate-800 p-1.5 rounded-xl self-start sm:self-center">
+                              <button
+                                type="button"
+                                disabled={m.status === 'completed'}
+                                onClick={() => updateMatchScore(m.id, 'blue', -1)}
+                                className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                                  m.status === 'completed'
+                                    ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
+                                }`}
+                              >
+                                -
+                              </button>
+                              <span className={`w-9 text-center font-mono font-black text-xl ${
+                                m.status === 'completed' ? 'text-slate-400' : 'text-blue-400'
+                              }`}>
+                                {m.teamBlue.score}
+                              </span>
+                              <button
+                                type="button"
+                                disabled={m.status === 'completed'}
+                                onClick={() => updateMatchScore(m.id, 'blue', 1)}
+                                className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                                  m.status === 'completed'
+                                    ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
+                                    : 'bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shadow-sm'
+                                }`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Footer Actions */}
+                        <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 text-xs">
+                          <div className="min-w-0">
+                            {m.status === 'completed' ? (
+                              <span className="text-brand-lime font-black text-[11px] flex items-center gap-1 truncate">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                                Completed ({m.winner === 'red' ? 'Team Red Win' : m.winner === 'blue' ? 'Team Blue Win' : 'Tie Game'})
+                              </span>
+                            ) : m.teamRed.score > m.teamBlue.score ? (
+                              <span className="text-red-400 font-bold text-[10px] uppercase tracking-wider truncate block">
+                                🔴 Red Leading ({m.teamRed.score}-{m.teamBlue.score})
+                              </span>
+                            ) : m.teamBlue.score > m.teamRed.score ? (
+                              <span className="text-blue-400 font-bold text-[10px] uppercase tracking-wider truncate block">
+                                🔵 Blue Leading ({m.teamBlue.score}-{m.teamRed.score})
+                              </span>
+                            ) : m.teamRed.score > 0 ? (
+                              <span className="text-purple-300 font-bold text-[10px] uppercase tracking-wider truncate block">
+                                🤝 Game Tied ({m.teamRed.score}-{m.teamBlue.score})
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 text-[10px] italic">Scheduled</span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {m.status !== 'completed' ? (
+                              <button
+                                type="button"
+                                onClick={() => handleCompleteMatch(m.id)}
+                                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black text-[11px] flex items-center gap-1 shadow-sm transition-all cursor-pointer hover:scale-[1.02]"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5 text-white" /> Complete
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleReopenMatch(m.id)}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-slate-700"
+                                title="Reopen match to edit score"
+                              >
+                                <RotateCcw className="w-3 h-3 text-slate-400" /> Reopen
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(m)}
+                              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
+                              title="Edit match details"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setDeletingMatch(m)}
+                              className="p-1.5 rounded-xl bg-slate-800 hover:bg-red-900/60 text-slate-400 hover:text-red-300 transition-all cursor-pointer"
+                              title="Delete match"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     ))}
-                  </select>
-                </div>
+                  </div>
+                )}
               </div>
-
-              {/* Card Body: Side-by-Side Teams (Team Red Left | VS Center | Team Blue Right) */}
-              <div className="grid grid-cols-1 md:grid-cols-11 items-center gap-3 py-1">
-                {/* Team Red (Left Side) */}
-                <div className="md:col-span-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-2xl border border-slate-800/60">
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="text-[10px] font-black uppercase text-red-400 tracking-wider flex items-center gap-1">
-                      <span>Team Red</span>
-                      {m.winner === 'red' && <Trophy className="w-3.5 h-3.5 text-amber-400 inline" />}
-                    </div>
-                    <div className="space-y-1.5">
-                      {m.teamRed.players.map((p, idx) => (
-                        <div key={idx} className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
-                            <img
-                              src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
-                              alt={p.name}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                          <span className="font-normal text-sm truncate text-slate-100">{p.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Team Red Score Controls */}
-                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-950 border border-slate-800 p-1.5 rounded-xl self-start sm:self-center">
-                    <button
-                      type="button"
-                      disabled={m.status === 'completed'}
-                      onClick={() => updateMatchScore(m.id, 'red', -1)}
-                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
-                        m.status === 'completed'
-                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
-                      }`}
-                    >
-                      -
-                    </button>
-                    <span className={`w-9 text-center font-mono font-black text-xl ${
-                      m.status === 'completed' ? 'text-slate-400' : 'text-red-400'
-                    }`}>
-                      {m.teamRed.score}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={m.status === 'completed'}
-                      onClick={() => updateMatchScore(m.id, 'red', 1)}
-                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
-                        m.status === 'completed'
-                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
-                          : 'bg-red-600 hover:bg-red-500 text-white cursor-pointer shadow-sm'
-                      }`}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* VS Divider Badge */}
-                <div className="md:col-span-1 flex flex-col items-center justify-center py-1 shrink-0">
-                  <span className="px-3 py-1.5 rounded-full bg-slate-950 border border-slate-800 text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest shadow-inner">
-                    VS
-                  </span>
-                </div>
-
-                {/* Team Blue (Right Side) */}
-                <div className="md:col-span-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/40 p-3 rounded-2xl border border-slate-800/60">
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="text-[10px] font-black uppercase text-blue-400 tracking-wider flex items-center gap-1">
-                      <span>Team Blue</span>
-                      {m.winner === 'blue' && <Trophy className="w-3.5 h-3.5 text-amber-400 inline" />}
-                    </div>
-                    <div className="space-y-1.5">
-                      {m.teamBlue.players.map((p, idx) => (
-                        <div key={idx} className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
-                            <img
-                              src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
-                              alt={p.name}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                          <span className="font-normal text-sm truncate text-slate-100">{p.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Team Blue Score Controls */}
-                  <div className="flex items-center gap-1.5 shrink-0 bg-slate-950 border border-slate-800 p-1.5 rounded-xl self-start sm:self-center">
-                    <button
-                      type="button"
-                      disabled={m.status === 'completed'}
-                      onClick={() => updateMatchScore(m.id, 'blue', -1)}
-                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
-                        m.status === 'completed'
-                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
-                      }`}
-                    >
-                      -
-                    </button>
-                    <span className={`w-9 text-center font-mono font-black text-xl ${
-                      m.status === 'completed' ? 'text-slate-400' : 'text-blue-400'
-                    }`}>
-                      {m.teamBlue.score}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={m.status === 'completed'}
-                      onClick={() => updateMatchScore(m.id, 'blue', 1)}
-                      className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
-                        m.status === 'completed'
-                          ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
-                          : 'bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shadow-sm'
-                      }`}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card Footer Actions (Status on left, Complete + Edit + Delete on right) */}
-              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 text-xs">
-                <div className="min-w-0">
-                  {m.status === 'completed' ? (
-                    <span className="text-brand-lime font-black text-[11px] flex items-center gap-1 truncate">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                      Completed ({m.winner === 'red' ? 'Team Red Win' : m.winner === 'blue' ? 'Team Blue Win' : 'Tie Game'})
-                    </span>
-                  ) : m.teamRed.score > m.teamBlue.score ? (
-                    <span className="text-red-400 font-bold text-[10px] uppercase tracking-wider truncate block">
-                      🔴 Red Leading ({m.teamRed.score}-{m.teamBlue.score})
-                    </span>
-                  ) : m.teamBlue.score > m.teamRed.score ? (
-                    <span className="text-blue-400 font-bold text-[10px] uppercase tracking-wider truncate block">
-                      🔵 Blue Leading ({m.teamBlue.score}-{m.teamRed.score})
-                    </span>
-                  ) : m.teamRed.score > 0 ? (
-                    <span className="text-purple-300 font-bold text-[10px] uppercase tracking-wider truncate block">
-                      🤝 Game Tied ({m.teamRed.score}-{m.teamBlue.score})
-                    </span>
-                  ) : (
-                    <span className="text-slate-500 text-[10px] italic">Scheduled</span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {m.status !== 'completed' ? (
-                    <button
-                      type="button"
-                      onClick={() => handleCompleteMatch(m.id)}
-                      className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black text-[11px] flex items-center gap-1 shadow-sm transition-all cursor-pointer hover:scale-[1.02]"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 text-white" /> Complete
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleReopenMatch(m.id)}
-                      className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-slate-700"
-                      title="Reopen match to edit score"
-                    >
-                      <RotateCcw className="w-3 h-3 text-slate-400" /> Reopen
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => openEditModal(m)}
-                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
-                    title="Edit match details"
-                  >
-                    <Edit2 className="w-3.5 h-3.5 text-slate-400" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setDeletingMatch(m)}
-                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-red-900/60 text-slate-400 hover:text-red-300 transition-all cursor-pointer"
-                    title="Delete match"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1684,6 +1828,17 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             </div>
 
             <div className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Game Name / Match Title</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Game 1, Match A, Court 1 Scramble"
+                  value={manualMatchName}
+                  onChange={(e) => setManualMatchName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-brand-lime"
+                />
+              </div>
+
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-slate-400 font-bold mb-1">Round #</label>
@@ -1692,7 +1847,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     min={1}
                     value={manualRound}
                     onChange={(e) => setManualRound(parseInt(e.target.value, 10) || 1)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-brand-lime"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-brand-lime font-mono"
                   />
                 </div>
 
@@ -1735,10 +1890,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   <div className="font-extrabold text-red-400 text-xs">
                     Team Red Players ({selectedRedPlayers.length} / {manualGameType === 'doubles' ? 2 : 1})
                   </div>
-                  <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
                     {rosterPool.map((p) => {
                       const isRed = selectedRedPlayers.includes(p.id);
                       const isBlue = selectedBluePlayers.includes(p.id);
+                      const effectiveDupr = p.adminDuprId || p.duprId;
+                      const effectiveRating = p.adminDuprRating || p.duprRating;
+
                       return (
                         <button
                           key={p.id}
@@ -1753,7 +1911,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               setSelectedRedPlayers([...selectedRedPlayers, p.id]);
                             }
                           }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-xs font-semibold transition-all ${
+                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between text-xs font-semibold transition-all ${
                             isRed
                               ? 'bg-red-600 text-white border-red-500'
                               : isBlue
@@ -1761,8 +1919,22 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                           }`}
                         >
-                          <span className="truncate">{p.name}</span>
-                          {isRed && <Check className="w-3.5 h-3.5 text-white" />}
+                          <div className="min-w-0 pr-2">
+                            <div className="truncate flex items-center gap-1.5">
+                              <span className="truncate">{p.name}</span>
+                              {p.type === 'guest' && (
+                                <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
+                              )}
+                            </div>
+                            {(effectiveDupr || effectiveRating) && (
+                              <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
+                                {effectiveDupr && <span>ID: {effectiveDupr}</span>}
+                                {effectiveDupr && effectiveRating && <span> • </span>}
+                                {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                              </div>
+                            )}
+                          </div>
+                          {isRed && <Check className="w-4 h-4 text-white shrink-0" />}
                         </button>
                       );
                     })}
@@ -1774,10 +1946,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   <div className="font-extrabold text-blue-400 text-xs">
                     Team Blue Players ({selectedBluePlayers.length} / {manualGameType === 'doubles' ? 2 : 1})
                   </div>
-                  <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+                  <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1">
                     {rosterPool.map((p) => {
                       const isRed = selectedRedPlayers.includes(p.id);
                       const isBlue = selectedBluePlayers.includes(p.id);
+                      const effectiveDupr = p.adminDuprId || p.duprId;
+                      const effectiveRating = p.adminDuprRating || p.duprRating;
+
                       return (
                         <button
                           key={p.id}
@@ -1792,7 +1967,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               setSelectedBluePlayers([...selectedBluePlayers, p.id]);
                             }
                           }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-xl border flex items-center justify-between text-xs font-semibold transition-all ${
+                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between text-xs font-semibold transition-all ${
                             isBlue
                               ? 'bg-blue-600 text-white border-blue-500'
                               : isRed
@@ -1800,8 +1975,22 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
                           }`}
                         >
-                          <span className="truncate">{p.name}</span>
-                          {isBlue && <Check className="w-3.5 h-3.5 text-white" />}
+                          <div className="min-w-0 pr-2">
+                            <div className="truncate flex items-center gap-1.5">
+                              <span className="truncate">{p.name}</span>
+                              {p.type === 'guest' && (
+                                <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
+                              )}
+                            </div>
+                            {(effectiveDupr || effectiveRating) && (
+                              <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
+                                {effectiveDupr && <span>ID: {effectiveDupr}</span>}
+                                {effectiveDupr && effectiveRating && <span> • </span>}
+                                {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                              </div>
+                            )}
+                          </div>
+                          {isBlue && <Check className="w-4 h-4 text-white shrink-0" />}
                         </button>
                       );
                     })}
