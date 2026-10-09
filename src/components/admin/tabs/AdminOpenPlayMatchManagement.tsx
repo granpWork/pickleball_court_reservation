@@ -894,6 +894,17 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       (r) => r.eventId === event.id && r.status !== 'cancelled' && r.status !== 'waitlisted'
     );
 
+    let attendanceMap: Record<string, any> = {};
+    try {
+      const savedAtt = localStorage.getItem('picklepoint_openplay_attendance');
+      if (savedAtt) attendanceMap = JSON.parse(savedAtt);
+    } catch (e) {}
+
+    const isAbsentInAttendance = (id: string) => {
+      const val = attendanceMap[id];
+      return val === 'absent';
+    };
+
     const initialPool: OpenPlayMatchRosterItem[] = [];
 
     eventRegs.forEach((reg) => {
@@ -909,15 +920,17 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const duprRating = reg.duprRating || (reg as any).user?.duprRating || '';
       const adminDuprRating = reg.adminDuprRating || '';
 
+      const pId = `${reg.id}-primary`;
+
       if (!isAddGuestOnly) {
         initialPool.push({
-          id: `${reg.id}-primary`,
+          id: pId,
           name: primaryName,
           email: primaryEmail,
           phone: primaryPhone,
           photoUrl: primaryPhoto,
           type: 'primary',
-          status: 'active',
+          status: isAbsentInAttendance(pId) ? 'absent' : 'active',
           skillLevel: event.skillLevel || 'Intermediate',
           duprId,
           adminDuprId,
@@ -935,14 +948,15 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       for (let gIdx = 0; gIdx < numGuests; gIdx++) {
         const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
         const gEmail = reg.guests?.[gIdx]?.email || reg.guestEmails?.[gIdx] || '';
+        const gId = `${reg.id}-guest-${gIdx}`;
         initialPool.push({
-          id: `${reg.id}-guest-${gIdx}`,
+          id: gId,
           name: gName,
           email: gEmail,
           phone: primaryPhone,
           photoUrl: (reg.guests?.[gIdx] as any)?.photoUrl || primaryPhoto,
           type: 'guest',
-          status: 'active',
+          status: isAbsentInAttendance(gId) ? 'absent' : 'active',
           skillLevel: event.skillLevel || 'Intermediate',
           duprId: (reg.guests?.[gIdx] as any)?.duprId || '',
           adminDuprId: (reg.guests?.[gIdx] as any)?.adminDuprId || '',

@@ -147,8 +147,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   const [isDispatchingEmails, setIsDispatchingEmails] = useState<boolean>(false);
   const [dispatchStatusToast, setDispatchStatusToast] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
 
-  // Persistent Attendance Map from localStorage
-  const [attendanceMap, setAttendanceMap] = useState<Record<string, boolean>>(() => {
+  // Persistent Attendance Map from localStorage (supports boolean or 'present' | 'absent' | 'unmarked')
+  const [attendanceMap, setAttendanceMap] = useState<Record<string, boolean | 'present' | 'absent' | 'unmarked'>>(() => {
     try {
       const saved = localStorage.getItem('picklepoint_openplay_attendance');
       return saved ? JSON.parse(saved) : {};
@@ -158,9 +158,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     }
   });
 
-  const toggleAttendance = (attendeeId: string) => {
+  const getAttendanceStatus = (attendeeId: string): 'present' | 'absent' | 'unmarked' => {
+    const val = attendanceMap[attendeeId];
+    if (val === true || val === 'present') return 'present';
+    if (val === 'absent') return 'absent';
+    return 'unmarked';
+  };
+
+  const setAttendeeAttendanceStatus = (attendeeId: string, status: 'present' | 'absent' | 'unmarked') => {
     setAttendanceMap((prev) => {
-      const updated = { ...prev, [attendeeId]: !prev[attendeeId] };
+      const updated = { ...prev, [attendeeId]: status };
       try {
         localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(updated));
       } catch (err) {
@@ -170,11 +177,20 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     });
   };
 
+  const toggleAttendance = (attendeeId: string) => {
+    const current = getAttendanceStatus(attendeeId);
+    let next: 'present' | 'absent' | 'unmarked' = 'present';
+    if (current === 'unmarked') next = 'present';
+    else if (current === 'present') next = 'absent';
+    else next = 'unmarked';
+    setAttendeeAttendanceStatus(attendeeId, next);
+  };
+
   const markAllAttendeesPresent = (attendeeIds: string[]) => {
     setAttendanceMap((prev) => {
       const updated = { ...prev };
       attendeeIds.forEach((id) => {
-        updated[id] = true;
+        updated[id] = 'present';
       });
       try {
         localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(updated));
@@ -189,7 +205,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     setAttendanceMap((prev) => {
       const updated = { ...prev };
       attendeeIds.forEach((id) => {
-        updated[id] = false;
+        updated[id] = 'unmarked';
       });
       try {
         localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(updated));
@@ -813,12 +829,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   // KPI Calculations
   const maxCapacity = event.maxParticipants || 16;
   const totalHeadcount = allAttendees.length;
-  const isFull = totalHeadcount >= maxCapacity;
+  const absentAttendeesCount = allAttendees.filter((a) => getAttendanceStatus(a.id) === 'absent').length;
+  const activeHeadcount = totalHeadcount - absentAttendeesCount;
+  const hasAbsentPlayer = absentAttendeesCount > 0;
+  const isFull = totalHeadcount >= maxCapacity && activeHeadcount >= maxCapacity && !hasAbsentPlayer;
+  const isAddPlayerDisabled = isEventExpired || event.status === 'expired' || (isFull && !hasAbsentPlayer);
   const primaryCount = allAttendees.filter((a) => a.type === 'primary').length;
   const guestCount = allAttendees.filter((a) => a.type === 'guest').length;
   const approvedHeadcount = allAttendees.filter((a) => a.status === 'approved' || a.paymentStatus === 'paid').length;
   const pendingHeadcount = allAttendees.filter((a) => a.paymentStatus === 'pending_verification' || a.status === 'pending').length;
-  const attendedCount = allAttendees.filter((a) => attendanceMap[a.id]).length;
+  const attendedCount = allAttendees.filter((a) => getAttendanceStatus(a.id) === 'present').length;
   const attendancePercent = totalHeadcount > 0 ? Math.round((attendedCount / totalHeadcount) * 100) : 0;
   const feePerPlayer = event.registrationFee || 0;
   const totalGrossRevenue = approvedHeadcount * feePerPlayer;
@@ -1648,23 +1668,32 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             {onOpenManualBookingModal && (
               <button
                 type="button"
-                disabled={isEventExpired || event.status === 'expired' || isFull}
+                disabled={isAddPlayerDisabled}
                 onClick={() => onOpenManualBookingModal(event)}
-                className={`px-3.5 py-2 rounded-xl transition-all font-normal text-xs flex items-center gap-1.5 ${
-                  isEventExpired || event.status === 'expired' || isFull
+                className={`px-3.5 py-2 rounded-xl transition-all font-bold text-xs flex items-center gap-1.5 ${
+                  isAddPlayerDisabled
                     ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
+                    : hasAbsentPlayer
+                    ? 'bg-amber-400 hover:bg-amber-300 text-dark-bg font-extrabold shadow-lg ring-2 ring-amber-300/60 animate-pulse cursor-pointer'
                     : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-md'
                 }`}
                 title={
                   isEventExpired || event.status === 'expired'
                     ? "Cannot add player to an expired event session"
-                    : isFull
+                    : isAddPlayerDisabled
                       ? "This Open Play session is fully booked"
-                      : "Manually add walk-in or cash player registration"
+                      : hasAbsentPlayer
+                        ? `Replacement Adder Enabled (${absentAttendeesCount} player(s) marked Absent)`
+                        : "Manually add walk-in or cash player registration"
                 }
               >
-                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' || isFull ? 'text-slate-500' : 'text-dark-bg'}`} />
+                <UserPlus className={`w-4 h-4 ${isAddPlayerDisabled ? 'text-slate-500' : 'text-dark-bg'}`} />
                 <span>+ Add Player (Manual)</span>
+                {hasAbsentPlayer && (
+                  <span className="ml-1 px-1.5 py-0.5 rounded bg-dark-bg/20 text-dark-bg text-[10px] font-black uppercase">
+                    Replacement Ready
+                  </span>
+                )}
               </button>
             )}
 
@@ -2041,27 +2070,56 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                           </button>
                         </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => toggleAttendance(att.id)}
-                          className={`w-full py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
-                            attendanceMap[att.id]
-                              ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
-                              : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
-                          }`}
-                        >
-                          {attendanceMap[att.id] ? (
-                            <>
-                              <CheckCircle2 className="w-4 h-4 text-dark-bg" />
-                              <span>🟢 PRESENT</span>
-                            </>
+                        <div className="flex items-center gap-1.5 w-full">
+                          <button
+                            type="button"
+                            onClick={() => toggleAttendance(att.id)}
+                            className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md ${
+                              getAttendanceStatus(att.id) === 'present'
+                                ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
+                                : getAttendanceStatus(att.id) === 'absent'
+                                ? 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500 hover:text-white'
+                                : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
+                            }`}
+                            title="Click to cycle status: MARK PRESENT -> 🟢 PRESENT -> 🔴 ABSENT"
+                          >
+                            {getAttendanceStatus(att.id) === 'present' ? (
+                              <>
+                                <CheckCircle2 className="w-4 h-4 text-dark-bg" />
+                                <span>🟢 PRESENT</span>
+                              </>
+                            ) : getAttendanceStatus(att.id) === 'absent' ? (
+                              <>
+                                <X className="w-4 h-4 text-red-400" />
+                                <span>🔴 ABSENT</span>
+                              </>
+                            ) : (
+                              <>
+                                <UserCheck className="w-4 h-4 text-slate-400" />
+                                <span>MARK PRESENT</span>
+                              </>
+                            )}
+                          </button>
+                          {getAttendanceStatus(att.id) !== 'absent' ? (
+                            <button
+                              type="button"
+                              onClick={() => setAttendeeAttendanceStatus(att.id, 'absent')}
+                              className="px-2.5 py-2 rounded-xl bg-red-950/40 border border-red-800/60 hover:bg-red-900 text-red-300 text-[10px] font-extrabold uppercase transition-all cursor-pointer shrink-0"
+                              title="Mark player as Absent / Canceled to enable replacement player adder"
+                            >
+                              🔴 Mark Absent
+                            </button>
                           ) : (
-                            <>
-                              <UserCheck className="w-4 h-4 text-slate-400" />
-                              <span>MARK PRESENT</span>
-                            </>
+                            <button
+                              type="button"
+                              onClick={() => setAttendeeAttendanceStatus(att.id, 'present')}
+                              className="px-2.5 py-2 rounded-xl bg-brand-lime/20 border border-brand-lime/40 hover:bg-brand-lime hover:text-dark-bg text-brand-lime text-[10px] font-extrabold uppercase transition-all cursor-pointer shrink-0"
+                              title="Mark player as Present"
+                            >
+                              🟢 Mark Present
+                            </button>
                           )}
-                        </button>
+                        </div>
                       )}
 
                       {att.gcashReferenceNumber && (
@@ -2168,20 +2226,27 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2.5 self-end sm:self-auto">
+                  <div className="flex items-center gap-1.5 self-end sm:self-auto">
                     <button
                       type="button"
                       onClick={() => toggleAttendance(att.id)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
-                        attendanceMap[att.id]
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
+                        getAttendanceStatus(att.id) === 'present'
                           ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
+                          : getAttendanceStatus(att.id) === 'absent'
+                          ? 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500 hover:text-white'
                           : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
                       }`}
                     >
-                      {attendanceMap[att.id] ? (
+                      {getAttendanceStatus(att.id) === 'present' ? (
                         <>
                           <CheckCircle2 className="w-4 h-4 text-dark-bg" />
                           <span>🟢 PRESENT</span>
+                        </>
+                      ) : getAttendanceStatus(att.id) === 'absent' ? (
+                        <>
+                          <X className="w-4 h-4 text-red-400" />
+                          <span>🔴 ABSENT</span>
                         </>
                       ) : (
                         <>
@@ -2190,6 +2255,25 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         </>
                       )}
                     </button>
+                    {getAttendanceStatus(att.id) !== 'absent' ? (
+                      <button
+                        type="button"
+                        onClick={() => setAttendeeAttendanceStatus(att.id, 'absent')}
+                        className="px-2 py-1.5 rounded-xl bg-red-950/40 border border-red-800/60 hover:bg-red-900 text-red-300 text-[10px] font-extrabold uppercase transition-all cursor-pointer shrink-0"
+                        title="Mark player as Absent / Canceled"
+                      >
+                        🔴 Absent
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setAttendeeAttendanceStatus(att.id, 'present')}
+                        className="px-2 py-1.5 rounded-xl bg-brand-lime/20 border border-brand-lime/40 hover:bg-brand-lime hover:text-dark-bg text-brand-lime text-[10px] font-extrabold uppercase transition-all cursor-pointer shrink-0"
+                        title="Mark player as Present"
+                      >
+                        🟢 Present
+                      </button>
+                    )}
 
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase border ${
                       att.status === 'approved' || att.paymentStatus === 'paid'
@@ -2354,37 +2438,65 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                             )}
                           </td>
                           <td className="py-3.5 px-4 text-center">
-                            <button
-                              type="button"
-                              onClick={() => toggleAttendance(att.id)}
-                              className={`px-3.5 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
-                                attendanceMap[att.id]
-                                  ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
-                                  : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
-                              }`}
-                            >
-                              {attendanceMap[att.id] ? (
-                                <>
-                                  <CheckCircle2 className="w-4 h-4 text-dark-bg" />
-                                  <span>🟢 PRESENT</span>
-                                </>
-                              ) : (
-                                <>
-                                  <UserCheck className="w-4 h-4 text-slate-400" />
-                                  <span>MARK PRESENT</span>
-                                </>
-                              )}
-                            </button>
-                            {att.type === 'guest' && (
+                            <div className="inline-flex items-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => setGuestToDelete(att)}
-                                className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/30 transition-all cursor-pointer ml-2"
-                                title="Delete Guest from Roster"
+                                onClick={() => toggleAttendance(att.id)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-sm ${
+                                  getAttendanceStatus(att.id) === 'present'
+                                    ? 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] ring-2 ring-brand-lime/40'
+                                    : getAttendanceStatus(att.id) === 'absent'
+                                    ? 'bg-red-500/20 border border-red-500/50 text-red-300 hover:bg-red-500 hover:text-white'
+                                    : 'bg-slate-900 border border-slate-700 text-slate-300 hover:border-brand-lime hover:text-white'
+                                }`}
                               >
-                                <Trash2 className="w-3.5 h-3.5 inline" />
+                                {getAttendanceStatus(att.id) === 'present' ? (
+                                  <>
+                                    <CheckCircle2 className="w-4 h-4 text-dark-bg" />
+                                    <span>🟢 PRESENT</span>
+                                  </>
+                                ) : getAttendanceStatus(att.id) === 'absent' ? (
+                                  <>
+                                    <X className="w-4 h-4 text-red-400" />
+                                    <span>🔴 ABSENT</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <UserCheck className="w-4 h-4 text-slate-400" />
+                                    <span>MARK PRESENT</span>
+                                  </>
+                                )}
                               </button>
-                            )}
+                              {getAttendanceStatus(att.id) !== 'absent' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendeeAttendanceStatus(att.id, 'absent')}
+                                  className="px-2 py-1 rounded-xl bg-red-950/40 border border-red-800/60 hover:bg-red-900 text-red-300 text-[10px] font-extrabold uppercase transition-all cursor-pointer shrink-0"
+                                  title="Mark player as Absent / Canceled"
+                                >
+                                  🔴 Absent
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendeeAttendanceStatus(att.id, 'present')}
+                                  className="px-2 py-1 rounded-xl bg-brand-lime/20 border border-brand-lime/40 hover:bg-brand-lime hover:text-dark-bg text-brand-lime text-[10px] font-extrabold uppercase transition-all cursor-pointer shrink-0"
+                                  title="Mark player as Present"
+                                >
+                                  🟢 Present
+                                </button>
+                              )}
+                              {att.type === 'guest' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setGuestToDelete(att)}
+                                  className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/30 text-red-400 border border-red-500/30 transition-all cursor-pointer"
+                                  title="Delete Guest from Roster"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 inline" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
