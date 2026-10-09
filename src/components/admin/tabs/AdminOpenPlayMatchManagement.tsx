@@ -164,6 +164,22 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [manualTargetPoints, setManualTargetPoints] = useState<number>(11);
   const [selectedRedPlayers, setSelectedRedPlayers] = useState<string[]>([]);
   const [selectedBluePlayers, setSelectedBluePlayers] = useState<string[]>([]);
+  const [playerSearchQuery, setPlayerSearchQuery] = useState<string>('');
+
+  // Filtered Roster Players for Manual Match Creator / Editor Modal
+  const filteredRosterPlayers = useMemo(() => {
+    const q = playerSearchQuery.trim().toLowerCase();
+    return rosterPool.filter((p) => {
+      if (p.status === 'absent') return false;
+      if (!q) return true;
+
+      const nameMatch = p.name.toLowerCase().includes(q);
+      const duprIdMatch = (p.adminDuprId || p.duprId || '').toLowerCase().includes(q);
+      const ratingMatch = String(p.adminDuprRating || p.duprRating || '').toLowerCase().includes(q);
+
+      return nameMatch || duprIdMatch || ratingMatch;
+    });
+  }, [rosterPool, playerSearchQuery]);
 
   // Created rounds state
   const [createdRounds, setCreatedRounds] = useState<number[]>([]);
@@ -193,6 +209,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setManualTargetPoints(11);
     setSelectedRedPlayers([]);
     setSelectedBluePlayers([]);
+    setPlayerSearchQuery('');
     setIsManualModalOpen(true);
   };
 
@@ -1579,6 +1596,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setManualMatchName('');
     setSelectedRedPlayers([]);
     setSelectedBluePlayers([]);
+    setPlayerSearchQuery('');
   };
 
   // Open Edit Modal
@@ -1591,6 +1609,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setManualTargetPoints(match.targetPoints);
     setSelectedRedPlayers(match.teamRed.players.map((p) => p.id));
     setSelectedBluePlayers(match.teamBlue.players.map((p) => p.id));
+    setPlayerSearchQuery('');
     setIsManualModalOpen(true);
   };
 
@@ -3277,6 +3296,30 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 </div>
               </div>
 
+              {/* Player Search Bar */}
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Search Roster Player</label>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search player name, DUPR rating (e.g. 3.8), or DUPR ID..."
+                    value={playerSearchQuery}
+                    onChange={(e) => setPlayerSearchQuery(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-white font-semibold text-xs focus:outline-none focus:border-brand-lime"
+                  />
+                  {playerSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPlayerSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded-lg"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Player Selection Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Team Red Selection */}
@@ -3288,63 +3331,69 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     </span>
                   </div>
                   <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                    {rosterPool.filter((p) => p.status !== 'absent').map((p) => {
-                      const isRed = selectedRedPlayers.includes(p.id);
-                      const isBlue = selectedBluePlayers.includes(p.id);
-                      const effectiveDupr = p.adminDuprId || p.duprId;
-                      const effectiveRating = p.adminDuprRating || p.duprRating;
+                    {filteredRosterPlayers.length === 0 ? (
+                      <div className="text-center py-6 text-slate-500 text-xs italic">
+                        No players matching "{playerSearchQuery}"
+                      </div>
+                    ) : (
+                      filteredRosterPlayers.map((p) => {
+                        const isRed = selectedRedPlayers.includes(p.id);
+                        const isBlue = selectedBluePlayers.includes(p.id);
+                        const effectiveDupr = p.adminDuprId || p.duprId;
+                        const effectiveRating = p.adminDuprRating || p.duprRating;
 
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          disabled={isBlue}
-                          onClick={() => {
-                            if (isRed) {
-                              setSelectedRedPlayers(selectedRedPlayers.filter((id) => id !== p.id));
-                            } else {
-                              const limit = manualGameType === 'doubles' ? 2 : 1;
-                              if (selectedRedPlayers.length >= limit) return;
-                              setSelectedRedPlayers([...selectedRedPlayers, p.id]);
-                            }
-                          }}
-                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all ${
-                            isRed
-                              ? 'bg-red-600 text-white border-red-500 shadow-md'
-                              : isBlue
-                              ? 'opacity-30 cursor-not-allowed bg-slate-900 border-slate-800'
-                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            {/* Profile Picture Avatar */}
-                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
-                              <img
-                                src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
-                                alt={p.name}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate flex items-center gap-1.5">
-                                <span className="truncate font-extrabold">{p.name}</span>
-                                {p.type === 'guest' && (
-                                  <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={isBlue}
+                            onClick={() => {
+                              if (isRed) {
+                                setSelectedRedPlayers(selectedRedPlayers.filter((id) => id !== p.id));
+                              } else {
+                                const limit = manualGameType === 'doubles' ? 2 : 1;
+                                if (selectedRedPlayers.length >= limit) return;
+                                setSelectedRedPlayers([...selectedRedPlayers, p.id]);
+                              }
+                            }}
+                            className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all ${
+                              isRed
+                                ? 'bg-red-600 text-white border-red-500 shadow-md'
+                                : isBlue
+                                ? 'opacity-30 cursor-not-allowed bg-slate-900 border-slate-800'
+                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* Profile Picture Avatar */}
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
+                                <img
+                                  src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                  alt={p.name}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate flex items-center gap-1.5">
+                                  <span className="truncate font-extrabold">{p.name}</span>
+                                  {p.type === 'guest' && (
+                                    <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
+                                  )}
+                                </div>
+                                {(effectiveDupr || effectiveRating) && (
+                                  <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
+                                    {effectiveDupr && <span>ID: {effectiveDupr}</span>}
+                                    {effectiveDupr && effectiveRating && <span> • </span>}
+                                    {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                                  </div>
                                 )}
                               </div>
-                              {(effectiveDupr || effectiveRating) && (
-                                <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
-                                  {effectiveDupr && <span>ID: {effectiveDupr}</span>}
-                                  {effectiveDupr && effectiveRating && <span> • </span>}
-                                  {effectiveRating && <span>Rate: {effectiveRating}</span>}
-                                </div>
-                              )}
                             </div>
-                          </div>
-                          {isRed && <Check className="w-4 h-4 text-white shrink-0" />}
-                        </button>
-                      );
-                    })}
+                            {isRed && <Check className="w-4 h-4 text-white shrink-0" />}
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 
@@ -3357,63 +3406,69 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     </span>
                   </div>
                   <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                    {rosterPool.filter((p) => p.status !== 'absent').map((p) => {
-                      const isRed = selectedRedPlayers.includes(p.id);
-                      const isBlue = selectedBluePlayers.includes(p.id);
-                      const effectiveDupr = p.adminDuprId || p.duprId;
-                      const effectiveRating = p.adminDuprRating || p.duprRating;
+                    {filteredRosterPlayers.length === 0 ? (
+                      <div className="text-center py-6 text-slate-500 text-xs italic">
+                        No players matching "{playerSearchQuery}"
+                      </div>
+                    ) : (
+                      filteredRosterPlayers.map((p) => {
+                        const isRed = selectedRedPlayers.includes(p.id);
+                        const isBlue = selectedBluePlayers.includes(p.id);
+                        const effectiveDupr = p.adminDuprId || p.duprId;
+                        const effectiveRating = p.adminDuprRating || p.duprRating;
 
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          disabled={isRed}
-                          onClick={() => {
-                            if (isBlue) {
-                              setSelectedBluePlayers(selectedBluePlayers.filter((id) => id !== p.id));
-                            } else {
-                              const limit = manualGameType === 'doubles' ? 2 : 1;
-                              if (selectedBluePlayers.length >= limit) return;
-                              setSelectedBluePlayers([...selectedBluePlayers, p.id]);
-                            }
-                          }}
-                          className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all ${
-                            isBlue
-                              ? 'bg-blue-600 text-white border-blue-500 shadow-md'
-                              : isRed
-                              ? 'opacity-30 cursor-not-allowed bg-slate-900 border-slate-800'
-                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                            {/* Profile Picture Avatar */}
-                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
-                              <img
-                                src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
-                                alt={p.name}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate flex items-center gap-1.5">
-                                <span className="truncate font-extrabold">{p.name}</span>
-                              {p.type === 'guest' && (
-                                <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
-                              )}
-                            </div>
-                            {(effectiveDupr || effectiveRating) && (
-                              <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
-                                {effectiveDupr && <span>ID: {effectiveDupr}</span>}
-                                {effectiveDupr && effectiveRating && <span> • </span>}
-                                {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={isRed}
+                            onClick={() => {
+                              if (isBlue) {
+                                setSelectedBluePlayers(selectedBluePlayers.filter((id) => id !== p.id));
+                              } else {
+                                const limit = manualGameType === 'doubles' ? 2 : 1;
+                                if (selectedBluePlayers.length >= limit) return;
+                                setSelectedBluePlayers([...selectedBluePlayers, p.id]);
+                              }
+                            }}
+                            className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all ${
+                              isBlue
+                                ? 'bg-blue-600 text-white border-blue-500 shadow-md'
+                                : isRed
+                                ? 'opacity-30 cursor-not-allowed bg-slate-900 border-slate-800'
+                                : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              {/* Profile Picture Avatar */}
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
+                                <img
+                                  src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                  alt={p.name}
+                                  className="w-full h-full object-cover"
+                                />
                               </div>
-                            )}
-                          </div>
-                        </div>
-                        {isBlue && <Check className="w-4 h-4 text-white shrink-0" />}
-                        </button>
-                      );
-                    })}
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate flex items-center gap-1.5">
+                                  <span className="truncate font-extrabold">{p.name}</span>
+                                  {p.type === 'guest' && (
+                                    <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">Guest</span>
+                                  )}
+                                </div>
+                                {(effectiveDupr || effectiveRating) && (
+                                  <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
+                                    {effectiveDupr && <span>ID: {effectiveDupr}</span>}
+                                    {effectiveDupr && effectiveRating && <span> • </span>}
+                                    {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {isBlue && <Check className="w-4 h-4 text-white shrink-0" />}
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               </div>
