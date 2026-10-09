@@ -230,6 +230,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [activeView, setActiveView] = useState<'matrix' | 'leaderboard'>('matrix');
   const [leaderboardSortField, setLeaderboardSortField] = useState<'wins' | 'winRate' | 'pointDiff' | 'pointsScored' | 'matches'>('wins');
   const [leaderboardSearch, setLeaderboardSearch] = useState<string>('');
+  const [expandedLeaderboardPlayerId, setExpandedLeaderboardPlayerId] = useState<string | null>(null);
 
   const openGenerateResultsModal = (targetRound?: number | 'all') => {
     const roundToUse = targetRound !== undefined ? targetRound : (allActiveRounds[0] || 1);
@@ -2117,14 +2118,14 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-900 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="p-3.5 text-center w-16">Rank</th>
+                  <th className="p-3.5 text-center w-14">Rank</th>
                   <th className="p-3.5">Player Name & Info</th>
                   <th className="p-3.5 text-center">Played</th>
                   <th className="p-3.5 text-center">Record (W-L-T)</th>
                   <th className="p-3.5 text-center">Win Rate</th>
-                  <th className="p-3.5 text-center">Points Scored</th>
-                  <th className="p-3.5 text-center">Points Conceded</th>
                   <th className="p-3.5 text-center">Point Diff</th>
+                  <th className="p-3.5">Game History & Match Results</th>
+                  <th className="p-3.5 text-center w-24">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -2140,73 +2141,254 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     const isTop1 = rankNum === 1;
                     const isTop2 = rankNum === 2;
                     const isTop3 = rankNum === 3;
+                    const isExpanded = expandedLeaderboardPlayerId === stat.playerId;
+
+                    const playerMatches = matches.filter((m) => {
+                      const isRed = m.teamRed.players.some((p) => (p.id && p.id === stat.playerId) || (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase()));
+                      const isBlue = m.teamBlue.players.some((p) => (p.id && p.id === stat.playerId) || (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase()));
+                      return isRed || isBlue;
+                    });
 
                     return (
-                      <tr
-                        key={stat.playerId}
-                        className={`hover:bg-slate-800/40 transition-colors ${
-                          isTop1 ? 'bg-amber-950/20' : isTop2 ? 'bg-slate-800/20' : isTop3 ? 'bg-amber-950/10' : ''
-                        }`}
-                      >
-                        <td className="p-3.5 text-center font-black">
-                          {isTop1 ? (
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-dark-bg font-black text-xs shadow-md">
-                              🥇
-                            </span>
-                          ) : isTop2 ? (
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-300 text-dark-bg font-black text-xs shadow-md">
-                              🥈
-                            </span>
-                          ) : isTop3 ? (
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-700 text-white font-black text-xs shadow-md">
-                              🥉
-                            </span>
-                          ) : (
-                            <span className="font-mono text-slate-400 text-xs">#{rankNum}</span>
-                          )}
-                        </td>
-                        <td className="p-3.5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
-                              <img
-                                src={`https://robohash.org/${encodeURIComponent(stat.playerName)}?set=set4`}
-                                alt={stat.playerName}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <div>
-                              <div className="font-bold text-white flex items-center gap-2">
-                                <span>{stat.playerName}</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 font-mono capitalize">
-                                  {stat.playerType}
-                                </span>
+                      <React.Fragment key={stat.playerId}>
+                        <tr
+                          onClick={() => setExpandedLeaderboardPlayerId(isExpanded ? null : stat.playerId)}
+                          className={`hover:bg-slate-800/40 transition-colors cursor-pointer select-none ${
+                            isTop1 ? 'bg-amber-950/20' : isTop2 ? 'bg-slate-800/20' : isTop3 ? 'bg-amber-950/10' : ''
+                          } ${isExpanded ? 'bg-purple-950/20 border-l-4 border-l-brand-lime' : ''}`}
+                        >
+                          <td className="p-3.5 text-center font-black">
+                            {isTop1 ? (
+                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-dark-bg font-black text-xs shadow-md">
+                                🥇
+                              </span>
+                            ) : isTop2 ? (
+                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-300 text-dark-bg font-black text-xs shadow-md">
+                                🥈
+                              </span>
+                            ) : isTop3 ? (
+                              <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-700 text-white font-black text-xs shadow-md">
+                                🥉
+                              </span>
+                            ) : (
+                              <span className="font-mono text-slate-400 text-xs">#{rankNum}</span>
+                            )}
+                          </td>
+                          <td className="p-3.5">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
+                                <img
+                                  src={`https://robohash.org/${encodeURIComponent(stat.playerName)}?set=set4`}
+                                  alt={stat.playerName}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div>
+                                <div className="font-bold text-white flex items-center gap-2">
+                                  <span>{stat.playerName}</span>
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 font-mono capitalize">
+                                    {stat.playerType}
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
-                        <td className="p-3.5 text-center font-mono text-slate-300 font-bold">
-                          {stat.completedMatches} / {stat.totalMatches}
-                        </td>
-                        <td className="p-3.5 text-center font-mono font-black">
-                          <span className="text-brand-lime">{stat.wins}W</span> - <span className="text-red-400">{stat.losses}L</span> {stat.ties > 0 && <span className="text-slate-400">({stat.ties}T)</span>}
-                        </td>
-                        <td className="p-3.5 text-center font-mono font-bold">
-                          <span className={stat.winRate >= 50 ? 'text-brand-lime font-black' : 'text-slate-400'}>
-                            {stat.winRate}%
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-center font-mono text-slate-200">
-                          {stat.pointsScored}
-                        </td>
-                        <td className="p-3.5 text-center font-mono text-slate-400">
-                          {stat.pointsConceded}
-                        </td>
-                        <td className="p-3.5 text-center font-mono font-black text-sm">
-                          <span className={stat.pointDiff > 0 ? 'text-brand-lime font-bold' : stat.pointDiff < 0 ? 'text-red-400' : 'text-slate-400'}>
-                            {stat.pointDiff >= 0 ? `+${stat.pointDiff}` : stat.pointDiff}
-                          </span>
-                        </td>
-                      </tr>
+                          </td>
+                          <td className="p-3.5 text-center font-mono text-slate-300 font-bold">
+                            {stat.completedMatches} / {stat.totalMatches}
+                          </td>
+                          <td className="p-3.5 text-center font-mono font-black">
+                            <span className="text-brand-lime">{stat.wins}W</span> - <span className="text-red-400">{stat.losses}L</span> {stat.ties > 0 && <span className="text-slate-400">({stat.ties}T)</span>}
+                          </td>
+                          <td className="p-3.5 text-center font-mono font-bold">
+                            <span className={stat.winRate >= 50 ? 'text-brand-lime font-black' : 'text-slate-400'}>
+                              {stat.winRate}%
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-center font-mono font-black text-sm">
+                            <span className={stat.pointDiff > 0 ? 'text-brand-lime font-bold' : stat.pointDiff < 0 ? 'text-red-400' : 'text-slate-400'}>
+                              {stat.pointDiff >= 0 ? `+${stat.pointDiff}` : stat.pointDiff}
+                            </span>
+                          </td>
+
+                          {/* Game History Pills Column */}
+                          <td className="p-3.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {playerMatches.length === 0 ? (
+                                <span className="text-slate-500 italic text-[11px]">No games assigned</span>
+                              ) : (
+                                playerMatches.map((m) => {
+                                  const isRed = m.teamRed.players.some((p) => (p.id && p.id === stat.playerId) || (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase()));
+                                  const myTeam = isRed ? m.teamRed : m.teamBlue;
+                                  const oppTeam = isRed ? m.teamBlue : m.teamRed;
+                                  const partnerName = myTeam.players.filter((p) => (p.id && p.id !== stat.playerId) || (p.name && p.name.trim().toLowerCase() !== stat.playerName.trim().toLowerCase())).map((p) => p.name).join(', ');
+                                  const oppNames = oppTeam.players.map((p) => p.name).join(' & ');
+                                  const isWin = m.status === 'completed' && ((isRed && m.winner === 'red') || (!isRed && m.winner === 'blue'));
+                                  const isLoss = m.status === 'completed' && ((isRed && m.winner === 'blue') || (!isRed && m.winner === 'red'));
+                                  const isTie = m.status === 'completed' && m.winner === 'tie';
+
+                                  const tooltipText = `${m.matchName || `Game ${m.round}`} (${getRoundTitle(m.round)} • ${m.courtName})\nPartner: ${partnerName || 'None (Singles)'}\nOpponents: ${oppNames || 'N/A'}\nScore: ${myTeam.score} - ${oppTeam.score}`;
+
+                                  return (
+                                    <span
+                                      key={m.id}
+                                      title={tooltipText}
+                                      className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-black border transition-all cursor-help flex items-center gap-1 ${
+                                        isWin
+                                          ? 'bg-brand-lime/15 border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg'
+                                          : isLoss
+                                          ? 'bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white'
+                                          : isTie
+                                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                                          : 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                                      }`}
+                                    >
+                                      <span>{isWin ? `W (${myTeam.score}-${oppTeam.score})` : isLoss ? `L (${myTeam.score}-${oppTeam.score})` : isTie ? `T (${myTeam.score}-${oppTeam.score})` : `LIVE`}</span>
+                                    </span>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Expand History Button Column */}
+                          <td className="p-3.5 text-center">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedLeaderboardPlayerId(isExpanded ? null : stat.playerId);
+                              }}
+                              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 mx-auto transition-all cursor-pointer ${
+                                isExpanded
+                                  ? 'bg-brand-lime text-dark-bg font-black'
+                                  : 'bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700'
+                              }`}
+                              title={isExpanded ? 'Collapse Match History' : 'View Match Details & Roster'}
+                            >
+                              <span>{isExpanded ? 'Hide' : 'Matches'}</span>
+                              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {/* Expandable Player Match History Sub-Row */}
+                        {isExpanded && (
+                          <tr className="bg-slate-900/90 border-t border-b border-slate-800">
+                            <td colSpan={8} className="p-4 sm:p-5">
+                              <div className="space-y-4 animate-fade-in text-left">
+                                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                                  <div className="flex items-center gap-2">
+                                    <Trophy className="w-4 h-4 text-amber-400" />
+                                    <h4 className="font-black text-sm text-white">
+                                      Match History & Roster for <span className="text-amber-300">{stat.playerName}</span>
+                                    </h4>
+                                    <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                                      {playerMatches.length} Total Assigned Games
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedLeaderboardPlayerId(null)}
+                                    className="text-xs text-slate-400 hover:text-white font-bold flex items-center gap-1 cursor-pointer bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-lg"
+                                  >
+                                    <X className="w-3.5 h-3.5 text-slate-400" /> Close Details
+                                  </button>
+                                </div>
+
+                                {playerMatches.length === 0 ? (
+                                  <p className="text-xs text-slate-400 italic">No matches assigned to this player yet.</p>
+                                ) : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                    {playerMatches.map((m) => {
+                                      const isRed = m.teamRed.players.some((p) => (p.id && p.id === stat.playerId) || (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase()));
+                                      const myTeam = isRed ? m.teamRed : m.teamBlue;
+                                      const oppTeam = isRed ? m.teamBlue : m.teamRed;
+                                      const isWin = m.status === 'completed' && ((isRed && m.winner === 'red') || (!isRed && m.winner === 'blue'));
+                                      const isLoss = m.status === 'completed' && ((isRed && m.winner === 'blue') || (!isRed && m.winner === 'red'));
+                                      const isTie = m.status === 'completed' && m.winner === 'tie';
+
+                                      return (
+                                        <div
+                                          key={m.id}
+                                          className={`p-3.5 rounded-2xl border transition-all space-y-3 ${
+                                            isWin
+                                              ? 'bg-slate-950/90 border-emerald-500/40 ring-1 ring-emerald-500/20'
+                                              : isLoss
+                                              ? 'bg-slate-950/90 border-red-500/30'
+                                              : 'bg-slate-950/90 border-slate-800'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between text-[11px]">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span className="font-black text-white text-xs">🎮 {m.matchName || `Game ${m.round}`}</span>
+                                              <span className="px-2 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 font-bold">
+                                                {getRoundTitle(m.round)}
+                                              </span>
+                                              <span className="text-slate-400 font-semibold">📍 {m.courtName}</span>
+                                            </div>
+                                            <span className={`px-2.5 py-1 rounded-lg font-mono font-black text-[10px] ${
+                                              isWin
+                                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                                                : isLoss
+                                                ? 'bg-red-500/20 text-red-300 border border-red-500/40'
+                                                : 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
+                                            }`}>
+                                              {isWin ? `WIN (${myTeam.score} - ${oppTeam.score})` : isLoss ? `LOSS (${myTeam.score} - ${oppTeam.score})` : isTie ? `TIE (${myTeam.score} - ${oppTeam.score})` : m.status.toUpperCase()}
+                                            </span>
+                                          </div>
+
+                                          <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-800/80">
+                                            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                                              <span className="text-[10px] text-slate-400 font-extrabold block uppercase tracking-wider">
+                                                {isRed ? 'Team Red (My Team)' : 'Team Blue (My Team)'}
+                                              </span>
+                                              <div className="space-y-1">
+                                                {myTeam.players.map((p, pIdx) => {
+                                                  const isMe = (p.id && p.id === stat.playerId) || (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase());
+                                                  return (
+                                                    <div key={pIdx} className="flex items-center justify-between text-white font-bold truncate gap-1">
+                                                      <span className={isMe ? 'text-brand-lime font-black' : 'text-slate-200'}>
+                                                        {p.name} {isMe ? '(You)' : ''}
+                                                      </span>
+                                                      {(p.duprId || p.duprRating) && (
+                                                        <span className="text-[9px] font-mono text-purple-300 bg-purple-950 border border-purple-800/60 px-1 rounded">
+                                                          {p.duprId ? `DUPR: ${p.duprId}` : `R: ${p.duprRating}`}
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+
+                                            <div className="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 space-y-1">
+                                              <span className="text-[10px] text-slate-400 font-extrabold block uppercase tracking-wider">
+                                                {isRed ? 'Team Blue (Opponents)' : 'Team Red (Opponents)'}
+                                              </span>
+                                              <div className="space-y-1">
+                                                {oppTeam.players.map((p, pIdx) => (
+                                                  <div key={pIdx} className="flex items-center justify-between text-slate-300 font-semibold truncate gap-1">
+                                                    <span>{p.name}</span>
+                                                    {(p.duprId || p.duprRating) && (
+                                                      <span className="text-[9px] font-mono text-slate-400 bg-slate-950 border border-slate-800 px-1 rounded">
+                                                        {p.duprId ? `DUPR: ${p.duprId}` : `R: ${p.duprRating}`}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })
                 )}
