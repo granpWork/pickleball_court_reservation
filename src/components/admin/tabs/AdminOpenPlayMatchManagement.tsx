@@ -1600,6 +1600,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   const activeCount = rosterPool.filter((p) => p.status === 'active').length;
   const restingCount = rosterPool.filter((p) => p.status === 'resting').length;
+  const absentCount = rosterPool.filter((p) => p.status === 'absent').length;
   const completedCount = matches.filter((m) => m.status === 'completed').length;
   const liveCount = matches.filter((m) => m.status === 'in_progress').length;
 
@@ -1766,6 +1767,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           >
             <Users className="w-4 h-4 text-purple-400" />
             <span>Roster Pool ({activeCount} Active / {restingCount} Bench)</span>
+            {absentCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-extrabold text-[10px] flex items-center gap-1 shadow-sm">
+                ⚠️ {absentCount} Absent
+              </span>
+            )}
           </button>
 
           <button
@@ -3204,7 +3210,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     </span>
                   </div>
                   <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                    {rosterPool.map((p) => {
+                    {rosterPool.filter((p) => p.status !== 'absent').map((p) => {
                       const isRed = selectedRedPlayers.includes(p.id);
                       const isBlue = selectedBluePlayers.includes(p.id);
                       const effectiveDupr = p.adminDuprId || p.duprId;
@@ -3273,7 +3279,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     </span>
                   </div>
                   <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                    {rosterPool.map((p) => {
+                    {rosterPool.filter((p) => p.status !== 'absent').map((p) => {
                       const isRed = selectedRedPlayers.includes(p.id);
                       const isBlue = selectedBluePlayers.includes(p.id);
                       const effectiveDupr = p.adminDuprId || p.duprId;
@@ -3373,9 +3379,26 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               </button>
             </div>
 
-            {/* Quick Add Custom Player */}
-            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2">
-              <span className="text-xs font-bold text-slate-300 block">+ Add Custom / Walk-in Player</span>
+            {/* Absent Player Alert Banner */}
+            {absentCount > 0 && (
+              <div className="p-3.5 rounded-2xl bg-red-950/40 border border-red-800/60 text-red-200 text-xs font-semibold leading-relaxed flex items-center justify-between gap-2 shadow-inner">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>
+                    ⚠️ <strong>{absentCount}</strong> player(s) marked Absent / Canceled. Use the form below to add replacement / walk-in players into the active roster pool.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Add Custom / Replacement Player */}
+            <div className={`p-3.5 rounded-2xl border transition-all space-y-2 ${absentCount > 0 ? 'bg-amber-950/20 border-amber-500/70 ring-1 ring-amber-500/40' : 'bg-slate-950 border-slate-800'}`}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                  <span>+ Add Custom / Replacement Player</span>
+                  {absentCount > 0 && <span className="text-[10px] text-amber-400 font-extrabold animate-pulse">(Replacement Form Active)</span>}
+                </span>
+              </div>
               <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                 <input
                   type="text"
@@ -3403,9 +3426,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 <button
                   type="button"
                   onClick={handleAddCustomPlayer}
-                  className="px-3 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] shrink-0"
+                  className="px-3.5 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] shrink-0 cursor-pointer shadow-md"
                 >
-                  Add
+                  Add Player
                 </button>
               </div>
             </div>
@@ -3452,13 +3475,14 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                       onClick={() => togglePlayerStatus(p.id)}
                       className={`px-3 py-1 rounded-xl font-bold text-[11px] transition-all cursor-pointer ${
                         p.status === 'active'
-                          ? 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime'
+                          ? 'bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg'
                           : p.status === 'resting'
-                          ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
-                          : 'bg-red-500/10 border border-red-500/30 text-red-400'
+                          ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500 hover:text-dark-bg'
+                          : 'bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500 hover:text-white'
                       }`}
+                      title="Click to toggle status: Active -> Resting -> Absent"
                     >
-                      {p.status === 'active' ? 'Active' : p.status === 'resting' ? 'Resting / Bench' : 'Absent'}
+                      {p.status === 'active' ? '🟢 Active / Present' : p.status === 'resting' ? '🟡 Bench / Resting' : '🔴 Absent / Canceled'}
                     </button>
                   </div>
                 ))}
