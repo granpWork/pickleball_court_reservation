@@ -154,21 +154,28 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
 
   const DEFAULT_OPENPLAY_IMAGE = 'https://images.unsplash.com/photo-1599474924187-334a4ae5bd3c?auto=format&fit=crop&w=800&q=80';
 
-  // Restore selected event on initial page load / refresh
+  // Restore selected event & match management matrix view on initial page load / refresh
   useEffect(() => {
-    if (events.length > 0 && !selectedEventForRegs) {
+    if (events.length > 0) {
       try {
         const urlParams = new URLSearchParams(window.location.search);
-        const eventId = urlParams.get('eventId') || urlParams.get('openplay');
-        if (eventId) {
-          const matched = events.find(e => e.id === eventId);
+        const eventId = urlParams.get('eventId') || urlParams.get('openplay') || urlParams.get('matrixEventId');
+        const savedMatrixId = sessionStorage.getItem('picklepoint_matrix_event_id');
+        const isMatrix = urlParams.get('matrix') === 'true' || Boolean(savedMatrixId);
+        const targetId = eventId || savedMatrixId;
+
+        if (targetId) {
+          const matched = events.find((e) => e.id === targetId);
           if (matched) {
             setSelectedEventForRegs(matched);
+            if (isMatrix) {
+              setMatchManagementEvent(matched);
+            }
           }
         }
       } catch (e) {}
     }
-  }, [events, selectedEventForRegs, setSelectedEventForRegs]);
+  }, [events]);
 
   // Handle browser back / forward navigation popstate events
   useEffect(() => {
@@ -177,21 +184,56 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
         try {
           const urlParams = new URLSearchParams(window.location.search);
           const eventId = urlParams.get('eventId') || urlParams.get('openplay');
+          const isMatrix = urlParams.get('matrix') === 'true';
+
           if (eventId) {
-            const matched = events.find(e => e.id === eventId);
+            const matched = events.find((e) => e.id === eventId);
             if (matched) {
               setSelectedEventForRegs(matched);
+              if (isMatrix) {
+                setMatchManagementEvent(matched);
+              } else {
+                setMatchManagementEvent(null);
+              }
               return;
             }
           }
           setSelectedEventForRegs(null);
+          setMatchManagementEvent(null);
         } catch (e) {}
       }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [events, setSelectedEventForRegs]);
+  }, [events]);
+
+  const handleOpenMatchManagement = (evt: OpenPlayEvent) => {
+    setMatchManagementEvent(evt);
+    setSelectedEventForRegs(evt);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('eventId', evt.id);
+      url.searchParams.set('matrix', 'true');
+      window.history.pushState(null, '', url.toString());
+      sessionStorage.setItem('picklepoint_matrix_event_id', evt.id);
+      sessionStorage.setItem('picklepoint_selected_openplay_event_id', evt.id);
+    } catch (e) {}
+  };
+
+  const handleCloseMatchManagement = () => {
+    if (matchManagementEvent) {
+      handleSelectEvent(matchManagementEvent);
+    }
+    setMatchManagementEvent(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('matrix');
+      window.history.pushState(null, '', url.toString());
+      sessionStorage.removeItem('picklepoint_matrix_event_id');
+    } catch (e) {}
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleSelectEvent = (event: OpenPlayEvent | null) => {
     setSelectedEventForRegs(event);
@@ -199,14 +241,20 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
       try {
         const url = new URL(window.location.href);
         url.searchParams.set('eventId', event.id);
+        url.searchParams.delete('matrix');
         window.history.pushState(null, '', url.toString());
+        sessionStorage.setItem('picklepoint_selected_openplay_event_id', event.id);
+        sessionStorage.removeItem('picklepoint_matrix_event_id');
       } catch (e) {}
     } else {
       try {
         const url = new URL(window.location.href);
         url.searchParams.delete('eventId');
         url.searchParams.delete('openplay');
+        url.searchParams.delete('matrix');
         window.history.pushState(null, '', url.toString());
+        sessionStorage.removeItem('picklepoint_selected_openplay_event_id');
+        sessionStorage.removeItem('picklepoint_matrix_event_id');
       } catch (e) {}
     }
   };
@@ -348,13 +396,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
         <AdminOpenPlayMatchManagement
           event={matchManagementEvent}
           registrations={openPlayRegistrations}
-          onBack={() => {
-            if (matchManagementEvent) {
-              handleSelectEvent(matchManagementEvent);
-            }
-            setMatchManagementEvent(null);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onBack={handleCloseMatchManagement}
         />
       ) : selectedEventForRegs ? (
         <AdminOpenPlayEventDetails
@@ -371,7 +413,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           onOpenManualBookingModal={onOpenManualBookingModal}
           onOpenQrModal={handleOpenQrForEvent}
           onOpenJsonModal={handleOpenJsonForEvent}
-          onOpenMatchManagement={(evt) => setMatchManagementEvent(evt)}
+          onOpenMatchManagement={handleOpenMatchManagement}
           formatEventDateLong={formatEventDateLong}
           formatTime12h={formatTime12h}
         />
