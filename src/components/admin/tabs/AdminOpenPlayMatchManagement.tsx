@@ -288,7 +288,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     reader.readAsText(file);
   };
 
-  const handleProcessImportJson = () => {
+  const handleProcessImportJson = async () => {
     if (!jsonInputText.trim()) {
       setJsonError('Please paste JSON content or select a .json file.');
       return;
@@ -455,9 +455,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       if (poolUpdated) {
         setRosterPool(currentPool);
+        if (isFirebaseConfigured && db && event.id) {
+          try {
+            await setDoc(doc(db, 'openplay_events', event.id), { rosterPool: cleanDocData(currentPool) }, { merge: true });
+          } catch (e) {
+            console.warn('Failed to update event rosterPool in Firestore:', e);
+          }
+        }
       }
 
-      createdMatches.forEach((m) => persistSingleMatch(m));
+      await persistMatches([...matches, ...createdMatches]);
 
       const importedRounds = Array.from(new Set(createdMatches.map((m) => m.round)));
       setCreatedRounds((prev) => Array.from(new Set([...prev, ...importedRounds])));
@@ -776,6 +783,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     };
   }, [event.id]);
 
+  // Helper to remove JavaScript undefined fields before writing to Firestore
+  const cleanDocData = (data: any): any => {
+    return JSON.parse(
+      JSON.stringify(data, (_key, value) => (value === undefined ? null : value))
+    );
+  };
+
   // Save matches helper
   const persistMatches = async (updatedMatches: OpenPlayMatch[]) => {
     setMatches(updatedMatches);
@@ -787,11 +801,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
     if (isFirebaseConfigured && db) {
       try {
-        for (const m of updatedMatches) {
-          await setDoc(doc(db, 'openplay_matches', m.id), m);
-        }
+        const promises = updatedMatches.map((m) => {
+          const cleaned = cleanDocData(m);
+          return setDoc(doc(db!, 'openplay_matches', m.id), cleaned);
+        });
+        await Promise.all(promises);
       } catch (err) {
-        console.warn('Failed to save openplay matches to Firestore:', err);
+        console.error('Failed to save openplay matches to Firestore:', err);
       }
     }
   };
@@ -820,9 +836,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
     if (isFirebaseConfigured && db) {
       try {
-        await setDoc(doc(db, 'openplay_matches', match.id), match);
+        const cleaned = cleanDocData(match);
+        await setDoc(doc(db!, 'openplay_matches', match.id), cleaned);
       } catch (err) {
-        console.warn('Failed to save single match to Firestore:', err);
+        console.error('Failed to save single match to Firestore:', err);
       }
     }
   };
