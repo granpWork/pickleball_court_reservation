@@ -322,19 +322,19 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       const playerA1Name = pA1?.name || rA1?.name || '';
       const playerA1Dupr = pA1?.duprId || rA1?.duprId || rA1?.adminDuprId || '';
-      const playerA1ExtId = pA1?.id || rA1?.id || '';
+      const playerA1ExtId = '';
 
       const playerA2Name = !isSingles ? (pA2?.name || rA2?.name || '') : '';
       const playerA2Dupr = !isSingles ? (pA2?.duprId || rA2?.duprId || rA2?.adminDuprId || '') : '';
-      const playerA2ExtId = !isSingles ? (pA2?.id || rA2?.id || '') : '';
+      const playerA2ExtId = '';
 
       const playerB1Name = pB1?.name || rB1?.name || '';
       const playerB1Dupr = pB1?.duprId || rB1?.duprId || rB1?.adminDuprId || '';
-      const playerB1ExtId = pB1?.id || rB1?.id || '';
+      const playerB1ExtId = '';
 
       const playerB2Name = !isSingles ? (pB2?.name || rB2?.name || '') : '';
       const playerB2Dupr = !isSingles ? (pB2?.duprId || rB2?.duprId || rB2?.adminDuprId || '') : '';
-      const playerB2ExtId = !isSingles ? (pB2?.id || rB2?.id || '') : '';
+      const playerB2ExtId = '';
 
       const scoreA1 = m.teamRed?.score !== undefined && m.teamRed?.score !== null ? m.teamRed.score : '';
       const scoreB1 = m.teamBlue?.score !== undefined && m.teamBlue?.score !== null ? m.teamBlue.score : '';
