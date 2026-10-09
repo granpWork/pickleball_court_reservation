@@ -223,7 +223,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [resultsEventDate, setResultsEventDate] = useState<string>('');
   const [resultsLocation, setResultsLocation] = useState<string>('');
   const [resultsScoreType, setResultsScoreType] = useState<'SIDEOUT' | 'RALLY'>('SIDEOUT');
-  const [resultsIncludeOnlyCompleted, setResultsIncludeOnlyCompleted] = useState<boolean>(false);
+  const [resultsIncludeOnlyCompleted, setResultsIncludeOnlyCompleted] = useState<boolean>(true);
   const [isResultsCopySuccess, setIsResultsCopySuccess] = useState<boolean>(false);
 
   const openGenerateResultsModal = (targetRound?: number | 'all') => {
@@ -233,7 +233,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setResultsEventDate(event.eventDate || (event as any).date || new Date().toISOString().split('T')[0]);
     setResultsLocation(event.location || (event as any).address || (event as any).courtLocation || '');
     setResultsScoreType('SIDEOUT');
-    setResultsIncludeOnlyCompleted(false);
+    setResultsIncludeOnlyCompleted(true);
     setIsResultsCopySuccess(false);
     setIsResultsModalOpen(true);
   };
@@ -3345,17 +3345,38 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               </div>
 
               <div className="flex items-center pt-5">
-                <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300 font-semibold">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-emerald-300 font-bold">
                   <input
                     type="checkbox"
                     checked={resultsIncludeOnlyCompleted}
                     onChange={(e) => setResultsIncludeOnlyCompleted(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-400 bg-slate-950 cursor-pointer"
                   />
-                  <span>Only Completed Matches</span>
+                  <span>Only Completed Matches (Recommended)</span>
                 </label>
               </div>
             </div>
+
+            {/* Excluded Matches Info Banner */}
+            {(() => {
+              const targetList = resultsTargetRound === 'all'
+                ? matches
+                : matches.filter((m) => m.round === resultsTargetRound);
+              const uncompletedCount = targetList.filter((m) => m.status !== 'completed').length;
+              if (uncompletedCount > 0 && resultsIncludeOnlyCompleted) {
+                return (
+                  <div className="p-3.5 rounded-2xl bg-amber-950/40 border border-amber-800/60 text-amber-300 text-xs font-semibold leading-relaxed flex items-center justify-between gap-2 shadow-inner">
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>
+                        Notice: <strong>{uncompletedCount}</strong> in-progress / scheduled {uncompletedCount === 1 ? 'match' : 'matches'} in this selection {uncompletedCount === 1 ? 'was' : 'were'} automatically excluded because only completed games are generated.
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {/* CSV Raw Content Preview */}
             <div className="space-y-1.5 text-xs">
