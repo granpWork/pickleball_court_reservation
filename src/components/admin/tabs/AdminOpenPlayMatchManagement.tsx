@@ -27,6 +27,7 @@ import {
   doc,
   setDoc,
   deleteDoc,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../../../firebase';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
@@ -713,49 +714,63 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     }
   };
 
-  // Fetch Matches from Firestore / LocalStorage
+  // Real-time Matches Listener from Firestore & LocalStorage fallback
   useEffect(() => {
     let isMounted = true;
-    const fetchMatches = async () => {
-      setIsLoading(true);
-      const matchMap = new Map<string, OpenPlayMatch>();
+    setIsLoading(true);
 
-      // LocalStorage first
+    // Initial LocalStorage fallback cache
+    try {
+      const localData = localStorage.getItem(`picklepoint_openplay_matches_${event.id}`);
+      if (localData) {
+        const parsed = JSON.parse(localData) as OpenPlayMatch[];
+        setMatches(parsed);
+      }
+    } catch (e) {
+      console.warn('Failed to read matches from localStorage:', e);
+    }
+
+    // Real-time Firestore Listener
+    if (isFirebaseConfigured && db) {
       try {
-        const localData = localStorage.getItem(`picklepoint_openplay_matches_${event.id}`);
-        if (localData) {
-          const parsed = JSON.parse(localData) as OpenPlayMatch[];
-          parsed.forEach((m) => matchMap.set(m.id, m));
-        }
-      } catch (e) {
-        console.warn('Failed to read matches from localStorage:', e);
-      }
+        const q = query(collection(db, 'openplay_matches'), where('eventId', '==', event.id));
+        const unsubscribe = onSnapshot(
+          q,
+          (snap) => {
+            if (!isMounted) return;
+            const matchMap = new Map<string, OpenPlayMatch>();
+            snap.forEach((docSnap) => {
+              const data = docSnap.data() as OpenPlayMatch;
+              matchMap.set(docSnap.id, { ...data, id: docSnap.id });
+            });
+            const matchArray = Array.from(matchMap.values()).sort((a, b) => {
+              if (a.round !== b.round) return a.round - b.round;
+              return a.courtName.localeCompare(b.courtName);
+            });
+            setMatches(matchArray);
+            try {
+              localStorage.setItem(`picklepoint_openplay_matches_${event.id}`, JSON.stringify(matchArray));
+            } catch (e) {}
+            setIsLoading(false);
+          },
+          (err) => {
+            console.warn('Firestore onSnapshot error for openplay_matches:', err);
+            setIsLoading(false);
+          }
+        );
 
-      // Firestore check
-      if (isFirebaseConfigured && db) {
-        try {
-          const q = query(collection(db, 'openplay_matches'), where('eventId', '==', event.id));
-          const snap = await getDocs(q);
-          snap.forEach((docSnap) => {
-            const data = docSnap.data() as OpenPlayMatch;
-            matchMap.set(docSnap.id, { ...data, id: docSnap.id });
-          });
-        } catch (err) {
-          console.warn('Failed to fetch openplay matches from Firestore:', err);
-        }
-      }
-
-      if (isMounted) {
-        const matchArray = Array.from(matchMap.values()).sort((a, b) => {
-          if (a.round !== b.round) return a.round - b.round;
-          return a.courtName.localeCompare(b.courtName);
-        });
-        setMatches(matchArray);
+        return () => {
+          isMounted = false;
+          unsubscribe();
+        };
+      } catch (err) {
+        console.warn('Failed to subscribe to openplay matches:', err);
         setIsLoading(false);
       }
-    };
+    } else {
+      setIsLoading(false);
+    }
 
-    fetchMatches();
     return () => {
       isMounted = false;
     };

@@ -131,6 +131,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /openplay_matches/{matchId} {
+      allow read, write: if true;
+    }
+
     // ==========================================
     // 8. Notifications & Reminders
     // ==========================================
