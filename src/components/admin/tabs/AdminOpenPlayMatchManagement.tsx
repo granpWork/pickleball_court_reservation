@@ -414,14 +414,22 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   };
 
   const handleDownloadSingleMatchCsv = (m: OpenPlayMatch) => {
+    if (m.status !== 'completed') {
+      showToast('⚠️ Match CSV export is only available for completed matches.');
+      return;
+    }
+
     const sanitizePart = (str: string) => str.trim().replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+
+    const rawGameName = (m.matchName || `game${m.round}`).trim();
+    const gamePrefix = rawGameName.toLowerCase().replace(/[^a-z0-9]/g, '') || `game${m.round}`;
 
     const redNames = m.teamRed.players.map((p) => sanitizePart(p.name)).filter(Boolean).join('_') || 'Team_Red';
     const blueNames = m.teamBlue.players.map((p) => sanitizePart(p.name)).filter(Boolean).join('_') || 'Team_Blue';
     const eventDateStr = event.eventDate || (event as any).date || new Date().toISOString().split('T')[0];
     const sanitizedDate = sanitizePart(eventDateStr);
 
-    const fileName = `game_${m.round}_${redNames}_vs_${blueNames}_${sanitizedDate}.csv`;
+    const fileName = `${gamePrefix}_${redNames}_vs_${blueNames}_${sanitizedDate}.csv`;
 
     const csvContent = generateMatchResultsCsv(
       m.round,
@@ -2747,11 +2755,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                             </div>
                           </div>
 
-                          {/* VS Divider Badge */}
-                          <div className="md:col-span-1 flex flex-col items-center justify-center py-1 shrink-0">
+                          {/* VS Divider Badge & Final Score Display */}
+                          <div className="md:col-span-1 flex flex-col items-center justify-center py-1 shrink-0 space-y-1">
                             <span className="px-3 py-1.5 rounded-full bg-slate-950 border border-slate-800 text-[11px] font-mono font-black text-slate-400 uppercase tracking-widest shadow-inner">
                               VS
                             </span>
+                            {m.status === 'completed' && (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-950/80 border border-emerald-500/50 text-brand-lime font-mono font-black text-[10px] shadow-sm">
+                                Final: {m.teamRed.score} - {m.teamBlue.score}
+                              </span>
+                            )}
                           </div>
 
                           {/* Team Blue (Right Side) */}
@@ -2844,9 +2857,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                         <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800/80 text-xs flex-wrap">
                           <div className="min-w-0 flex items-center gap-2">
                             {m.status === 'completed' ? (
-                              <span className="text-brand-lime font-black text-[11px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-500/30 truncate">
+                              <span className="text-brand-lime font-black text-[11px] flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-950/60 border border-emerald-500/40 truncate shadow-inner">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                                Completed ({m.winner === 'red' ? 'Team Red Win' : m.winner === 'blue' ? 'Team Blue Win' : 'Tie Game'})
+                                <span>Completed • Final Score: <strong className="font-mono text-white text-xs font-black">{m.teamRed.score} - {m.teamBlue.score}</strong> ({m.winner === 'red' ? 'Team Red Win' : m.winner === 'blue' ? 'Team Blue Win' : 'Tie Game'})</span>
                               </span>
                             ) : m.status === 'in_progress' ? (
                               <span className="text-blue-300 font-black text-[11px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-950/60 border border-blue-500/40 shadow-sm animate-pulse">
@@ -2893,9 +2906,18 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
                             <button
                               type="button"
+                              disabled={m.status !== 'completed'}
                               onClick={() => handleDownloadSingleMatchCsv(m)}
-                              className="px-2.5 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 hover:bg-emerald-500 hover:text-dark-bg text-emerald-300 font-extrabold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
-                              title={`Generate CSV Match Result for ${m.matchName || `Game ${m.round}`}`}
+                              className={`px-2.5 py-1.5 rounded-xl font-extrabold transition-all flex items-center gap-1 shadow-sm ${
+                                m.status === 'completed'
+                                  ? 'bg-emerald-950/40 border border-emerald-500/40 hover:bg-emerald-500 hover:text-dark-bg text-emerald-300 cursor-pointer'
+                                  : 'opacity-40 cursor-not-allowed bg-slate-900 border border-slate-800 text-slate-600 shadow-none'
+                              }`}
+                              title={
+                                m.status === 'completed'
+                                  ? `Generate CSV Match Result for ${m.matchName || `Game ${m.round}`}`
+                                  : 'CSV export is disabled until the match is marked as Completed'
+                              }
                             >
                               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                               <span className="text-[10px] font-mono">CSV</span>
@@ -2912,9 +2934,18 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
                             <button
                               type="button"
+                              disabled={m.status === 'completed'}
                               onClick={() => setDeletingMatch(m)}
-                              className="p-1.5 rounded-xl bg-slate-800 hover:bg-red-900/60 text-slate-400 hover:text-red-300 transition-all cursor-pointer"
-                              title="Delete match"
+                              className={`p-1.5 rounded-xl transition-all ${
+                                m.status === 'completed'
+                                  ? 'opacity-30 cursor-not-allowed bg-slate-900 border border-slate-800/40 text-slate-600 shadow-none'
+                                  : 'bg-slate-800 hover:bg-red-900/60 text-slate-400 hover:text-red-300 cursor-pointer'
+                              }`}
+                              title={
+                                m.status === 'completed'
+                                  ? 'Completed matches cannot be deleted. Reopen the match first to delete.'
+                                  : 'Delete match'
+                              }
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
