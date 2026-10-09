@@ -20,6 +20,7 @@ import {
   UploadCloud,
   ChevronDown,
   ChevronRight,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   collection,
@@ -214,6 +215,194 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [jsonInputText, setJsonInputText] = useState<string>('');
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [isCopySuccess, setIsCopySuccess] = useState<boolean>(false);
+
+  // Generate Match Results Modal State
+  const [isResultsModalOpen, setIsResultsModalOpen] = useState<boolean>(false);
+  const [resultsTargetRound, setResultsTargetRound] = useState<number | 'all'>(1);
+  const [resultsEventName, setResultsEventName] = useState<string>('');
+  const [resultsEventDate, setResultsEventDate] = useState<string>('');
+  const [resultsLocation, setResultsLocation] = useState<string>('');
+  const [resultsScoreType, setResultsScoreType] = useState<'SIDEOUT' | 'RALLY'>('SIDEOUT');
+  const [resultsIncludeOnlyCompleted, setResultsIncludeOnlyCompleted] = useState<boolean>(false);
+  const [isResultsCopySuccess, setIsResultsCopySuccess] = useState<boolean>(false);
+
+  const openGenerateResultsModal = (targetRound?: number | 'all') => {
+    const roundToUse = targetRound !== undefined ? targetRound : (allActiveRounds[0] || 1);
+    setResultsTargetRound(roundToUse);
+    setResultsEventName(event.title || (event as any).name || 'Pickleball Open Play');
+    setResultsEventDate(event.eventDate || (event as any).date || new Date().toISOString().split('T')[0]);
+    setResultsLocation(event.location || (event as any).address || (event as any).courtLocation || '');
+    setResultsScoreType('SIDEOUT');
+    setResultsIncludeOnlyCompleted(false);
+    setIsResultsCopySuccess(false);
+    setIsResultsModalOpen(true);
+  };
+
+  const escapeCsvField = (val: string | number | undefined | null): string => {
+    if (val === undefined || val === null) return '';
+    const str = String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const generateMatchResultsCsv = (
+    targetRound: number | 'all',
+    eventNameStr: string,
+    eventDateStr: string,
+    locationStr: string,
+    scoreTypeStr: string,
+    onlyCompleted: boolean
+  ): string => {
+    const headers = [
+      'matchType',
+      'event',
+      'date',
+      'playerA1',
+      'playerA1DuprId',
+      'playerA1ExternalId',
+      'playerA2',
+      'playerA2DuprId',
+      'playerA2ExternalId',
+      'playerB1',
+      'playerB1DuprId',
+      'playerB1ExternalId',
+      'playerB2',
+      'playerB2DuprId',
+      'playerB2ExternalId',
+      'teamAGame1',
+      'teamBGame1',
+      'teamAGame2',
+      'teamBGame2',
+      'teamAGame3',
+      'teamBGame3',
+      'teamAGame4',
+      'teamBGame4',
+      'teamAGame5',
+      'teamBGame5',
+      'location',
+      'scoreType'
+    ];
+
+    let targetMatches = targetRound === 'all'
+      ? matches
+      : matches.filter((m) => m.round === targetRound);
+
+    if (onlyCompleted) {
+      targetMatches = targetMatches.filter((m) => m.status === 'completed');
+    }
+
+    const rows = targetMatches.map((m) => {
+      const isSingles = m.gameType === 'singles';
+      const matchType = isSingles ? 'S' : 'D';
+
+      const pA1 = m.teamRed?.players?.[0];
+      const pA2 = m.teamRed?.players?.[1];
+      const pB1 = m.teamBlue?.players?.[0];
+      const pB2 = m.teamBlue?.players?.[1];
+
+      const findRoster = (p?: OpenPlayMatchPlayer) => {
+        if (!p) return null;
+        return rosterPool.find(
+          (r) => (p.id && r.id === p.id) || (p.name && r.name.trim().toLowerCase() === p.name.trim().toLowerCase())
+        );
+      };
+
+      const rA1 = findRoster(pA1);
+      const rA2 = findRoster(pA2);
+      const rB1 = findRoster(pB1);
+      const rB2 = findRoster(pB2);
+
+      const playerA1Name = pA1?.name || rA1?.name || '';
+      const playerA1Dupr = pA1?.duprId || rA1?.duprId || rA1?.adminDuprId || '';
+      const playerA1ExtId = pA1?.id || rA1?.id || '';
+
+      const playerA2Name = !isSingles ? (pA2?.name || rA2?.name || '') : '';
+      const playerA2Dupr = !isSingles ? (pA2?.duprId || rA2?.duprId || rA2?.adminDuprId || '') : '';
+      const playerA2ExtId = !isSingles ? (pA2?.id || rA2?.id || '') : '';
+
+      const playerB1Name = pB1?.name || rB1?.name || '';
+      const playerB1Dupr = pB1?.duprId || rB1?.duprId || rB1?.adminDuprId || '';
+      const playerB1ExtId = pB1?.id || rB1?.id || '';
+
+      const playerB2Name = !isSingles ? (pB2?.name || rB2?.name || '') : '';
+      const playerB2Dupr = !isSingles ? (pB2?.duprId || rB2?.duprId || rB2?.adminDuprId || '') : '';
+      const playerB2ExtId = !isSingles ? (pB2?.id || rB2?.id || '') : '';
+
+      const scoreA1 = m.teamRed?.score !== undefined && m.teamRed?.score !== null ? m.teamRed.score : '';
+      const scoreB1 = m.teamBlue?.score !== undefined && m.teamBlue?.score !== null ? m.teamBlue.score : '';
+
+      return [
+        matchType,
+        eventNameStr,
+        eventDateStr,
+        playerA1Name,
+        playerA1Dupr,
+        playerA1ExtId,
+        playerA2Name,
+        playerA2Dupr,
+        playerA2ExtId,
+        playerB1Name,
+        playerB1Dupr,
+        playerB1ExtId,
+        playerB2Name,
+        playerB2Dupr,
+        playerB2ExtId,
+        scoreA1,
+        scoreB1,
+        '', // teamAGame2
+        '', // teamBGame2
+        '', // teamAGame3
+        '', // teamBGame3
+        '', // teamAGame4
+        '', // teamBGame4
+        '', // teamAGame5
+        '', // teamBGame5
+        locationStr,
+        scoreTypeStr
+      ].map(escapeCsvField).join(',');
+    });
+
+    return [headers.join(','), ...rows].join('\n');
+  };
+
+  const handleDownloadCsv = () => {
+    const csvContent = generateMatchResultsCsv(
+      resultsTargetRound,
+      resultsEventName,
+      resultsEventDate,
+      resultsLocation,
+      resultsScoreType,
+      resultsIncludeOnlyCompleted
+    );
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const roundSuffix = resultsTargetRound === 'all' ? 'All_Rounds' : `Round_${resultsTargetRound}`;
+    const sanitizedEvent = (resultsEventName || 'Event').replace(/[^a-zA-Z0-9_-]/g, '_');
+    link.setAttribute('download', `${sanitizedEvent}_${roundSuffix}_Match_Results.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('📥 Downloaded Match Results CSV!');
+  };
+
+  const handleCopyCsvToClipboard = () => {
+    const csvContent = generateMatchResultsCsv(
+      resultsTargetRound,
+      resultsEventName,
+      resultsEventDate,
+      resultsLocation,
+      resultsScoreType,
+      resultsIncludeOnlyCompleted
+    );
+    navigator.clipboard.writeText(csvContent);
+    setIsResultsCopySuccess(true);
+    showToast('📋 Copied CSV match results to clipboard!');
+    setTimeout(() => setIsResultsCopySuccess(false), 2500);
+  };
 
   // Accordion collapsed state & custom round titles state
   const [collapsedRounds, setCollapsedRounds] = useState<Set<number>>(new Set());
@@ -1505,6 +1694,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
           <button
             type="button"
+            onClick={() => openGenerateResultsModal('all')}
+            className="py-2.5 px-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500 hover:text-dark-bg text-emerald-300 font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
+            title="Export match results CSV formatted for DUPR & Match Result uploads (All Rounds)"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+            <span>📊 Export All Results CSV</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsRosterModalOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-slate-200 font-extrabold text-xs flex items-center gap-2 cursor-pointer transition-all"
           >
@@ -1766,6 +1965,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
                   {/* Header Action Buttons */}
                   <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => openGenerateResultsModal(roundNum)}
+                      className="py-1.5 px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                      title={`Generate Match Results CSV for ${getRoundTitle(roundNum)}`}
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Generate Results</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => openJsonUploadModal(roundNum)}
@@ -3040,6 +3249,191 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               >
                 <UploadCloud className="w-4 h-4 text-dark-bg" />
                 <span>Import Matches to Round {jsonTargetRound}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: GENERATE MATCH RESULTS CSV */}
+      {isResultsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="glass-panel border border-slate-800 rounded-3xl max-w-3xl w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="text-lg font-black text-white">Generate Match Results CSV</h3>
+                  <p className="text-xs text-slate-400">Export match scores & player DUPR IDs formatted for result uploads</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResultsModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Filter & Form Parameters */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Export Target</label>
+                <select
+                  value={resultsTargetRound}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setResultsTargetRound(val === 'all' ? 'all' : parseInt(val, 10));
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-emerald-300 font-black focus:outline-none focus:border-emerald-400"
+                >
+                  <option value="all">🌐 All Rounds ({matches.length} matches)</option>
+                  {allActiveRounds.map((r) => {
+                    const cnt = matches.filter((m) => m.round === r).length;
+                    return (
+                      <option key={r} value={r}>
+                        {getRoundTitle(r)} ({cnt} {cnt === 1 ? 'match' : 'matches'})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Event Name</label>
+                <input
+                  type="text"
+                  value={resultsEventName}
+                  onChange={(e) => setResultsEventName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-emerald-400"
+                  placeholder="e.g. Tuesday Night League"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Match Date</label>
+                <input
+                  type="date"
+                  value={resultsEventDate}
+                  onChange={(e) => setResultsEventDate(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Location / Venue</label>
+                <input
+                  type="text"
+                  value={resultsLocation}
+                  onChange={(e) => setResultsLocation(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-semibold focus:outline-none focus:border-emerald-400"
+                  placeholder="e.g. Pickleball Court Location"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 font-bold mb-1">Score Type</label>
+                <select
+                  value={resultsScoreType}
+                  onChange={(e) => setResultsScoreType(e.target.value as 'SIDEOUT' | 'RALLY')}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-emerald-400"
+                >
+                  <option value="SIDEOUT">SIDEOUT (Standard)</option>
+                  <option value="RALLY">RALLY (Rally Scoring)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center pt-5">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300 font-semibold">
+                  <input
+                    type="checkbox"
+                    checked={resultsIncludeOnlyCompleted}
+                    onChange={(e) => setResultsIncludeOnlyCompleted(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-800 text-emerald-500 focus:ring-emerald-400 bg-slate-950 cursor-pointer"
+                  />
+                  <span>Only Completed Matches</span>
+                </label>
+              </div>
+            </div>
+
+            {/* CSV Raw Content Preview */}
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <label className="text-slate-400 font-bold flex items-center gap-1.5">
+                  <span>Generated CSV Output</span>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-950 border border-emerald-800/80 text-emerald-300 font-mono text-[10px]">
+                    {
+                      generateMatchResultsCsv(
+                        resultsTargetRound,
+                        resultsEventName,
+                        resultsEventDate,
+                        resultsLocation,
+                        resultsScoreType,
+                        resultsIncludeOnlyCompleted
+                      ).split('\n').length - 1
+                    } rows
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleCopyCsvToClipboard}
+                  className="text-[11px] font-bold text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{isResultsCopySuccess ? '✓ Copied!' : '📋 Copy Raw CSV'}</span>
+                </button>
+              </div>
+
+              <textarea
+                rows={7}
+                readOnly
+                value={generateMatchResultsCsv(
+                  resultsTargetRound,
+                  resultsEventName,
+                  resultsEventDate,
+                  resultsLocation,
+                  resultsScoreType,
+                  resultsIncludeOnlyCompleted
+                )}
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-emerald-300 font-mono text-[11px] focus:outline-none focus:border-emerald-400 leading-relaxed select-all"
+              />
+            </div>
+
+            {/* Column Schema Verification Badge */}
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800/90 text-[11px] text-slate-400 space-y-1">
+              <div className="font-bold text-emerald-400 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Required Column Template Verified:
+              </div>
+              <p className="text-slate-400 text-[10px] font-mono overflow-x-auto whitespace-nowrap">
+                matchType, event, date, playerA1, playerA1DuprId, playerA1ExternalId, playerA2, playerA2DuprId, playerA2ExternalId, playerB1, playerB1DuprId, playerB1ExternalId, playerB2, playerB2DuprId, playerB2ExternalId, teamAGame1, teamBGame1, teamAGame2, teamBGame2, teamAGame3, teamBGame3, teamAGame4, teamBGame4, teamAGame5, teamBGame5, location, scoreType
+              </p>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsResultsModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleCopyCsvToClipboard}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-xs cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <Copy className="w-4 h-4 text-emerald-400" />
+                <span>Copy to Clipboard</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadCsv}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-dark-bg font-extrabold text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all flex items-center gap-1.5"
+              >
+                <Download className="w-4 h-4 text-dark-bg" />
+                <span>Download CSV File</span>
               </button>
             </div>
           </div>
