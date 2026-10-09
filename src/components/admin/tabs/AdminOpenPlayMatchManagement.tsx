@@ -18,6 +18,8 @@ import {
   Copy,
   RotateCcw,
   UploadCloud,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import {
   collection,
@@ -212,6 +214,55 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [jsonInputText, setJsonInputText] = useState<string>('');
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [isCopySuccess, setIsCopySuccess] = useState<boolean>(false);
+
+  // Accordion collapsed state & custom round titles state
+  const [collapsedRounds, setCollapsedRounds] = useState<Set<number>>(new Set());
+  const [roundTitles, setRoundTitles] = useState<Record<number, string>>(() => {
+    return (event as any).roundTitles || {};
+  });
+  const [editingRoundNum, setEditingRoundNum] = useState<number | null>(null);
+  const [tempRoundTitle, setTempRoundTitle] = useState<string>('');
+
+  const getRoundTitle = (roundNum: number): string => {
+    return roundTitles[roundNum] || `Round ${roundNum}`;
+  };
+
+  const toggleRoundCollapse = (roundNum: number) => {
+    setCollapsedRounds((prev) => {
+      const next = new Set(prev);
+      if (next.has(roundNum)) {
+        next.delete(roundNum);
+      } else {
+        next.add(roundNum);
+      }
+      return next;
+    });
+  };
+
+  const handleExpandAllRounds = () => setCollapsedRounds(new Set());
+  const handleCollapseAllRounds = () => setCollapsedRounds(new Set(allActiveRounds));
+
+  const startEditingRoundTitle = (roundNum: number) => {
+    setEditingRoundNum(roundNum);
+    setTempRoundTitle(getRoundTitle(roundNum));
+  };
+
+  const handleSaveRoundTitle = async (roundNum: number) => {
+    const trimmed = tempRoundTitle.trim();
+    const finalTitle = trimmed || `Round ${roundNum}`;
+    const updatedTitles = { ...roundTitles, [roundNum]: finalTitle };
+    setRoundTitles(updatedTitles);
+    setEditingRoundNum(null);
+
+    if (isFirebaseConfigured && db && event.id) {
+      try {
+        await setDoc(doc(db!, 'openplay_events', event.id), { roundTitles: updatedTitles }, { merge: true });
+        showToast(`⚡ Saved round title "${finalTitle}"`);
+      } catch (e) {
+        console.warn('Failed to save round title to Firestore:', e);
+      }
+    }
+  };
 
   const sampleJsonTemplate = `[
   {
@@ -1555,16 +1606,37 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
         </div>
 
-        {/* Search */}
-        <div className="relative w-full sm:w-48 shrink-0">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search player or court..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
-          />
+        {/* Search & Accordion Mass Controls */}
+        <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 flex-wrap">
+          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={handleExpandAllRounds}
+              className="px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
+              title="Expand all round accordions"
+            >
+              Expand All
+            </button>
+            <button
+              type="button"
+              onClick={handleCollapseAllRounds}
+              className="px-2.5 py-1 text-[11px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all"
+              title="Collapse all round accordions"
+            >
+              Collapse All
+            </button>
+          </div>
+
+          <div className="relative w-full sm:w-48 shrink-0">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search player or court..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+            />
+          </div>
         </div>
       </div>
 
@@ -1611,27 +1683,97 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             }
 
             return (
-              <div key={roundNum} className="space-y-4 border border-slate-800/80 bg-slate-950/40 p-4 sm:p-5 rounded-3xl shadow-xl">
-                {/* Round Section Header */}
-                <div className="flex items-center justify-between pb-3 border-b border-slate-800/80 flex-wrap gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <span className="px-3.5 py-1 rounded-xl bg-purple-950/80 border border-purple-600/50 text-purple-300 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-                      <Trophy className="w-3.5 h-3.5 text-purple-400" /> Round {roundNum}
-                    </span>
-                    <span className="text-xs text-slate-400 font-semibold">
-                      ({matchesInRound.length} {matchesInRound.length === 1 ? 'match' : 'matches'})
-                    </span>
+              <div key={roundNum} className="border border-slate-800/80 bg-slate-950/40 rounded-3xl shadow-xl overflow-hidden transition-all space-y-0">
+                {/* Accordion Header Bar */}
+                <div
+                  onClick={() => toggleRoundCollapse(roundNum)}
+                  className="flex items-center justify-between p-4 sm:p-5 bg-slate-900/80 hover:bg-slate-900/95 transition-all cursor-pointer select-none flex-wrap gap-3 border-b border-slate-800/80"
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Chevron Expand/Collapse Toggle */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleRoundCollapse(roundNum);
+                      }}
+                      className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
+                      title={collapsedRounds.has(roundNum) ? 'Expand Round' : 'Collapse Round'}
+                    >
+                      {collapsedRounds.has(roundNum) ? (
+                        <ChevronRight className="w-5 h-5 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-brand-lime" />
+                      )}
+                    </button>
+
+                    {/* Round Title / Inline Renaming Input */}
+                    {editingRoundNum === roundNum ? (
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={tempRoundTitle}
+                          onChange={(e) => setTempRoundTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveRoundTitle(roundNum);
+                            if (e.key === 'Escape') setEditingRoundNum(null);
+                          }}
+                          className="bg-slate-950 border border-brand-lime/80 rounded-xl px-3 py-1 text-sm font-bold text-white focus:outline-none focus:ring-1 focus:ring-brand-lime shadow-inner"
+                          placeholder={`Round ${roundNum}`}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveRoundTitle(roundNum)}
+                          className="p-1.5 bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-bold rounded-xl cursor-pointer shadow-sm"
+                          title="Save Round Title"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingRoundNum(null)}
+                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl cursor-pointer"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2.5 group">
+                        <span className="px-3.5 py-1 rounded-xl bg-purple-950/80 border border-purple-600/50 text-purple-300 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+                          <Trophy className="w-3.5 h-3.5 text-purple-400" /> {getRoundTitle(roundNum)}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditingRoundTitle(roundNum);
+                          }}
+                          className="opacity-70 group-hover:opacity-100 p-1 text-slate-400 hover:text-brand-lime transition-all cursor-pointer rounded-lg hover:bg-slate-800"
+                          title="Rename Round Title"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+
+                        <span className="text-xs text-slate-400 font-semibold">
+                          ({matchesInRound.length} {matchesInRound.length === 1 ? 'match' : 'matches'})
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
+                  {/* Header Action Buttons */}
+                  <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       onClick={() => openJsonUploadModal(roundNum)}
                       className="py-1.5 px-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-                      title={`Upload JSON match data to Round ${roundNum}`}
+                      title={`Upload JSON match data to ${getRoundTitle(roundNum)}`}
                     >
                       <UploadCloud className="w-3.5 h-3.5" />
-                      <span>Upload JSON to Round {roundNum}</span>
+                      <span>Upload JSON</span>
                     </button>
 
                     <button
@@ -1640,24 +1782,26 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                       className="py-1.5 px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>+ Add Match to Round {roundNum}</span>
+                      <span>+ Add Match</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Round Matches List */}
-                {matchesInRound.length === 0 ? (
-                  <div className="p-6 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/30">
-                    <p className="text-xs text-slate-400">No matches created for Round {roundNum} yet.</p>
-                    <button
-                      type="button"
-                      onClick={() => openNewManualMatchModal(roundNum)}
-                      className="mt-2 text-xs font-bold text-brand-lime hover:underline inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3 h-3" /> Create first match for Round {roundNum}
-                    </button>
-                  </div>
-                ) : (
+                {/* Accordion Body Content */}
+                {!collapsedRounds.has(roundNum) && (
+                  <div className="p-4 sm:p-5 space-y-4 animate-fade-in border-t border-slate-800/60">
+                    {matchesInRound.length === 0 ? (
+                      <div className="p-6 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/30">
+                        <p className="text-xs text-slate-400">No matches created for {getRoundTitle(roundNum)} yet.</p>
+                        <button
+                          type="button"
+                          onClick={() => openNewManualMatchModal(roundNum)}
+                          className="mt-2 text-xs font-bold text-brand-lime hover:underline inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" /> Create first match for {getRoundTitle(roundNum)}
+                        </button>
+                      </div>
+                    ) : (
                   <div className="grid grid-cols-1 gap-4">
                     {matchesInRound.map((m) => (
                       <div
@@ -1677,7 +1821,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                               🎮 {m.matchName || `Game ${m.round}`}
                             </span>
                             <span className="px-2.5 py-0.5 rounded-lg bg-purple-950/60 border border-purple-800/60 text-purple-300 font-extrabold text-[11px]">
-                              Round {m.round}
+                              {getRoundTitle(m.round)}
                             </span>
                             {m.wasReopened && (
                               <span className="px-2 py-0.5 rounded-lg bg-amber-950/60 border border-amber-500/50 text-amber-300 font-extrabold text-[10px] flex items-center gap-1 shadow-sm" title="This match was reopened for score adjustment.">
@@ -1961,7 +2105,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   </div>
                 )}
               </div>
-            );
+            )}
+          </div>
+        );
           })}
         </div>
       )}
