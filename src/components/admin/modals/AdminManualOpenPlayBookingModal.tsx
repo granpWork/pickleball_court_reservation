@@ -78,9 +78,20 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
 
   const isSessionClosed = isExpired || event.status === 'expired';
 
-  // Calculate Capacity
+  // Calculate Capacity (Subtracting any attendees marked absent)
   const activeRegs = currentRegistrations.filter(r => r.eventId === event.id && r.status !== 'cancelled');
-  const currentHeadcount = activeRegs.reduce((sum, r) => sum + (r.playerCount || (1 + (r.guestCount || 0))), 0);
+  const totalRegHeadcount = activeRegs.reduce((sum, r) => sum + (r.playerCount || (1 + (r.guestCount || 0))), 0);
+  const absentCount = (() => {
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_attendance');
+      if (!saved) return 0;
+      const attMap = JSON.parse(saved);
+      return Object.values(attMap).filter((val) => val === 'absent').length;
+    } catch {
+      return 0;
+    }
+  })();
+  const currentHeadcount = Math.max(0, totalRegHeadcount - absentCount);
   const maxCapacity = event.maxParticipants || 16;
   const spotsRemaining = Math.max(0, maxCapacity - currentHeadcount);
   const isFull = spotsRemaining <= 0;

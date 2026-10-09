@@ -976,11 +976,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const targetEvent = openPlayEvents.find(e => e.id === payload.eventId);
     if (targetEvent) {
       const activeRegs = openPlayRegistrations.filter(r => r.eventId === targetEvent.id && r.status !== 'cancelled');
-      const currentHeadcount = activeRegs.reduce((sum, r) => sum + (r.playerCount || (1 + (r.guestCount || 0))), 0);
+      const totalRegHeadcount = activeRegs.reduce((sum, r) => sum + (r.playerCount || (1 + (r.guestCount || 0))), 0);
+      const absentCount = (() => {
+        try {
+          const saved = localStorage.getItem('picklepoint_openplay_attendance');
+          if (!saved) return 0;
+          const attMap = JSON.parse(saved);
+          return Object.values(attMap).filter((val) => val === 'absent').length;
+        } catch {
+          return 0;
+        }
+      })();
+      const currentHeadcount = Math.max(0, totalRegHeadcount - absentCount);
       const maxCapacity = targetEvent.maxParticipants || 16;
       const requestedHeadcount = payload.playerCount || 1;
       if (currentHeadcount + requestedHeadcount > maxCapacity) {
-        throw new Error(`This Open Play session is fully booked (${currentHeadcount}/${maxCapacity} spots filled). Cannot add more players.`);
+        throw new Error(`This Open Play session is fully booked (${currentHeadcount}/${maxCapacity} active spots filled). Cannot add more players.`);
       }
     }
 
