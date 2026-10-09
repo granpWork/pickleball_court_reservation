@@ -226,6 +226,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [resultsIncludeOnlyCompleted, setResultsIncludeOnlyCompleted] = useState<boolean>(true);
   const [isResultsCopySuccess, setIsResultsCopySuccess] = useState<boolean>(false);
 
+  // Leaderboard View State
+  const [activeView, setActiveView] = useState<'matrix' | 'leaderboard'>('matrix');
+  const [leaderboardSortField, setLeaderboardSortField] = useState<'wins' | 'winRate' | 'pointDiff' | 'pointsScored' | 'matches'>('wins');
+  const [leaderboardSearch, setLeaderboardSearch] = useState<string>('');
+
   const openGenerateResultsModal = (targetRound?: number | 'all') => {
     const roundToUse = targetRound !== undefined ? targetRound : (allActiveRounds[0] || 1);
     setResultsTargetRound(roundToUse);
@@ -782,6 +787,43 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       };
     });
   }, [rosterPool, matches]);
+
+  // Sorted Individual Leaderboard List for Leaderboard View
+  const sortedLeaderboardList = useMemo(() => {
+    let list = [...playerStatsList];
+
+    if (leaderboardSearch.trim()) {
+      const q = leaderboardSearch.toLowerCase();
+      list = list.filter((p) => p.playerName.toLowerCase().includes(q));
+    }
+
+    return list.sort((a, b) => {
+      if (leaderboardSortField === 'wins') {
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        if (b.pointDiff !== a.pointDiff) return b.pointDiff - a.pointDiff;
+        return b.pointsScored - a.pointsScored;
+      }
+      if (leaderboardSortField === 'winRate') {
+        if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return b.pointDiff - a.pointDiff;
+      }
+      if (leaderboardSortField === 'pointDiff') {
+        if (b.pointDiff !== a.pointDiff) return b.pointDiff - a.pointDiff;
+        if (b.wins !== a.wins) return b.wins - a.wins;
+        return b.pointsScored - a.pointsScored;
+      }
+      if (leaderboardSortField === 'pointsScored') {
+        if (b.pointsScored !== a.pointsScored) return b.pointsScored - a.pointsScored;
+        return b.wins - a.wins;
+      }
+      if (leaderboardSortField === 'matches') {
+        if (b.completedMatches !== a.completedMatches) return b.completedMatches - a.completedMatches;
+        return b.wins - a.wins;
+      }
+      return b.wins - a.wins;
+    });
+  }, [playerStatsList, leaderboardSortField, leaderboardSearch]);
 
   // Export CSV Report Helper
   const handleExportReportCSV = () => {
@@ -1704,6 +1746,20 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
           <button
             type="button"
+            onClick={() => setActiveView(activeView === 'leaderboard' ? 'matrix' : 'leaderboard')}
+            className={`py-2.5 px-4 rounded-2xl font-black text-xs flex items-center gap-2 cursor-pointer transition-all shadow-lg hover:scale-[1.02] ${
+              activeView === 'leaderboard'
+                ? 'bg-amber-400 text-dark-bg hover:bg-amber-300 ring-2 ring-amber-300'
+                : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-dark-bg'
+            }`}
+            title="Switch between Match Matrix and Individual Player Leaderboard"
+          >
+            <Trophy className="w-4 h-4 text-dark-bg" />
+            <span>{activeView === 'leaderboard' ? '📋 Match Matrix' : '🏆 Leaderboard Standings'}</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsRosterModalOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-slate-200 font-extrabold text-xs flex items-center gap-2 cursor-pointer transition-all"
           >
@@ -1839,8 +1895,328 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         </div>
       </div>
 
-      {/* Round-Grouped Matches Matrix */}
-      {isLoading ? (
+      {/* Dynamic View Switcher: Leaderboard Standings View vs Match Matrix View */}
+      {activeView === 'leaderboard' ? (
+        <div className="space-y-6 animate-fade-in">
+          {/* Leaderboard Top Header Card */}
+          <div className="glass-panel border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 bg-slate-900/80">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-extrabold text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                    <Trophy className="w-4 h-4 text-amber-400" /> Individual Rankings
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">
+                    {sortedLeaderboardList.length} Players Ranked
+                  </span>
+                </div>
+                <h2 className="text-2xl font-black text-white mt-1">Event Leaderboard Standings</h2>
+                <p className="text-xs text-slate-400">
+                  Individual player rankings based on total wins, win percentage, and net point differential for{' '}
+                  <strong className="text-white">{event.title}</strong>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleCopyReportText}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                >
+                  <Copy className="w-4 h-4 text-amber-400" /> Copy Text Summary
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportReportCSV}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg hover:scale-[1.02]"
+                >
+                  <Download className="w-4 h-4 text-dark-bg" /> Export Leaderboard CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveView('matrix')}
+                  className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 hover:border-brand-lime text-brand-lime text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Match Matrix
+                </button>
+              </div>
+            </div>
+
+            {/* Top 3 Podium Cards */}
+            {sortedLeaderboardList.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-800">
+                {/* Gold 🥇 Rank #1 */}
+                {sortedLeaderboardList[0] && (
+                  <div className="relative rounded-3xl border-2 border-amber-400/90 bg-gradient-to-b from-amber-950/40 via-slate-900 to-slate-950 p-5 shadow-2xl flex flex-col justify-between space-y-4 text-left overflow-hidden group hover:border-amber-300 transition-all">
+                    <div className="absolute top-0 right-0 px-3 py-1 bg-amber-400 text-dark-bg font-black text-[11px] uppercase tracking-wider rounded-bl-2xl shadow-md flex items-center gap-1">
+                      👑 1st Place (Gold)
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-12 h-12 rounded-full border-2 border-amber-400 bg-amber-500/20 shrink-0 overflow-hidden shadow-inner">
+                        <img
+                          src={`https://robohash.org/${encodeURIComponent(sortedLeaderboardList[0].playerName)}?set=set4`}
+                          alt={sortedLeaderboardList[0].playerName}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-base font-black text-amber-300 truncate">
+                          {sortedLeaderboardList[0].playerName}
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                          <span>🥇 Rank #1</span>
+                          <span className="font-mono text-amber-400 font-bold">
+                            {sortedLeaderboardList[0].wins} Wins
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 bg-slate-950/80 p-3 rounded-2xl border border-amber-500/30 text-center text-xs">
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Win Rate</span>
+                        <span className="font-black text-brand-lime font-mono text-sm">{sortedLeaderboardList[0].winRate}%</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Point Diff</span>
+                        <span className="font-black text-amber-300 font-mono text-sm">
+                          {sortedLeaderboardList[0].pointDiff >= 0 ? `+${sortedLeaderboardList[0].pointDiff}` : sortedLeaderboardList[0].pointDiff}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Played</span>
+                        <span className="font-black text-white font-mono text-sm">{sortedLeaderboardList[0].completedMatches}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Silver 🥈 Rank #2 */}
+                {sortedLeaderboardList[1] && (
+                  <div className="relative rounded-3xl border-2 border-slate-400/80 bg-gradient-to-b from-slate-800/40 via-slate-900 to-slate-950 p-5 shadow-xl flex flex-col justify-between space-y-4 text-left overflow-hidden group hover:border-slate-300 transition-all">
+                    <div className="absolute top-0 right-0 px-3 py-1 bg-slate-300 text-dark-bg font-black text-[11px] uppercase tracking-wider rounded-bl-2xl shadow-md flex items-center gap-1">
+                      🥈 2nd Place (Silver)
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-12 h-12 rounded-full border-2 border-slate-300 bg-slate-700/40 shrink-0 overflow-hidden shadow-inner">
+                        <img
+                          src={`https://robohash.org/${encodeURIComponent(sortedLeaderboardList[1].playerName)}?set=set4`}
+                          alt={sortedLeaderboardList[1].playerName}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-base font-black text-slate-200 truncate">
+                          {sortedLeaderboardList[1].playerName}
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                          <span>🥈 Rank #2</span>
+                          <span className="font-mono text-slate-200 font-bold">
+                            {sortedLeaderboardList[1].wins} Wins
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 bg-slate-950/80 p-3 rounded-2xl border border-slate-700 text-center text-xs">
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Win Rate</span>
+                        <span className="font-black text-brand-lime font-mono text-sm">{sortedLeaderboardList[1].winRate}%</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Point Diff</span>
+                        <span className="font-black text-slate-200 font-mono text-sm">
+                          {sortedLeaderboardList[1].pointDiff >= 0 ? `+${sortedLeaderboardList[1].pointDiff}` : sortedLeaderboardList[1].pointDiff}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Played</span>
+                        <span className="font-black text-white font-mono text-sm">{sortedLeaderboardList[1].completedMatches}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bronze 🥉 Rank #3 */}
+                {sortedLeaderboardList[2] && (
+                  <div className="relative rounded-3xl border-2 border-amber-700/80 bg-gradient-to-b from-amber-950/20 via-slate-900 to-slate-950 p-5 shadow-xl flex flex-col justify-between space-y-4 text-left overflow-hidden group hover:border-amber-600 transition-all">
+                    <div className="absolute top-0 right-0 px-3 py-1 bg-amber-700 text-white font-black text-[11px] uppercase tracking-wider rounded-bl-2xl shadow-md flex items-center gap-1">
+                      🥉 3rd Place (Bronze)
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-12 h-12 rounded-full border-2 border-amber-600 bg-amber-900/30 shrink-0 overflow-hidden shadow-inner">
+                        <img
+                          src={`https://robohash.org/${encodeURIComponent(sortedLeaderboardList[2].playerName)}?set=set4`}
+                          alt={sortedLeaderboardList[2].playerName}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-base font-black text-amber-500 truncate">
+                          {sortedLeaderboardList[2].playerName}
+                        </div>
+                        <div className="text-[11px] text-slate-400 flex items-center gap-2">
+                          <span>🥉 Rank #3</span>
+                          <span className="font-mono text-amber-400 font-bold">
+                            {sortedLeaderboardList[2].wins} Wins
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 bg-slate-950/80 p-3 rounded-2xl border border-amber-900/50 text-center text-xs">
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Win Rate</span>
+                        <span className="font-black text-brand-lime font-mono text-sm">{sortedLeaderboardList[2].winRate}%</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Point Diff</span>
+                        <span className="font-black text-amber-400 font-mono text-sm">
+                          {sortedLeaderboardList[2].pointDiff >= 0 ? `+${sortedLeaderboardList[2].pointDiff}` : sortedLeaderboardList[2].pointDiff}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-slate-400 uppercase font-bold block">Played</span>
+                        <span className="font-black text-white font-mono text-sm">{sortedLeaderboardList[2].completedMatches}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Leaderboard Toolbar & Controls */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs bg-slate-900/60 p-4 rounded-3xl border border-slate-800">
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <span className="text-slate-400 font-bold uppercase tracking-wider text-[11px] shrink-0">Rank By:</span>
+              <select
+                value={leaderboardSortField}
+                onChange={(e) => setLeaderboardSortField(e.target.value as any)}
+                className="bg-slate-950 border border-slate-800 text-amber-300 font-black rounded-xl px-3 py-1.5 focus:outline-none focus:border-amber-400 cursor-pointer"
+              >
+                <option value="wins">Total Wins (Most Wins First)</option>
+                <option value="winRate">Win Percentage (%)</option>
+                <option value="pointDiff">Net Point Differential (+/-)</option>
+                <option value="pointsScored">Total Points Scored</option>
+                <option value="matches">Completed Games Played</option>
+              </select>
+            </div>
+
+            <div className="relative w-full sm:w-64 shrink-0">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search player name..."
+                value={leaderboardSearch}
+                onChange={(e) => setLeaderboardSearch(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 font-semibold"
+              />
+            </div>
+          </div>
+
+          {/* Full Player Standings Table */}
+          <div className="border border-slate-800/90 rounded-3xl overflow-hidden bg-slate-950/60 shadow-xl text-xs">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-900 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-800">
+                <tr>
+                  <th className="p-3.5 text-center w-16">Rank</th>
+                  <th className="p-3.5">Player Name & Info</th>
+                  <th className="p-3.5 text-center">Played</th>
+                  <th className="p-3.5 text-center">Record (W-L-T)</th>
+                  <th className="p-3.5 text-center">Win Rate</th>
+                  <th className="p-3.5 text-center">Points Scored</th>
+                  <th className="p-3.5 text-center">Points Conceded</th>
+                  <th className="p-3.5 text-center">Point Diff</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-medium">
+                {sortedLeaderboardList.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-slate-400">
+                      No player statistics found matching your search.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedLeaderboardList.map((stat, idx) => {
+                    const rankNum = idx + 1;
+                    const isTop1 = rankNum === 1;
+                    const isTop2 = rankNum === 2;
+                    const isTop3 = rankNum === 3;
+
+                    return (
+                      <tr
+                        key={stat.playerId}
+                        className={`hover:bg-slate-800/40 transition-colors ${
+                          isTop1 ? 'bg-amber-950/20' : isTop2 ? 'bg-slate-800/20' : isTop3 ? 'bg-amber-950/10' : ''
+                        }`}
+                      >
+                        <td className="p-3.5 text-center font-black">
+                          {isTop1 ? (
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-400 text-dark-bg font-black text-xs shadow-md">
+                              🥇
+                            </span>
+                          ) : isTop2 ? (
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-300 text-dark-bg font-black text-xs shadow-md">
+                              🥈
+                            </span>
+                          ) : isTop3 ? (
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-700 text-white font-black text-xs shadow-md">
+                              🥉
+                            </span>
+                          ) : (
+                            <span className="font-mono text-slate-400 text-xs">#{rankNum}</span>
+                          )}
+                        </td>
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
+                              <img
+                                src={`https://robohash.org/${encodeURIComponent(stat.playerName)}?set=set4`}
+                                alt={stat.playerName}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div>
+                              <div className="font-bold text-white flex items-center gap-2">
+                                <span>{stat.playerName}</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 font-mono capitalize">
+                                  {stat.playerType}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3.5 text-center font-mono text-slate-300 font-bold">
+                          {stat.completedMatches} / {stat.totalMatches}
+                        </td>
+                        <td className="p-3.5 text-center font-mono font-black">
+                          <span className="text-brand-lime">{stat.wins}W</span> - <span className="text-red-400">{stat.losses}L</span> {stat.ties > 0 && <span className="text-slate-400">({stat.ties}T)</span>}
+                        </td>
+                        <td className="p-3.5 text-center font-mono font-bold">
+                          <span className={stat.winRate >= 50 ? 'text-brand-lime font-black' : 'text-slate-400'}>
+                            {stat.winRate}%
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-center font-mono text-slate-200">
+                          {stat.pointsScored}
+                        </td>
+                        <td className="p-3.5 text-center font-mono text-slate-400">
+                          {stat.pointsConceded}
+                        </td>
+                        <td className="p-3.5 text-center font-mono font-black text-sm">
+                          <span className={stat.pointDiff > 0 ? 'text-brand-lime font-bold' : stat.pointDiff < 0 ? 'text-red-400' : 'text-slate-400'}>
+                            {stat.pointDiff >= 0 ? `+${stat.pointDiff}` : stat.pointDiff}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* Round-Grouped Matches Matrix */
+        isLoading ? (
         <div className="p-12 text-center text-slate-400 space-y-3">
           <RefreshCw className="w-8 h-8 animate-spin text-brand-lime mx-auto" />
           <p className="text-xs font-semibold">Loading open play matches...</p>
@@ -2319,7 +2695,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         );
           })}
         </div>
-      )}
+      ))}
 
       {/* MODAL 1: AUTO-GENERATE MATCH MATRIX */}
       {isAutoGenModalOpen && (
