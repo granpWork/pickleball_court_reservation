@@ -478,6 +478,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const [courtsResetKey, setCourtsResetKey] = useState<number>(0);
   const [companiesResetKey, setCompaniesResetKey] = useState<number>(0);
+  const [openPlayResetKey, setOpenPlayResetKey] = useState<number>(0);
 
   useEffect(() => {
     try {
@@ -6939,14 +6940,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
     setActiveTab(tab);
     if (tab === 'openplay') {
+      setOpenPlayResetKey((prev) => prev + 1);
       setSelectedEventForRegs(null);
       try {
+        sessionStorage.removeItem('picklepoint_matrix_event_id');
+        sessionStorage.removeItem('picklepoint_selected_openplay_event_id');
+      } catch (e) {}
+      try {
         const url = new URL(window.location.href);
-        if (url.searchParams.has('eventId') || url.searchParams.has('openplay')) {
-          url.searchParams.delete('eventId');
-          url.searchParams.delete('openplay');
-          window.history.pushState(null, '', url.toString());
-        }
+        url.searchParams.delete('eventId');
+        url.searchParams.delete('openplay');
+        url.searchParams.delete('openplay_event');
+        url.searchParams.delete('matrix');
+        url.searchParams.delete('matrixEventId');
+        window.history.pushState(null, '', url.toString());
       } catch (e) {}
     }
   };
@@ -7271,6 +7278,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'openplay' && (
             <AdminOpenPlayTab
+              key={openPlayResetKey}
               events={openPlayEvents}
               openPlayRegistrations={openPlayRegistrations}
               selectedEventForRegs={selectedEventForRegs}

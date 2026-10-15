@@ -208,6 +208,13 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
     return () => window.removeEventListener('popstate', handlePopState);
   }, [events]);
 
+  // Synchronize internal matchManagementEvent when selectedEventForRegs is cleared externally (e.g. sidebar navigation)
+  useEffect(() => {
+    if (!selectedEventForRegs) {
+      setMatchManagementEvent(null);
+    }
+  }, [selectedEventForRegs]);
+
   const handleOpenMatchManagement = (evt: OpenPlayEvent) => {
     setMatchManagementEvent(evt);
     setSelectedEventForRegs(evt);
@@ -247,11 +254,14 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
         sessionStorage.removeItem('picklepoint_matrix_event_id');
       } catch (e) {}
     } else {
+      setMatchManagementEvent(null);
       try {
         const url = new URL(window.location.href);
         url.searchParams.delete('eventId');
         url.searchParams.delete('openplay');
+        url.searchParams.delete('openplay_event');
         url.searchParams.delete('matrix');
+        url.searchParams.delete('matrixEventId');
         window.history.pushState(null, '', url.toString());
         sessionStorage.removeItem('picklepoint_selected_openplay_event_id');
         sessionStorage.removeItem('picklepoint_matrix_event_id');
