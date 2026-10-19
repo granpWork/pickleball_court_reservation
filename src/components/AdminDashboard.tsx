@@ -1966,22 +1966,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     setActionLoading(bookingToCancel.id);
     try {
-      if (isFirebaseConfigured && db) {
+      await syncBookingUpdateToCloudAndStorage(bookingToCancel, { status: 'cancelled' });
+      if (isFirebaseConfigured && db && isVoucherEligible) {
         try {
-          await updateDoc(doc(db, 'bookings', bookingToCancel.id), { status: 'cancelled' });
-          if (isVoucherEligible) {
-            await setDoc(doc(db, 'vouchers', vId), JSON.parse(JSON.stringify(voucherPayload)));
-          }
+          await setDoc(doc(db, 'vouchers', vId), JSON.parse(JSON.stringify(voucherPayload)));
         } catch (cloudErr) {
-          console.warn('Firestore cancel/voucher write failed (check security rules), storing locally:', cloudErr);
+          console.warn('Firestore voucher write failed (check security rules), storing locally:', cloudErr);
         }
-      }
-
-      const bStr = localStorage.getItem('picklepoint_bookings');
-      if (bStr) {
-        const localB = JSON.parse(bStr) as Booking[];
-        const updated = localB.map(b => b.id === bookingToCancel.id ? { ...b, status: 'cancelled' as const } : b);
-        localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
       }
 
       if (isVoucherEligible) {
@@ -2002,7 +1993,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }).catch(err => console.warn('Voucher email error:', err));
       }
 
-      setBookings(prev => prev.map(b => b.id === bookingToCancel.id ? { ...b, status: 'cancelled' } : b));
       setCancelBookingModalOpen(false);
       setBookingToCancel(null);
       alert(isVoucherEligible ? `Booking cancelled and ${cancellationVoucherPercent}% Credit Voucher (${vCode}) issued to ${bookingToCancel.user.email}!` : `Booking cancelled.`);
@@ -2013,11 +2003,327 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
+  const getBookingCompositeSignature = (b: any): string => {
+    if (!b) return '';
+    const cId = (b.courtId || b.openPlayEventId || '').trim();
+    const dStr = (b.date || '').trim();
+    if (!cId || !dStr) return '';
+    const slotsKey = Array.isArray(b.slots) ? b.slots.slice().sort().join('|') : '';
+    const uName = (b.userName || b.user?.name || '').trim().toLowerCase();
+    return `${cId}__${dStr}__${slotsKey}__${uName}`;
+  };
+
+  const isBookingResolvedStatus = (b: any): boolean => {
+    if (!b) return false;
+    const st = String(b.status || '').toLowerCase();
+    const pst = String(b.paymentStatus || '').toLowerCase();
+    return (
+      st === 'approved' ||
+      st === 'cancelled' ||
+      pst === 'paid' ||
+      pst === 'completed' ||
+      pst === 'failed' ||
+      pst === 'refunded' ||
+      pst === 'rebooking_credit' ||
+      pst === 'cancelled_no_refund'
+    );
+  };
+
+  const mergeAndDeduplicateBookings = (
+    cloudDocs: { docId: string; data: Booking }[],
+    localBookings: Booking[]
+  ): Booking[] => {
+    const byKey = new Map<string, Booking>();
+    const aliasToKey = new Map<string, string>();
+    const ghostDocIdsToDelete: string[] = [];
+    const staleDuplicateDocsToSync: { docId: string; status: any; paymentStatus: any }[] = [];
+
+    const registerAliases = (canonicalKey: string, b: any, docId?: string) => {
+      const candidates = [
+        docId,
+        b.firestoreDocId,
+        b.originalId,
+        b.id,
+        b.bookingId,
+        b.bookingReference,
+      ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()));
+      candidates.forEach((c) => aliasToKey.set(c.trim(), canonicalKey));
+      const sig = getBookingCompositeSignature(b);
+      if (sig) aliasToKey.set(`sig:${sig}`, canonicalKey);
+    };
+
+    const findExistingKey = (b: any, docId?: string): string | undefined => {
+      const candidates = [
+        docId,
+        b.firestoreDocId,
+        b.originalId,
+        b.id,
+        b.bookingId,
+        b.bookingReference,
+      ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()));
+      for (const c of candidates) {
+        const found = aliasToKey.get(c.trim());
+        if (found && byKey.has(found)) return found;
+      }
+      const sig = getBookingCompositeSignature(b);
+      if (sig) {
+        const foundSig = aliasToKey.get(`sig:${sig}`);
+        if (foundSig && byKey.has(foundSig)) return foundSig;
+      }
+      return undefined;
+    };
+
+    // 1. Process authoritative Firestore documents first
+    cloudDocs.forEach(({ docId, data }) => {
+      // Detect partial ghost documents created by legacy merge bugs (missing courtId, openPlayEventId, and date)
+      const hasCoreBookingFields = Boolean(data.courtId || data.openPlayEventId || data.date);
+      if (!hasCoreBookingFields) {
+        ghostDocIdsToDelete.push(docId);
+        return;
+      }
+
+      const normalized: Booking = {
+        ...data,
+        id: docId,
+        ...( { firestoreDocId: docId, originalId: data.id || docId } as any ),
+        bookingReference: data.bookingReference || docId,
+        bookingId: data.bookingId || data.id || docId,
+      };
+
+      const existingKey = findExistingKey(normalized, docId);
+      if (!existingKey) {
+        const canonicalKey = normalized.bookingReference || docId;
+        byKey.set(canonicalKey, normalized);
+        registerAliases(canonicalKey, normalized, docId);
+      } else {
+        const existing = byKey.get(existingKey)!;
+        const existingResolved = isBookingResolvedStatus(existing);
+        const incomingResolved = isBookingResolvedStatus(normalized);
+
+        if (incomingResolved && !existingResolved) {
+          // Incoming doc is resolved (e.g. approved/paid or cancelled), existing was pending
+          const prevDocId = (existing as any).firestoreDocId || existing.id;
+          if (prevDocId && prevDocId !== docId) {
+            staleDuplicateDocsToSync.push({
+              docId: prevDocId,
+              status: normalized.status,
+              paymentStatus: normalized.paymentStatus,
+            });
+          }
+          byKey.set(existingKey, normalized);
+          registerAliases(existingKey, normalized, docId);
+        } else if (existingResolved && !incomingResolved) {
+          // Existing doc is already resolved, incoming duplicate is still pending -> sync incoming duplicate!
+          if (docId && docId !== ((existing as any).firestoreDocId || existing.id)) {
+            staleDuplicateDocsToSync.push({
+              docId,
+              status: existing.status,
+              paymentStatus: existing.paymentStatus,
+            });
+          }
+          registerAliases(existingKey, normalized, docId);
+        } else {
+          // Prefer the document whose docId matches data.id (the original bk_manual_* or primary doc)
+          const incomingIsPrimary = data.id === docId || docId.startsWith('bk_');
+          if (incomingIsPrimary) {
+            byKey.set(existingKey, normalized);
+          }
+          registerAliases(existingKey, normalized, docId);
+        }
+      }
+    });
+
+    // Heal ghost documents and stale duplicate documents in Firestore in the background
+    if (isFirebaseConfigured && db) {
+      for (const ghostId of ghostDocIdsToDelete) {
+        deleteDoc(doc(db, 'bookings', ghostId)).catch(() => {});
+      }
+      for (const stale of staleDuplicateDocsToSync) {
+        updateDoc(doc(db, 'bookings', stale.docId), {
+          status: stale.status,
+          paymentStatus: stale.paymentStatus,
+        }).catch(() => {});
+      }
+    }
+
+    // 2. Include local-only bookings that are not yet in Firestore (or when offline)
+    localBookings.forEach((b) => {
+      if (!b || (!b.courtId && !b.openPlayEventId && !b.date)) return;
+      const existingKey = findExistingKey(b);
+      if (!existingKey) {
+        // Only add local booking if cloudDocs was empty (offline) or if it's a brand-new local item
+        if (cloudDocs.length === 0) {
+          const canonicalKey = b.bookingReference || b.bookingId || b.id;
+          if (canonicalKey) {
+            byKey.set(canonicalKey, b);
+            registerAliases(canonicalKey, b);
+          }
+        }
+      }
+    });
+
+    const result = Array.from(byKey.values());
+    if (cloudDocs.length > 0) {
+      try {
+        localStorage.setItem('picklepoint_bookings', JSON.stringify(result));
+        sessionStorage.setItem('picklepoint_bookings', JSON.stringify(result));
+      } catch (e) {}
+    }
+    return result;
+  };
+
+  const syncBookingUpdateToCloudAndStorage = async (
+    targetBookingOrId: Booking | string,
+    updatedFields: Record<string, any>
+  ) => {
+    const targetObj: Booking | undefined =
+      typeof targetBookingOrId === 'object'
+        ? targetBookingOrId
+        : bookings.find(
+            (b) =>
+              b.id === targetBookingOrId ||
+              b.bookingId === targetBookingOrId ||
+              b.bookingReference === targetBookingOrId ||
+              (b as any).firestoreDocId === targetBookingOrId ||
+              (b as any).originalId === targetBookingOrId
+          );
+
+    const candidateIds = Array.from(
+      new Set(
+        (targetObj
+          ? [
+              (targetObj as any).firestoreDocId,
+              (targetObj as any).originalId,
+              targetObj.id,
+              targetObj.bookingReference,
+              targetObj.bookingId,
+              (targetObj as any).gcashReferenceNumber,
+              (targetObj as any).registrationId,
+            ]
+          : [targetBookingOrId as string]
+        ).filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
+      )
+    );
+
+    const targetSig = targetObj ? getBookingCompositeSignature(targetObj) : '';
+
+    const matchFn = (b: any, docId?: string): boolean => {
+      if (!b) return false;
+      const bIds = [
+        docId,
+        b.firestoreDocId,
+        b.originalId,
+        b.id,
+        b.bookingId,
+        b.bookingReference,
+        b.registrationId,
+        b.gcashReferenceNumber,
+      ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()));
+
+      if (bIds.some((id) => candidateIds.includes(id))) return true;
+      if (targetSig && getBookingCompositeSignature(b) === targetSig) return true;
+      return false;
+    };
+
+    // 1. Update all matching documents in Firestore ('bookings' and 'openplay_registrations')
+    if (isFirebaseConfigured && db) {
+      const updatedDocIds = new Set<string>();
+
+      // 1a. Direct document ID checks on 'bookings'
+      for (const cid of candidateIds) {
+        try {
+          const bRef = doc(db, 'bookings', cid);
+          const bSnap = await getDoc(bRef);
+          if (bSnap.exists()) {
+            const bData = bSnap.data();
+            if (!bData.courtId && !bData.openPlayEventId && !bData.date) {
+              await deleteDoc(bRef);
+            } else {
+              await updateDoc(bRef, updatedFields);
+              updatedDocIds.add(cid);
+            }
+          }
+        } catch (e) {
+          console.warn(`Direct updateDoc on bookings/${cid} warning:`, e);
+        }
+      }
+
+      // 1b. Scan 'bookings' collection to guarantee updating documents where doc.id !== bookingReference (or duplicates)
+      try {
+        const allBookingsSnap = await getDocs(collection(db, 'bookings'));
+        const updatePromises: Promise<any>[] = [];
+        allBookingsSnap.forEach((dSnap) => {
+          if (updatedDocIds.has(dSnap.id)) return;
+          const dData = dSnap.data();
+          if (matchFn(dData, dSnap.id)) {
+            if (!dData.courtId && !dData.openPlayEventId && !dData.date) {
+              updatePromises.push(deleteDoc(dSnap.ref).catch(() => {}));
+            } else {
+              updatedDocIds.add(dSnap.id);
+              updatePromises.push(updateDoc(dSnap.ref, updatedFields));
+            }
+          }
+        });
+        if (updatePromises.length > 0) {
+          await Promise.all(updatePromises);
+        }
+      } catch (scanErr) {
+        console.warn('Scan update on bookings warning:', scanErr);
+      }
+
+      // 1c. Also update matching 'openplay_registrations' documents if any exist
+      for (const cid of candidateIds) {
+        try {
+          const opRef = doc(db, 'openplay_registrations', cid);
+          const opSnap = await getDoc(opRef);
+          if (opSnap.exists()) {
+            const opData = opSnap.data();
+            if (!opData.eventId && !opData.openPlayEventId) {
+              await deleteDoc(opRef).catch(() => {});
+            } else {
+              await updateDoc(opRef, updatedFields);
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 2. Sync LocalStorage & SessionStorage
+    ['picklepoint_bookings', 'picklepoint_openplay_registrations'].forEach((sKey) => {
+      try {
+        const raw = localStorage.getItem(sKey);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...updatedFields } : b));
+            localStorage.setItem(sKey, JSON.stringify(updated));
+          }
+        }
+      } catch (e) {}
+      try {
+        const raw = sessionStorage.getItem(sKey);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...updatedFields } : b));
+            sessionStorage.setItem(sKey, JSON.stringify(updated));
+          }
+        }
+      } catch (e) {}
+    });
+
+    // 3. Update React state immediately
+    setBookings((prev) => prev.map((b) => (matchFn(b) ? { ...b, ...updatedFields } : b)));
+    window.dispatchEvent(new Event('picklepoint_booking_added'));
+  };
+
   const handleCreateManualBooking = async (bookingData: Partial<Booking>) => {
     setIsSubmittingManualBooking(true);
     try {
+      const docId = bookingData.id || `bk_manual_${Date.now()}`;
       const fullBooking: Booking = {
-        id: bookingData.id || `bk_manual_${Date.now()}`,
+        id: docId,
+        ...( { firestoreDocId: docId, originalId: docId } as any ),
         bookingId: bookingData.bookingId || `BK-WALKIN-${Math.floor(100000 + Math.random() * 900000)}`,
         type: 'court',
         isManual: true,
@@ -2089,142 +2395,25 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const modifierName = user?.name || userObj?.companyName || adminDisplayName || 'Admin';
       const modifiedTimestamp = new Date().toISOString();
 
-      // Extract candidate identifiers for target booking
-      const candidateIds = Array.from(
-        new Set(
-          (typeof targetBooking === 'object'
-            ? [
-                targetBooking.id,
-                targetBooking.bookingReference,
-                targetBooking.bookingId,
-                (targetBooking as any).gcashReferenceNumber,
-                (targetBooking as any).registrationId,
-              ]
-            : [targetBooking]
-          ).filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
-        )
-      );
-
-      const matchFn = (b: any) =>
-        candidateIds.includes(b.id) ||
-        candidateIds.includes(b.bookingId) ||
-        candidateIds.includes(b.bookingReference) ||
-        candidateIds.includes(b.registrationId);
-
-      // 1. Update local bookings state
-      const updatedBookings = bookings.map((b) => {
-        if (matchFn(b)) {
-          return {
-            ...b,
-            userName: updatedData.userName,
-            userEmail: updatedData.userEmail,
-            userPhone: updatedData.userPhone,
-            user: {
-              ...b.user,
-              name: updatedData.userName,
-              email: updatedData.userEmail,
-              phone: updatedData.userPhone,
-            },
-            paymentMethod: updatedData.paymentMethod,
-            ...(updatedData.totalCost !== undefined ? { totalCost: updatedData.totalCost } : {}),
-            lastModifiedByAdminEmail: modifierEmail,
-            lastModifiedByAdminName: modifierName,
-            lastModifiedAt: modifiedTimestamp,
-          };
-        }
-        return b;
-      });
-
-      setBookings(updatedBookings);
-
-      // 2. Update local openPlayEvents state if applicable
-      setOpenPlayEvents((prevEvents) =>
-        prevEvents.map((evt: any) => {
-          if (!evt.registeredPlayers || evt.registeredPlayers.length === 0) return evt;
-          const updatedPlayers = evt.registeredPlayers.map((p: any) => {
-            if (matchFn(p)) {
-              return {
-                ...p,
-                name: updatedData.userName,
-                userName: updatedData.userName,
-                email: updatedData.userEmail,
-                userEmail: updatedData.userEmail,
-                phone: updatedData.userPhone,
-                userPhone: updatedData.userPhone,
-                paymentMethod: updatedData.paymentMethod,
-              };
-            }
-            return p;
-          });
-          return { ...evt, registeredPlayers: updatedPlayers };
-        })
-      );
-
-      // 3. Update Firestore across candidate IDs & collections ('bookings' and 'openplay_registrations')
-      if (isFirebaseConfigured && db) {
-        const updatePayload: Record<string, any> = {
-          userName: updatedData.userName,
-          userEmail: updatedData.userEmail,
-          userPhone: updatedData.userPhone,
-          user: {
-            name: updatedData.userName,
-            email: updatedData.userEmail,
-            phone: updatedData.userPhone,
-          },
-          paymentMethod: updatedData.paymentMethod,
-          lastModifiedByAdminEmail: modifierEmail,
-          lastModifiedByAdminName: modifierName,
-          lastModifiedAt: modifiedTimestamp,
-        };
-        if (updatedData.totalCost !== undefined) {
-          updatePayload.totalCost = updatedData.totalCost;
-        }
-
-        // Save/merge across candidate IDs in 'bookings' and 'openplay_registrations'
-        for (const cid of candidateIds) {
-          try {
-            const bRef = doc(db, 'bookings', cid);
-            await setDoc(bRef, updatePayload, { merge: true });
-          } catch (e) {
-            console.warn(`setDoc on bookings/${cid} failed:`, e);
-          }
-          try {
-            const opRef = doc(db, 'openplay_registrations', cid);
-            await setDoc(opRef, updatePayload, { merge: true });
-          } catch (e) {
-            console.warn(`setDoc on openplay_registrations/${cid} failed:`, e);
-          }
-        }
-
-        // Additional fallback: Query documents matching bookingReference or bookingId
-        for (const cid of candidateIds) {
-          try {
-            const qB1 = query(collection(db, 'bookings'), where('bookingReference', '==', cid));
-            const sB1 = await getDocs(qB1);
-            sB1.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
-
-            const qB2 = query(collection(db, 'bookings'), where('bookingId', '==', cid));
-            const sB2 = await getDocs(qB2);
-            sB2.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
-
-            const qOp1 = query(collection(db, 'openplay_registrations'), where('bookingReference', '==', cid));
-            const sOp1 = await getDocs(qOp1);
-            sOp1.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
-
-            const qOp2 = query(collection(db, 'openplay_registrations'), where('bookingId', '==', cid));
-            const sOp2 = await getDocs(qOp2);
-            sOp2.forEach((d) => setDoc(d.ref, updatePayload, { merge: true }));
-          } catch (qErr) {
-            console.warn('Fallback query edit update warning:', qErr);
-          }
-        }
+      const updatePayload: Record<string, any> = {
+        userName: updatedData.userName,
+        userEmail: updatedData.userEmail,
+        userPhone: updatedData.userPhone,
+        user: {
+          name: updatedData.userName,
+          email: updatedData.userEmail,
+          phone: updatedData.userPhone,
+        },
+        paymentMethod: updatedData.paymentMethod,
+        lastModifiedByAdminEmail: modifierEmail,
+        lastModifiedByAdminName: modifierName,
+        lastModifiedAt: modifiedTimestamp,
+      };
+      if (updatedData.totalCost !== undefined) {
+        updatePayload.totalCost = updatedData.totalCost;
       }
 
-      // 4. Update Local Storage & Session Storage
-      try {
-        localStorage.setItem('picklepoint_bookings', JSON.stringify(updatedBookings));
-        sessionStorage.setItem('picklepoint_bookings', JSON.stringify(updatedBookings));
-      } catch (e) {}
+      await syncBookingUpdateToCloudAndStorage(targetBooking, updatePayload);
 
       showModalAlert('Booking Updated', 'Manual reservation details updated successfully.', 'success');
     } catch (err: any) {
@@ -3051,32 +3240,28 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const ownedCourtIds = scopedAdminCourts.map(c => c.id);
 
       // 3. Fetch bookings (Merge Firestore & LocalStorage for 100% data fidelity)
-      const bookingMap = new Map<string, Booking>();
+      let localBookingsList: Booking[] = [];
       const localBookingsStr = localStorage.getItem('picklepoint_bookings');
       if (localBookingsStr) {
         try {
-          const localBookings = JSON.parse(localBookingsStr) as Booking[];
-          localBookings.forEach((b) => {
-            const key = b.bookingReference || b.bookingId || b.id;
-            if (key) bookingMap.set(key, { ...b, id: key });
-          });
+          const parsed = JSON.parse(localBookingsStr);
+          if (Array.isArray(parsed)) localBookingsList = parsed as Booking[];
         } catch (e) {}
       }
 
+      const cloudBookingDocs: { docId: string; data: Booking }[] = [];
       if (isFirebaseConfigured && db) {
         try {
           const querySnapshot = await getDocs(collection(db, 'bookings'));
           querySnapshot.forEach((docSnap) => {
-            const data = docSnap.data() as Booking;
-            const key = data.bookingReference || docSnap.id;
-            bookingMap.set(key, { ...data, id: key });
+            cloudBookingDocs.push({ docId: docSnap.id, data: docSnap.data() as Booking });
           });
         } catch (err) {
           console.warn('Error fetching bookings collection from cloud:', err);
         }
       }
 
-      let loadedBookings: Booking[] = Array.from(bookingMap.values());
+      let loadedBookings: Booking[] = mergeAndDeduplicateBookings(cloudBookingDocs, localBookingsList);
 
       // Filter bookings: each admin sees bookings/checkouts for courts or organization they own.
       if (!isSuperAdmin) {
@@ -3520,28 +3705,21 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         unsubscribeBookings = onSnapshot(collection(db!, 'bookings'), (snapshot) => {
           if (document.hidden) return; // Skip heavy state updates when tab is hidden
 
-          const bookingMap = new Map<string, Booking>();
-
-          // 1. Include local storage base
+          let localBookingsList: Booking[] = [];
           try {
             const localBookingsStr = localStorage.getItem('picklepoint_bookings');
             if (localBookingsStr) {
-              const localBookings = JSON.parse(localBookingsStr) as Booking[];
-              localBookings.forEach((b) => {
-                const key = b.bookingReference || b.bookingId || b.id;
-                if (key) bookingMap.set(key, { ...b, id: key });
-              });
+              const parsed = JSON.parse(localBookingsStr);
+              if (Array.isArray(parsed)) localBookingsList = parsed as Booking[];
             }
           } catch (e) {}
 
-          // 2. Real-time updates from Firestore
+          const cloudBookingDocs: { docId: string; data: Booking }[] = [];
           snapshot.forEach((docSnap) => {
-            const data = docSnap.data() as Booking;
-            const key = data.bookingReference || docSnap.id;
-            bookingMap.set(key, { ...data, id: key });
+            cloudBookingDocs.push({ docId: docSnap.id, data: docSnap.data() as Booking });
           });
 
-          let loadedBookings: Booking[] = Array.from(bookingMap.values());
+          let loadedBookings: Booking[] = mergeAndDeduplicateBookings(cloudBookingDocs, localBookingsList);
 
           // 3. Filter for active venue host using current refs
           if (!isSuperAdminRef.current) {
@@ -4096,7 +4274,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // Actions
   const handleUpdateStatus = async (bookingId: string, newStatus: 'approved' | 'cancelled') => {
-    const targetBooking = bookings.find((b) => b.id === bookingId || b.bookingId === bookingId);
+    const targetBooking = bookings.find(
+      (b) =>
+        b.id === bookingId ||
+        b.bookingId === bookingId ||
+        b.bookingReference === bookingId ||
+        (b as any).firestoreDocId === bookingId
+    );
     if (targetBooking && isPastBookingDate(targetBooking.date)) {
       alert('Past reservations cannot be modified or cancelled.');
       return;
@@ -4105,29 +4289,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setActionLoading(bookingId);
     try {
       const paymentUpdate = newStatus === 'approved' ? 'paid' : 'failed';
-      if (isFirebaseConfigured && db) {
-        const bookingRef = doc(db, 'bookings', bookingId);
-        await updateDoc(bookingRef, { status: newStatus, paymentStatus: paymentUpdate });
-      } else {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.map((b: Booking) => {
-            if (b.bookingId === bookingId || b.id === bookingId) {
-              return { ...b, status: newStatus, paymentStatus: paymentUpdate };
-            }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-        }
-      }
-      // Optimistic state update
-      setBookings((prev) =>
-        prev.map((b) => (b.id === bookingId ? { ...b, status: newStatus, paymentStatus: paymentUpdate } : b))
-      );
+      await syncBookingUpdateToCloudAndStorage(targetBooking || bookingId, {
+        status: newStatus,
+        paymentStatus: paymentUpdate,
+      });
 
       // Automated email notification dispatch
-      const targetBooking = bookings.find((b) => b.id === bookingId || b.bookingId === bookingId);
       const recipientEmail = targetBooking?.userEmail || targetBooking?.user?.email || '';
       const recipientName = targetBooking?.userName || targetBooking?.user?.name || 'Valued Player';
 
@@ -4197,105 +4364,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         (updatedFields as any).adminApprovalNotes = approvePaymentNotes.trim();
       }
 
-      // 1. Multi-key Firestore updates for both 'bookings' and 'openplay_registrations'
-      if (isFirebaseConfigured && db) {
-        const candidateIds = Array.from(
-          new Set(
-            [
-              targetBooking.id,
-              targetBooking.bookingReference,
-              (targetBooking as any).bookingId,
-              (targetBooking as any).gcashReferenceNumber,
-              (targetBooking as any).registrationId,
-              (targetBooking as any).eventId,
-            ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
-          )
-        );
-
-        let isUpdatedInCloud = false;
-
-        // Try direct updateDoc across candidate IDs in 'bookings'
-        for (const candidateId of candidateIds) {
-          try {
-            const bRef = doc(db, 'bookings', candidateId);
-            const bSnap = await getDoc(bRef);
-            if (bSnap.exists()) {
-              await updateDoc(bRef, updatedFields);
-              isUpdatedInCloud = true;
-            }
-          } catch (e) {
-            console.warn(`Direct updateDoc on bookings/${candidateId} failed:`, e);
-          }
-        }
-
-        // Try direct updateDoc across candidate IDs in 'openplay_registrations'
-        for (const candidateId of candidateIds) {
-          try {
-            const opRef = doc(db, 'openplay_registrations', candidateId);
-            const opSnap = await getDoc(opRef);
-            if (opSnap.exists()) {
-              await updateDoc(opRef, updatedFields);
-              isUpdatedInCloud = true;
-            }
-          } catch (e) {
-            console.warn(`Direct updateDoc on openplay_registrations/${candidateId} failed:`, e);
-          }
-        }
-
-        // Fallback: Query by bookingReference or gcashReferenceNumber
-        if (!isUpdatedInCloud) {
-          const refKeys = Array.from(
-            new Set([targetBooking.bookingReference, (targetBooking as any).gcashReferenceNumber].filter((v): v is string => Boolean(v)))
-          );
-          for (const key of refKeys) {
-            try {
-              const qB = query(collection(db, 'bookings'), where('bookingReference', '==', key));
-              const sB = await getDocs(qB);
-              sB.forEach((d) => updateDoc(d.ref, updatedFields));
-
-              const qOp = query(collection(db, 'openplay_registrations'), where('gcashReferenceNumber', '==', key));
-              const sOp = await getDocs(qOp);
-              sOp.forEach((d) => updateDoc(d.ref, updatedFields));
-            } catch (qErr) {
-              console.warn('Fallback query approval update warning:', qErr);
-            }
-          }
-        }
-      }
-
-      // 2. Sync Local Storage & Session Storage across both keys
-      const matchFn = (b: any) =>
-        b.id === targetBooking.id ||
-        b.bookingId === targetBooking.id ||
-        b.bookingReference === targetBooking.bookingReference ||
-        ((targetBooking as any).gcashReferenceNumber && b.gcashReferenceNumber === (targetBooking as any).gcashReferenceNumber);
-
-      ['picklepoint_bookings', 'picklepoint_openplay_registrations'].forEach((sKey) => {
-        try {
-          const raw = localStorage.getItem(sKey);
-          if (raw) {
-            const list = JSON.parse(raw);
-            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...updatedFields } : b));
-            localStorage.setItem(sKey, JSON.stringify(updated));
-          }
-        } catch (e) {}
-        try {
-          const raw = sessionStorage.getItem(sKey);
-          if (raw) {
-            const list = JSON.parse(raw);
-            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...updatedFields } : b));
-            sessionStorage.setItem(sKey, JSON.stringify(updated));
-          }
-        } catch (e) {}
-      });
-
-      // 3. Dispatch real-time events & Sync Component State
-      window.dispatchEvent(new Event('picklepoint_booking_added'));
-      window.dispatchEvent(new Event('storage'));
-
-      setBookings((prev) =>
-        prev.map((b) => (matchFn(b) ? { ...b, ...updatedFields } : b))
-      );
+      await syncBookingUpdateToCloudAndStorage(targetBooking, updatedFields);
 
       const approvedBookingRef = targetBooking.bookingReference || targetBooking.id;
       setApproveCheckoutModalBooking(null);
@@ -4388,60 +4457,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     try {
       if (cancellationResolutionMode === 'refund') {
         // Mode 1: Monetary Refund with Receipt Proof
-        if (isFirebaseConfigured && db) {
-          try {
-            const bookingRef = doc(db, 'bookings', refundModalBooking.id);
-            await updateDoc(bookingRef, {
-              status: 'cancelled',
-              paymentStatus: 'refunded',
-              refundReceiptUrl: refundReceiptBase64,
-              refundAmount: refundAmt,
-              refundReason: refundReasonInput || 'Monetary refund issued',
-              refundedAt: refundedAtIso,
-              refundedBy: refundedByInfo,
-            });
-          } catch (cloudErr) {
-            console.warn('Firestore update failed for refund (check security rules), storing locally:', cloudErr);
-          }
-        }
-
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.map((b: Booking) => {
-            if (b.bookingId === refundModalBooking.id || b.id === refundModalBooking.id) {
-              return {
-                ...b,
-                status: 'cancelled' as const,
-                paymentStatus: 'refunded',
-                refundReceiptUrl: refundReceiptBase64,
-                refundAmount: refundAmt,
-                refundReason: refundReasonInput || 'Monetary refund issued',
-                refundedAt: refundedAtIso,
-                refundedBy: refundedByInfo,
-              };
-            }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-        }
-
-        setBookings((prev) =>
-          prev.map((b) =>
-            b.id === refundModalBooking.id
-              ? {
-                  ...b,
-                  status: 'cancelled',
-                  paymentStatus: 'refunded',
-                  refundReceiptUrl: refundReceiptBase64,
-                  refundAmount: refundAmt,
-                  refundReason: refundReasonInput || 'Monetary refund issued',
-                  refundedAt: refundedAtIso,
-                  refundedBy: refundedByInfo,
-                }
-              : b
-          )
-        );
+        await syncBookingUpdateToCloudAndStorage(refundModalBooking, {
+          status: 'cancelled',
+          paymentStatus: 'refunded',
+          refundReceiptUrl: refundReceiptBase64,
+          refundAmount: refundAmt,
+          refundReason: refundReasonInput || 'Monetary refund issued',
+          refundedAt: refundedAtIso,
+          refundedBy: refundedByInfo,
+        });
 
         sendRefundConfirmationEmail({
           bookingId: refundModalBooking.id,
@@ -4493,19 +4517,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         if (isFirebaseConfigured && db) {
           try {
             await setDoc(doc(db, 'vouchers', voucherPayload.id), JSON.parse(JSON.stringify(voucherPayload)));
-            const bookingRef = doc(db, 'bookings', refundModalBooking.id);
-            await updateDoc(bookingRef, {
-              status: 'cancelled',
-              paymentStatus: 'rebooking_credit',
-              refundAmount: refundAmt,
-              refundReason: `Credit Voucher Issued: ${voucherCode}`,
-              refundedAt: refundedAtIso,
-              refundedBy: refundedByInfo,
-            });
           } catch (cloudErr) {
             console.warn('Firestore write failed for voucher issuance (check security rules), storing locally:', cloudErr);
           }
         }
+
+        await syncBookingUpdateToCloudAndStorage(refundModalBooking, {
+          status: 'cancelled',
+          paymentStatus: 'rebooking_credit',
+          refundAmount: refundAmt,
+          refundReason: `Credit Voucher Issued: ${voucherCode}`,
+          refundedAt: refundedAtIso,
+          refundedBy: refundedByInfo,
+        });
 
         // Always dual-write to localStorage for instant local availability
         const vStr = localStorage.getItem('picklepoint_vouchers');
@@ -4513,42 +4537,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         localV.unshift(voucherPayload);
         localStorage.setItem('picklepoint_vouchers', JSON.stringify(localV));
 
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.map((b: Booking) => {
-            if (b.bookingId === refundModalBooking.id || b.id === refundModalBooking.id) {
-              return {
-                ...b,
-                status: 'cancelled' as const,
-                paymentStatus: 'rebooking_credit',
-                refundAmount: refundAmt,
-                refundReason: `Credit Voucher Issued: ${voucherCode}`,
-                refundedAt: refundedAtIso,
-                refundedBy: refundedByInfo,
-              };
-            }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-        }
-
         setVouchers((prev) => [voucherPayload, ...prev]);
-        setBookings((prev) =>
-          prev.map((b) =>
-            b.id === refundModalBooking.id
-              ? {
-                  ...b,
-                  status: 'cancelled',
-                  paymentStatus: 'rebooking_credit',
-                  refundAmount: refundAmt,
-                  refundReason: `Credit Voucher Issued: ${voucherCode}`,
-                  refundedAt: refundedAtIso,
-                  refundedBy: refundedByInfo,
-                }
-              : b
-          )
-        );
 
         sendVoucherIssuedEmail({
           userEmail: refundModalBooking.user?.email || '',
@@ -4564,57 +4553,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         // Mode 3: Cancel Without Refund (Non-refundable per policy)
         const finalReason = refundReasonInput.trim() || nonRefundableReason || 'Non-refundable cancellation per facility terms';
 
-        if (isFirebaseConfigured && db) {
-          try {
-            const bookingRef = doc(db, 'bookings', refundModalBooking.id);
-            await updateDoc(bookingRef, {
-              status: 'cancelled',
-              paymentStatus: 'cancelled_no_refund',
-              refundAmount: 0,
-              refundReason: finalReason,
-              refundedAt: refundedAtIso,
-              refundedBy: refundedByInfo,
-            });
-          } catch (cloudErr) {
-            console.warn('Firestore update failed for cancellation (check security rules), storing locally:', cloudErr);
-          }
-        }
-
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.map((b: Booking) => {
-            if (b.bookingId === refundModalBooking.id || b.id === refundModalBooking.id) {
-              return {
-                ...b,
-                status: 'cancelled' as const,
-                paymentStatus: 'cancelled_no_refund',
-                refundAmount: 0,
-                refundReason: finalReason,
-                refundedAt: refundedAtIso,
-                refundedBy: refundedByInfo,
-              };
-            }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-        }
-
-        setBookings((prev) =>
-          prev.map((b) =>
-            b.id === refundModalBooking.id
-              ? {
-                  ...b,
-                  status: 'cancelled',
-                  paymentStatus: 'cancelled_no_refund',
-                  refundAmount: 0,
-                  refundReason: finalReason,
-                  refundedAt: refundedAtIso,
-                  refundedBy: refundedByInfo,
-                }
-              : b
-          )
-        );
+        await syncBookingUpdateToCloudAndStorage(refundModalBooking, {
+          status: 'cancelled',
+          paymentStatus: 'cancelled_no_refund',
+          refundAmount: 0,
+          refundReason: finalReason,
+          refundedAt: refundedAtIso,
+          refundedBy: refundedByInfo,
+        });
 
         sendNonRefundableCancellationEmail({
           bookingId: refundModalBooking.id,
@@ -4674,105 +4620,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         rejectedBy: user?.email || 'Admin',
       };
 
-      // 1. Multi-key Firestore updates for both 'bookings' and 'openplay_registrations'
-      if (isFirebaseConfigured && db) {
-        const candidateIds = Array.from(
-          new Set(
-            [
-              targetBooking.id,
-              targetBooking.bookingReference,
-              (targetBooking as any).bookingId,
-              (targetBooking as any).gcashReferenceNumber,
-              (targetBooking as any).registrationId,
-              (targetBooking as any).eventId,
-            ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
-          )
-        );
-
-        let isUpdatedInCloud = false;
-
-        // Try direct updateDoc across candidate IDs in 'bookings'
-        for (const candidateId of candidateIds) {
-          try {
-            const bRef = doc(db, 'bookings', candidateId);
-            const bSnap = await getDoc(bRef);
-            if (bSnap.exists()) {
-              await updateDoc(bRef, rejectionPayload);
-              isUpdatedInCloud = true;
-            }
-          } catch (e) {
-            console.warn(`Direct rejection updateDoc on bookings/${candidateId} failed:`, e);
-          }
-        }
-
-        // Try direct updateDoc across candidate IDs in 'openplay_registrations'
-        for (const candidateId of candidateIds) {
-          try {
-            const opRef = doc(db, 'openplay_registrations', candidateId);
-            const opSnap = await getDoc(opRef);
-            if (opSnap.exists()) {
-              await updateDoc(opRef, rejectionPayload);
-              isUpdatedInCloud = true;
-            }
-          } catch (e) {
-            console.warn(`Direct rejection updateDoc on openplay_registrations/${candidateId} failed:`, e);
-          }
-        }
-
-        // Fallback: Query by bookingReference or gcashReferenceNumber
-        if (!isUpdatedInCloud) {
-          const refKeys = Array.from(
-            new Set([targetBooking.bookingReference, (targetBooking as any).gcashReferenceNumber].filter((v): v is string => Boolean(v)))
-          );
-          for (const key of refKeys) {
-            try {
-              const qB = query(collection(db, 'bookings'), where('bookingReference', '==', key));
-              const sB = await getDocs(qB);
-              sB.forEach((d) => updateDoc(d.ref, rejectionPayload));
-
-              const qOp = query(collection(db, 'openplay_registrations'), where('gcashReferenceNumber', '==', key));
-              const sOp = await getDocs(qOp);
-              sOp.forEach((d) => updateDoc(d.ref, rejectionPayload));
-            } catch (qErr) {
-              console.warn('Fallback query rejection update warning:', qErr);
-            }
-          }
-        }
-      }
-
-      // 2. Sync Local Storage & Session Storage across both keys
-      const matchFn = (b: any) =>
-        b.id === targetBooking.id ||
-        b.bookingId === targetBooking.id ||
-        b.bookingReference === targetBooking.bookingReference ||
-        ((targetBooking as any).gcashReferenceNumber && b.gcashReferenceNumber === (targetBooking as any).gcashReferenceNumber);
-
-      ['picklepoint_bookings', 'picklepoint_openplay_registrations'].forEach((sKey) => {
-        try {
-          const raw = localStorage.getItem(sKey);
-          if (raw) {
-            const list = JSON.parse(raw);
-            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...rejectionPayload } : b));
-            localStorage.setItem(sKey, JSON.stringify(updated));
-          }
-        } catch (e) {}
-        try {
-          const raw = sessionStorage.getItem(sKey);
-          if (raw) {
-            const list = JSON.parse(raw);
-            const updated = list.map((b: any) => (matchFn(b) ? { ...b, ...rejectionPayload } : b));
-            sessionStorage.setItem(sKey, JSON.stringify(updated));
-          }
-        } catch (e) {}
-      });
-
-      // 3. Dispatch local events so UI updates in real-time
-      window.dispatchEvent(new Event('picklepoint_booking_added'));
-      window.dispatchEvent(new Event('storage'));
-
-      setBookings((prev) =>
-        prev.map((b: any) => (matchFn(b) ? { ...b, ...rejectionPayload } : b))
-      );
+      await syncBookingUpdateToCloudAndStorage(targetBooking, rejectionPayload);
 
       // Send rejection / cancellation email if enabled
       const recipientUserEmail = targetBooking.userEmail || targetBooking.user?.email;
@@ -4838,22 +4686,46 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const handleConfirmDeleteBooking = async () => {
     if (!bookingToDelete) return;
-    const bookingId = bookingToDelete.id;
     setBookingDeleteLoading(true);
     setBookingDeleteError(null);
     try {
+      const candidateIds = Array.from(
+        new Set(
+          [
+            (bookingToDelete as any).firestoreDocId,
+            (bookingToDelete as any).originalId,
+            bookingToDelete.id,
+            bookingToDelete.bookingId,
+            bookingToDelete.bookingReference,
+          ].filter((v): v is string => Boolean(v && typeof v === 'string' && v.trim()))
+        )
+      );
       if (isFirebaseConfigured && db) {
-        const bookingRef = doc(db, 'bookings', bookingId);
-        await deleteDoc(bookingRef);
-      } else {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.filter((b: Booking) => b.bookingId !== bookingId && b.id !== bookingId);
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
+        for (const cid of candidateIds) {
+          try {
+            await deleteDoc(doc(db, 'bookings', cid));
+          } catch (e) {}
         }
       }
-      setBookings((prev) => prev.filter((b) => b.id !== bookingId));
+      const bookingsStr = localStorage.getItem('picklepoint_bookings');
+      if (bookingsStr) {
+        const localBookings = JSON.parse(bookingsStr) as Booking[];
+        const updated = localBookings.filter(
+          (b: Booking) =>
+            !candidateIds.includes(b.id) &&
+            !candidateIds.includes(b.bookingId || '') &&
+            !candidateIds.includes(b.bookingReference || '')
+        );
+        localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
+      }
+      setBookings((prev) =>
+        prev.filter(
+          (b) =>
+            !candidateIds.includes(b.id) &&
+            !candidateIds.includes(b.bookingId || '') &&
+            !candidateIds.includes(b.bookingReference || '')
+        )
+      );
       setDeleteBookingModalOpen(false);
       setBookingToDelete(null);
     } catch (err) {
@@ -4942,28 +4814,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }),
         totalCost: newTotalCost,
         status: editStatus,
+        ...(editStatus === 'approved' ? { paymentStatus: 'paid' } : editStatus === 'cancelled' ? { paymentStatus: 'failed' } : {}),
       };
 
-      if (isFirebaseConfigured && db) {
-        const bookingRef = doc(db, 'bookings', editingBooking.id);
-        await updateDoc(bookingRef, updatedFields);
-      } else {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr) as Booking[];
-          const updated = localBookings.map((b: Booking) => {
-            if (b.bookingId === editingBooking.id || b.id === editingBooking.id) {
-              return { ...b, ...updatedFields };
-            }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
-        }
-      }
-
-      setBookings((prev) =>
-        prev.map((b) => (b.id === editingBooking.id ? { ...b, ...updatedFields } : b))
-      );
+      await syncBookingUpdateToCloudAndStorage(editingBooking, updatedFields);
       setEditingBooking(null);
     } catch (err) {
       console.error('Failed to edit booking:', err);
