@@ -13,6 +13,7 @@ import {
   BarChart2,
   UploadCloud,
   FileSpreadsheet,
+  Sparkles,
 } from 'lucide-react';
 import {
   collection,
@@ -44,6 +45,8 @@ import { OpenPlayReportModal } from './openplay/OpenPlayReportModal';
 import { OpenPlayJsonUploadModal } from './openplay/OpenPlayJsonUploadModal';
 import { OpenPlayResultsModal } from './openplay/OpenPlayResultsModal';
 import { generateUniquePartnerMatches } from '../../../utils/matchGeneratorUtils';
+import { isNonProductionEnvironment } from '../../../utils/envUtils';
+import { seedDummyOpenPlayRegistrations } from '../../../utils/dummyRosterUtils';
 
 const parseTimeToMinutes = (timeStr?: string): number => {
   if (!timeStr) return 0;
@@ -95,6 +98,56 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   // Roster Pool State
   const [rosterPool, setRosterPool] = useState<OpenPlayMatchRosterItem[]>([]);
+  const [isSeedingQuickDummy, setIsSeedingQuickDummy] = useState<boolean>(false);
+
+  // Quick seed mock players for testing (strictly non-production)
+  const handleQuickSeedDummyPlayers = async (count: number = 12) => {
+    if (!isNonProductionEnvironment()) {
+      showToast('❌ Mock roster seeding is restricted to development/staging.');
+      return;
+    }
+    setIsSeedingQuickDummy(true);
+    try {
+      const seeded = await seedDummyOpenPlayRegistrations(event, count, registrations);
+      // Update local storage cache if available
+      try {
+        const existing = localStorage.getItem(`picklepoint_openplay_dummy_registrations_${event.id}`);
+        const currentList = existing ? JSON.parse(existing) : [];
+        const idSet = new Set(currentList.map((r: any) => r.id));
+        seeded.forEach((dr) => {
+          if (!idSet.has(dr.id)) currentList.push(dr);
+        });
+        localStorage.setItem(`picklepoint_openplay_dummy_registrations_${event.id}`, JSON.stringify(currentList));
+      } catch (e) {}
+
+      // Immediately integrate into roster pool
+      const newItems: OpenPlayMatchRosterItem[] = seeded.map((reg) => ({
+        id: `${reg.id}-primary`,
+        name: reg.playerName,
+        email: reg.playerEmail,
+        phone: reg.playerPhone,
+        type: 'primary',
+        status: 'active',
+        skillLevel: reg.skillLevel || 'Intermediate',
+        duprId: reg.duprId || '',
+        duprRating: reg.duprRating || '',
+        isDummy: true,
+      }));
+
+      const existingPoolIds = new Set(rosterPool.map((p) => p.id));
+      const filteredNew = newItems.filter((p) => !existingPoolIds.has(p.id));
+      const updatedPool = [...rosterPool, ...filteredNew];
+      setRosterPool(updatedPool);
+      setPaddleRackQueue(updatedPool.filter((p) => p.status === 'active'));
+
+      showToast(`🧪 Seeded ${seeded.length} mock players into Roster Pool! Ready to auto-generate matches.`);
+    } catch (err: any) {
+      console.error('Error seeding dummy players:', err);
+      showToast(`Failed to seed mock players: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsSeedingQuickDummy(false);
+    }
+  };
 
   // Filter States
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'completed' | 'active'>('all');
@@ -864,7 +917,21 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   // Build default roster pool from active registrations
   useEffect(() => {
-    const eventRegs = registrations.filter(
+    let combinedRegs = [...registrations];
+    try {
+      const dummyStr = localStorage.getItem(`picklepoint_openplay_dummy_registrations_${event.id}`);
+      if (dummyStr) {
+        const dummyList = JSON.parse(dummyStr);
+        const existingIds = new Set(combinedRegs.map((r) => r.id));
+        dummyList.forEach((dr: any) => {
+          if (!existingIds.has(dr.id)) {
+            combinedRegs.push(dr);
+          }
+        });
+      }
+    } catch (e) {}
+
+    const eventRegs = combinedRegs.filter(
       (r) => r.eventId === event.id && r.status !== 'cancelled' && r.status !== 'waitlisted'
     );
 
@@ -910,6 +977,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           adminDuprId,
           duprRating,
           adminDuprRating,
+          isDummy: reg.isDummy === true,
         });
       }
 
@@ -936,6 +1004,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           adminDuprId: (reg.guests?.[gIdx] as any)?.adminDuprId || '',
           duprRating: (reg.guests?.[gIdx] as any)?.duprRating || '',
           adminDuprRating: (reg.guests?.[gIdx] as any)?.adminDuprRating || '',
+          isDummy: reg.isDummy === true,
         });
       }
     });
@@ -1358,14 +1427,21 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       duprRating: p.adminDuprRating || p.duprRating || undefined,
     });
 
+    // Number of games required in 1 Round so every active player plays at least once
+    const gamesPerRound = Math.max(1, Math.ceil(activePlayers.length / playersPerMatch));
+
     // ALGORITHM 2: PADDLE STACKING (Continuous Queue & 1&4 vs 2&3 Split)
     if (algorithm === 'paddle_stacking') {
       let queue = [...activePlayers];
+      let globalCourtCounter = 0;
 
       for (let r = startingRound; r < startingRound + rounds; r++) {
-        for (let cIdx = 0; cIdx < courtCount; cIdx++) {
+        for (let gIdx = 0; gIdx < gamesPerRound; gIdx++) {
           if (queue.length < playersPerMatch) break;
-          const courtName = assignedCourts[cIdx] || `Court ${cIdx + 1}`;
+          const courtName =
+            assignedCourts[globalCourtCounter % courtCount] ||
+            `Court ${(globalCourtCounter % courtCount) + 1}`;
+          globalCourtCounter++;
 
           if (gameType === 'doubles') {
             // Pull top 4 from front of queue: [P1, P2, P3, P4]
@@ -1389,7 +1465,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             // Return all 4 players to the back of the queue in rotated order
             queue.push(p1, p4, p2, p3);
 
-            const matchId = `op-stack-${event.id}-r${r}-c${cIdx + 1}-${Date.now()}`;
+            const matchId = `op-stack-${event.id}-r${r}-g${gIdx + 1}-${Date.now()}`;
             newMatches.push({
               id: matchId,
               eventId: event.id,
@@ -1418,7 +1494,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
             queue.push(p1, p2);
 
-            const matchId = `op-stack-${event.id}-r${r}-c${cIdx + 1}-${Date.now()}`;
+            const matchId = `op-stack-${event.id}-r${r}-g${gIdx + 1}-${Date.now()}`;
             newMatches.push({
               id: matchId,
               eventId: event.id,
@@ -1439,15 +1515,23 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       setPaddleRackQueue(queue);
     } else {
-      // ALGORITHM 3: Random Rotational Matrix
-      let availablePool = [...activePlayers];
+      // ALGORITHM 3: Random Rotational Matrix (Full Rotation per Round)
+      const availablePool = [...activePlayers];
+      let globalCourtCounter = 0;
+
       for (let r = startingRound; r < startingRound + rounds; r++) {
         const shuffled = [...availablePool].sort(() => Math.random() - 0.5);
-        const matchesInRound = Math.floor(shuffled.length / playersPerMatch);
 
-        for (let m = 0; m < matchesInRound; m++) {
-          const courtName = assignedCourts[m % courtCount] || `Court ${(m % courtCount) + 1}`;
-          const matchPlayers = shuffled.slice(m * playersPerMatch, (m + 1) * playersPerMatch);
+        for (let m = 0; m < gamesPerRound; m++) {
+          const courtName =
+            assignedCourts[globalCourtCounter % courtCount] ||
+            `Court ${(globalCourtCounter % courtCount) + 1}`;
+          globalCourtCounter++;
+
+          const matchPlayers: OpenPlayMatchRosterItem[] = [];
+          for (let pIdx = 0; pIdx < playersPerMatch; pIdx++) {
+            matchPlayers.push(shuffled[(m * playersPerMatch + pIdx) % shuffled.length]);
+          }
 
           let teamRedPlayers: OpenPlayMatchPlayer[] = [];
           let teamBluePlayers: OpenPlayMatchPlayer[] = [];
@@ -1484,8 +1568,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setIsAutoGenModalOpen(false);
     showToast(
       algorithm === 'paddle_stacking'
-        ? `🏓 Paddle Stacking: Generated ${newMatches.length} matches (1&4 vs 2&3 split) across ${courtCount} assigned court(s)!`
-        : `🎲 Generated ${newMatches.length} matches across ${courtCount} assigned court(s)!`
+        ? `🏓 Paddle Stacking: Generated ${rounds} rounds (${newMatches.length} games total, ${gamesPerRound} games/round) across ${courtCount} court(s)!`
+        : `🎲 Generated ${rounds} rounds (${newMatches.length} games total, ${gamesPerRound} games/round) across ${courtCount} court(s)!`
     );
   };
 
@@ -1788,6 +1872,19 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             <BarChart2 className="w-4 h-4 text-brand-emerald" />
             <span>Player Stats Report</span>
           </button>
+
+          {isNonProductionEnvironment() && (
+            <button
+              type="button"
+              disabled={isSeedingQuickDummy}
+              onClick={() => handleQuickSeedDummyPlayers(12)}
+              className="py-2.5 px-3.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
+              title="[Localhost / Staging Only] Quickly seed 12 mock players into this session for match matrix testing"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>{isSeedingQuickDummy ? 'Seeding...' : '🧪 Seed 12 Dummy'}</span>
+            </button>
+          )}
         </div>
 
         {matches.length > 0 && (
@@ -1959,6 +2056,27 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 <UploadCloud className="w-4 h-4 text-amber-400" /> Upload Matches JSON
               </button>
             </div>
+
+            {isNonProductionEnvironment() && rosterPool.length < 4 && (
+              <div className="max-w-md mx-auto p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-2 mt-2">
+                <div className="flex items-center justify-center gap-1.5 text-amber-300 font-bold text-xs">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>Sandbox Testing: Need players to test matches?</span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  Quickly seed 12 mock players into this event to generate match matrices and test umpire scoring.
+                </p>
+                <button
+                  type="button"
+                  disabled={isSeedingQuickDummy}
+                  onClick={() => handleQuickSeedDummyPlayers(12)}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs inline-flex items-center gap-2 cursor-pointer shadow-md transition-all"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-slate-950" />
+                  <span>{isSeedingQuickDummy ? 'Seeding 12 Players...' : '🧪 Seed 12 Test Players'}</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-8">
@@ -1988,7 +2106,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   onOpenJsonModal={openJsonUploadModal}
                   onOpenManualMatchModal={openNewManualMatchModal}
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className={`grid gap-4 sm:gap-5 items-stretch ${
+                    matchesInRound.length === 1
+                      ? 'grid-cols-1 max-w-4xl'
+                      : matchesInRound.length === 2
+                      ? 'grid-cols-1 md:grid-cols-2'
+                      : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                  }`}>
                     {matchesInRound.map((m) => (
                       <MatchMatrixCard
                         key={m.id}

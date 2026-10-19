@@ -16,7 +16,8 @@ import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
 import { AdminScoreboardTab } from './admin/tabs/AdminScoreboardTab';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
+import { AdminIntegrationsTab } from './admin/tabs/AdminIntegrationsTab';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -469,12 +470,23 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     try {
       const saved = sessionStorage.getItem('picklepoint_admin_active_tab');
-      if (saved && ['dashboard', 'bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers', 'service_fee', 'shortener'].includes(saved)) {
+      if (saved && ['dashboard', 'bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers', 'service_fee', 'shortener', 'support', 'image_converter', 'scoreboard', 'integrations'].includes(saved)) {
+        if (saved === 'integrations' && !isSuperAdmin) {
+          return 'dashboard';
+        }
         return saved as AdminTab;
       }
     } catch (e) {}
     return 'dashboard';
   });
+
+  const [integrationsSubTab, setIntegrationsSubTab] = useState<AdminIntegrationsSubTab>('dupr');
+
+  useEffect(() => {
+    if (activeTab === 'integrations' && !isSuperAdmin) {
+      setActiveTab('dashboard');
+    }
+  }, [activeTab, isSuperAdmin]);
 
   const [courtsResetKey, setCourtsResetKey] = useState<number>(0);
   const [companiesResetKey, setCompaniesResetKey] = useState<number>(0);
@@ -6938,6 +6950,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (tab === 'settings') {
       setSettingsSubTab('profile');
     }
+    if (tab === 'integrations') {
+      if (!isSuperAdmin) return;
+      setIntegrationsSubTab('dupr');
+    }
     setActiveTab(tab);
     if (tab === 'openplay') {
       setOpenPlayResetKey((prev) => prev + 1);
@@ -6977,6 +6993,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         setSettingsSubTab={setSettingsSubTab}
         settingsSubMenuOpen={settingsSubMenuOpen}
         setSettingsSubMenuOpen={setSettingsSubMenuOpen}
+        integrationsSubTab={integrationsSubTab}
+        setIntegrationsSubTab={setIntegrationsSubTab}
         mobileMenuOpen={mobileMenuOpen}
         setMobileMenuOpen={setMobileMenuOpen}
         setView={setView}
@@ -7052,11 +7070,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'WebP Image Converter'
                 : activeTab === 'scoreboard'
                 ? 'Match Scoreboard & Referee Console'
+                : activeTab === 'integrations'
+                ? 'External API & System Integrations'
                 : 'Facility Operations & Settings'}
             </h2>
             <p className="text-sm text-slate-400 mt-1">
               {activeTab === 'dashboard'
                 ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
+                : activeTab === 'integrations'
+                ? 'Configure credentials, API environments, and automated synchronizations for external sports systems like DUPR.'
                 : activeTab === 'scoreboard'
                 ? 'Create live scoreboards, pull Open Play rosters, referee matches with official pickleball callouts, swap sides, and reset match scores.'
                 : activeTab === 'support'
@@ -7529,6 +7551,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               openPlayEvents={openPlayEvents}
               myCompany={currentCompany}
               isSuperAdmin={isSuperAdmin}
+            />
+          )}
+          {activeTab === 'integrations' && isSuperAdmin && (
+            <AdminIntegrationsTab
+              user={user}
+              subTab={integrationsSubTab}
+              setSubTab={setIntegrationsSubTab}
             />
           )}
         </div>

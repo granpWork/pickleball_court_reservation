@@ -81,6 +81,7 @@ export interface OpenPlayRegistrationItem {
   adminDuprId?: string;
   duprRating?: string;
   adminDuprRating?: string;
+  isDummy?: boolean;
 }
 
 interface AdminOpenPlayTabProps {

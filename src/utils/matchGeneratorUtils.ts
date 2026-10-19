@@ -26,26 +26,85 @@ export interface MatchGenerationResult {
   playerRestCounts: Record<string, number>;
 }
 
+export interface SessionRoundPacing {
+  gamesPerRound: number;
+  timeWavesPerRound: number;
+  minutesPerRound: number;
+  recommendedRounds: number;
+  totalSessionGames: number;
+  avgGamesPerPlayer: number;
+  maxUniqueRounds: number;
+}
+
 /**
- * Calculates theoretical maximum number of rounds before any partner repeat is mathematically guaranteed.
- * For doubles with N players: Each player can have at most (N - 1) unique partners.
+ * Calculates theoretical maximum number of full rotation rounds before a partner repeat is mathematically guaranteed.
+ * In each round, every player plays 1 game (partnering with 1 teammate).
+ * With N players, each player has (N - 1) possible unique partners.
  */
-export const calculateMaxUniqueDoublesRounds = (activePlayerCount: number, courtCount: number): number => {
-  if (activePlayerCount < 4 || courtCount < 1) return 0;
-  // If everyone plays each round (e.g. 8 players on 2 courts, 12 on 3, 16 on 4):
-  // Maximum unique rounds = N - 1 (when N is a multiple of 4).
-  const maxSimultaneousPlayers = Math.min(courtCount * 4, Math.floor(activePlayerCount / 4) * 4);
-  if (maxSimultaneousPlayers <= 0) return 0;
+export const calculateMaxUniqueDoublesRounds = (activePlayerCount: number, _courtCount: number = 1): number => {
+  if (activePlayerCount < 4) return 0;
+
+  const gamesPerRound = Math.ceil(activePlayerCount / 4);
+  const pairsPerRound = gamesPerRound * 2;
+  if (pairsPerRound <= 0) return 0;
 
   // Total possible unique pairs = N * (N - 1) / 2
   const totalUniquePairsPossible = (activePlayerCount * (activePlayerCount - 1)) / 2;
-  const pairsPerRound = maxSimultaneousPlayers / 2;
 
-  // Upper bound on rounds with zero repeats
+  // Upper bound on full rounds with zero repeats
   const theoreticalLimit = Math.floor(totalUniquePairsPossible / pairsPerRound);
 
   // Each player can partner at most (N - 1) times
   return Math.max(1, Math.min(activePlayerCount - 1, theoreticalLimit));
+};
+
+/**
+ * Dynamically calculates games per round, parallel court time waves, round duration,
+ * and recommended rounds based on active players (N) and available Open Play courts (C).
+ */
+export const calculateSessionRoundPacing = (
+  activePlayerCount: number,
+  courtCount: number,
+  sessionDurationMinutes: number,
+  estGameDurationMinutes: number,
+  playersPerMatch: number = 4
+): SessionRoundPacing => {
+  const safePlayers = Math.max(playersPerMatch, activePlayerCount);
+  const safeCourts = Math.max(1, courtCount);
+  const safeGameMins = Math.max(5, estGameDurationMinutes);
+  const safeSessionMins = Math.max(safeGameMins, sessionDurationMinutes);
+
+  // 1. Games required in 1 Round so every active player plays once
+  const gamesPerRound = Math.max(1, Math.ceil(safePlayers / playersPerMatch));
+
+  // 2. Time Waves needed in 1 Round given C available courts running simultaneously
+  const timeWavesPerRound = Math.max(1, Math.ceil(gamesPerRound / safeCourts));
+
+  // 3. Duration of 1 full Round in minutes
+  const minutesPerRound = timeWavesPerRound * safeGameMins;
+
+  // 4. Recommended number of full Rounds that fit in the session duration
+  const recommendedRounds = Math.max(1, Math.floor(safeSessionMins / minutesPerRound));
+
+  // 5. Total games across all recommended rounds
+  const totalSessionGames = recommendedRounds * gamesPerRound;
+
+  // 6. Average games each player will play across the session
+  const avgGamesPerPlayer = Number(
+    ((totalSessionGames * playersPerMatch) / safePlayers).toFixed(1)
+  );
+
+  const maxUniqueRounds = calculateMaxUniqueDoublesRounds(safePlayers, safeCourts);
+
+  return {
+    gamesPerRound,
+    timeWavesPerRound,
+    minutesPerRound,
+    recommendedRounds,
+    totalSessionGames,
+    avgGamesPerPlayer,
+    maxUniqueRounds,
+  };
 };
 
 /**
@@ -59,6 +118,9 @@ export const mapRosterToMatchPlayer = (p: OpenPlayMatchRosterItem): OpenPlayMatc
   type: p.type,
   duprId: p.adminDuprId || p.duprId || undefined,
   duprRating: p.adminDuprRating || p.duprRating || undefined,
+  adminDuprId: p.adminDuprId,
+  adminDuprRating: p.adminDuprRating,
+  isDummy: p.isDummy,
 });
 
 /**
@@ -69,12 +131,9 @@ const getPairKey = (id1: string, id2: string): string => {
 };
 
 /**
- * Generates matches with the primary constraint that EVERY player receives a UNIQUE partner
- * every game (or strictly minimized repeats if rounds exceed theoretical max).
- * Also optimizes:
- *  1. Equal play time / fair bench rotation when active players > 4 * courts.
- *  2. Opponent diversity (minimizes facing the same opponents repeatedly).
- *  3. Even court distribution across assigned session courts.
+ * Generates multi-game rounds where EVERY Round represents a full rotation of the active roster
+ * (e.g. 12 players = 3 games in Round 1), distributed across the Open Play event's available courts,
+ * while guaranteeing or strictly maximizing unique partners every game.
  */
 export const generateUniquePartnerMatches = (options: UniquePartnerOptions): MatchGenerationResult => {
   const {
@@ -89,7 +148,7 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
   } = options;
 
   const activePlayers = rosterPool.filter((p) => p.status === 'active');
-  const courtCount = assignedCourts.length || 1;
+  const courtCount = Math.max(1, assignedCourts.length);
   const isDoubles = gameType === 'doubles';
   const playersPerMatch = isDoubles ? 4 : 2;
 
@@ -158,133 +217,182 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
   let totalPairingsFormed = 0;
   let uniquePairingsFormed = 0;
   let repeatedPairingsFormed = 0;
+  let globalCourtCounter = existingMatches.length;
 
-  // Max simultaneous matches per round
-  const maxCourtsThisSession = Math.min(courtCount, Math.floor(activePlayers.length / playersPerMatch));
-  const activeSlotsPerRound = maxCourtsThisSession * playersPerMatch;
+  // Number of games per round to rotate all active players once
+  const gamesPerRound = Math.max(1, Math.ceil(activePlayers.length / playersPerMatch));
+  const fullBatchGamesCount = Math.floor(activePlayers.length / playersPerMatch);
+  const hasPartialOverflowGame = gamesPerRound > fullBatchGamesCount;
 
   // Map to player object lookup
   const playerMap = new Map<string, OpenPlayMatchRosterItem>(activePlayers.map((p) => [p.id, p]));
 
-  for (let roundOffset = 0; roundOffset < totalRounds; roundOffset++) {
-    const currentRoundNum = startingRound + roundOffset;
+  // Helper to record a formed match and update tracking matrices
+  const commitMatchToRound = (
+    roundNum: number,
+    courtName: string,
+    matchPlayerIds: string[]
+  ) => {
+    let teamRedPlayers: OpenPlayMatchPlayer[] = [];
+    let teamBluePlayers: OpenPlayMatchPlayer[] = [];
 
-    // STEP 1: Select players to play in current round
-    // If some players must rest (e.g. 10 players on 2 courts -> 8 play, 2 rest):
-    // Prioritize players with fewer matches played, and those who rested consecutively.
-    const sortedPool = [...activePlayers].sort((a, b) => {
-      const aMatches = matchesPlayed.get(a.id) || 0;
-      const bMatches = matchesPlayed.get(b.id) || 0;
-      if (aMatches !== bMatches) return aMatches - bMatches;
+    if (isDoubles) {
+      const pRed1 = playerMap.get(matchPlayerIds[0])!;
+      const pRed2 = playerMap.get(matchPlayerIds[1])!;
+      const pBlue1 = playerMap.get(matchPlayerIds[2])!;
+      const pBlue2 = playerMap.get(matchPlayerIds[3])!;
 
-      const aRests = consecutiveRests.get(a.id) || 0;
-      const bRests = consecutiveRests.get(b.id) || 0;
-      if (aRests !== bRests) return bRests - aRests; // More rests -> prioritized to play
+      teamRedPlayers = [mapRosterToMatchPlayer(pRed1), mapRosterToMatchPlayer(pRed2)];
+      teamBluePlayers = [mapRosterToMatchPlayer(pBlue1), mapRosterToMatchPlayer(pBlue2)];
 
-      return Math.random() - 0.5; // Random tie-breaker
+      // Record partnerships formed
+      const redPairKey = getPairKey(pRed1.id, pRed2.id);
+      const redPrior = partnerCounts.get(redPairKey) || 0;
+      partnerCounts.set(redPairKey, redPrior + 1);
+      totalPairingsFormed++;
+      if (redPrior === 0) uniquePairingsFormed++;
+      else repeatedPairingsFormed++;
+
+      const bluePairKey = getPairKey(pBlue1.id, pBlue2.id);
+      const bluePrior = partnerCounts.get(bluePairKey) || 0;
+      partnerCounts.set(bluePairKey, bluePrior + 1);
+      totalPairingsFormed++;
+      if (bluePrior === 0) uniquePairingsFormed++;
+      else repeatedPairingsFormed++;
+
+      // Record opponent interactions
+      [pRed1, pRed2].forEach((r) => {
+        [pBlue1, pBlue2].forEach((b) => {
+          const ok = getPairKey(r.id, b.id);
+          opponentCounts.set(ok, (opponentCounts.get(ok) || 0) + 1);
+        });
+      });
+
+      // Record court visit & matches played
+      [pRed1, pRed2, pBlue1, pBlue2].forEach((p) => {
+        matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
+        const cv = courtVisits.get(p.id);
+        if (cv) cv.set(courtName, (cv.get(courtName) || 0) + 1);
+      });
+    } else {
+      // Singles
+      const pRed = playerMap.get(matchPlayerIds[0])!;
+      const pBlue = playerMap.get(matchPlayerIds[1])!;
+
+      teamRedPlayers = [mapRosterToMatchPlayer(pRed)];
+      teamBluePlayers = [mapRosterToMatchPlayer(pBlue)];
+
+      const ok = getPairKey(pRed.id, pBlue.id);
+      opponentCounts.set(ok, (opponentCounts.get(ok) || 0) + 1);
+
+      [pRed, pBlue].forEach((p) => {
+        matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
+        const cv = courtVisits.get(p.id);
+        if (cv) cv.set(courtName, (cv.get(courtName) || 0) + 1);
+      });
+    }
+
+    const gameNumber = existingMatches.length + generatedMatches.length + 1;
+    const matchId = `op-uniq-${eventId}-r${roundNum}-g${gameNumber}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    generatedMatches.push({
+      id: matchId,
+      eventId,
+      round: roundNum,
+      matchName: `Game ${gameNumber}`,
+      courtName,
+      gameType,
+      targetPoints,
+      status: 'scheduled',
+      teamRed: { players: teamRedPlayers, score: 0 },
+      teamBlue: { players: teamBluePlayers, score: 0 },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
+  };
 
-    const playingPlayers = sortedPool.slice(0, activeSlotsPerRound);
-    const restingPlayers = sortedPool.slice(activeSlotsPerRound);
+  // Evaluates penalty cost of an arrangement of players across `numGames` games
+  const computeBatchCost = (order: string[], numGames: number, baseCourtIdx: number): number => {
+    let cost = 0;
+    for (let gIdx = 0; gIdx < numGames; gIdx++) {
+      const base = gIdx * playersPerMatch;
+      const courtName = assignedCourts[(baseCourtIdx + gIdx) % courtCount] || `Court ${((baseCourtIdx + gIdx) % courtCount) + 1}`;
 
-    // Update rest counters
-    restingPlayers.forEach((p) => {
-      consecutiveRests.set(p.id, (consecutiveRests.get(p.id) || 0) + 1);
-    });
-    playingPlayers.forEach((p) => {
-      consecutiveRests.set(p.id, 0);
-    });
+      if (isDoubles) {
+        const red1 = order[base];
+        const red2 = order[base + 1];
+        const blue1 = order[base + 2];
+        const blue2 = order[base + 3];
 
-    // STEP 2: Optimal Pairing Search for the selected playing players
-    // We seek an arrangement of playingPlayers into courts and 2v2 teams minimizing partner repeats.
-    let bestArrangement: string[] = playingPlayers.map((p) => p.id);
-    let bestCost = Infinity;
-
-    // Evaluates penalty cost of a candidate player ordering:
-    // Every 4 consecutive IDs form a court: [P0, P1] (Team Red) vs [P2, P3] (Team Blue)
-    const computeCost = (order: string[]): number => {
-      let cost = 0;
-      for (let cIdx = 0; cIdx < maxCourtsThisSession; cIdx++) {
-        const base = cIdx * playersPerMatch;
-        const courtName = assignedCourts[cIdx] || `Court ${cIdx + 1}`;
-
-        if (isDoubles) {
-          const red1 = order[base];
-          const red2 = order[base + 1];
-          const blue1 = order[base + 2];
-          const blue2 = order[base + 3];
-
-          // Heavy penalty for partner repeats (10,000 per repeat)
-          const redPartnerKey = getPairKey(red1, red2);
-          const redPartnerTimes = partnerCounts.get(redPartnerKey) || 0;
-          if (redPartnerTimes > 0) {
-            cost += redPartnerTimes * 10000;
-          }
-
-          const bluePartnerKey = getPairKey(blue1, blue2);
-          const bluePartnerTimes = partnerCounts.get(bluePartnerKey) || 0;
-          if (bluePartnerTimes > 0) {
-            cost += bluePartnerTimes * 10000;
-          }
-
-          // Moderate penalty for opponent repeats (50 per repeat)
-          const opps = [
-            getPairKey(red1, blue1),
-            getPairKey(red1, blue2),
-            getPairKey(red2, blue1),
-            getPairKey(red2, blue2),
-          ];
-          opps.forEach((ok) => {
-            cost += (opponentCounts.get(ok) || 0) * 50;
-          });
-
-          // Small penalty for repeatedly playing on same court (5 per visit)
-          [red1, red2, blue1, blue2].forEach((pId) => {
-            const cv = courtVisits.get(pId);
-            cost += (cv?.get(courtName) || 0) * 5;
-          });
-        } else {
-          // Singles: minimize opponent repeats
-          const p1 = order[base];
-          const p2 = order[base + 1];
-          const oppKey = getPairKey(p1, p2);
-          cost += (opponentCounts.get(oppKey) || 0) * 100;
+        // Heavy penalty for partner repeats (10,000 per repeat)
+        const redPartnerKey = getPairKey(red1, red2);
+        const redPartnerTimes = partnerCounts.get(redPartnerKey) || 0;
+        if (redPartnerTimes > 0) {
+          cost += redPartnerTimes * 10000;
         }
-      }
-      return cost;
-    };
 
-    // Randomized Local Search with multiple restarts
-    const RESTARTS = 40;
-    const MAX_SWAPS = 60;
+        const bluePartnerKey = getPairKey(blue1, blue2);
+        const bluePartnerTimes = partnerCounts.get(bluePartnerKey) || 0;
+        if (bluePartnerTimes > 0) {
+          cost += bluePartnerTimes * 10000;
+        }
+
+        // Moderate penalty for opponent repeats (50 per repeat)
+        const opps = [
+          getPairKey(red1, blue1),
+          getPairKey(red1, blue2),
+          getPairKey(red2, blue1),
+          getPairKey(red2, blue2),
+        ];
+        opps.forEach((ok) => {
+          cost += (opponentCounts.get(ok) || 0) * 50;
+        });
+
+        // Small penalty for repeatedly playing on same court (5 per visit)
+        [red1, red2, blue1, blue2].forEach((pId) => {
+          const cv = courtVisits.get(pId);
+          cost += (cv?.get(courtName) || 0) * 5;
+        });
+      } else {
+        const p1 = order[base];
+        const p2 = order[base + 1];
+        const oppKey = getPairKey(p1, p2);
+        cost += (opponentCounts.get(oppKey) || 0) * 100;
+      }
+    }
+    return cost;
+  };
+
+  // Optimizes ordering of player IDs across `numGames` using randomized hill-climbing
+  const optimizePlayerArrangement = (playerIds: string[], numGames: number, baseCourtIdx: number): string[] => {
+    let bestArrangement = [...playerIds];
+    let bestCost = computeBatchCost(bestArrangement, numGames, baseCourtIdx);
+    if (bestCost === 0) return bestArrangement;
+
+    const RESTARTS = 45;
+    const MAX_SWAPS = 70;
 
     for (let restart = 0; restart < RESTARTS; restart++) {
-      let currentOrder = [...playingPlayers.map((p) => p.id)].sort(() => Math.random() - 0.5);
-      let currentCost = computeCost(currentOrder);
+      const currentOrder = [...playerIds].sort(() => Math.random() - 0.5);
+      let currentCost = computeBatchCost(currentOrder, numGames, baseCourtIdx);
 
       if (currentCost === 0) {
-        bestArrangement = currentOrder;
-        bestCost = 0;
-        break; // Zero partner repeats and zero repeated opponents!
+        return currentOrder;
       }
 
-      // Local hill-climbing swaps
       for (let swap = 0; swap < MAX_SWAPS; swap++) {
         const i = Math.floor(Math.random() * currentOrder.length);
         const j = Math.floor(Math.random() * currentOrder.length);
         if (i === j) continue;
 
-        // Try swap
         const temp = currentOrder[i];
         currentOrder[i] = currentOrder[j];
         currentOrder[j] = temp;
 
-        const newCost = computeCost(currentOrder);
+        const newCost = computeBatchCost(currentOrder, numGames, baseCourtIdx);
         if (newCost < currentCost) {
           currentCost = newCost;
           if (currentCost === 0) break;
         } else {
-          // Revert swap
           currentOrder[j] = currentOrder[i];
           currentOrder[i] = temp;
         }
@@ -297,85 +405,82 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       }
     }
 
-    // STEP 3: Construct matches for this round from the best arrangement
-    for (let cIdx = 0; cIdx < maxCourtsThisSession; cIdx++) {
-      const base = cIdx * playersPerMatch;
-      const courtName = assignedCourts[cIdx] || `Court ${cIdx + 1}`;
+    return bestArrangement;
+  };
 
-      let teamRedPlayers: OpenPlayMatchPlayer[] = [];
-      let teamBluePlayers: OpenPlayMatchPlayer[] = [];
+  for (let roundOffset = 0; roundOffset < totalRounds; roundOffset++) {
+    const currentRoundNum = startingRound + roundOffset;
 
-      if (isDoubles) {
-        const pRed1 = playerMap.get(bestArrangement[base])!;
-        const pRed2 = playerMap.get(bestArrangement[base + 1])!;
-        const pBlue1 = playerMap.get(bestArrangement[base + 2])!;
-        const pBlue2 = playerMap.get(bestArrangement[base + 3])!;
+    // Sort active players by fewest matches played (so if there was an overflow game in prior round, those with fewer games go first)
+    const sortedPool = [...activePlayers].sort((a, b) => {
+      const aMatches = matchesPlayed.get(a.id) || 0;
+      const bMatches = matchesPlayed.get(b.id) || 0;
+      if (aMatches !== bMatches) return aMatches - bMatches;
 
-        teamRedPlayers = [mapRosterToMatchPlayer(pRed1), mapRosterToMatchPlayer(pRed2)];
-        teamBluePlayers = [mapRosterToMatchPlayer(pBlue1), mapRosterToMatchPlayer(pBlue2)];
+      const aRests = consecutiveRests.get(a.id) || 0;
+      const bRests = consecutiveRests.get(b.id) || 0;
+      if (aRests !== bRests) return bRests - aRests;
 
-        // Record partnerships formed
-        const redPairKey = getPairKey(pRed1.id, pRed2.id);
-        const redPrior = partnerCounts.get(redPairKey) || 0;
-        partnerCounts.set(redPairKey, redPrior + 1);
-        totalPairingsFormed++;
-        if (redPrior === 0) uniquePairingsFormed++;
-        else repeatedPairingsFormed++;
+      return Math.random() - 0.5;
+    });
 
-        const bluePairKey = getPairKey(pBlue1.id, pBlue2.id);
-        const bluePrior = partnerCounts.get(bluePairKey) || 0;
-        partnerCounts.set(bluePairKey, bluePrior + 1);
-        totalPairingsFormed++;
-        if (bluePrior === 0) uniquePairingsFormed++;
-        else repeatedPairingsFormed++;
+    // 1. Primary batch of full games covering `fullBatchGamesCount * playersPerMatch` distinct players
+    const primarySlots = fullBatchGamesCount * playersPerMatch;
+    const primaryPlayers = sortedPool.slice(0, primarySlots);
+    const leftoverPlayers = sortedPool.slice(primarySlots);
 
-        // Record opponent interactions
-        [pRed1, pRed2].forEach((r) => {
-          [pBlue1, pBlue2].forEach((b) => {
-            const ok = getPairKey(r.id, b.id);
-            opponentCounts.set(ok, (opponentCounts.get(ok) || 0) + 1);
-          });
-        });
+    if (fullBatchGamesCount > 0) {
+      const optimizedPrimaryIds = optimizePlayerArrangement(
+        primaryPlayers.map((p) => p.id),
+        fullBatchGamesCount,
+        globalCourtCounter
+      );
 
-        // Record court visit & matches played
-        [pRed1, pRed2, pBlue1, pBlue2].forEach((p) => {
-          matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
-          const cv = courtVisits.get(p.id);
-          if (cv) cv.set(courtName, (cv.get(courtName) || 0) + 1);
-        });
-      } else {
-        // Singles
-        const pRed = playerMap.get(bestArrangement[base])!;
-        const pBlue = playerMap.get(bestArrangement[base + 1])!;
+      for (let gIdx = 0; gIdx < fullBatchGamesCount; gIdx++) {
+        const base = gIdx * playersPerMatch;
+        const courtName = assignedCourts[globalCourtCounter % courtCount] || `Court ${(globalCourtCounter % courtCount) + 1}`;
+        globalCourtCounter++;
 
-        teamRedPlayers = [mapRosterToMatchPlayer(pRed)];
-        teamBluePlayers = [mapRosterToMatchPlayer(pBlue)];
-
-        const ok = getPairKey(pRed.id, pBlue.id);
-        opponentCounts.set(ok, (opponentCounts.get(ok) || 0) + 1);
-
-        [pRed, pBlue].forEach((p) => {
-          matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
-          const cv = courtVisits.get(p.id);
-          if (cv) cv.set(courtName, (cv.get(courtName) || 0) + 1);
-        });
+        commitMatchToRound(
+          currentRoundNum,
+          courtName,
+          optimizedPrimaryIds.slice(base, base + playersPerMatch)
+        );
       }
+    }
 
-      const matchId = `op-uniq-${eventId}-r${currentRoundNum}-c${cIdx + 1}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      generatedMatches.push({
-        id: matchId,
-        eventId,
-        round: currentRoundNum,
-        matchName: `Game ${generatedMatches.length + 1}`,
-        courtName,
-        gameType,
-        targetPoints,
-        status: 'scheduled',
-        teamRed: { players: teamRedPlayers, score: 0 },
-        teamBlue: { players: teamBluePlayers, score: 0 },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+    // 2. If activePlayers is not an exact multiple of playersPerMatch (e.g. 10 players -> 2 leftover),
+    // form 1 additional game in this round so the leftover players also get to play in this round!
+    if (hasPartialOverflowGame && leftoverPlayers.length > 0) {
+      const neededFillCount = playersPerMatch - leftoverPlayers.length;
+      // Pick fill players from those with the fewest matches played who aren't in leftoverPlayers
+      const leftoverIds = new Set(leftoverPlayers.map((p) => p.id));
+      const fillCandidates = [...activePlayers]
+        .filter((p) => !leftoverIds.has(p.id))
+        .sort((a, b) => {
+          const aMatches = matchesPlayed.get(a.id) || 0;
+          const bMatches = matchesPlayed.get(b.id) || 0;
+          if (aMatches !== bMatches) return aMatches - bMatches;
+          return Math.random() - 0.5;
+        })
+        .slice(0, neededFillCount);
+
+      const overflowGamePlayerIds = [
+        ...leftoverPlayers.map((p) => p.id),
+        ...fillCandidates.map((p) => p.id),
+      ];
+
+      if (overflowGamePlayerIds.length === playersPerMatch) {
+        const optimizedOverflowIds = optimizePlayerArrangement(
+          overflowGamePlayerIds,
+          1,
+          globalCourtCounter
+        );
+        const courtName = assignedCourts[globalCourtCounter % courtCount] || `Court ${(globalCourtCounter % courtCount) + 1}`;
+        globalCourtCounter++;
+
+        commitMatchToRound(currentRoundNum, courtName, optimizedOverflowIds);
+      }
     }
   }
 
@@ -389,8 +494,7 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
 
   activePlayers.forEach((p) => {
     playerMatchCounts[p.id] = matchesPlayed.get(p.id) || 0;
-    // Rests = totalRounds - matchesPlayed in this generated batch
-    playerRestCounts[p.id] = Math.max(0, totalRounds - (matchesPlayed.get(p.id) || 0));
+    playerRestCounts[p.id] = 0; // Every player plays in every round!
   });
 
   return {
@@ -404,4 +508,3 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     playerRestCounts,
   };
 };
-

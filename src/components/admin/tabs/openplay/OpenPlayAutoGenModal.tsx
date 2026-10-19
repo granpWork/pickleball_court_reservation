@@ -10,7 +10,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { OpenPlayMatchRosterItem } from '../../adminTypes';
-import { calculateMaxUniqueDoublesRounds } from '../../../../utils/matchGeneratorUtils';
+import {
+  calculateMaxUniqueDoublesRounds,
+  calculateSessionRoundPacing,
+} from '../../../../utils/matchGeneratorUtils';
 
 export type AutoGenAlgorithmType = 'unique_partner' | 'paddle_stacking' | 'random_rotational';
 
@@ -46,7 +49,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
   );
   // Default game pacing (minutes per match, e.g. 15 mins for standard 11-pt game with rotation)
   const [estGameDurationMinutes, setEstGameDurationMinutes] = useState<number>(15);
-  const [autoGenRounds, setAutoGenRounds] = useState<number>(16);
+  const [autoGenRounds, setAutoGenRounds] = useState<number>(5);
 
   // Active Players count
   const activeCount = useMemo(() => {
@@ -56,59 +59,58 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
       : activeFromPool.length || 12;
   }, [rosterPool, paddleRackQueue]);
 
-  const courtCount = assignedCourts.length || 1;
+  const courtCount = Math.max(1, assignedCourts.length);
   const playersPerMatch = autoGenGameType === 'doubles' ? 4 : 2;
 
-  // Max simultaneous courts usable by active players
+  // Dynamic Pacing Calculation:
+  // 1 Round = all active players play once (gamesPerRound = ceil(N / P))
+  // Time waves per round = ceil(gamesPerRound / availableCourts)
+  const pacing = useMemo(() => {
+    return calculateSessionRoundPacing(
+      activeCount,
+      courtCount,
+      sessionDurationMinutes,
+      estGameDurationMinutes,
+      playersPerMatch
+    );
+  }, [activeCount, courtCount, sessionDurationMinutes, estGameDurationMinutes, playersPerMatch]);
+
+  // Max simultaneous courts usable by active players during a time wave
   const maxCourtsInUse = useMemo(() => {
-    return Math.max(1, Math.min(courtCount, Math.floor(activeCount / playersPerMatch)));
-  }, [courtCount, activeCount, playersPerMatch]);
+    return Math.max(1, Math.min(courtCount, pacing.gamesPerRound));
+  }, [courtCount, pacing.gamesPerRound]);
 
-  const playersPlayingPerRound = maxCourtsInUse * playersPerMatch;
-  const playersRestingPerRound = Math.max(0, activeCount - playersPlayingPerRound);
-
-  // Theoretical max unique partner rounds
+  // Theoretical max unique partner rounds (each round gives 1 game per player)
   const maxUniqueRounds = useMemo(() => {
-    return calculateMaxUniqueDoublesRounds(activeCount, maxCourtsInUse);
-  }, [activeCount, maxCourtsInUse]);
+    return calculateMaxUniqueDoublesRounds(activeCount, courtCount);
+  }, [activeCount, courtCount]);
 
-  // Sync autoGenRounds whenever sessionDurationMinutes or estGameDurationMinutes changes
+  // Sync autoGenRounds whenever pacing.recommendedRounds changes
   useEffect(() => {
-    if (estGameDurationMinutes > 0) {
-      const calculated = Math.max(1, Math.floor(sessionDurationMinutes / estGameDurationMinutes));
-      setAutoGenRounds(calculated);
-    }
-  }, [sessionDurationMinutes, estGameDurationMinutes]);
+    setAutoGenRounds(pacing.recommendedRounds);
+  }, [pacing.recommendedRounds]);
 
   // Derived metrics based on current autoGenRounds
   const scheduleBreakdown = useMemo(() => {
-    const totalMatches = autoGenRounds * maxCourtsInUse;
-    // Average games each player will get
+    const gamesPerRound = pacing.gamesPerRound;
+    const totalMatches = autoGenRounds * gamesPerRound;
+    // In a full-rotation round, every active player plays at least 1 game per round
     const avgGamesPerPlayer =
-      activeCount > 0 ? (autoGenRounds * playersPlayingPerRound) / activeCount : autoGenRounds;
-    // Average rounds rested
-    const avgRestRounds = Math.max(0, autoGenRounds - avgGamesPerPlayer);
+      activeCount > 0 ? (totalMatches * playersPerMatch) / activeCount : autoGenRounds;
     // Actual minutes allocated per round
-    const actualMinutesPerRound =
-      autoGenRounds > 0 ? Math.round(sessionDurationMinutes / autoGenRounds) : estGameDurationMinutes;
+    const actualMinutesPerRound = pacing.minutesPerRound;
     // Unique partners possible
     const maxUniquePartners = Math.max(1, activeCount - 1);
 
     return {
+      gamesPerRound,
+      timeWavesPerRound: pacing.timeWavesPerRound,
       totalMatches,
       avgGamesPerPlayer: Number(avgGamesPerPlayer.toFixed(1)),
-      avgRestRounds: Number(avgRestRounds.toFixed(1)),
       actualMinutesPerRound,
       maxUniquePartners,
     };
-  }, [
-    autoGenRounds,
-    maxCourtsInUse,
-    activeCount,
-    playersPlayingPerRound,
-    sessionDurationMinutes,
-    estGameDurationMinutes,
-  ]);
+  }, [autoGenRounds, pacing, activeCount, playersPerMatch]);
 
   if (!isOpen) return null;
 
@@ -248,9 +250,9 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
               <div className="pt-2 border-t border-slate-800/80">
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-slate-300 font-bold flex items-center gap-1.5">
-                    <span>3. Rounds to Generate</span>
+                    <span>3. Full Player Rotation Rounds</span>
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-lime/10 text-brand-lime font-mono">
-                      Auto: {Math.floor(sessionDurationMinutes / estGameDurationMinutes)}
+                      Auto: {pacing.recommendedRounds} ({scheduleBreakdown.gamesPerRound} games/rnd)
                     </span>
                   </label>
                   <span className="text-xs font-mono font-black text-brand-lime">
@@ -262,7 +264,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   <input
                     type="range"
                     min={1}
-                    max={Math.min(30, Math.max(20, Math.floor(sessionDurationMinutes / 8)))}
+                    max={Math.min(30, Math.max(20, pacing.recommendedRounds + 10))}
                     value={autoGenRounds}
                     onChange={(e) => setAutoGenRounds(parseInt(e.target.value, 10))}
                     className="w-full accent-brand-lime cursor-pointer"
@@ -313,7 +315,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             {/* Assigned Courts Display */}
             <div>
               <label className="block text-slate-400 font-bold mb-1">
-                Assigned Courts ({assignedCourts.length})
+                Assigned Open Play Courts ({assignedCourts.length})
               </label>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {assignedCourts.map((c, i) => (
@@ -355,12 +357,22 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                 </div>
 
                 <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Matches</span>
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Games / Round</span>
+                  <span className="text-xl font-black text-amber-300 font-mono">
+                    {scheduleBreakdown.gamesPerRound}
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    All {activeCount} players play 1x
+                  </span>
+                </div>
+
+                <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Games</span>
                   <span className="text-xl font-black text-white font-mono">
                     {scheduleBreakdown.totalMatches}
                   </span>
                   <span className="text-[9px] text-slate-500 block">
-                    {maxCourtsInUse} {maxCourtsInUse === 1 ? 'match' : 'matches'}/rnd
+                    {autoGenRounds} rnds × {scheduleBreakdown.gamesPerRound} games
                   </span>
                 </div>
 
@@ -370,37 +382,29 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                     ~{scheduleBreakdown.avgGamesPerPlayer}
                   </span>
                   <span className="text-[9px] text-slate-400 block">
-                    Across {autoGenRounds} rounds
-                  </span>
-                </div>
-
-                <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
-                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Rest / Bench</span>
-                  <span className="text-xl font-black text-amber-300 font-mono">
-                    {playersRestingPerRound === 0 ? '0' : `${playersRestingPerRound} / rnd`}
-                  </span>
-                  <span className="text-[9px] text-slate-500 block">
-                    {playersRestingPerRound === 0 ? 'All play simultaneously' : `~${scheduleBreakdown.avgRestRounds} rest rounds/player`}
+                    1 game every round
                   </span>
                 </div>
               </div>
 
-              {/* Court Utilization Details */}
+              {/* Dynamic Court & Wave Formula Details */}
               <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] text-slate-300 space-y-1.5 leading-relaxed">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Courts in Play:</span>
-                  <span className="font-bold text-white font-mono">{maxCourtsInUse} of {assignedCourts.length} assigned</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Court Occupancy:</span>
+                  <span className="text-slate-400">Available Courts:</span>
                   <span className="font-bold text-white font-mono">
-                    {playersPlayingPerRound} players on court ({playersRestingPerRound} resting)
+                    {courtCount} {courtCount === 1 ? 'Court' : 'Courts'} ({maxCourtsInUse} simultaneous)
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Play Ratio:</span>
+                  <span className="text-slate-400">Games per Round:</span>
+                  <span className="font-bold text-brand-lime font-mono">
+                    ⌈{activeCount} ÷ {playersPerMatch}⌉ = {scheduleBreakdown.gamesPerRound} games / round
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Court Time Waves:</span>
                   <span className="font-bold text-emerald-400 font-mono">
-                    {activeCount > 0 ? Math.round((playersPlayingPerRound / activeCount) * 100) : 100}% playing time
+                    ⌈{scheduleBreakdown.gamesPerRound} ÷ {courtCount} {courtCount === 1 ? 'court' : 'courts'}⌉ = {scheduleBreakdown.timeWavesPerRound} {scheduleBreakdown.timeWavesPerRound === 1 ? 'wave' : 'waves'} ({scheduleBreakdown.actualMinutesPerRound}m/rnd)
                   </span>
                 </div>
               </div>

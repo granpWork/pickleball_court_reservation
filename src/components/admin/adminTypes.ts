@@ -437,8 +437,32 @@ export interface SupportTicket {
   resolvedBy?: string;
 }
 
-export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter' | 'scoreboard';
+export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter' | 'scoreboard' | 'integrations';
 export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee' | 'subscription';
+export type AdminIntegrationsSubTab = 'dupr' | 'webhooks';
+export type DuprEnvironment = 'prod' | 'uat' | 'staging';
+
+export interface DuprEnvironmentConfig {
+  clientId: string;
+  clientKey: string;
+  clientSecret: string;
+  apiUrl: string;
+  webhookSecret?: string;
+  autoSyncCompletedMatches: boolean;
+  status: 'unconfigured' | 'configured' | 'connected' | 'error';
+  lastTestedAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface DuprIntegrationSettings {
+  activeEnvironment: DuprEnvironment;
+  environments: {
+    prod: DuprEnvironmentConfig;
+    uat: DuprEnvironmentConfig;
+    staging: DuprEnvironmentConfig;
+  };
+}
 
 export interface ScoreboardPlayer {
   id: string;
@@ -675,6 +699,9 @@ export interface OpenPlayMatchPlayer {
   type?: 'primary' | 'guest';
   duprId?: string;
   duprRating?: string;
+  adminDuprId?: string;
+  adminDuprRating?: string;
+  isDummy?: boolean;
 }
 
 export interface OpenPlayMatch {
@@ -714,6 +741,7 @@ export interface OpenPlayMatchRosterItem {
   adminDuprId?: string;
   duprRating?: string;
   adminDuprRating?: string;
+  isDummy?: boolean;
 }
 
 export interface PlayerMatchStats {

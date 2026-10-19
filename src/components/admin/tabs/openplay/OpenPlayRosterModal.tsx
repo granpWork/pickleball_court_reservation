@@ -124,7 +124,14 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                     />
                   </div>
                   <div className="truncate min-w-0">
-                    <div className="font-bold text-white truncate">{p.name}</div>
+                    <div className="font-bold text-white truncate flex items-center gap-1.5">
+                      <span className="truncate">{p.name}</span>
+                      {p.isDummy && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+                          🧪 Test
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[10px] text-slate-400 capitalize flex items-center gap-1.5 flex-wrap">
                       <span>{p.type} • {p.skillLevel || 'Player'}</span>
                       {(p.adminDuprId || p.duprId) && (

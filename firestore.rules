@@ -175,5 +175,12 @@ service cloud.firestore {
     match /scoreboards/{scoreboardId} {
       allow read, write: if true;
     }
+
+    // ==========================================
+    // 13. System Integrations (DUPR, Webhooks) - Super Admin Only
+    // ==========================================
+    match /system_integrations/{integrationId} {
+      allow read, write: if isSuperAdmin();
+    }
   }
 }
