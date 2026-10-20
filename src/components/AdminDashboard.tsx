@@ -7037,6 +7037,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onViewReceipt={(b) => setReceiptLightboxImage(b.receiptImageUrl || null)}
               onDeleteBooking={(id) => { const b = bookings.find(x => x.id === id); if (b) handleOpenDeleteBooking(b); }}
               courts={isSuperAdmin ? courts : availableAdminCourts}
+              openPlayEvents={openPlayEvents}
               users={users}
               userPermissions={getUserEffectivePermissions(user as any)}
               currentAdminEmail={user?.email || currentUserEmail}

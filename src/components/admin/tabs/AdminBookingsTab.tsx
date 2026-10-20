@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Calendar,
+  CalendarDays,
   Clock,
   Search,
   Eye,
@@ -21,8 +22,11 @@ import {
   Edit3,
   Loader2,
   Phone,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { type Booking, type UserPermissions, type BookingCategory, type AdminBookingsSubTab, BOOKING_CATEGORIES, getBookingScheduleState } from '../adminTypes';
+import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { Tag } from 'lucide-react';
 
 interface AdminBookingsTabProps {
@@ -48,6 +52,7 @@ interface AdminBookingsTabProps {
     updatedData: { userName: string; userEmail: string; userPhone: string; paymentMethod: string; totalCost?: number }
   ) => Promise<void> | void;
   courts?: any[];
+  openPlayEvents?: OpenPlayEvent[];
   users?: { id?: string; uid?: string; name?: string; email?: string; photoUrl?: string; avatarUrl?: string; role?: string }[];
   userPermissions?: UserPermissions;
   currentAdminEmail?: string;
@@ -74,6 +79,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   onOpenManualBookingModal,
   onUpdateManualBooking,
   courts = [],
+  openPlayEvents = [],
   users = [],
   userPermissions: _userPermissions,
   currentAdminEmail = '',
@@ -88,9 +94,19 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
     setInternalViewMode(mode === 'calendar' ? 'calendar' : 'table');
   };
 
+  const getTodayString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [selectedCalendarCourtId, setSelectedCalendarCourtId] = useState<string>('all');
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(getTodayString());
+  const agendaRef = useRef<HTMLDivElement | null>(null);
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'all' | BookingCategory>('all');
   const [scheduleFilter, setScheduleFilter] = useState<'all' | 'active' | 'completed'>('all');
@@ -363,7 +379,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
   const calendarDays = generateMonthDays();
 
-  // Navigation handlers
+  // Navigation & selection handlers
   const handlePrevMonth = () => {
     setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1));
   };
@@ -372,6 +388,37 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   };
   const handleTodayMonth = () => {
     setCalendarMonth(new Date());
+    setSelectedCalendarDate(getTodayString());
+  };
+
+  const handleSelectCalendarDate = (dateStr: string) => {
+    setSelectedCalendarDate(dateStr);
+    if (typeof window !== 'undefined' && window.innerWidth < 1024 && agendaRef.current) {
+      setTimeout(() => {
+        agendaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
+    }
+  };
+
+  const handleCopyEmail = (email: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!email) return;
+    navigator.clipboard.writeText(email);
+    setCopiedEmail(email);
+    setTimeout(() => setCopiedEmail(null), 2000);
+  };
+
+  const formatNiceDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map((n) => parseInt(n, 10));
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return dateStr;
+    const dateObj = new Date(y, m - 1, d);
+    return dateObj.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   };
 
   return (
@@ -1011,203 +1058,471 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
             </table>
           </div>
         </div>
-      ) : (
-        /* Calendar View Matrix */
-        <div className="glass-panel border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6 animate-fade-in">
-          {/* Calendar Controls Bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/80 p-4 rounded-2xl border border-slate-800">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <button 
-                type="button"
-                onClick={handlePrevMonth} 
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                title="Previous Month"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <h3 className="text-base sm:text-lg font-black text-white min-w-[160px] sm:min-w-[200px] text-center tracking-tight">
-                {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              </h3>
-              <button 
-                type="button"
-                onClick={handleNextMonth} 
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                title="Next Month"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-              <button 
-                type="button"
-                onClick={handleTodayMonth} 
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-brand-lime hover:text-white font-extrabold text-xs transition-colors cursor-pointer border border-brand-lime/30"
-              >
-                Today
-              </button>
+      ) : (() => {
+        const calendarFilteredBookings = bookings.filter(
+          (b) => b.status !== 'cancelled' && (selectedCalendarCourtId === 'all' || b.courtId === selectedCalendarCourtId)
+        );
+        const calendarFilteredOpenPlay = (openPlayEvents || []).filter((ev) => {
+          if (ev.status === 'cancelled') return false;
+          if (selectedCalendarCourtId === 'all') return true;
+          return (
+            !ev.courtIds ||
+            ev.courtIds.length === 0 ||
+            ev.courtIds.includes(selectedCalendarCourtId) ||
+            (ev as any).courtId === selectedCalendarCourtId
+          );
+        });
+
+        const selectedDayBookings = calendarFilteredBookings.filter((b) => b.date === selectedCalendarDate);
+        const selectedDayOpenPlay = calendarFilteredOpenPlay.filter(
+          (ev) => (ev.eventDate || (ev as any).date) === selectedCalendarDate
+        );
+        const selectedCourtObj = courts.find((c) => c.id === selectedCalendarCourtId);
+
+        return (
+          /* 2-Column Calendar & Scheduled Reservations View */
+          <div className="glass-panel border border-slate-800/90 rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl bg-slate-950/80 backdrop-blur-xl transition-all animate-fade-in">
+            {/* Section Header Banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-brand-lime/20 via-emerald-500/10 to-transparent border border-brand-lime/30 flex items-center justify-center text-brand-lime shadow-lg shadow-brand-lime/5 shrink-0">
+                  <Calendar className="w-5.5 h-5.5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
+                      Court Schedule & Calendar
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime text-[11px] font-black tracking-wide">
+                      {calendarFilteredBookings.length} Active Reservation{calendarFilteredBookings.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                    Real-time daily player reservations for{' '}
+                    <strong className="text-slate-200">
+                      {selectedCourtObj ? selectedCourtObj.name : 'All Courts'}
+                    </strong>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 self-stretch sm:self-auto justify-end">
+                {courts.length > 0 && (
+                  <select
+                    value={selectedCalendarCourtId}
+                    onChange={(e) => setSelectedCalendarCourtId(e.target.value)}
+                    className="bg-slate-900 border border-slate-800 text-white rounded-xl px-3 py-2.5 text-xs font-bold focus:outline-none focus:border-brand-lime transition-all cursor-pointer"
+                  >
+                    <option value="all">🏟️ All Courts ({courts.length})</option>
+                    {courts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        Court: {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {onOpenManualBookingModal && (
+                  <button
+                    type="button"
+                    onClick={onOpenManualBookingModal}
+                    className="px-4 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-black text-xs hover:bg-[#a6e224] hover:shadow-lg hover:shadow-brand-lime/20 transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 shadow-md active:scale-95"
+                  >
+                    <Plus className="w-4 h-4 text-dark-bg stroke-[3]" />
+                    <span>Manual Booking</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            {courts.length > 0 && (
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                <span className="text-xs text-slate-400 font-bold hidden sm:inline">Filter Court:</span>
-                <select 
-                  value={selectedCalendarCourtId} 
-                  onChange={(e) => setSelectedCalendarCourtId(e.target.value)} 
-                  className="bg-slate-950 border border-slate-800 text-white rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-brand-lime transition-all w-full sm:w-auto"
-                >
-                  <option value="all">🏟️ All Courts ({courts.length})</option>
-                  {courts.map((c) => (
-                    <option key={c.id} value={c.id}>Court: {c.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
+            {/* Main Grid: Left Column Calendar (7 cols), Right Column Selected Day Schedule (5 cols) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Side: Interactive Month Calendar (7 cols) */}
+              <div className="lg:col-span-7 space-y-4">
+                {/* Calendar Header Controls */}
+                <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800/90 p-2.5 sm:p-3 rounded-2xl shadow-inner">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePrevMonth}
+                      className="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
+                      title="Previous Month"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
 
-          {/* Weekday Header */}
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center text-[11px] font-black text-slate-400 uppercase tracking-wider">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-              <div key={d} className="py-2 bg-slate-900/40 rounded-xl border border-slate-800/60">{d}</div>
-            ))}
-          </div>
+                    <h4 className="text-xs sm:text-sm font-black text-white min-w-[130px] sm:min-w-[150px] text-center tracking-wide">
+                      {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    </h4>
 
-          {/* Monthly Days Matrix */}
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-            {calendarDays.map((day, idx) => {
-              const dayBookings = bookings.filter((b) => b.date === day.dateStr && (selectedCalendarCourtId === 'all' || b.courtId === selectedCalendarCourtId));
-              const activeCount = dayBookings.filter(b => b.status !== 'cancelled').length;
-              const pendingCount = dayBookings.filter(b => b.status === 'pending').length;
-              const isSelected = selectedCalendarDate === day.dateStr;
-
-              const hasBookings = dayBookings.length > 0;
-
-              return (
-                <div
-                  key={idx}
-                  onClick={() => {
-                    if (hasBookings) {
-                      setSelectedCalendarDate(day.dateStr);
-                    }
-                  }}
-                  className={`min-h-[90px] sm:min-h-[110px] p-2 rounded-2xl border transition-all flex flex-col justify-between text-left group ${
-                    hasBookings ? 'cursor-pointer' : 'cursor-default'
-                  } ${
-                    !day.isCurrentMonth 
-                      ? 'opacity-30 bg-slate-950/40 border-slate-900/60' 
-                      : isSelected
-                      ? 'bg-slate-900/90 border-brand-lime shadow-lg shadow-brand-lime/10 ring-1 ring-brand-lime/40'
-                      : day.isToday
-                      ? 'bg-slate-900/80 border-brand-lime/60'
-                      : hasBookings
-                      ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/70'
-                      : 'bg-slate-900/20 border-slate-800/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold ${
-                      day.isToday 
-                        ? 'text-dark-bg bg-brand-lime px-2 py-0.5 rounded-md font-black shadow-xs' 
-                        : day.isCurrentMonth 
-                        ? 'text-slate-200' 
-                        : 'text-slate-500'
-                    }`}>
-                      {day.dayNum}
-                    </span>
-                    {pendingCount > 0 && (
-                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title={`${pendingCount} pending booking(s)`} />
-                    )}
+                    <button
+                      type="button"
+                      onClick={handleNextMonth}
+                      className="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
+                      title="Next Month"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
 
-                  {activeCount > 0 ? (
-                    <div className="space-y-1 mt-1">
-                      <div className={`px-2 py-1 rounded-lg text-[10px] font-extrabold flex items-center justify-between gap-1 ${
-                        pendingCount > 0 
-                          ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' 
-                          : 'bg-brand-lime/15 text-brand-lime border border-brand-lime/30'
-                      }`}>
-                        <span className="truncate">{activeCount} {activeCount === 1 ? 'Booking' : 'Bookings'}</span>
-                        <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                      </div>
+                  <button
+                    type="button"
+                    onClick={handleTodayMonth}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-extrabold text-slate-200 hover:text-brand-lime hover:border-brand-lime/40 transition-all cursor-pointer shadow-sm active:scale-95"
+                  >
+                    Today
+                  </button>
+                </div>
 
-                      {/* Micro Preview of booking categories */}
-                      <div className="flex flex-wrap gap-1 max-h-[32px] overflow-hidden">
-                        {dayBookings.slice(0, 3).map((b, bIdx) => {
-                          const cat = getBookingCategoryInfo(b);
-                          return (
-                            <span 
-                              key={bIdx} 
-                              className={`w-1.5 h-1.5 rounded-full ${cat.badgeBg.replace('/40', '')}`}
-                              title={`${b.courtName || 'Court'} - ${cat.label}`}
+                {/* Days of Week Header */}
+                <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-[10px] sm:text-[11px] font-black uppercase text-slate-400 tracking-wider py-1">
+                  <span>Sun</span>
+                  <span>Mon</span>
+                  <span>Tue</span>
+                  <span>Wed</span>
+                  <span>Thu</span>
+                  <span>Fri</span>
+                  <span>Sat</span>
+                </div>
+
+                {/* Days Grid */}
+                <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                  {calendarDays.map((day, idx) => {
+                    const dayBookings = calendarFilteredBookings.filter((b) => b.date === day.dateStr);
+                    const dayOpenPlay = calendarFilteredOpenPlay.filter(
+                      (ev) => (ev.eventDate || (ev as any).date) === day.dateStr
+                    );
+                    const bookingCount = dayBookings.length;
+                    const openPlayCount = dayOpenPlay.length;
+                    const pendingCount = dayBookings.filter((b) => b.status === 'pending').length;
+                    const totalCount = bookingCount + openPlayCount;
+                    const isSelected = day.dateStr === selectedCalendarDate;
+                    const isToday = day.dateStr === getTodayString();
+
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleSelectCalendarDate(day.dateStr)}
+                        className={`min-h-[58px] sm:min-h-[76px] p-1 sm:p-1.5 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer relative overflow-hidden group ${
+                          isSelected
+                            ? 'bg-brand-lime/10 border-brand-lime shadow-[0_0_15px_rgba(166,226,36,0.15)] ring-1 ring-brand-lime'
+                            : isToday
+                            ? 'bg-slate-900 border-slate-700 hover:border-slate-500'
+                            : day.isCurrentMonth
+                            ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-slate-700'
+                            : 'bg-slate-950/40 border-slate-900/80 text-slate-600 opacity-40 hover:opacity-80'
+                        }`}
+                      >
+                        {/* Top Day Number & Status Indicator */}
+                        <div className="flex items-center justify-between w-full">
+                          <span
+                            className={`text-[11px] sm:text-xs font-black px-1 sm:px-1.5 py-0.2 rounded-md ${
+                              isSelected
+                                ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                                : isToday
+                                ? 'bg-slate-700 text-brand-lime font-bold'
+                                : day.isCurrentMonth
+                                ? 'text-slate-200'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {day.dayNum}
+                          </span>
+
+                          {totalCount > 0 && (
+                            <span
+                              className={`w-2 h-2 rounded-full shadow-sm shrink-0 ${
+                                pendingCount > 0
+                                  ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)] animate-pulse'
+                                  : openPlayCount > 0
+                                  ? 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse'
+                                  : 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
+                              }`}
                             />
-                          );
-                        })}
+                          )}
+                        </div>
+
+                        {/* Bottom Booking Indicator Pill */}
+                        {totalCount > 0 ? (
+                          <div className="mt-1 w-full space-y-0.5">
+                            {bookingCount > 0 && (
+                              <span
+                                className={`inline-flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-black leading-tight w-full justify-center shadow-sm ${
+                                  pendingCount > 0
+                                    ? 'bg-amber-500/20 border border-amber-500/30 text-amber-300'
+                                    : 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
+                                }`}
+                              >
+                                <span>{bookingCount}</span>
+                                <span className="hidden sm:inline">Booked</span>
+                              </span>
+                            )}
+                            {openPlayCount > 0 && (
+                              <span className="inline-flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[9px] sm:text-[10px] font-black leading-tight w-full justify-center shadow-sm">
+                                <span>🏆 Open Play</span>
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[9px] sm:text-[10px] text-slate-600 font-medium px-0.5 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:inline">
+                            Free
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right Side: Selected Day Schedule & Player List (5 cols) */}
+              <div ref={agendaRef} className="lg:col-span-5 space-y-4">
+                <div className="glass-panel border border-slate-800/90 rounded-2xl p-4 sm:p-5 bg-slate-900/80 space-y-4 shadow-xl backdrop-blur-md">
+                  {/* Header: Selected Date Title & Count */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div>
+                      <div className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
+                        <CalendarDays className="w-3 h-3 text-brand-lime" />
+                        <span>SCHEDULED RESERVATIONS</span>
                       </div>
+                      <h4 className="text-xs sm:text-sm font-extrabold text-white mt-0.5">
+                        {formatNiceDate(selectedCalendarDate)}
+                      </h4>
+                    </div>
+
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-black shadow-sm">
+                      {selectedDayBookings.length + selectedDayOpenPlay.length} Item
+                      {selectedDayBookings.length + selectedDayOpenPlay.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {/* Bookings & Open Play List for Selected Date */}
+                  {selectedDayBookings.length > 0 || selectedDayOpenPlay.length > 0 ? (
+                    <div className="space-y-3.5 max-h-[520px] overflow-y-auto pr-1">
+                      {/* 1. Open Play Events Scheduled for Selected Date */}
+                      {selectedDayOpenPlay.map((ev, index) => (
+                        <div
+                          key={`op-${ev.id || index}`}
+                          className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/90 border border-cyan-500/40 border-l-4 border-l-cyan-400 transition-all space-y-3 shadow-md group hover:border-cyan-400/60"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300 font-black text-sm shrink-0">
+                                <Trophy className="w-4 h-4 text-cyan-300" />
+                              </div>
+                              <div>
+                                <div className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
+                                  <span>{ev.title}</span>
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-cyan-950/60 text-cyan-300 border border-cyan-800/60">
+                                    Open Play
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                  <Clock className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                  <span className="font-mono text-cyan-200 font-bold">
+                                    {ev.startTime} - {ev.endTime}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.location.href = `/?eventId=${ev.id}`;
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/60 text-xs font-bold transition-all cursor-pointer shadow-sm shrink-0"
+                            >
+                              View Roster
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-900">
+                            <span className="text-slate-400 font-medium">
+                              Category: <strong className="text-slate-200">{ev.category || 'Open Play'}</strong>
+                            </span>
+                            <span className="text-brand-lime font-mono font-bold">
+                              ₱{ev.registrationFee || 0} / player
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* 2. Regular & Manual Player Bookings */}
+                      {selectedDayBookings.map((b, index) => {
+                        const playerName = b.userName || b.user?.name || 'Guest Player';
+                        const playerEmail = b.userEmail || b.user?.email || 'No email on file';
+                        const playerPhone = b.userPhone || b.user?.phone;
+                        const slots = b.slots || [];
+                        const isApproved = b.status === 'approved';
+                        const isCopied = copiedEmail === playerEmail;
+                        const catInfo = getBookingCategoryInfo(b);
+                        const manualFlag = isBookingManual(b);
+
+                        return (
+                          <div
+                            key={b.id || index}
+                            className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/90 border border-slate-800/90 hover:border-brand-lime/40 border-l-4 border-l-brand-lime transition-all space-y-3 shadow-md group"
+                          >
+                            {/* Top Court & Category Row */}
+                            <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-900/80">
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-slate-200">
+                                <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                                <span>{b.courtName || 'Pickleball Court'}</span>
+                              </span>
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase border ${catInfo.badgeBg} ${catInfo.badgeText} ${catInfo.badgeBorder}`}
+                              >
+                                <Tag className="w-2.5 h-2.5" />
+                                <span>{catInfo.label}</span>
+                              </span>
+                            </div>
+
+                            {/* Player Info Header */}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-lime/20 to-emerald-500/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-black text-sm shrink-0 shadow-inner">
+                                  {playerName.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5 truncate">
+                                    <span className="truncate">{playerName}</span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                    <Mail className="w-3 h-3 text-slate-500 shrink-0" />
+                                    <span className="truncate max-w-[140px] sm:max-w-[180px] font-medium">
+                                      {playerEmail}
+                                    </span>
+                                    {playerEmail && playerEmail !== 'No email on file' && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleCopyEmail(playerEmail, e)}
+                                        className="text-slate-500 hover:text-brand-lime transition-colors p-0.5 cursor-pointer"
+                                        title="Copy Email"
+                                      >
+                                        {isCopied ? (
+                                          <Check className="w-3 h-3 text-emerald-400" />
+                                        ) : (
+                                          <Copy className="w-3 h-3" />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {playerPhone && (
+                                    <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5 font-mono">
+                                      <Phone className="w-3 h-3 text-slate-500" />
+                                      <span>{playerPhone}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Status Badge */}
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border shrink-0 shadow-sm ${
+                                  isApproved
+                                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                    : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                }`}
+                              >
+                                {b.status || 'Approved'}
+                              </span>
+                            </div>
+
+                            {/* Time Slots & Booking Details */}
+                            <div className="pt-2.5 border-t border-slate-900 space-y-2.5 text-xs">
+                              {/* Time Slots */}
+                              <div className="flex items-start gap-2 text-slate-300">
+                                <Clock className="w-3.5 h-3.5 text-brand-lime shrink-0 mt-0.5" />
+                                <div className="flex flex-wrap gap-1">
+                                  {slots.length > 0 ? (
+                                    slots.map((s, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[11px] font-mono font-bold text-brand-lime shadow-sm"
+                                      >
+                                        {s}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-slate-400 font-medium">Standard Slot</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Payment Method, Reference, Total Cost & Quick Actions */}
+                              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-1.5 border-t border-slate-900/60 flex-wrap">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-mono text-slate-500">
+                                    Ref: {b.bookingReference || b.id?.substring(0, 8) || 'N/A'}
+                                  </span>
+                                  {b.paymentMethod && (
+                                    <span className="px-1.5 py-0.2 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-400 uppercase">
+                                      {b.paymentMethod}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 ml-auto">
+                                  {manualFlag && onUpdateManualBooking && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditManualModal(b)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition-colors cursor-pointer"
+                                      title="Edit Manual Booking"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>Edit</span>
+                                    </button>
+                                  )}
+                                  {b.receiptImageUrl && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onViewReceipt(b)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold transition-colors cursor-pointer"
+                                      title="View Payment Receipt"
+                                    >
+                                      <Eye className="w-3 h-3 text-brand-lime" />
+                                      <span>Proof</span>
+                                    </button>
+                                  )}
+                                  <span className="font-black text-white font-mono text-xs">
+                                    ₱{b.totalCost?.toLocaleString() || 0}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
-                    <div className="text-[10px] text-slate-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
-                      No bookings
+                    /* Empty Day State */
+                    <div className="py-8 text-center space-y-3 text-slate-500 bg-slate-950/40 rounded-2xl border border-slate-800/40 p-4">
+                      <Clock className="w-8 h-8 text-slate-700 mx-auto" />
+                      <div>
+                        <p className="text-xs font-extrabold text-slate-300">No Reservations for This Date</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {selectedCourtObj ? selectedCourtObj.name : 'All courts'} available for bookings on{' '}
+                          {formatNiceDate(selectedCalendarDate)}.
+                        </p>
+                      </div>
+                      {onOpenManualBookingModal && (
+                        <button
+                          type="button"
+                          onClick={onOpenManualBookingModal}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-brand-lime font-extrabold text-xs hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                          <span>Create Reservation</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Modal - Only shown if selected date has bookings */}
-      {selectedCalendarDate && bookings.some(b => b.date === selectedCalendarDate && (selectedCalendarCourtId === 'all' || b.courtId === selectedCalendarCourtId)) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={() => setSelectedCalendarDate(null)}>
-          <div className="glass-panel max-w-lg w-full max-h-[80vh] overflow-y-auto rounded-3xl p-6 bg-slate-950" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-white">Bookings for {selectedCalendarDate}</h3>
-              <button onClick={() => setSelectedCalendarDate(null)}><X className="w-5 h-5 text-slate-400" /></button>
-            </div>
-            <div className="space-y-4">
-              {bookings.filter(b => b.date === selectedCalendarDate).map(b => (
-                <div key={b.id} className="p-4 bg-slate-900 rounded-xl border border-slate-800">
-                  <div className="flex justify-between items-start">
-                    <p className="text-sm font-bold text-white">{b.courtName}</p>
-                    <span className="text-[10px] font-bold uppercase text-brand-lime">{b.status}</span>
-                  </div>
-                  {(() => {
-                    const bName = b.user?.name || b.userName || 'Guest';
-                    const bEmail = b.user?.email || b.userEmail || '';
-                    const bUid = b.user?.uid || (b as any).userId;
-                    const matchedUser = users.find(
-                      (u) => (u.uid && bUid && u.uid === bUid) || (u.email && bEmail && u.email.toLowerCase() === bEmail.toLowerCase())
-                    );
-                    const avatarSrc =
-                      matchedUser?.photoUrl ||
-                      matchedUser?.avatarUrl ||
-                      (b.user as any)?.photoUrl ||
-                      (b.user as any)?.avatarUrl ||
-                      (b as any).photoUrl ||
-                      (b as any).avatarUrl ||
-                      (b as any).playerPhotoUrl ||
-                      (b as any).userPhotoUrl ||
-                      `https://robohash.org/${encodeURIComponent(bName)}?set=set4`;
-
-                    return (
-                      <div className="flex items-center gap-2.5 mt-2.5 text-xs text-slate-300">
-                        <div className="w-6 h-6 rounded-full border border-slate-700/80 bg-slate-900 overflow-hidden flex-shrink-0 shadow-xs ring-1 ring-slate-800/60 flex items-center justify-center">
-                          <img
-                            src={avatarSrc}
-                            alt={bName}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(bName)}&background=b5f529&color=0f172a&bold=true`;
-                            }}
-                          />
-                        </div>
-                        <span className="font-semibold text-slate-200">{bName}</span>
-                      </div>
-                    );
-                  })()}
-                </div>
-              ))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* FILTER & TIMELINE SETTINGS MODAL */}
       {isFilterModalOpen && (
