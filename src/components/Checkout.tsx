@@ -8,7 +8,7 @@ import {
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, getDoc, setDoc, getDocs, collection, query, where, updateDoc } from 'firebase/firestore';
-import { sendBookingConfirmationEmail, sendOpenPlayInvitationEmail, sendNewCheckoutAdminNotificationEmail } from '../services/emailService';
+import { sendBookingConfirmationEmail, sendOpenPlayInvitationEmail, sendNewCheckoutAdminNotificationEmail, resolveVenueNotificationRecipients } from '../services/emailService';
 
 interface CheckoutProps {
   setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'openplay') => void;
@@ -962,41 +962,19 @@ export default function Checkout({
         ? 'open_play'
         : 'court';
 
-      // 1. Dispatch to Client Admin (Required)
-      if (targetAdminEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(targetAdminEmail)) {
-        sendNewCheckoutAdminNotificationEmail({
-          adminEmail: targetAdminEmail,
-          recipientRole: 'Client Admin',
-          bookingType: bType,
-          itemTitle,
-          bookingReference: refNum,
-          customerName: name,
-          customerEmail: email,
-          customerPhone: phone,
-          date: checkoutDetails.date,
-          slots: checkoutDetails.slots,
-          totalCost: finalTotal,
-          paymentMethod: resolvedPaymentMethod === 'voucher' ? 'Voucher Waiver' : 'GCash',
-          paymentStatus: resolvedPaymentStatus === 'paid' ? 'Paid (Voucher)' : 'Pending Verification',
-          ownerCompanyName: resolvedOwnerCompanyName,
-        }).catch((err) => console.warn('Client admin checkout notification failed:', err));
-      }
-
-      // 2. Dispatch to Venue Managers (Optional)
-      try {
-        const usersStr = localStorage.getItem('picklepoint_users');
-        if (usersStr) {
-          const localUsers = JSON.parse(usersStr) as Array<{ email?: string; role?: string; companyId?: string; companyName?: string }>;
-          const managerEmails = localUsers
-            .filter((u) => u.role === 'manager' && u.email && u.email.toLowerCase() !== targetAdminEmail.toLowerCase())
-            .filter((u) => !companyId || u.companyId === companyId || u.companyName === resolvedOwnerCompanyName)
-            .map((u) => u.email as string);
-
-          const uniqueManagerEmails = Array.from(new Set(managerEmails));
-          uniqueManagerEmails.forEach((mEmail) => {
+      resolveVenueNotificationRecipients({
+        companyId: companyId || checkoutDetails.companyId || '',
+        companyName: resolvedOwnerCompanyName,
+        courtId: checkoutDetails.courtId,
+        fallbackAdminEmail: targetAdminEmail,
+        notificationKey: 'notifyNewCheckouts',
+      })
+        .then((recipients) => {
+          recipients.forEach((recipient) => {
             sendNewCheckoutAdminNotificationEmail({
-              adminEmail: mEmail,
-              recipientRole: 'Manager',
+              adminEmail: recipient.email,
+              adminName: recipient.name,
+              recipientRole: recipient.roleLabel,
               bookingType: bType,
               itemTitle,
               bookingReference: refNum,
@@ -1009,12 +987,10 @@ export default function Checkout({
               paymentMethod: resolvedPaymentMethod === 'voucher' ? 'Voucher Waiver' : 'GCash',
               paymentStatus: resolvedPaymentStatus === 'paid' ? 'Paid (Voucher)' : 'Pending Verification',
               ownerCompanyName: resolvedOwnerCompanyName,
-            }).catch((err) => console.warn('Manager checkout notification failed:', err));
+            }).catch((err) => console.warn(`${recipient.roleLabel} checkout notification failed:`, err));
           });
-        }
-      } catch (e) {
-        console.warn('Optional manager notification dispatch error:', e);
-      }
+        })
+        .catch((err) => console.warn('Failed to resolve venue checkout notification recipients:', err));
     };
 
     const docPayload = {

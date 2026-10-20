@@ -12,6 +12,7 @@ import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, getDoc, collection, getDocs, updateDoc } from 'firebase/firestore';
 import type { OpenPlayRegistration } from './OpenPlayDetails';
+import { resolveVenueNotificationRecipients, sendPlayerRefundRequestAdminEmail } from '../services/emailService';
 
 import { PlayerSidebar, type PlayerTabType } from './player/PlayerSidebar';
 import { PlayerHeader } from './player/PlayerHeader';
@@ -347,6 +348,37 @@ export default function Profile({ user, setView, onLogout, setOpenPlayEventId }:
             : b
         )
       );
+
+      // Dispatch email notifications to opted-in Client Admins & Facility Managers
+      const bookingAny = refundModalBooking as any;
+      resolveVenueNotificationRecipients({
+        companyId: bookingAny.companyId,
+        companyName: refundModalBooking.ownerCompanyName,
+        courtId: refundModalBooking.courtId,
+        fallbackAdminEmail: bookingAny.ownerEmail,
+        notificationKey: 'notifyRefundRequests',
+      })
+        .then((recipients) => {
+          recipients.forEach((recipient) => {
+            sendPlayerRefundRequestAdminEmail({
+              adminEmail: recipient.email,
+              adminName: recipient.name,
+              recipientRole: recipient.roleLabel,
+              bookingReference: refundModalBooking.bookingReference || refundModalBooking.bookingId || bId,
+              courtName: refundModalBooking.courtName,
+              date: refundModalBooking.date,
+              slots: refundModalBooking.slots || [],
+              totalCost: refundModalBooking.totalCost || 0,
+              customerName: refundModalBooking.userName || refundModalBooking.customerName || user?.name || 'Customer',
+              customerEmail: refundModalBooking.userEmail || refundModalBooking.customerEmail || user?.email || '',
+              customerPhone: refundModalBooking.userPhone || refundModalBooking.customerPhone || currentUserData?.phone || '',
+              refundReason: fullReason,
+              gcashNumber: currentUserData?.phone || refundModalBooking.userPhone || 'Not Provided',
+              ownerCompanyName: refundModalBooking.ownerCompanyName,
+            }).catch((err) => console.warn('Failed to send refund request admin email:', err));
+          });
+        })
+        .catch((err) => console.warn('Failed to resolve refund request recipients:', err));
 
       setRefundRequestSuccess(true);
       setTimeout(() => {

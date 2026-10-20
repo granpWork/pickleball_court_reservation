@@ -151,6 +151,13 @@ export interface Voucher {
 
 export type UserRole = 'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player';
 
+export type EmailNotificationPermissionKey =
+  | 'notifyNewCheckouts'
+  | 'notifyReceiptUploads'
+  | 'notifyRefundRequests'
+  | 'notifyPendingPaymentReminders'
+  | 'notifyBookingStatusUpdates';
+
 export interface UserPermissions {
   canManageBookings?: boolean;
   canManageCourts?: boolean;
@@ -158,7 +165,45 @@ export interface UserPermissions {
   canManageVouchers?: boolean;
   canViewFinancials?: boolean;
   canManageTeam?: boolean;
+  // Granular Automated Email Notification Flags
+  notifyNewCheckouts?: boolean;
+  notifyReceiptUploads?: boolean;
+  notifyRefundRequests?: boolean;
+  notifyPendingPaymentReminders?: boolean;
+  notifyBookingStatusUpdates?: boolean;
 }
+
+export const EMAIL_NOTIFICATION_PERMISSION_ITEMS: {
+  key: EmailNotificationPermissionKey;
+  label: string;
+  description: string;
+}[] = [
+  {
+    key: 'notifyNewCheckouts',
+    label: 'New Checkouts & Reservations',
+    description: 'Instant alert when a customer submits a Court, Open Play, Tournament, or Bootcamp checkout.',
+  },
+  {
+    key: 'notifyReceiptUploads',
+    label: 'Payment Receipt Uploads',
+    description: 'Alert when a customer uploads or updates their GCash payment receipt screenshot.',
+  },
+  {
+    key: 'notifyRefundRequests',
+    label: 'Cancellation & Refund Requests',
+    description: 'Alert when a player cancels a reservation and submits a refund request.',
+  },
+  {
+    key: 'notifyPendingPaymentReminders',
+    label: 'Pending Payment Reminders',
+    description: 'Periodic reminder emails when customer checkouts are awaiting verification.',
+  },
+  {
+    key: 'notifyBookingStatusUpdates',
+    label: 'Booking Approvals, Rejections & Refunds',
+    description: 'Audit notification when a reservation is approved, rejected, or refunded.',
+  },
+];
 
 export function getUserEffectivePermissions(user?: { role?: string; permissions?: UserPermissions } | null): UserPermissions {
   const role = user?.role;
@@ -172,6 +217,11 @@ export function getUserEffectivePermissions(user?: { role?: string; permissions?
       canManageVouchers: true,
       canViewFinancials: true,
       canManageTeam: true,
+      notifyNewCheckouts: customPerms.notifyNewCheckouts ?? true,
+      notifyReceiptUploads: customPerms.notifyReceiptUploads ?? true,
+      notifyRefundRequests: customPerms.notifyRefundRequests ?? true,
+      notifyPendingPaymentReminders: customPerms.notifyPendingPaymentReminders ?? true,
+      notifyBookingStatusUpdates: customPerms.notifyBookingStatusUpdates ?? true,
     };
   }
 
@@ -183,6 +233,11 @@ export function getUserEffectivePermissions(user?: { role?: string; permissions?
       canManageVouchers: customPerms.canManageVouchers ?? false,
       canViewFinancials: customPerms.canViewFinancials ?? false,
       canManageTeam: customPerms.canManageTeam ?? false,
+      notifyNewCheckouts: customPerms.notifyNewCheckouts ?? false,
+      notifyReceiptUploads: customPerms.notifyReceiptUploads ?? false,
+      notifyRefundRequests: customPerms.notifyRefundRequests ?? false,
+      notifyPendingPaymentReminders: customPerms.notifyPendingPaymentReminders ?? false,
+      notifyBookingStatusUpdates: customPerms.notifyBookingStatusUpdates ?? false,
     };
   }
 
@@ -194,6 +249,11 @@ export function getUserEffectivePermissions(user?: { role?: string; permissions?
     canManageVouchers: customPerms.canManageVouchers ?? true,
     canViewFinancials: customPerms.canViewFinancials ?? true,
     canManageTeam: customPerms.canManageTeam ?? false,
+    notifyNewCheckouts: customPerms.notifyNewCheckouts ?? true,
+    notifyReceiptUploads: customPerms.notifyReceiptUploads ?? true,
+    notifyRefundRequests: customPerms.notifyRefundRequests ?? true,
+    notifyPendingPaymentReminders: customPerms.notifyPendingPaymentReminders ?? true,
+    notifyBookingStatusUpdates: customPerms.notifyBookingStatusUpdates ?? true,
   };
 }
 

@@ -1,4 +1,238 @@
 // Email Service Utility for Book Picklecourt Platform
+import { db, isFirebaseConfigured } from '../firebase';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { getUserEffectivePermissions, type EmailNotificationPermissionKey, type UserPermissions } from '../components/admin/adminTypes';
+
+export interface VenueNotificationRecipient {
+  email: string;
+  name: string;
+  role: 'client_admin' | 'manager' | 'editor' | 'super_admin' | string;
+  roleLabel: string;
+}
+
+export interface ResolveVenueRecipientsParams {
+  companyId?: string;
+  companyName?: string;
+  courtId?: string;
+  fallbackAdminEmail?: string;
+  notificationKey: EmailNotificationPermissionKey;
+}
+
+/**
+ * Resolves all active Client Admins, Facility Managers, and Staff Editors for a given venue
+ * who have the specified `notificationKey` checked in their Email Notification Alerts permissions.
+ * Queries Firestore `users` (and `companies` / `courts` if needed) with graceful `localStorage` fallback.
+ */
+export const resolveVenueNotificationRecipients = async ({
+  companyId,
+  companyName,
+  courtId,
+  fallbackAdminEmail,
+  notificationKey,
+}: ResolveVenueRecipientsParams): Promise<VenueNotificationRecipient[]> => {
+  let resolvedCompanyId = (companyId || '').trim();
+  let resolvedCompanyName = (companyName || '').trim();
+  let resolvedFallbackEmail = (fallbackAdminEmail || '').trim().toLowerCase();
+
+  // 1. If courtId is provided and companyId/companyName are missing, look up the court
+  if (courtId && (!resolvedCompanyId || !resolvedCompanyName || !resolvedFallbackEmail)) {
+    if (isFirebaseConfigured && db) {
+      try {
+        const courtSnap = await getDoc(doc(db, 'courts', courtId));
+        if (courtSnap.exists()) {
+          const cData = courtSnap.data();
+          if (!resolvedCompanyId && cData.companyId) resolvedCompanyId = String(cData.companyId).trim();
+          if (!resolvedCompanyName && cData.ownerCompanyName) resolvedCompanyName = String(cData.ownerCompanyName).trim();
+          if (!resolvedFallbackEmail && cData.ownerEmail) resolvedFallbackEmail = String(cData.ownerEmail).trim().toLowerCase();
+        }
+      } catch (err) {
+        console.warn('Failed to resolve court metadata for email recipients:', err);
+      }
+    }
+    try {
+      const localCourtsRaw = localStorage.getItem('picklepoint_courts');
+      if (localCourtsRaw) {
+        const localCourts = JSON.parse(localCourtsRaw);
+        if (Array.isArray(localCourts)) {
+          const foundCourt = localCourts.find((c: { id?: string }) => c.id === courtId);
+          if (foundCourt) {
+            if (!resolvedCompanyId && foundCourt.companyId) resolvedCompanyId = String(foundCourt.companyId).trim();
+            if (!resolvedCompanyName && foundCourt.ownerCompanyName) resolvedCompanyName = String(foundCourt.ownerCompanyName).trim();
+            if (!resolvedFallbackEmail && foundCourt.ownerEmail) resolvedFallbackEmail = String(foundCourt.ownerEmail).trim().toLowerCase();
+          }
+        }
+      }
+    } catch {
+      // Ignore localStorage parse errors
+    }
+  }
+
+  // 2. Look up company record if needed to enrich companyId / companyName / clientAdminEmail
+  if (isFirebaseConfigured && db && (resolvedCompanyId || resolvedCompanyName)) {
+    try {
+      if (resolvedCompanyId) {
+        const compSnap = await getDoc(doc(db, 'companies', resolvedCompanyId));
+        if (compSnap.exists()) {
+          const compData = compSnap.data();
+          if (!resolvedCompanyName && compData.name) resolvedCompanyName = String(compData.name).trim();
+          if (!resolvedFallbackEmail && compData.clientAdminEmail) {
+            resolvedFallbackEmail = String(compData.clientAdminEmail).trim().toLowerCase();
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to resolve company record for email recipients:', err);
+    }
+  }
+
+  interface CandidateUserRecord {
+    id?: string;
+    uid?: string;
+    name?: string;
+    email?: string;
+    role?: string;
+    status?: string;
+    companyId?: string;
+    companyName?: string;
+    permissions?: Partial<UserPermissions>;
+  }
+
+  const userMap = new Map<string, CandidateUserRecord>();
+
+  // 3. Load from localStorage first (so Firestore overrides stale local records, or provides fallback if offline)
+  try {
+    const localUsersRaw = localStorage.getItem('picklepoint_users');
+    if (localUsersRaw) {
+      const localUsers = JSON.parse(localUsersRaw);
+      if (Array.isArray(localUsers)) {
+        for (const u of localUsers) {
+          const emailKey = (u?.email || '').trim().toLowerCase();
+          if (emailKey) {
+            userMap.set(emailKey, u);
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore localStorage parse errors
+  }
+
+  // Also check current session user in case the logged-in admin just updated their own permissions
+  try {
+    const sessionRaw = localStorage.getItem('picklepoint_session');
+    if (sessionRaw) {
+      const sessionUser = JSON.parse(sessionRaw);
+      const emailKey = (sessionUser?.email || '').trim().toLowerCase();
+      if (emailKey) {
+        const existing = userMap.get(emailKey) || {};
+        userMap.set(emailKey, { ...existing, ...sessionUser });
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  // 4. Query Firestore `users` collection for live multi-device accuracy
+  if (isFirebaseConfigured && db) {
+    try {
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.forEach((docSnap) => {
+        const data = docSnap.data() as CandidateUserRecord;
+        const emailKey = (data?.email || '').trim().toLowerCase();
+        if (emailKey) {
+          const existing = userMap.get(emailKey) || {};
+          userMap.set(emailKey, { ...existing, ...data, id: docSnap.id });
+        }
+      });
+    } catch (err) {
+      console.warn('Firestore users query failed in resolveVenueNotificationRecipients, using local cache:', err);
+    }
+  }
+
+  const targetCompanyIdLower = resolvedCompanyId.toLowerCase();
+  const targetCompanyNameLower = resolvedCompanyName.toLowerCase();
+
+  // If we only have fallbackAdminEmail and not companyId/companyName, see if that admin user record has companyId/companyName
+  if (!targetCompanyIdLower && !targetCompanyNameLower && resolvedFallbackEmail) {
+    const fallbackUser = userMap.get(resolvedFallbackEmail);
+    if (fallbackUser) {
+      if (fallbackUser.companyId) resolvedCompanyId = String(fallbackUser.companyId).trim();
+      if (fallbackUser.companyName) resolvedCompanyName = String(fallbackUser.companyName).trim();
+    }
+  }
+
+  const finalCompIdLower = resolvedCompanyId.toLowerCase();
+  const finalCompNameLower = resolvedCompanyName.toLowerCase();
+
+  const recipients: VenueNotificationRecipient[] = [];
+  const seenEmails = new Set<string>();
+  let fallbackAdminMatchedInUsers = false;
+
+  const formatRoleLabel = (role?: string): string => {
+    if (role === 'client_admin') return 'Client Admin';
+    if (role === 'manager') return 'Facility Manager';
+    if (role === 'editor') return 'Staff Editor';
+    if (role === 'super_admin') return 'Super Admin';
+    return 'Venue Admin';
+  };
+
+  for (const [emailLower, u] of userMap.entries()) {
+    if (!emailLower || !emailLower.includes('@')) continue;
+    if (u.status === 'inactive' || u.status === 'deleted') continue;
+
+    const uRole = u.role || 'player';
+    if (!['client_admin', 'manager', 'editor'].includes(uRole)) continue;
+
+    const uCompId = (u.companyId || '').trim().toLowerCase();
+    const uCompName = (u.companyName || '').trim().toLowerCase();
+
+    const matchesById = Boolean(finalCompIdLower && uCompId && uCompId === finalCompIdLower);
+    const matchesByName = Boolean(finalCompNameLower && uCompName && uCompName === finalCompNameLower);
+    const matchesFallbackEmail = Boolean(resolvedFallbackEmail && emailLower === resolvedFallbackEmail);
+
+    if (!matchesById && !matchesByName && !matchesFallbackEmail) continue;
+
+    if (matchesFallbackEmail) {
+      fallbackAdminMatchedInUsers = true;
+    }
+
+    const effectivePerms = getUserEffectivePermissions({
+      role: uRole,
+      permissions: u.permissions,
+    });
+
+    if (effectivePerms[notificationKey]) {
+      if (!seenEmails.has(emailLower)) {
+        seenEmails.add(emailLower);
+        recipients.push({
+          email: (u.email || emailLower).trim(),
+          name: u.name || formatRoleLabel(uRole),
+          role: uRole,
+          roleLabel: formatRoleLabel(uRole),
+        });
+      }
+    }
+  }
+
+  // 5. If the fallbackAdminEmail was not found in the users collection at all, include it by default
+  // (since client_admin defaults to true for all 5 notifications unless explicitly unchecked in users)
+  if (
+    resolvedFallbackEmail &&
+    resolvedFallbackEmail.includes('@') &&
+    !fallbackAdminMatchedInUsers &&
+    !seenEmails.has(resolvedFallbackEmail)
+  ) {
+    seenEmails.add(resolvedFallbackEmail);
+    recipients.push({
+      email: resolvedFallbackEmail,
+      name: resolvedCompanyName ? `${resolvedCompanyName} Admin` : 'Client Admin',
+      role: 'client_admin',
+      roleLabel: 'Client Admin',
+    });
+  }
+
+  return recipients;
+};
 
 interface SendCustomEmailParams {
   toEmail: string;
@@ -1741,7 +1975,10 @@ export interface AdminCheckoutNotificationParams {
   totalCost: number;
   paymentMethod?: string;
   paymentStatus?: string;
+  gcashReferenceNumber?: string;
   ownerCompanyName?: string;
+  eventHeading?: string;
+  actionBadgeText?: string;
   extraDetails?: Record<string, string>;
 }
 
@@ -1777,13 +2014,16 @@ export const sendNewCheckoutAdminNotificationEmail = async (
     badgeColor = '#e879f9';
   }
 
-  const subject = `🚨 New Checkout (${typeLabel}): ${params.customerName} - ${params.itemTitle}`;
+  const headerTitle = params.eventHeading || `New ${typeLabel} Received`;
+  const badgeText = params.actionBadgeText || `${typeIcon} NEW ${typeLabel.toUpperCase()} CHECKOUT`;
+  const subjectPrefix = params.eventHeading ? `🧾 ${params.eventHeading}` : `🚨 New Checkout (${typeLabel})`;
+  const subject = `${subjectPrefix}: ${params.customerName} - ${params.itemTitle}`;
   const adminCheckoutsUrl = `${baseUrl}/?view=admin&tab=checkouts`;
 
   const bodyContent = `
     <div style="background-color: ${badgeBg}; border: 1px solid ${badgeBorder}; border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; text-align: center;">
       <span style="font-size: 13px; font-weight: 800; color: ${badgeColor}; text-transform: uppercase; letter-spacing: 0.5px;">
-        ${typeIcon} NEW ${typeLabel.toUpperCase()} CHECKOUT
+        ${badgeText}
       </span>
     </div>
 
@@ -1791,7 +2031,10 @@ export const sendNewCheckoutAdminNotificationEmail = async (
       Hello <strong style="color: #ffffff;">${params.adminName || roleLabel}</strong>,
     </p>
     <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
-      A customer has completed checkout for <strong style="color: #ffffff;">${params.itemTitle}</strong>. Please review the details below in your Admin Dashboard:
+      ${params.eventHeading
+        ? `A customer has submitted a payment receipt update for <strong style="color: #ffffff;">${params.itemTitle}</strong>. Please verify the payment in your Admin Dashboard:`
+        : `A customer has completed checkout for <strong style="color: #ffffff;">${params.itemTitle}</strong>. Please review the details below in your Admin Dashboard:`
+      }
     </p>
 
     <!-- CUSTOMER DETAILS CARD -->
@@ -1818,6 +2061,13 @@ export const sendNewCheckoutAdminNotificationEmail = async (
         <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Booking Reference</span>
         <span style="font-size: 15px; color: #ffffff; font-weight: 800; font-family: monospace;">${params.bookingReference}</span>
       </div>
+
+      ${params.gcashReferenceNumber ? `
+      <div style="margin-bottom: 10px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">GCash Reference Number</span>
+        <span style="font-size: 14px; color: #38bdf8; font-weight: 800; font-family: monospace;">${params.gcashReferenceNumber}</span>
+      </div>
+      ` : ''}
 
       <div style="margin-bottom: 10px;">
         <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Facility / Item</span>
@@ -1856,8 +2106,211 @@ export const sendNewCheckoutAdminNotificationEmail = async (
   `;
 
   const htmlMessage = buildHtmlWrapper(
-    `New ${typeLabel} Received`,
+    headerTitle,
     `Ref: ${params.bookingReference}`,
+    bodyContent,
+    params.ownerCompanyName
+  );
+
+  return sendCustomUserEmail({
+    toEmail: params.adminEmail,
+    toName: params.adminName || roleLabel,
+    subject,
+    message: htmlMessage,
+  });
+};
+
+export interface PlayerRefundRequestAdminEmailParams {
+  adminEmail: string;
+  adminName?: string;
+  recipientRole?: string;
+  bookingReference: string;
+  courtName: string;
+  date: string;
+  slots: string[];
+  totalCost: number;
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string;
+  refundReason: string;
+  gcashNumber: string;
+  ownerCompanyName?: string;
+}
+
+export const sendPlayerRefundRequestAdminEmail = async (
+  params: PlayerRefundRequestAdminEmailParams
+): Promise<{ success: boolean; message: string }> => {
+  const baseUrl = getBaseUrl();
+  const roleLabel = params.recipientRole || 'Client Admin';
+  const adminBookingsUrl = `${baseUrl}/?view=admin&tab=bookings`;
+  const subject = `⚠️ Customer Refund / Cancellation Request: #${params.bookingReference} (${params.customerName})`;
+
+  const bodyContent = `
+    <div style="background-color: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; text-align: center;">
+      <span style="font-size: 13px; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.5px;">
+        💸 CUSTOMER REFUND / CANCELLATION REQUEST
+      </span>
+    </div>
+
+    <p style="margin: 0 0 16px 0; font-size: 15px; color: #e2e8f0; line-height: 1.6;">
+      Hello <strong style="color: #ffffff;">${params.adminName || roleLabel}</strong>,
+    </p>
+    <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+      <strong style="color: #ffffff;">${params.customerName}</strong> has submitted a cancellation / refund request for reservation <strong style="color: #a6e224;">#${params.bookingReference}</strong> at <strong style="color: #ffffff;">${params.courtName}</strong>.
+    </p>
+
+    <div style="background-color: #1e293b; border-radius: 14px; border: 1px solid #334155; padding: 16px; margin-bottom: 20px;">
+      <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #fbbf24; letter-spacing: 1px; margin-bottom: 12px;">
+        📋 REQUEST & RESERVATION SUMMARY
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Booking Reference</span>
+        <span style="font-size: 15px; color: #ffffff; font-weight: 800; font-family: monospace;">#${params.bookingReference}</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Court & Schedule</span>
+        <span style="font-size: 13px; color: #cbd5e1; font-weight: 700;">${params.courtName} &bull; ${params.date} (${params.slots.join(', ')})</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Customer Details</span>
+        <span style="font-size: 13px; color: #cbd5e1;">${params.customerName} (${params.customerEmail}${params.customerPhone ? ` / ${params.customerPhone}` : ''})</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Customer GCash Account for Refund</span>
+        <span style="font-size: 14px; color: #38bdf8; font-weight: 800; font-family: monospace;">${params.gcashNumber}</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Reason Provided</span>
+        <span style="font-size: 13px; color: #fde68a; font-style: italic;">"${params.refundReason}"</span>
+      </div>
+      <div>
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Reservation Amount</span>
+        <span style="font-size: 16px; color: #a6e224; font-weight: 900;">₱${params.totalCost.toLocaleString()}</span>
+      </div>
+    </div>
+
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px; margin-bottom: 20px;">
+      <tr>
+        <td align="center">
+          <a href="${adminBookingsUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: #a6e224; color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; text-align: center;">
+            Review Request in Admin Dashboard &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const htmlMessage = buildHtmlWrapper(
+    'Customer Refund Request',
+    `Reservation #${params.bookingReference}`,
+    bodyContent,
+    params.ownerCompanyName
+  );
+
+  return sendCustomUserEmail({
+    toEmail: params.adminEmail,
+    toName: params.adminName || roleLabel,
+    subject,
+    message: htmlMessage,
+  });
+};
+
+export interface BookingActionAdminAuditEmailParams {
+  adminEmail: string;
+  adminName?: string;
+  recipientRole?: string;
+  actionType: 'approved' | 'rejected' | 'cancelled' | 'refunded';
+  performedBy?: string;
+  bookingReference: string;
+  courtName: string;
+  date: string;
+  slots: string[];
+  totalCost: number;
+  customerName: string;
+  customerEmail?: string;
+  remarks?: string;
+  ownerCompanyName?: string;
+}
+
+export const sendBookingActionAdminAuditEmail = async (
+  params: BookingActionAdminAuditEmailParams
+): Promise<{ success: boolean; message: string }> => {
+  const baseUrl = getBaseUrl();
+  const roleLabel = params.recipientRole || 'Client Admin';
+  const adminUrl = `${baseUrl}/?view=admin&tab=bookings`;
+
+  const actionMeta: Record<string, { label: string; color: string; bg: string; border: string; icon: string }> = {
+    approved: { label: 'Payment Approved & Confirmed', color: '#a6e224', bg: 'rgba(166, 226, 36, 0.15)', border: 'rgba(166, 226, 36, 0.35)', icon: '✅' },
+    rejected: { label: 'Checkout Rejected / Cancelled', color: '#f87171', bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.35)', icon: '❌' },
+    cancelled: { label: 'Reservation Cancelled', color: '#f87171', bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.35)', icon: '🚫' },
+    refunded: { label: 'Refund / Credit Processed', color: '#c084fc', bg: 'rgba(192, 132, 252, 0.15)', border: 'rgba(192, 132, 252, 0.35)', icon: '💸' },
+  };
+
+  const meta = actionMeta[params.actionType] || actionMeta.approved;
+  const subject = `${meta.icon} Staff Audit [${meta.label}]: #${params.bookingReference} (${params.customerName})`;
+
+  const bodyContent = `
+    <div style="background-color: ${meta.bg}; border: 1px solid ${meta.border}; border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; text-align: center;">
+      <span style="font-size: 13px; font-weight: 800; color: ${meta.color}; text-transform: uppercase; letter-spacing: 0.5px;">
+        ${meta.icon} ${meta.label.toUpperCase()}
+      </span>
+    </div>
+
+    <p style="margin: 0 0 16px 0; font-size: 15px; color: #e2e8f0; line-height: 1.6;">
+      Hello <strong style="color: #ffffff;">${params.adminName || roleLabel}</strong>,
+    </p>
+    <p style="margin: 0 0 20px 0; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+      This is an automated venue notification that reservation <strong style="color: #ffffff;">#${params.bookingReference}</strong> was updated to <strong style="color: ${meta.color};">${meta.label}</strong>${params.performedBy ? ` by <strong style="color: #ffffff;">${params.performedBy}</strong>` : ''}.
+    </p>
+
+    <div style="background-color: #1e293b; border-radius: 14px; border: 1px solid #334155; padding: 16px; margin-bottom: 20px;">
+      <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: ${meta.color}; letter-spacing: 1px; margin-bottom: 12px;">
+        📋 RESERVATION AUDIT SUMMARY
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Reference Code</span>
+        <span style="font-size: 15px; color: #ffffff; font-weight: 800; font-family: monospace;">#${params.bookingReference}</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Customer</span>
+        <span style="font-size: 13px; color: #cbd5e1; font-weight: 700;">${params.customerName}${params.customerEmail ? ` (${params.customerEmail})` : ''}</span>
+      </div>
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Court & Schedule</span>
+        <span style="font-size: 13px; color: #cbd5e1;">${params.courtName} &bull; ${params.date} (${params.slots.join(', ')})</span>
+      </div>
+      ${params.performedBy ? `
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Action Performed By</span>
+        <span style="font-size: 13px; color: #38bdf8; font-weight: 700;">${params.performedBy}</span>
+      </div>
+      ` : ''}
+      ${params.remarks ? `
+      <div style="margin-bottom: 8px;">
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Remarks / Details</span>
+        <span style="font-size: 13px; color: #fde68a; font-style: italic;">${params.remarks}</span>
+      </div>
+      ` : ''}
+      <div>
+        <span style="font-size: 11px; color: #64748b; display: block; font-weight: 600; text-transform: uppercase;">Amount</span>
+        <span style="font-size: 16px; color: #a6e224; font-weight: 900;">₱${params.totalCost.toLocaleString()}</span>
+      </div>
+    </div>
+
+    <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-top: 10px; margin-bottom: 20px;">
+      <tr>
+        <td align="center">
+          <a href="${adminUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; background-color: #a6e224; color: #0b132b; text-decoration: none; font-size: 14px; font-weight: 900; border-radius: 12px; text-align: center;">
+            View in Admin Dashboard &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const htmlMessage = buildHtmlWrapper(
+    meta.label,
+    `Reservation #${params.bookingReference}`,
     bodyContent,
     params.ownerCompanyName
   );

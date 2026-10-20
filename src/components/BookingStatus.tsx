@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { resolveVenueNotificationRecipients, sendNewCheckoutAdminNotificationEmail } from '../services/emailService';
 
 interface BookingStatusProps {
   setView: (view: 'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup') => void;
@@ -15,8 +16,10 @@ interface BookingDetails {
   id?: string;
   courtId: string;
   courtName: string;
+  companyId?: string;
   ownerCompanyName?: string;
   ownerCompanyAddress?: string;
+  ownerEmail?: string;
   date: string;
   slots: string[];
   rentals: { id: string; name: string; price: number; pricingType: string; quantity: number }[];
@@ -219,6 +222,40 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
 
       setBooking((prev) => (prev ? { ...prev, ...updateData } : null));
       setUploadSuccessMsg('Payment receipt proof submitted successfully! Your booking is under admin review.');
+
+      // Notify opted-in Client Admins & Facility Managers of receipt upload
+      resolveVenueNotificationRecipients({
+        companyId: booking.companyId,
+        companyName: booking.ownerCompanyName,
+        courtId: booking.courtId,
+        fallbackAdminEmail: booking.ownerEmail,
+        notificationKey: 'notifyReceiptUploads',
+      })
+        .then((recipients) => {
+          recipients.forEach((recipient) => {
+            sendNewCheckoutAdminNotificationEmail({
+              adminEmail: recipient.email,
+              adminName: recipient.name,
+              recipientRole: recipient.roleLabel,
+              bookingType: 'court',
+              itemTitle: booking.courtName,
+              bookingReference: booking.bookingReference || bookingDocId,
+              customerName: booking.userName,
+              customerEmail: booking.userEmail,
+              customerPhone: booking.userPhone,
+              date: booking.date,
+              slots: booking.slots || [],
+              totalCost: booking.totalCost || 0,
+              paymentMethod: booking.paymentMethod || 'GCash',
+              paymentStatus: 'Receipt Uploaded - Pending Verification',
+              gcashReferenceNumber: gcashRefInput.trim() || booking.gcashReferenceNumber,
+              ownerCompanyName: booking.ownerCompanyName,
+              eventHeading: 'Payment Receipt Uploaded',
+              actionBadgeText: '🧾 PAYMENT RECEIPT UPLOADED FOR VERIFICATION',
+            }).catch((err) => console.warn('Failed to send receipt upload admin email:', err));
+          });
+        })
+        .catch((err) => console.warn('Failed to resolve receipt upload recipients:', err));
     } catch (err: any) {
       console.error('Failed to submit receipt:', err);
       alert('Failed to submit receipt proof. Please try again.');

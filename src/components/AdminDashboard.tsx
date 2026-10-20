@@ -78,7 +78,7 @@ import {
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot } from 'firebase/firestore';
-import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail } from '../services/emailService';
+import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendPaymentApprovalReceiptEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail, resolveVenueNotificationRecipients, sendBookingActionAdminAuditEmail } from '../services/emailService';
 import { isEventExpired, formatTime12h, formatEventDateLong, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 import { safeFetchPsgcJson } from '../services/psgcService';
 
@@ -4142,31 +4142,40 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           );
         }
 
-        // 4. Email Reminder
+        // 4. Email Reminder (Dispatched to all opted-in Client Admins & Facility Managers)
         if (paymentReminderSettings.emailEnabled) {
-          const recipient = paymentReminderSettings.emailRecipient?.trim() || user?.email || currentUserEmail;
-          if (recipient) {
-            const pendingItemsList = bookings
-              .filter(b => b.paymentStatus === 'pending_verification' || (b.status === 'pending' && b.paymentMethod))
-              .map(b => ({
-                customerName: b.user?.name || b.userName || 'Player',
-                courtName: b.courtName || 'Court',
-                date: b.date,
-                slots: b.slots || [],
-                totalCost: b.totalCost || 0,
-                paymentMethod: b.paymentMethod,
-                gcashReferenceNumber: b.gcashReferenceNumber,
-                bookingReference: b.bookingReference,
-              }));
+          const fallbackRecipient = paymentReminderSettings.emailRecipient?.trim() || myCompany?.clientAdminEmail || user?.email || currentUserEmail;
+          const pendingItemsList = bookings
+            .filter(b => b.paymentStatus === 'pending_verification' || (b.status === 'pending' && b.paymentMethod))
+            .map(b => ({
+              customerName: b.user?.name || b.userName || 'Player',
+              courtName: b.courtName || 'Court',
+              date: b.date,
+              slots: b.slots || [],
+              totalCost: b.totalCost || 0,
+              paymentMethod: b.paymentMethod,
+              gcashReferenceNumber: b.gcashReferenceNumber,
+              bookingReference: b.bookingReference,
+            }));
 
-            sendPendingPaymentsReminderEmail({
-              toEmail: recipient,
-              toName: user?.name || 'Administrator',
-              pendingCount: currentPendingCount,
-              companyName: myCompany?.name,
-              pendingList: pendingItemsList,
-            }).catch(err => console.warn('Periodic reminder email error:', err));
-          }
+          resolveVenueNotificationRecipients({
+            companyId: myCompany?.id || (user as any)?.companyId,
+            companyName: myCompany?.name || (user as any)?.companyName,
+            fallbackAdminEmail: fallbackRecipient,
+            notificationKey: 'notifyPendingPaymentReminders',
+          })
+            .then((recipients) => {
+              recipients.forEach((recipient) => {
+                sendPendingPaymentsReminderEmail({
+                  toEmail: recipient.email,
+                  toName: recipient.name,
+                  pendingCount: currentPendingCount,
+                  companyName: myCompany?.name,
+                  pendingList: pendingItemsList,
+                }).catch(err => console.warn('Periodic reminder email error:', err));
+              });
+            })
+            .catch(err => console.warn('Failed to resolve pending reminder recipients:', err));
         }
       }
     }, intervalMs);
@@ -4314,6 +4323,37 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           newStatus
         ).catch((err) => console.warn('Automated status email failed:', err));
       }
+
+      if (targetBooking) {
+        const targetCourt = courts.find((c) => c.id === targetBooking.courtId || c.name === targetBooking.courtName);
+        resolveVenueNotificationRecipients({
+          companyId: targetBooking.companyId || targetCourt?.companyId || myCompany?.id,
+          companyName: (targetBooking as any).ownerCompanyName || targetCourt?.ownerCompanyName || myCompany?.name,
+          courtId: targetBooking.courtId,
+          fallbackAdminEmail: (targetBooking as any).ownerEmail || targetCourt?.ownerEmail || myCompany?.clientAdminEmail,
+          notificationKey: 'notifyBookingStatusUpdates',
+        })
+          .then((recipients) => {
+            recipients.forEach((recipient) => {
+              sendBookingActionAdminAuditEmail({
+                adminEmail: recipient.email,
+                adminName: recipient.name,
+                recipientRole: recipient.roleLabel,
+                actionType: newStatus === 'approved' ? 'approved' : 'cancelled',
+                performedBy: user?.name ? `${user.name} (${user.email})` : currentUserEmail || 'Staff',
+                bookingReference: targetBooking.bookingReference || targetBooking.id || bookingId,
+                courtName: targetBooking.courtName || 'Court',
+                date: targetBooking.date || '',
+                slots: targetBooking.slots || [],
+                totalCost: targetBooking.totalCost || 0,
+                customerName: recipientName,
+                customerEmail: recipientEmail,
+                ownerCompanyName: (targetBooking as any).ownerCompanyName || targetCourt?.ownerCompanyName || myCompany?.name,
+              }).catch((err) => console.warn('Staff audit email failed:', err));
+            });
+          })
+          .catch((err) => console.warn('Failed to resolve staff audit recipients:', err));
+      }
     } catch (err) {
       console.error('Failed to update booking status:', err);
     } finally {
@@ -4367,6 +4407,69 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       await syncBookingUpdateToCloudAndStorage(targetBooking, updatedFields);
 
       const approvedBookingRef = targetBooking.bookingReference || targetBooking.id;
+      const targetCourt = courts.find((c) => c.id === targetBooking.courtId || c.name === targetBooking.courtName);
+      const resolvedOwnerCompanyName =
+        targetCourt?.ownerCompanyName || (targetBooking as any).ownerCompanyName || myCompany?.name || targetBooking.courtName;
+      const resolvedOwnerCompanyAddress =
+        targetCourt?.companyAddress || targetCourt?.location || (targetBooking as any).ownerCompanyAddress || myCompany?.address || 'Venue Location On File';
+      const resolvedOwnerEmail =
+        targetCourt?.ownerEmail || (targetBooking as any).ownerEmail || myCompany?.clientAdminEmail;
+      const resolvedOwnerPhone =
+        targetCourt?.ownerPhone || (targetBooking as any).ownerPhone;
+
+      const customerEmail = targetBooking.userEmail || targetBooking.user?.email || '';
+      const customerName = targetBooking.userName || targetBooking.user?.name || 'Valued Player';
+
+      if (customerEmail) {
+        sendPaymentApprovalReceiptEmail({
+          bookingId: targetBooking.id,
+          bookingReference: approvedBookingRef,
+          gcashReferenceNumber: approveGcashRef.trim() || targetBooking.gcashReferenceNumber,
+          courtName: targetBooking.courtName || 'Court',
+          courtType: (targetBooking as any).courtType || targetCourt?.type,
+          date: targetBooking.date || '',
+          slots: targetBooking.slots || [],
+          rentals: (targetBooking as any).rentals,
+          totalCost: targetBooking.totalCost || 0,
+          paymentMethod: targetBooking.paymentMethod || 'GCash',
+          userEmail: customerEmail,
+          userName: customerName,
+          ownerCompanyName: resolvedOwnerCompanyName,
+          ownerCompanyAddress: resolvedOwnerCompanyAddress,
+          ownerEmail: resolvedOwnerEmail,
+          ownerPhone: resolvedOwnerPhone,
+        }).catch((err) => console.warn('Failed to send customer payment approval receipt email:', err));
+      }
+
+      resolveVenueNotificationRecipients({
+        companyId: targetBooking.companyId || targetCourt?.companyId || myCompany?.id,
+        companyName: resolvedOwnerCompanyName,
+        courtId: targetBooking.courtId,
+        fallbackAdminEmail: resolvedOwnerEmail,
+        notificationKey: 'notifyBookingStatusUpdates',
+      })
+        .then((recipients) => {
+          recipients.forEach((recipient) => {
+            sendBookingActionAdminAuditEmail({
+              adminEmail: recipient.email,
+              adminName: recipient.name,
+              recipientRole: recipient.roleLabel,
+              actionType: 'approved',
+              performedBy: user?.name ? `${user.name} (${user.email})` : currentUserEmail || 'Staff',
+              bookingReference: approvedBookingRef,
+              courtName: targetBooking.courtName || 'Court',
+              date: targetBooking.date || '',
+              slots: targetBooking.slots || [],
+              totalCost: targetBooking.totalCost || 0,
+              customerName,
+              customerEmail,
+              remarks: approvePaymentNotes.trim() || undefined,
+              ownerCompanyName: resolvedOwnerCompanyName,
+            }).catch((err) => console.warn('Staff approval audit email failed:', err));
+          });
+        })
+        .catch((err) => console.warn('Failed to resolve staff approval audit recipients:', err));
+
       setApproveCheckoutModalBooking(null);
       showModalAlert(
         'Payment Approved!',
@@ -4579,6 +4682,36 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }).catch((err) => console.warn('Automated cancellation email failed:', err));
       }
 
+      // Dispatch staff audit notification to opted-in Client Admins & Facility Managers
+      resolveVenueNotificationRecipients({
+        companyId: refundModalBooking.companyId || targetCourt?.companyId || myCompany?.id,
+        companyName: ownerCompanyName,
+        courtId: refundModalBooking.courtId,
+        fallbackAdminEmail: ownerEmail || myCompany?.clientAdminEmail,
+        notificationKey: 'notifyBookingStatusUpdates',
+      })
+        .then((recipients) => {
+          recipients.forEach((recipient) => {
+            sendBookingActionAdminAuditEmail({
+              adminEmail: recipient.email,
+              adminName: recipient.name,
+              recipientRole: recipient.roleLabel,
+              actionType: cancellationResolutionMode === 'no_refund' ? 'cancelled' : 'refunded',
+              performedBy: user?.name ? `${user.name} (${user.email})` : refundedByInfo,
+              bookingReference: refundModalBooking.bookingReference || refundModalBooking.id,
+              courtName: refundModalBooking.courtName || 'Court',
+              date: refundModalBooking.date || '',
+              slots: refundModalBooking.slots || [],
+              totalCost: refundModalBooking.totalCost || 0,
+              customerName: refundModalBooking.user?.name || refundModalBooking.userName || 'Valued Player',
+              customerEmail: refundModalBooking.user?.email || refundModalBooking.userEmail || '',
+              remarks: refundReasonInput || (cancellationResolutionMode === 'refund' ? `Monetary Refund: ₱${refundAmt}` : cancellationResolutionMode === 'voucher' ? `Credit Voucher: ₱${refundAmt}` : 'Cancelled without refund'),
+              ownerCompanyName,
+            }).catch((err) => console.warn('Staff refund audit email failed:', err));
+          });
+        })
+        .catch((err) => console.warn('Failed to resolve staff refund audit recipients:', err));
+
       // Close modal and reset state
       setRefundModalBooking(null);
       setRefundAmountInput('');
@@ -4660,6 +4793,36 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           ownerPhone,
         }).catch((err) => console.warn('Automated checkout rejection email failed:', err));
       }
+
+      const rejectCourt = courts.find((c) => c.id === targetBooking.courtId || c.name === targetBooking.courtName);
+      resolveVenueNotificationRecipients({
+        companyId: targetBooking.companyId || rejectCourt?.companyId || myCompany?.id,
+        companyName: rejectCourt?.ownerCompanyName || (targetBooking as any).ownerCompanyName || myCompany?.name,
+        courtId: targetBooking.courtId,
+        fallbackAdminEmail: rejectCourt?.ownerEmail || (targetBooking as any).ownerEmail || myCompany?.clientAdminEmail,
+        notificationKey: 'notifyBookingStatusUpdates',
+      })
+        .then((recipients) => {
+          recipients.forEach((recipient) => {
+            sendBookingActionAdminAuditEmail({
+              adminEmail: recipient.email,
+              adminName: recipient.name,
+              recipientRole: recipient.roleLabel,
+              actionType: 'rejected',
+              performedBy: user?.name ? `${user.name} (${user.email})` : user?.email || 'Admin',
+              bookingReference: targetBooking.bookingReference || targetBooking.id || '',
+              courtName: targetBooking.courtName || 'Court',
+              date: targetBooking.date || '',
+              slots: targetBooking.slots || [],
+              totalCost: targetBooking.totalCost || 0,
+              customerName: recipientUserName,
+              customerEmail: recipientUserEmail,
+              remarks: finalReason,
+              ownerCompanyName: rejectCourt?.ownerCompanyName || (targetBooking as any).ownerCompanyName || myCompany?.name,
+            }).catch((err) => console.warn('Staff rejection audit email failed:', err));
+          });
+        })
+        .catch((err) => console.warn('Failed to resolve staff rejection audit recipients:', err));
 
       setRejectCheckoutModalBooking(null);
       setRejectSuccessAlert(
@@ -5146,6 +5309,43 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             : u
         )
       );
+
+      try {
+        const usersStr = localStorage.getItem('picklepoint_users');
+        if (usersStr) {
+          const localUsers = JSON.parse(usersStr) as any[];
+          if (Array.isArray(localUsers)) {
+            const updatedLocal = localUsers.map((u) =>
+              (u.email || '').toLowerCase() === targetEmailLower
+                ? {
+                    ...u,
+                    name: updatedManager.name,
+                    role: updatedManager.role || u.role,
+                    status: updatedManager.status || u.status,
+                    permissions: updatedManager.permissions || u.permissions,
+                  }
+                : u
+            );
+            localStorage.setItem('picklepoint_users', JSON.stringify(updatedLocal));
+          }
+        }
+        const sessionStr = localStorage.getItem('picklepoint_session');
+        if (sessionStr) {
+          const sessionUser = JSON.parse(sessionStr);
+          if ((sessionUser?.email || '').toLowerCase() === targetEmailLower) {
+            localStorage.setItem(
+              'picklepoint_session',
+              JSON.stringify({
+                ...sessionUser,
+                name: updatedManager.name || sessionUser.name,
+                permissions: updatedManager.permissions || sessionUser.permissions,
+              })
+            );
+          }
+        }
+      } catch {
+        // Ignore localStorage sync errors
+      }
 
       showModalAlert('Staff Member Updated', `Staff member ${updatedManager.name || updatedManager.email} profile and permissions have been updated.`, 'success');
     } catch (err) {

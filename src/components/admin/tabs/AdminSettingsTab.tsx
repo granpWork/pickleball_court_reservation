@@ -43,6 +43,7 @@ import {
   type DailyOperatingHoursMap,
   type CourtPolicies,
   getUserEffectivePermissions,
+  EMAIL_NOTIFICATION_PERMISSION_ITEMS,
   getEffectiveSubscriptionExpiry,
   isSubscriptionExpired,
   getSubscriptionRemainingDays,
@@ -583,6 +584,24 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                               {perms.canManageTeam && (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/20 text-purple-300">Team</span>
                               )}
+                              {(() => {
+                                const enabledEmailCount = EMAIL_NOTIFICATION_PERMISSION_ITEMS.filter(
+                                  (item) => Boolean(perms[item.key])
+                                ).length;
+                                return enabledEmailCount > 0 ? (
+                                  <span
+                                    className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-sky-500/20 border border-sky-500/30 text-sky-300 inline-flex items-center gap-1"
+                                    title={`${enabledEmailCount} of ${EMAIL_NOTIFICATION_PERMISSION_ITEMS.length} automated email notifications enabled`}
+                                  >
+                                    <Mail className="w-2.5 h-2.5" />
+                                    <span>Email Alerts ({enabledEmailCount}/{EMAIL_NOTIFICATION_PERMISSION_ITEMS.length})</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-slate-800/70 text-slate-500">
+                                    Muted Emails
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
@@ -595,17 +614,17 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-right">
-                            {!isOwner ? (
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleStartEditManager(m)}
-                                  title="Edit Staff Access"
-                                  className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5 text-brand-lime" />
-                                  <span>Manage Access</span>
-                                </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEditManager(m)}
+                                title={isOwner ? 'Configure Primary Host Email Notifications' : 'Edit Staff Access & Email Notifications'}
+                                className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 text-brand-lime" />
+                                <span>Manage Access</span>
+                              </button>
+                              {!isOwner ? (
                                 <button
                                   type="button"
                                   onClick={() => setDeletingManager(m)}
@@ -615,10 +634,10 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                                   <Trash2 className="w-3.5 h-3.5" />
                                   <span>Delete</span>
                                 </button>
-                              </div>
-                            ) : (
-                              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Primary Host</span>
-                            )}
+                              ) : (
+                                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider px-1.5">Primary Host</span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -646,7 +665,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-white">Manage Staff Access & Permissions</h3>
-                    <p className="text-xs text-slate-400">Configure role and custom checkbox permissions for {editingManager.name || editingManager.email}.</p>
+                    <p className="text-xs text-slate-400">Configure role, feature access, and email notifications for {editingManager.name || editingManager.email}.</p>
                   </div>
                 </div>
 
@@ -674,185 +693,286 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                   </div>
 
                   {/* ROLE & STATUS SELECTION */}
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                        Assigned Staff Role *
-                      </label>
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditManagerRole('manager');
-                            setEditManagerPermissions({
-                              canManageBookings: true,
-                              canManageCourts: true,
-                              canManageOpenPlay: true,
-                              canManageVouchers: true,
-                              canViewFinancials: false,
-                              canManageTeam: false,
-                            });
-                          }}
-                          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                            editManagerRole === 'manager'
-                              ? 'bg-sky-500/10 border-sky-400 text-sky-300 shadow-md shadow-sky-500/10 font-bold ring-1 ring-sky-400/30'
-                              : 'bg-[#050711] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                          }`}
-                        >
-                          <span className="text-xs font-extrabold flex items-center gap-1.5">
-                            📋 Facility Manager
-                          </span>
-                          <span className="text-[10px] opacity-75 mt-1">Full Operations Staff</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditManagerRole('editor');
-                            setEditManagerPermissions({
-                              canManageBookings: true,
-                              canManageCourts: false,
-                              canManageOpenPlay: true,
-                              canManageVouchers: false,
-                              canViewFinancials: false,
-                              canManageTeam: false,
-                            });
-                          }}
-                          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                            editManagerRole === 'editor'
-                              ? 'bg-amber-500/10 border-amber-400 text-amber-300 shadow-md shadow-amber-500/10 font-bold ring-1 ring-amber-400/30'
-                              : 'bg-[#050711] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                          }`}
-                        >
-                          <span className="text-xs font-extrabold flex items-center gap-1.5">
-                            ✏️ Staff Editor
-                          </span>
-                          <span className="text-[10px] opacity-75 mt-1">Front-Desk & Check-in</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="relative">
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
-                        Account Status *
-                      </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setIsEditStatusDropdownOpen(!isEditStatusDropdownOpen)}
-                          className="w-full flex items-center justify-between gap-2 px-3.5 py-3 bg-[#050711] border border-slate-800 hover:border-brand-lime/50 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${
-                              editManagerStatus === 'active' ? 'bg-emerald-400' : editManagerStatus === 'pending' ? 'bg-amber-400' : 'bg-red-400'
-                            }`} />
-                            <span>
-                              {editManagerStatus === 'active' ? 'Active Access' : editManagerStatus === 'pending' ? 'Pending Invitation' : 'Inactive / Suspended'}
+                  {editingManager.role !== 'client_admin' ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                          Assigned Staff Role *
+                        </label>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditManagerRole('manager');
+                              setEditManagerPermissions(prev => ({
+                                ...prev,
+                                canManageBookings: true,
+                                canManageCourts: true,
+                                canManageOpenPlay: true,
+                                canManageVouchers: true,
+                                canViewFinancials: false,
+                                canManageTeam: false,
+                                notifyNewCheckouts: prev.notifyNewCheckouts ?? true,
+                                notifyReceiptUploads: prev.notifyReceiptUploads ?? true,
+                                notifyRefundRequests: prev.notifyRefundRequests ?? true,
+                                notifyPendingPaymentReminders: prev.notifyPendingPaymentReminders ?? true,
+                                notifyBookingStatusUpdates: prev.notifyBookingStatusUpdates ?? true,
+                              }));
+                            }}
+                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                              editManagerRole === 'manager'
+                                ? 'bg-sky-500/10 border-sky-400 text-sky-300 shadow-md shadow-sky-500/10 font-bold ring-1 ring-sky-400/30'
+                                : 'bg-[#050711] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                            }`}
+                          >
+                            <span className="text-xs font-extrabold flex items-center gap-1.5">
+                              📋 Facility Manager
                             </span>
-                          </div>
-                          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isEditStatusDropdownOpen ? 'rotate-180 text-brand-lime' : ''}`} />
-                        </button>
+                            <span className="text-[10px] opacity-75 mt-1">Full Operations Staff</span>
+                          </button>
 
-                        {isEditStatusDropdownOpen && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setIsEditStatusDropdownOpen(false)} />
-                            <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 space-y-1">
-                              {[
-                                { id: 'active', label: 'Active Access', desc: 'Full operational access according to permissions', color: 'text-emerald-400' },
-                                { id: 'pending', label: 'Pending Invitation', desc: 'Registration link sent, pending user signup', color: 'text-amber-400' },
-                                { id: 'inactive', label: 'Inactive / Suspended', desc: 'Account access disabled temporarily', color: 'text-red-400' },
-                              ].map((item) => (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setEditManagerStatus(item.id as any);
-                                    setIsEditStatusDropdownOpen(false);
-                                  }}
-                                  className={`w-full text-left px-3 py-2.5 rounded-xl text-xs flex items-center justify-between cursor-pointer transition-all ${
-                                    editManagerStatus === item.id ? 'bg-slate-800 font-bold text-white ring-1 ring-slate-700' : 'text-slate-300 hover:bg-slate-800/60'
-                                  }`}
-                                >
-                                  <div>
-                                    <div className={`font-bold ${item.color}`}>{item.label}</div>
-                                    <div className="text-[10px] text-slate-400 font-normal">{item.desc}</div>
-                                  </div>
-                                  {editManagerStatus === item.id && <Check className="w-4 h-4 text-brand-lime" />}
-                                </button>
-                              ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditManagerRole('editor');
+                              setEditManagerPermissions(prev => ({
+                                ...prev,
+                                canManageBookings: true,
+                                canManageCourts: false,
+                                canManageOpenPlay: true,
+                                canManageVouchers: false,
+                                canViewFinancials: false,
+                                canManageTeam: false,
+                                notifyNewCheckouts: false,
+                                notifyReceiptUploads: false,
+                                notifyRefundRequests: false,
+                                notifyPendingPaymentReminders: false,
+                                notifyBookingStatusUpdates: false,
+                              }));
+                            }}
+                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                              editManagerRole === 'editor'
+                                ? 'bg-amber-500/10 border-amber-400 text-amber-300 shadow-md shadow-amber-500/10 font-bold ring-1 ring-amber-400/30'
+                                : 'bg-[#050711] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                            }`}
+                          >
+                            <span className="text-xs font-extrabold flex items-center gap-1.5">
+                              ✏️ Staff Editor
+                            </span>
+                            <span className="text-[10px] opacity-75 mt-1">Front-Desk & Check-in</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="relative">
+                        <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5">
+                          Account Status *
+                        </label>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setIsEditStatusDropdownOpen(!isEditStatusDropdownOpen)}
+                            className="w-full flex items-center justify-between gap-2 px-3.5 py-3 bg-[#050711] border border-slate-800 hover:border-brand-lime/50 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${
+                                editManagerStatus === 'active' ? 'bg-emerald-400' : editManagerStatus === 'pending' ? 'bg-amber-400' : 'bg-red-400'
+                              }`} />
+                              <span>
+                                {editManagerStatus === 'active' ? 'Active Access' : editManagerStatus === 'pending' ? 'Pending Invitation' : 'Inactive / Suspended'}
+                              </span>
                             </div>
-                          </>
-                        )}
+                            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isEditStatusDropdownOpen ? 'rotate-180 text-brand-lime' : ''}`} />
+                          </button>
+
+                          {isEditStatusDropdownOpen && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setIsEditStatusDropdownOpen(false)} />
+                              <div className="absolute left-0 right-0 top-full mt-1.5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-1.5 z-50 space-y-1">
+                                {[
+                                  { id: 'active', label: 'Active Access', desc: 'Full operational access according to permissions', color: 'text-emerald-400' },
+                                  { id: 'pending', label: 'Pending Invitation', desc: 'Registration link sent, pending user signup', color: 'text-amber-400' },
+                                  { id: 'inactive', label: 'Inactive / Suspended', desc: 'Account access disabled temporarily', color: 'text-red-400' },
+                                ].map((item) => (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setEditManagerStatus(item.id as any);
+                                      setIsEditStatusDropdownOpen(false);
+                                    }}
+                                    className={`w-full text-left px-3 py-2.5 rounded-xl text-xs flex items-center justify-between cursor-pointer transition-all ${
+                                      editManagerStatus === item.id ? 'bg-slate-800 font-bold text-white ring-1 ring-slate-700' : 'text-slate-300 hover:bg-slate-800/60'
+                                    }`}
+                                  >
+                                    <div>
+                                      <div className={`font-bold ${item.color}`}>{item.label}</div>
+                                      <div className="text-[10px] text-slate-400 font-normal">{item.desc}</div>
+                                    </div>
+                                    {editManagerStatus === item.id && <Check className="w-4 h-4 text-brand-lime" />}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="p-3 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-extrabold uppercase text-slate-400 block">Assigned Role</span>
+                        <span className="text-xs font-extrabold text-brand-lime">🎾 Client Admin (Primary Venue Host)</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-full">
+                        Full Feature Access
+                      </span>
+                    </div>
+                  )}
 
                   {/* CHECKBOX PERMISSION MATRIX */}
-                  <div className="space-y-2 border-t border-b border-slate-800 py-3">
+                  <div className="space-y-2 border-t border-slate-800 pt-3">
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
                       Feature Checkbox Permissions *
                     </label>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                      <label className={`flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 transition-colors ${editingManager.role === 'client_admin' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-brand-lime/40'}`}>
                         <input
                           type="checkbox"
-                          checked={!!editManagerPermissions.canManageBookings}
+                          disabled={editingManager.role === 'client_admin'}
+                          checked={editingManager.role === 'client_admin' ? true : !!editManagerPermissions.canManageBookings}
                           onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageBookings: e.target.checked }))}
                           className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
                         />
                         <span className="text-slate-200 font-semibold">Bookings & Reservations</span>
                       </label>
 
-                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                      <label className={`flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 transition-colors ${editingManager.role === 'client_admin' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-brand-lime/40'}`}>
                         <input
                           type="checkbox"
-                          checked={!!editManagerPermissions.canManageCourts}
+                          disabled={editingManager.role === 'client_admin'}
+                          checked={editingManager.role === 'client_admin' ? true : !!editManagerPermissions.canManageCourts}
                           onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageCourts: e.target.checked }))}
                           className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
                         />
                         <span className="text-slate-200 font-semibold">Courts & Operating Hours</span>
                       </label>
 
-                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                      <label className={`flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 transition-colors ${editingManager.role === 'client_admin' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-brand-lime/40'}`}>
                         <input
                           type="checkbox"
-                          checked={!!editManagerPermissions.canManageOpenPlay}
+                          disabled={editingManager.role === 'client_admin'}
+                          checked={editingManager.role === 'client_admin' ? true : !!editManagerPermissions.canManageOpenPlay}
                           onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageOpenPlay: e.target.checked }))}
                           className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
                         />
                         <span className="text-slate-200 font-semibold">Open Play Sessions</span>
                       </label>
 
-                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                      <label className={`flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 transition-colors ${editingManager.role === 'client_admin' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-brand-lime/40'}`}>
                         <input
                           type="checkbox"
-                          checked={!!editManagerPermissions.canManageVouchers}
+                          disabled={editingManager.role === 'client_admin'}
+                          checked={editingManager.role === 'client_admin' ? true : !!editManagerPermissions.canManageVouchers}
                           onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageVouchers: e.target.checked }))}
                           className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
                         />
                         <span className="text-slate-200 font-semibold">Vouchers & Promos</span>
                       </label>
 
-                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                      <label className={`flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 transition-colors ${editingManager.role === 'client_admin' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-brand-lime/40'}`}>
                         <input
                           type="checkbox"
-                          checked={!!editManagerPermissions.canViewFinancials}
+                          disabled={editingManager.role === 'client_admin'}
+                          checked={editingManager.role === 'client_admin' ? true : !!editManagerPermissions.canViewFinancials}
                           onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canViewFinancials: e.target.checked }))}
                           className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
                         />
                         <span className="text-slate-200 font-semibold">Financials & GCash</span>
                       </label>
 
-                      <label className="flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-brand-lime/40 transition-colors">
+                      <label className={`flex items-center space-x-2.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800 transition-colors ${editingManager.role === 'client_admin' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-brand-lime/40'}`}>
                         <input
                           type="checkbox"
-                          checked={!!editManagerPermissions.canManageTeam}
+                          disabled={editingManager.role === 'client_admin'}
+                          checked={editingManager.role === 'client_admin' ? true : !!editManagerPermissions.canManageTeam}
                           onChange={(e) => setEditManagerPermissions(prev => ({ ...prev, canManageTeam: e.target.checked }))}
                           className="w-4 h-4 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer"
                         />
                         <span className="text-slate-200 font-semibold">Staff & User Access</span>
                       </label>
+                    </div>
+                  </div>
+
+                  {/* EMAIL NOTIFICATION ALERTS SECTION */}
+                  <div className="space-y-2.5 border-t border-b border-slate-800 py-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5 text-brand-lime" />
+                          <span>Email Notification Alerts *</span>
+                        </label>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Select which automated emails should be dispatched to <strong className="text-slate-200">{editingManager.email}</strong>.
+                        </p>
+                      </div>
+                      {(() => {
+                        const allChecked = EMAIL_NOTIFICATION_PERMISSION_ITEMS.every(
+                          (item) => Boolean(editManagerPermissions[item.key])
+                        );
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextVal = !allChecked;
+                              setEditManagerPermissions((prev) => ({
+                                ...prev,
+                                notifyNewCheckouts: nextVal,
+                                notifyReceiptUploads: nextVal,
+                                notifyRefundRequests: nextVal,
+                                notifyPendingPaymentReminders: nextVal,
+                                notifyBookingStatusUpdates: nextVal,
+                              }));
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-extrabold text-brand-lime transition-colors cursor-pointer shrink-0"
+                          >
+                            {allChecked ? 'Uncheck All' : 'Check All'}
+                          </button>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="space-y-2 text-xs">
+                      {EMAIL_NOTIFICATION_PERMISSION_ITEMS.map((item) => {
+                        const isChecked = Boolean(editManagerPermissions[item.key]);
+                        return (
+                          <label
+                            key={item.key}
+                            className={`flex items-start space-x-3 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                              isChecked
+                                ? 'bg-brand-lime/5 border-brand-lime/40 hover:border-brand-lime/60'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) =>
+                                setEditManagerPermissions((prev) => ({
+                                  ...prev,
+                                  [item.key]: e.target.checked,
+                                }))
+                              }
+                              className="w-4 h-4 mt-0.5 rounded border-slate-700 text-brand-lime focus:ring-brand-lime accent-[#a6e224] cursor-pointer shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-slate-100 font-bold leading-snug">{item.label}</div>
+                              <div className="text-[10px] text-slate-400 leading-normal mt-0.5">{item.description}</div>
+                            </div>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
 
