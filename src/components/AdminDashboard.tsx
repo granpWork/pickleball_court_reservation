@@ -7,6 +7,7 @@ import { AdminCourtsTab } from './admin/tabs/AdminCourtsTab';
 import { AdminCompaniesTab } from './admin/tabs/AdminCompaniesTab';
 import { AdminCheckoutsTab } from './admin/tabs/AdminCheckoutsTab';
 import { AdminOpenPlayTab } from './admin/tabs/AdminOpenPlayTab';
+import { AdminMatchMatrixTab } from './admin/tabs/AdminMatchMatrixTab';
 import { AdminVouchersTab } from './admin/tabs/AdminVouchersTab';
 import { AdminPoliciesTab } from './admin/tabs/AdminPoliciesTab';
 import { AdminUsersTab } from './admin/tabs/AdminUsersTab';
@@ -7117,6 +7118,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Checkouts & Payments'
                 : activeTab === 'openplay'
                 ? 'Open Play Management'
+                : activeTab === 'match_matrix'
+                ? 'Match Matrix Orchestrator'
                 : activeTab === 'policies'
                 ? 'Court Policies & Guidelines'
                 : activeTab === 'vouchers'
@@ -7150,6 +7153,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Configure global convenience & service fee per checkout, inspect fee earnings, and view revenue breakdown.'
                 : activeTab === 'openplay'
                 ? 'Create Open Play sessions, collect GCash entry fees, manage player rosters, and share direct event links.'
+                : activeTab === 'match_matrix'
+                ? 'Configure tournament match boards, set court capacities, and pull player rosters from Open Play sessions.'
                 : activeTab === 'policies'
                 ? 'Configure court rules, cancellation policies, weather terms, and venue guidelines.'
                 : activeTab === 'vouchers'
@@ -7382,6 +7387,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               formatEventDateLong={formatEventDateLong}
               formatTime12h={formatTime12h}
               userPermissions={getUserEffectivePermissions(user as any)}
+            />
+          )}
+
+          {activeTab === 'match_matrix' && (
+            <AdminMatchMatrixTab
+              courts={isSuperAdmin ? courts : availableAdminCourts}
+              openPlayEvents={openPlayEvents}
+              openPlayRegistrations={openPlayRegistrations}
+              onRefreshEvents={fetchData}
+              userPermissions={getUserEffectivePermissions(user as any)}
+              currentAdminEmail={user?.email || currentUserEmail}
+              currentAdminName={user?.name || adminDisplayName || 'Admin'}
+              myCompany={currentCompany}
+              onNavigateToScoreboard={() => {
+                setActiveTab('scoreboard');
+              }}
             />
           )}
 

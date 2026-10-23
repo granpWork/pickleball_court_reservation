@@ -510,7 +510,7 @@ export interface SupportTicket {
   resolvedBy?: string;
 }
 
-export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter' | 'scoreboard' | 'integrations';
+export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'match_matrix' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter' | 'scoreboard' | 'integrations';
 export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee' | 'subscription';
 export type AdminIntegrationsSubTab = 'dupr' | 'webhooks';
 export type DuprEnvironment = 'prod' | 'uat' | 'staging';

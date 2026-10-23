@@ -85,6 +85,8 @@ export interface OpenPlayEvent {
   recurrencePattern?: string;
   recurrenceGroupId?: string;
   isDupr?: boolean;
+  isMatchMatrix?: boolean;
+  matrixFormat?: string;
 }
 
 export interface AssignedCourtInfo {
