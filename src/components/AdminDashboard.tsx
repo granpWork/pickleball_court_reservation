@@ -17,7 +17,7 @@ import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
 import { AdminScoreboardTab } from './admin/tabs/AdminScoreboardTab';
 import { AdminIntegrationsTab } from './admin/tabs/AdminIntegrationsTab';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -2388,7 +2388,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const handleUpdateManualBookingDetails = async (
     targetBooking: string | Booking,
-    updatedData: { userName: string; userEmail: string; userPhone: string; paymentMethod: string; totalCost?: number }
+    updatedData: BookingUpdatePayload
   ) => {
     try {
       const modifierEmail = currentUserEmail || (user as any)?.email || 'admin@picklepoint.com';
@@ -2396,29 +2396,36 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       const modifiedTimestamp = new Date().toISOString();
 
       const updatePayload: Record<string, any> = {
-        userName: updatedData.userName,
-        userEmail: updatedData.userEmail,
-        userPhone: updatedData.userPhone,
-        user: {
-          name: updatedData.userName,
-          email: updatedData.userEmail,
-          phone: updatedData.userPhone,
-        },
-        paymentMethod: updatedData.paymentMethod,
         lastModifiedByAdminEmail: modifierEmail,
         lastModifiedByAdminName: modifierName,
         lastModifiedAt: modifiedTimestamp,
       };
-      if (updatedData.totalCost !== undefined) {
-        updatePayload.totalCost = updatedData.totalCost;
+
+      if (updatedData.userName !== undefined) {
+        updatePayload.userName = updatedData.userName;
+        updatePayload.user = {
+          ...(typeof targetBooking === 'object' ? targetBooking.user : {}),
+          name: updatedData.userName,
+          email: updatedData.userEmail || (typeof targetBooking === 'object' ? targetBooking.user?.email : ''),
+          phone: updatedData.userPhone || (typeof targetBooking === 'object' ? targetBooking.user?.phone : ''),
+        };
       }
+      if (updatedData.userEmail !== undefined) updatePayload.userEmail = updatedData.userEmail;
+      if (updatedData.userPhone !== undefined) updatePayload.userPhone = updatedData.userPhone;
+      if (updatedData.paymentMethod !== undefined) updatePayload.paymentMethod = updatedData.paymentMethod;
+      if (updatedData.totalCost !== undefined) updatePayload.totalCost = updatedData.totalCost;
+      if (updatedData.date !== undefined) updatePayload.date = updatedData.date;
+      if (updatedData.slots !== undefined) updatePayload.slots = updatedData.slots;
+      if (updatedData.courtId !== undefined) updatePayload.courtId = updatedData.courtId;
+      if (updatedData.courtName !== undefined) updatePayload.courtName = updatedData.courtName;
+      if (updatedData.status !== undefined) updatePayload.status = updatedData.status;
 
       await syncBookingUpdateToCloudAndStorage(targetBooking, updatePayload);
 
-      showModalAlert('Booking Updated', 'Manual reservation details updated successfully.', 'success');
+      showModalAlert('Booking Updated', 'Reservation details updated successfully.', 'success');
     } catch (err: any) {
-      console.error('Failed to update manual booking:', err);
-      showModalAlert('Update Failed', err?.message || 'Failed to update manual booking details.', 'error');
+      console.error('Failed to update booking:', err);
+      showModalAlert('Update Failed', err?.message || 'Failed to update reservation details.', 'error');
     }
   };
 
@@ -7305,6 +7312,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'checkouts' && (
             <AdminCheckoutsTab
               users={users}
+              courts={isSuperAdmin ? courts : availableAdminCourts}
+              openPlayEvents={openPlayEvents}
               checkouts={bookings}
               filteredCheckouts={filteredCheckouts}
               checkoutCategoryFilter={checkoutCategoryFilter}

@@ -255,6 +255,15 @@ The function `getUserEffectivePermissions()` in [src/components/admin/adminTypes
 ### 3. Open Play & DUPR Match Matrix ([src/components/admin/tabs/AdminOpenPlayMatchManagement.tsx](file:///c:/Users/GeranPeredo/Documents/reactjs/pickleball_court_reservation/src/components/admin/tabs/AdminOpenPlayMatchManagement.tsx))
 - Roster pool tracks attendees (`active`, `resting`, `absent`).
 - Absent players are excluded from round match assignments and capacity calculations.
+- **DUPR vs Non-DUPR Registration & Checkout Rules**:
+  - The explicit boolean `isDupr` on the Open Play event is the authoritative source of truth. Heuristic regex must never override an explicit `false`.
+  - **Non-DUPR Events (`isDupr === false`)**:
+    - DUPR ID is 100% optional for players during registration and checkout.
+    - Checkout validation (`validateStep1`) must NEVER require DUPR ID or block checkout when DUPR ID is omitted.
+    - Guest reservations (+1 / +2 spots) are permitted.
+  - **DUPR Rated Events (`isDupr === true`)**:
+    - DUPR ID is strictly required to checkout and complete registration.
+    - Guest reservations are disabled (each participant must register individually with their own account and DUPR ID).
 - **Match Result CSV Export Rules**:
   - Per-game CSV button enabled **ONLY** when match status is `'completed'`.
   - Delete button disabled when match status is `'completed'`.

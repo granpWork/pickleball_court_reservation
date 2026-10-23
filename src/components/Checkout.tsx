@@ -237,10 +237,12 @@ export default function Checkout({
   const isAddGuestOnly = (checkoutDetails as any)?.isAddGuestOnly === true;
   const isDuprSession = Boolean(
     isOpenPlay && (
-      (checkoutDetails as any)?.isDupr === true ||
-      /dupr/i.test((checkoutDetails as any)?.openPlayTitle || '') ||
-      /dupr/i.test((checkoutDetails as any)?.openPlayCategory || '') ||
-      /dupr/i.test((checkoutDetails as any)?.courtType || '')
+      typeof (checkoutDetails as any)?.isDupr === 'boolean'
+        ? (checkoutDetails as any).isDupr
+        : (
+            /\bdupr\b/i.test((checkoutDetails as any)?.openPlayTitle || '') &&
+            !/non[- ]?dupr|no[- ]?dupr/i.test((checkoutDetails as any)?.openPlayTitle || '')
+          )
     )
   );
 
@@ -774,7 +776,7 @@ export default function Checkout({
       return false;
     }
 
-    if (!duprId.trim()) {
+    if (isDuprSession && !duprId.trim()) {
       setDuprError('DUPR ID is required to complete registration.');
       setError('DUPR ID is required. Please enter your 6-character DUPR ID (e.g. RGDK2E).');
       return false;
@@ -1811,7 +1813,7 @@ export default function Checkout({
                         <input
                           type="text"
                           required={isDuprSession}
-                          placeholder="e.g. RGDK2E"
+                          placeholder={isDuprSession ? "e.g. RGDK2E" : "e.g. RGDK2E (Optional)"}
                           value={duprId}
                           onChange={(e) => {
                             const val = e.target.value;

@@ -129,6 +129,19 @@ export interface Booking {
   rentals?: { id?: string; name: string; price: number; pricingType?: string; quantity: number }[];
 }
 
+export interface BookingUpdatePayload {
+  userName?: string;
+  userEmail?: string;
+  userPhone?: string;
+  paymentMethod?: string;
+  totalCost?: number;
+  date?: string;
+  slots?: string[];
+  courtId?: string;
+  courtName?: string;
+  status?: 'pending' | 'approved' | 'cancelled';
+}
+
 export interface Voucher {
   id: string;
   code: string;

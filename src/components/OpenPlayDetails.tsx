@@ -973,12 +973,12 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
     const durationText = calculateDuration(event.startTime, event.endTime);
     const slotString = `${formatTime12h(event.startTime)} - ${formatTime12h(event.endTime)}${durationText ? ` (${durationText})` : ''}`;
 
-    const isDuprEvent = Boolean(
-      event.isDupr ||
-      /dupr/i.test(event.title || '') ||
-      /dupr/i.test(event.category || '') ||
-      /dupr/i.test(event.skillLevel || '')
-    );
+    const isDuprEvent = typeof event.isDupr === 'boolean'
+      ? event.isDupr
+      : Boolean(
+          /\bdupr\b/i.test(event.title || '') &&
+          !/non[- ]?dupr|no[- ]?dupr/i.test(event.title || '')
+        );
 
     const checkoutPayload = {
       type: 'open_play',

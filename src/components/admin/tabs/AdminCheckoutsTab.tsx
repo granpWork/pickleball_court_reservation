@@ -1,4 +1,4 @@
-import React, { useState, Fragment } from 'react';
+import React, { useState, Fragment, useMemo } from 'react';
 import {
   Clock,
   Filter,
@@ -27,10 +27,14 @@ import {
   Mail,
   Phone,
 } from 'lucide-react';
-import { type Booking, type GcashAccount, type UserAccount, type UserPermissions } from '../adminTypes';
+import { type Booking, type GcashAccount, type UserAccount, type UserPermissions, type Court, type BookingUpdatePayload, SLOTS, getSlotPrice } from '../adminTypes';
+import { type OpenPlayEvent } from '../../OpenPlayDetails';
+import { parseTimeStringToHour } from '../../../utils/timeSlotUtils';
 
 interface AdminCheckoutsTabProps {
   users?: UserAccount[];
+  courts?: Court[];
+  openPlayEvents?: OpenPlayEvent[];
   checkouts?: Booking[];
   filteredCheckouts: Booking[];
   checkoutCategoryFilter: 'all' | 'court' | 'openplay';
@@ -45,7 +49,7 @@ interface AdminCheckoutsTabProps {
   onNavigateToBookings?: () => void;
   onUpdateManualBooking?: (
     bookingOrId: Booking | string,
-    updatedData: { userName: string; userEmail: string; userPhone: string; paymentMethod: string; totalCost?: number }
+    updatedData: BookingUpdatePayload
   ) => Promise<void> | void;
   personalAccounts?: GcashAccount[];
   globalGcashName?: string;
@@ -64,6 +68,8 @@ interface AdminCheckoutsTabProps {
 
 export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
   users = [],
+  courts = [],
+  openPlayEvents = [],
   checkouts = [],
   filteredCheckouts,
   checkoutCategoryFilter,
@@ -92,15 +98,71 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
   const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
-  // Edit Manual Booking Modal state
+  // Edit Booking Modal state
   const [editingManualBooking, setEditingManualBooking] = useState<Booking | null>(null);
   const [editCustomerName, setEditCustomerName] = useState<string>('');
   const [editCustomerEmail, setEditCustomerEmail] = useState<string>('');
   const [editCustomerPhone, setEditCustomerPhone] = useState<string>('');
   const [editPaymentMethod, setEditPaymentMethod] = useState<string>('cash');
   const [editTotalCost, setEditTotalCost] = useState<string>('');
+  const [editCourtId, setEditCourtId] = useState<string>('');
+  const [editDate, setEditDate] = useState<string>('');
+  const [editSlots, setEditSlots] = useState<string[]>([]);
+  const [editStatus, setEditStatus] = useState<'pending' | 'approved' | 'cancelled'>('pending');
   const [editSaving, setEditSaving] = useState<boolean>(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  const isEditingCourtBooking = Boolean(
+    editingManualBooking &&
+    editingManualBooking.type !== 'open_play' &&
+    editingManualBooking.type !== 'openplay'
+  );
+
+  const selectedEditCourt = useMemo(() => {
+    if (!editingManualBooking) return null;
+    return courts.find(c => c.id === editCourtId) ||
+      courts.find(c => c.id === editingManualBooking.courtId) ||
+      courts[0] || null;
+  }, [courts, editCourtId, editingManualBooking]);
+
+  // Compute booked/occupied slots for conflict avoidance
+  const occupiedSlots = useMemo(() => {
+    if (!editingManualBooking || !editCourtId || !editDate) return new Set<string>();
+
+    const occupied = new Set<string>();
+
+    // 1. Conflict from other bookings on this court and date
+    checkouts.forEach((b) => {
+      if (
+        b.id === editingManualBooking.id ||
+        b.bookingId === editingManualBooking.id ||
+        (editingManualBooking.bookingReference && b.bookingReference === editingManualBooking.bookingReference)
+      ) {
+        return;
+      }
+      if (b.status === 'cancelled') return;
+      if (b.courtId === editCourtId && b.date === editDate && Array.isArray(b.slots)) {
+        b.slots.forEach((s) => occupied.add(s));
+      }
+    });
+
+    // 2. Conflict from Open Play sessions on that court and date
+    openPlayEvents.forEach((ev) => {
+      if (ev.status === 'cancelled') return;
+      const courtIds = ev.courtIds || ((ev as any).courtId ? [(ev as any).courtId] : []);
+      if (courtIds.includes(editCourtId) && ev.eventDate === editDate) {
+        const startH = parseTimeStringToHour(ev.startTime);
+        const endH = parseTimeStringToHour(ev.endTime);
+        SLOTS.forEach((s) => {
+          if (s.startHour >= startH && s.startHour < endH) {
+            occupied.add(s.time);
+          }
+        });
+      }
+    });
+
+    return occupied;
+  }, [editingManualBooking, editCourtId, editDate, checkouts, openPlayEvents]);
 
   const handleOpenEditManualModal = (booking: Booking) => {
     setEditingManualBooking(booking);
@@ -109,7 +171,35 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
     setEditCustomerPhone(booking.userPhone || booking.user?.phone || '');
     setEditPaymentMethod(booking.paymentMethod || 'cash');
     setEditTotalCost(booking.totalCost !== undefined ? String(booking.totalCost) : '');
+    setEditCourtId(booking.courtId || '');
+    setEditDate(booking.date || '');
+    setEditSlots(Array.isArray(booking.slots) ? [...booking.slots] : []);
+    setEditStatus((booking.status as any) || 'pending');
     setEditError(null);
+  };
+
+  const handleToggleEditSlot = (slotTime: string) => {
+    if (occupiedSlots.has(slotTime)) return;
+
+    setEditSlots((prev) => {
+      const nextSlots = prev.includes(slotTime)
+        ? prev.filter((s) => s !== slotTime)
+        : [...prev, slotTime];
+
+      // Auto-recalculate totalCost when slots change
+      if (selectedEditCourt) {
+        const dayPrice = selectedEditCourt.dayPrice || 120;
+        const nightPrice = selectedEditCourt.nightPrice || 200;
+        const newCost = nextSlots.reduce((sum, sTime) => {
+          const sObj = SLOTS.find((s) => s.time === sTime);
+          const price = sObj ? getSlotPrice(sObj.startHour, dayPrice, nightPrice) : dayPrice;
+          return sum + price;
+        }, 0);
+        setEditTotalCost(String(newCost));
+      }
+
+      return nextSlots;
+    });
   };
 
   const handleSaveEditedManualBooking = async (e: React.FormEvent) => {
@@ -119,20 +209,50 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
       setEditError('Customer Name is required');
       return;
     }
+
+    if (isEditingCourtBooking) {
+      if (!editDate) {
+        setEditError('Please select a valid booking date.');
+        return;
+      }
+      if (editSlots.length === 0) {
+        setEditError('Please select at least one court time slot.');
+        return;
+      }
+      const hasConflict = editSlots.some((s) => occupiedSlots.has(s));
+      if (hasConflict) {
+        setEditError('One or more selected time slots conflict with an existing reservation.');
+        return;
+      }
+    }
+
     setEditSaving(true);
     setEditError(null);
     try {
       const numCost = editTotalCost.trim() !== '' ? parseFloat(editTotalCost) : undefined;
+      const sortedSlots = [...editSlots].sort((a, b) => {
+        const idxA = SLOTS.findIndex((s) => s.time === a);
+        const idxB = SLOTS.findIndex((s) => s.time === b);
+        return idxA - idxB;
+      });
+
       await onUpdateManualBooking(editingManualBooking, {
         userName: editCustomerName.trim(),
         userEmail: editCustomerEmail.trim(),
         userPhone: editCustomerPhone.trim(),
         paymentMethod: editPaymentMethod,
         ...(numCost !== undefined && !isNaN(numCost) ? { totalCost: numCost } : {}),
+        ...(isEditingCourtBooking ? {
+          date: editDate,
+          slots: sortedSlots,
+          courtId: editCourtId || editingManualBooking.courtId,
+          courtName: selectedEditCourt?.name || editingManualBooking.courtName,
+          status: editStatus,
+        } : {}),
       });
       setEditingManualBooking(null);
     } catch (err: any) {
-      setEditError(err.message || 'Failed to update manual booking details');
+      setEditError(err.message || 'Failed to update reservation details');
     } finally {
       setEditSaving(false);
     }
@@ -592,11 +712,11 @@ Thank you!`;
                         <Loader2 className="w-4 h-4 text-brand-lime animate-spin" />
                       ) : (
                         <>
-                          {isManual && onUpdateManualBooking && (
+                          {(isManual || (booking.type !== 'open_play' && booking.type !== 'openplay')) && onUpdateManualBooking && (
                             <button
                               type="button"
                               onClick={() => handleOpenEditManualModal(booking)}
-                              title="Edit details"
+                              title="Edit reservation schedule & details"
                               className="p-2 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                             >
                               <Edit3 className="w-4 h-4" />
@@ -811,11 +931,11 @@ Thank you!`;
                                 <Loader2 className="w-4 h-4 text-brand-lime animate-spin" />
                               ) : (
                                 <>
-                                  {isManual && onUpdateManualBooking && (
+                                  {(isManual || (booking.type !== 'open_play' && booking.type !== 'openplay')) && onUpdateManualBooking && (
                                     <button
                                       type="button"
                                       onClick={() => handleOpenEditManualModal(booking)}
-                                      title="Edit details"
+                                      title="Edit reservation schedule & details"
                                       className="p-2 rounded-xl bg-purple-600/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
                                     >
                                       <Edit3 className="w-4 h-4" />
@@ -1393,22 +1513,27 @@ Thank you!`;
         </div>
       )}
 
-      {/* EDIT MANUAL BOOKING MODAL */}
+      {/* EDIT BOOKING MODAL */}
       {editingManualBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-fade-in text-left">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl space-y-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in text-left overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl space-y-0 my-8 max-h-[90vh] flex flex-col justify-between">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/80">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300">
-                  <Edit3 className="w-4 h-4" />
+                <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-300">
+                  <Edit3 className="w-4.5 h-4.5" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-white text-base">Edit Manual Booking</h3>
-                  <p className="text-slate-400 text-xs font-medium">Update customer details & payment method</p>
+                  <h3 className="font-extrabold text-white text-base">Edit Reservation Details</h3>
+                  <p className="text-slate-400 text-xs font-medium">
+                    {isEditingCourtBooking
+                      ? 'Modify reservation date, court schedule slots, customer details & pricing'
+                      : 'Update customer contact details & payment method'}
+                  </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setEditingManualBooking(null)}
                 className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
               >
@@ -1417,88 +1542,226 @@ Thank you!`;
             </div>
 
             {/* Modal Form */}
-            <form onSubmit={handleSaveEditedManualBooking} className="p-6 space-y-4">
+            <form onSubmit={handleSaveEditedManualBooking} className="p-6 space-y-5 overflow-y-auto max-h-[calc(90vh-140px)]">
               {editError && (
                 <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium">
                   {editError}
                 </div>
               )}
 
-              {/* Customer Name */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-purple-400" /> Full Name <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editCustomerName}
-                  onChange={(e) => setEditCustomerName(e.target.value)}
-                  placeholder="Enter customer full name"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
-                />
-              </div>
+              {/* SECTION: COURT SCHEDULE & TIMING (Only for Court Bookings) */}
+              {isEditingCourtBooking && (
+                <div className="p-4.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                    <span className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-brand-lime" /> Court Schedule & Timing
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-bold">
+                      {editSlots.length} slot(s) selected
+                    </span>
+                  </div>
 
-              {/* Customer Email */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-purple-400" /> Email Address
-                </label>
-                <input
-                  type="email"
-                  value={editCustomerEmail}
-                  onChange={(e) => setEditCustomerEmail(e.target.value)}
-                  placeholder="customer@example.com"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
-                />
-              </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Court Selector (if multiple courts) */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        Court Facility
+                      </label>
+                      {courts.length > 1 ? (
+                        <select
+                          value={editCourtId}
+                          onChange={(e) => setEditCourtId(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all cursor-pointer font-medium"
+                        >
+                          {courts.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} {c.type ? `(${c.type})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-200 font-bold">
+                          {selectedEditCourt?.name || editingManualBooking.courtName || 'Default Court'}
+                        </div>
+                      )}
+                    </div>
 
-              {/* Customer Phone */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5 text-purple-400" /> Phone Number
-                </label>
-                <input
-                  type="tel"
-                  value={editCustomerPhone}
-                  onChange={(e) => setEditCustomerPhone(e.target.value)}
-                  placeholder="0917 123 4567"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
-                />
-              </div>
+                    {/* Reservation Date Picker */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-purple-400" /> Booking Date <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={editDate}
+                        onChange={(e) => setEditDate(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all cursor-pointer font-medium"
+                        style={{ colorScheme: 'dark' }}
+                      />
+                    </div>
+                  </div>
 
-              {/* Payment Method */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <CreditCard className="w-3.5 h-3.5 text-purple-400" /> Payment Method
-                </label>
-                <select
-                  value={editPaymentMethod}
-                  onChange={(e) => setEditPaymentMethod(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all cursor-pointer"
-                >
-                  <option value="cash">💵 Cash / Counter</option>
-                  <option value="gcash">🔵 GCash</option>
-                  <option value="bank_transfer">🏦 Bank Transfer</option>
-                  <option value="complimentary">🎁 Complimentary / Free</option>
-                  <option value="other">🏢 Other</option>
-                </select>
-              </div>
+                  {/* Interactive Time Slot Grid */}
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-brand-lime" /> Available 1-Hour Time Slots
+                      </label>
+                      <span className="text-[11px] text-slate-400">
+                        Date: <strong className="text-brand-lime">{editDate || 'Select a date'}</strong>
+                      </span>
+                    </div>
 
-              {/* Total Cost */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <span className="text-purple-400 font-bold">₱</span> Total Cost (Amount Paid)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={editTotalCost}
-                  onChange={(e) => setEditTotalCost(e.target.value)}
-                  placeholder="e.g. 500"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-400 transition-all"
-                />
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-52 overflow-y-auto pr-1">
+                      {SLOTS.map((slot, idx) => {
+                        const dayPrice = selectedEditCourt?.dayPrice || 120;
+                        const nightPrice = selectedEditCourt?.nightPrice || 200;
+                        const slotPrice = getSlotPrice(slot.startHour, dayPrice, nightPrice);
+                        const isSelected = editSlots.includes(slot.time);
+                        const isBooked = occupiedSlots.has(slot.time);
+
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            disabled={isBooked}
+                            onClick={() => handleToggleEditSlot(slot.time)}
+                            className={`py-2 px-2.5 rounded-xl border text-left text-xs transition-all relative flex flex-col justify-between gap-1 ${
+                              isBooked
+                                ? 'bg-slate-950/70 border-slate-850 text-slate-600 cursor-not-allowed opacity-60'
+                                : isSelected
+                                ? 'bg-brand-lime text-slate-950 border-brand-lime font-black shadow-md'
+                                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white cursor-pointer'
+                            }`}
+                          >
+                            <span className="truncate text-[11px] leading-tight">
+                              {slot.time.split(' - ')[0]}
+                            </span>
+                            <div className="flex items-center justify-between w-full">
+                              {isBooked ? (
+                                <span className="text-[9px] font-black uppercase tracking-wider text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">
+                                  Booked
+                                </span>
+                              ) : (
+                                <>
+                                  <span className={`text-[10px] font-bold ${isSelected ? 'text-slate-950/80' : 'text-slate-400'}`}>
+                                    ₱{slotPrice}
+                                  </span>
+                                  {isSelected && (
+                                    <span className="text-[9px] uppercase tracking-wider font-extrabold bg-slate-950/20 px-1 rounded text-slate-950">
+                                      Selected
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SECTION: CUSTOMER & FINANCIAL DETAILS */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Customer Name */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-purple-400" /> Full Name <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editCustomerName}
+                      onChange={(e) => setEditCustomerName(e.target.value)}
+                      placeholder="Enter customer full name"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all font-medium"
+                    />
+                  </div>
+
+                  {/* Customer Email */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-purple-400" /> Email Address
+                    </label>
+                    <input
+                      type="email"
+                      value={editCustomerEmail}
+                      onChange={(e) => setEditCustomerEmail(e.target.value)}
+                      placeholder="customer@example.com"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all font-medium"
+                    />
+                  </div>
+
+                  {/* Customer Phone */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-purple-400" /> Phone Number
+                    </label>
+                    <input
+                      type="tel"
+                      value={editCustomerPhone}
+                      onChange={(e) => setEditCustomerPhone(e.target.value)}
+                      placeholder="0917 123 4567"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all font-medium"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Payment Method */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-purple-400" /> Payment Method
+                    </label>
+                    <select
+                      value={editPaymentMethod}
+                      onChange={(e) => setEditPaymentMethod(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all cursor-pointer font-medium"
+                    >
+                      <option value="cash">💵 Cash / Counter</option>
+                      <option value="gcash">🔵 GCash</option>
+                      <option value="bank_transfer">🏦 Bank Transfer</option>
+                      <option value="complimentary">🎁 Complimentary / Free</option>
+                      <option value="other">🏢 Other</option>
+                    </select>
+                  </div>
+
+                  {/* Booking Status */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      Booking Status
+                    </label>
+                    <select
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value as any)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all cursor-pointer font-medium"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+
+                  {/* Total Cost */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                      <span className="text-purple-400 font-bold">₱</span> Total Cost (Amount)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editTotalCost}
+                      onChange={(e) => setEditTotalCost(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 transition-all font-medium"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Actions */}
@@ -1513,7 +1776,7 @@ Thank you!`;
                 </button>
                 <button
                   type="submit"
-                  disabled={editSaving || !editCustomerName.trim()}
+                  disabled={editSaving || !editCustomerName.trim() || (isEditingCourtBooking && editSlots.length === 0)}
                   className="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-black text-xs cursor-pointer shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-all"
                 >
                   {editSaving ? (
