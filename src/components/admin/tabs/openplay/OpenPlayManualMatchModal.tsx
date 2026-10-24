@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Search, X, Check } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
+import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
 
 interface OpenPlayManualMatchModalProps {
   isOpen: boolean;
@@ -258,10 +259,15 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                               )}
                             </div>
                             {(effectiveDupr || effectiveRating) && (
-                              <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
+                              <div className="text-[10px] font-mono opacity-90 mt-0.5 truncate flex items-center gap-1.5 flex-wrap">
                                 {effectiveDupr && <span>ID: {effectiveDupr}</span>}
-                                {effectiveDupr && effectiveRating && <span> • </span>}
-                                {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                                {effectiveRating && (
+                                  <DuprRatingBadge
+                                    rating={effectiveRating}
+                                    skillLevel={p.skillLevel}
+                                    player={p}
+                                  />
+                                )}
                               </div>
                             )}
                           </div>
@@ -334,10 +340,15 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                               )}
                             </div>
                             {(effectiveDupr || effectiveRating) && (
-                              <div className="text-[10px] font-mono opacity-80 mt-0.5 truncate">
+                              <div className="text-[10px] font-mono opacity-90 mt-0.5 truncate flex items-center gap-1.5 flex-wrap">
                                 {effectiveDupr && <span>ID: {effectiveDupr}</span>}
-                                {effectiveDupr && effectiveRating && <span> • </span>}
-                                {effectiveRating && <span>Rate: {effectiveRating}</span>}
+                                {effectiveRating && (
+                                  <DuprRatingBadge
+                                    rating={effectiveRating}
+                                    skillLevel={p.skillLevel}
+                                    player={p}
+                                  />
+                                )}
                               </div>
                             )}
                           </div>

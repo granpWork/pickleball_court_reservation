@@ -58,6 +58,7 @@ import {
   cancelScheduledReminderForEvent,
   type ScheduledReminderJob
 } from '../../../utils/reminderScheduler';
+import { DuprRatingBadge } from '../../../utils/duprColorUtils';
 
 interface AdminOpenPlayEventDetailsProps {
   event: OpenPlayEvent;
@@ -2018,13 +2019,12 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                 ⭐ RATE:
                               </span>
                               {att.adminDuprRating ? (
-                                <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[11px] truncate" title={`Admin Temp DUPR Rate: ${att.adminDuprRating}`}>
-                                  {att.adminDuprRating} <span className="text-[9px] text-amber-400 font-normal ml-0.5">(Temp)</span>
+                                <span className="inline-flex items-center gap-1">
+                                  <DuprRatingBadge rating={att.adminDuprRating} />
+                                  <span className="text-[9px] text-amber-400 font-normal">(Temp)</span>
                                 </span>
                               ) : att.duprRating ? (
-                                <span className="px-2 py-0.5 rounded-md bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-mono font-bold text-[11px] truncate">
-                                  {att.duprRating}
-                                </span>
+                                <DuprRatingBadge rating={att.duprRating} />
                               ) : (
                                 <span className="text-slate-500 text-xs italic">Not set</span>
                               )}
@@ -2198,13 +2198,12 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         <span className="text-slate-700">|</span>
                         <span className="text-[10px] font-black uppercase text-amber-400">⭐ RATE:</span>
                         {att.adminDuprRating ? (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px]">
-                            {att.adminDuprRating} <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
+                          <span className="inline-flex items-center gap-1">
+                            <DuprRatingBadge rating={att.adminDuprRating} />
+                            <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
                           </span>
                         ) : att.duprRating ? (
-                          <span className="px-1.5 py-0.5 rounded bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-mono font-bold text-[10px]">
-                            {att.duprRating}
-                          </span>
+                          <DuprRatingBadge rating={att.duprRating} />
                         ) : (
                           <span className="text-slate-500 text-[10px] italic">Not set</span>
                         )}
@@ -2387,13 +2386,12 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[9px] text-amber-400 font-bold">RATE:</span>
                                 {att.adminDuprRating ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[11px]">
-                                    {att.adminDuprRating} <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
+                                  <span className="inline-flex items-center gap-1">
+                                    <DuprRatingBadge rating={att.adminDuprRating} />
+                                    <span className="text-[8px] text-amber-400 font-normal">(Temp)</span>
                                   </span>
                                 ) : att.duprRating ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-[11px]">
-                                    {att.duprRating}
-                                  </span>
+                                  <DuprRatingBadge rating={att.duprRating} />
                                 ) : (
                                   <span className="text-slate-500 italic text-[11px]">Not set</span>
                                 )}

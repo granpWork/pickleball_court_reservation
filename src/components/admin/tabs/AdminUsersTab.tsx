@@ -30,6 +30,7 @@ import {
   isSubscriptionExpired,
   getSubscriptionRemainingDays,
 } from '../adminTypes';
+import { DuprRatingBadge } from '../../../utils/duprColorUtils';
 
 export interface AdminUsersTabProps {
   users: UserAccount[];
@@ -398,10 +399,13 @@ export const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                               {u.name || 'User'}
                             </div>
                             {(u.adminDuprId || u.duprId) && (
-                              <div className="mt-0.5 flex items-center gap-1.5">
+                              <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
                                 <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded font-bold border ${u.adminDuprId ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-brand-lime/10 text-brand-lime border-brand-lime/30'}`}>
-                                  ⚡ DUPR: {u.adminDuprId || u.duprId} {u.adminDuprRating || u.duprRating ? `(${u.adminDuprRating || u.duprRating})` : ''}
+                                  ⚡ DUPR: {u.adminDuprId || u.duprId}
                                 </span>
+                                {(u.adminDuprRating || u.duprRating) && (
+                                  <DuprRatingBadge rating={u.adminDuprRating || u.duprRating} />
+                                )}
                               </div>
                             )}
                             <div className="text-[11px] text-slate-400 font-medium truncate sm:hidden">

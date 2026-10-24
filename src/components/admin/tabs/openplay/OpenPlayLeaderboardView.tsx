@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import type { PlayerMatchStats, OpenPlayMatch } from '../../adminTypes';
+import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
 
 interface OpenPlayLeaderboardViewProps {
   sortedLeaderboardList: PlayerMatchStats[];
@@ -594,11 +595,16 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                                                   >
                                                     {p.name} {isMe ? '(You)' : ''}
                                                   </span>
-                                                  {(p.duprId || p.duprRating) && (
-                                                    <span className="text-[9px] font-mono text-purple-300 bg-purple-950 border border-purple-800/60 px-1 rounded">
-                                                      {p.duprId ? `DUPR: ${p.duprId}` : `R: ${p.duprRating}`}
-                                                    </span>
-                                                  )}
+                                                  <div className="flex items-center gap-1 shrink-0">
+                                                    {p.duprId && (
+                                                      <span className="text-[9px] font-mono text-slate-400 bg-slate-950 border border-slate-800 px-1 rounded">
+                                                        DUPR: {p.duprId}
+                                                      </span>
+                                                    )}
+                                                    {p.duprRating && (
+                                                      <DuprRatingBadge rating={p.duprRating} />
+                                                    )}
+                                                  </div>
                                                 </div>
                                               );
                                             })}
@@ -616,11 +622,16 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                                                 className="flex items-center justify-between text-slate-300 font-semibold truncate gap-1"
                                               >
                                                 <span>{p.name}</span>
-                                                {(p.duprId || p.duprRating) && (
-                                                  <span className="text-[9px] font-mono text-slate-400 bg-slate-950 border border-slate-800 px-1 rounded">
-                                                    {p.duprId ? `DUPR: ${p.duprId}` : `R: ${p.duprRating}`}
-                                                  </span>
-                                                )}
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                  {p.duprId && (
+                                                    <span className="text-[9px] font-mono text-slate-400 bg-slate-950 border border-slate-800 px-1 rounded">
+                                                      DUPR: {p.duprId}
+                                                    </span>
+                                                  )}
+                                                  {p.duprRating && (
+                                                    <DuprRatingBadge rating={p.duprRating} />
+                                                  )}
+                                                </div>
                                               </div>
                                             ))}
                                           </div>

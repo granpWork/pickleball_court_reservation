@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import type { OpenPlayMatch } from '../../adminTypes';
+import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
 
 interface MatchMatrixCardProps {
   match: OpenPlayMatch;
@@ -201,15 +202,11 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                       </span>
                     )}
                     {(p.adminDuprRating || p.duprRating) && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded font-bold ${
-                          p.adminDuprRating
-                            ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300'
-                            : 'bg-amber-950/60 border border-amber-800/60 text-amber-300'
-                        }`}
-                      >
-                        Rate: {p.adminDuprRating || p.duprRating}
-                      </span>
+                      <DuprRatingBadge
+                        rating={p.adminDuprRating || p.duprRating}
+                        skillLevel={p.skillLevel}
+                        showDot
+                      />
                     )}
                   </div>
                 </div>
@@ -341,15 +338,11 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                       </span>
                     )}
                     {(p.adminDuprRating || p.duprRating) && (
-                      <span
-                        className={`px-1.5 py-0.5 rounded font-bold ${
-                          p.adminDuprRating
-                            ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300'
-                            : 'bg-amber-950/60 border border-amber-800/60 text-amber-300'
-                        }`}
-                      >
-                        Rate: {p.adminDuprRating || p.duprRating}
-                      </span>
+                      <DuprRatingBadge
+                        rating={p.adminDuprRating || p.duprRating}
+                        skillLevel={p.skillLevel}
+                        showDot
+                      />
                     )}
                   </div>
                 </div>

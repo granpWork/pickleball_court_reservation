@@ -19,6 +19,7 @@ import {
   getPlayerEffectiveRating,
   isPlayerNR,
 } from '../../../../utils/matchGeneratorUtils';
+import { getDuprColorConfig } from '../../../../utils/duprColorUtils';
 
 export type AutoGenAlgorithmType = 'unique_partner' | 'paddle_stacking' | 'random_rotational';
 
@@ -734,9 +735,16 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                       <Trophy className="w-3.5 h-3.5 text-amber-400" />
                       DUPR Court Tier Preview (Round 1)
                     </span>
-                    <span className="text-[10px] font-mono text-amber-200 bg-amber-500/20 px-2 py-0.5 rounded-full font-bold border border-amber-500/30">
-                      Avg {duprStats.avgRating}
-                    </span>
+                    {(() => {
+                      const avgConfig = getDuprColorConfig(duprStats.avgRating);
+                      return (
+                        <span
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${avgConfig.badgeClass}`}
+                        >
+                          Avg {duprStats.avgRating}
+                        </span>
+                      );
+                    })()}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-[11px]">
@@ -770,26 +778,29 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   )}
 
                   <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
-                    {duprStats.tiers.map((t, idx) => (
-                      <div
-                        key={idx}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[11px] flex items-center justify-between text-slate-300"
-                      >
-                        <div className="flex items-center gap-1.5 truncate min-w-0">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span>
-                          <span className="font-bold text-white truncate">{t.court}</span>
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800 font-mono shrink-0">
-                            {t.composition}
-                          </span>
+                    {duprStats.tiers.map((t, idx) => {
+                      const tierConfig = getDuprColorConfig(t.avg);
+                      return (
+                        <div
+                          key={idx}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[11px] flex items-center justify-between text-slate-300"
+                        >
+                          <div className="flex items-center gap-1.5 truncate min-w-0">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tierConfig.dotClass}`}></span>
+                            <span className="font-bold text-white truncate">{t.court}</span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800 font-mono shrink-0">
+                              {t.composition}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 font-mono text-[10px] shrink-0">
+                            <span className="text-slate-400">Range: {t.range}</span>
+                            <span className={`px-1.5 py-0.2 rounded font-bold border ${tierConfig.badgeClass}`}>
+                              Avg {t.avg}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 font-mono text-[10px] shrink-0">
-                          <span className="text-slate-400">Range: {t.range}</span>
-                          <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
-                            Avg {t.avg}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

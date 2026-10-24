@@ -25,6 +25,7 @@ import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { AdminOpenPlayMatchManagement } from './AdminOpenPlayMatchManagement';
 import { db, isFirebaseConfigured } from '../../../firebase';
 import { doc, setDoc, deleteDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { DuprRatingBadge } from '../../../utils/duprColorUtils';
 
 export interface AdminMatchMatrixTabProps {
   courts?: Court[];
@@ -1115,9 +1116,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                                     </span>
                                   ) : null}
                                   {player.duprRating ? (
-                                    <span className="font-mono text-[9px] px-1 py-0.2 rounded font-bold bg-brand-lime/10 text-brand-lime border border-brand-lime/30">
-                                      ⭐ {player.duprRating}
-                                    </span>
+                                    <DuprRatingBadge rating={player.duprRating} skillLevel={player.skillLevel} />
                                   ) : null}
                                   <span className="text-[9px] text-slate-500 capitalize">
                                     {player.skillLevel?.split(' ')[0] || player.type}
