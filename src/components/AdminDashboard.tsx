@@ -470,8 +470,39 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     try {
+      const validTabs: AdminTab[] = [
+        'dashboard',
+        'bookings',
+        'courts',
+        'users',
+        'companies',
+        'checkouts',
+        'settings',
+        'openplay',
+        'match_matrix',
+        'policies',
+        'vouchers',
+        'service_fee',
+        'shortener',
+        'support',
+        'image_converter',
+        'scoreboard',
+        'integrations',
+      ];
+
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const urlTab = params.get('tab');
+        if (urlTab && validTabs.includes(urlTab as AdminTab)) {
+          if (urlTab === 'integrations' && !isSuperAdmin) {
+            return 'dashboard';
+          }
+          return urlTab as AdminTab;
+        }
+      }
+
       const saved = sessionStorage.getItem('picklepoint_admin_active_tab');
-      if (saved && ['dashboard', 'bookings', 'courts', 'users', 'companies', 'checkouts', 'settings', 'openplay', 'policies', 'vouchers', 'service_fee', 'shortener', 'support', 'image_converter', 'scoreboard', 'integrations'].includes(saved)) {
+      if (saved && validTabs.includes(saved as AdminTab)) {
         if (saved === 'integrations' && !isSuperAdmin) {
           return 'dashboard';
         }
@@ -496,6 +527,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   useEffect(() => {
     try {
       sessionStorage.setItem('picklepoint_admin_active_tab', activeTab);
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('tab') !== activeTab) {
+          url.searchParams.set('tab', activeTab);
+          window.history.replaceState(null, '', url.toString());
+        }
+      }
     } catch (e) {}
   }, [activeTab]);
 

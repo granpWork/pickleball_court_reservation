@@ -44,6 +44,7 @@ import { OpenPlayRosterModal } from './openplay/OpenPlayRosterModal';
 import { OpenPlayReportModal } from './openplay/OpenPlayReportModal';
 import { OpenPlayJsonUploadModal } from './openplay/OpenPlayJsonUploadModal';
 import { OpenPlayResultsModal } from './openplay/OpenPlayResultsModal';
+import { OpenPlayDeleteRoundsModal } from './openplay/OpenPlayDeleteRoundsModal';
 import { generateUniquePartnerMatches } from '../../../utils/matchGeneratorUtils';
 import { isNonProductionEnvironment } from '../../../utils/envUtils';
 import { seedDummyOpenPlayRegistrations } from '../../../utils/dummyRosterUtils';
@@ -164,19 +165,136 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   // Created rounds state
   const [createdRounds, setCreatedRounds] = useState<number[]>([]);
+  const [deletedRounds, setDeletedRounds] = useState<number[]>([]);
+
+  // Delete Multiple Rounds Modal State
+  const [isDeleteRoundsModalOpen, setIsDeleteRoundsModalOpen] = useState<boolean>(false);
+  const [selectedRoundsToDelete, setSelectedRoundsToDelete] = useState<Set<number>>(new Set());
+  const [isDeletingRounds, setIsDeletingRounds] = useState<boolean>(false);
 
   // Compute all active/available rounds
   const allActiveRounds = useMemo(() => {
     const roundsFromMatches = matches.map((m) => m.round);
-    const setRounds = new Set([...roundsFromMatches, ...createdRounds, 1]);
+    const setRounds = new Set([...roundsFromMatches, ...createdRounds]);
+    for (const d of deletedRounds) {
+      setRounds.delete(d);
+    }
+    // If no rounds exist and no matches, default to [1]
+    if (setRounds.size === 0 && matches.length === 0) {
+      setRounds.add(1);
+    }
     return Array.from(setRounds).sort((a, b) => a - b);
-  }, [matches, createdRounds]);
+  }, [matches, createdRounds, deletedRounds]);
 
   const handleAddNewRound = () => {
     const maxRound = allActiveRounds.length ? Math.max(...allActiveRounds) : 0;
     const nextRound = maxRound + 1;
-    setCreatedRounds((prev) => [...prev, nextRound]);
+    setDeletedRounds((prev) => prev.filter((r) => r !== nextRound));
+    setCreatedRounds((prev) => [...prev.filter((r) => r !== nextRound), nextRound]);
     showToast(`⚡ Round ${nextRound} created! Click "+ Add Match to Round ${nextRound}" to create matches.`);
+  };
+
+  const openDeleteRoundsModal = (preselectedRound?: number) => {
+    if (preselectedRound !== undefined) {
+      setSelectedRoundsToDelete(new Set([preselectedRound]));
+    } else {
+      setSelectedRoundsToDelete(new Set());
+    }
+    setIsDeleteRoundsModalOpen(true);
+  };
+
+  const handleToggleRoundToDelete = (roundNum: number) => {
+    setSelectedRoundsToDelete((prev) => {
+      const next = new Set(prev);
+      if (next.has(roundNum)) {
+        next.delete(roundNum);
+      } else {
+        next.add(roundNum);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllRoundsToDelete = () => {
+    setSelectedRoundsToDelete(new Set(allActiveRounds));
+  };
+
+  const handleDeselectAllRoundsToDelete = () => {
+    setSelectedRoundsToDelete(new Set());
+  };
+
+  const handleConfirmDeleteRounds = async () => {
+    if (selectedRoundsToDelete.size === 0) return;
+
+    const roundsArray = Array.from(selectedRoundsToDelete);
+    setIsDeletingRounds(true);
+
+    try {
+      const roundSet = new Set(roundsArray);
+
+      // 1. Filter out matches in the selected rounds
+      const matchesToDelete = matches.filter((m) => roundSet.has(m.round));
+      const remainingMatches = matches.filter((m) => !roundSet.has(m.round));
+
+      // 2. Update state and localStorage
+      setMatches(remainingMatches);
+      try {
+        localStorage.setItem(`picklepoint_openplay_matches_${event.id}`, JSON.stringify(remainingMatches));
+      } catch (e) {
+        console.warn('Failed to update matches in localStorage:', e);
+      }
+
+      // 3. Update deletedRounds and createdRounds
+      setDeletedRounds((prev) => Array.from(new Set([...prev, ...roundsArray])));
+      setCreatedRounds((prev) => prev.filter((r) => !roundSet.has(r)));
+
+      // 4. Clean up round titles in localStorage
+      try {
+        const savedTitles = localStorage.getItem(`picklepoint_round_titles_${event.id}`);
+        if (savedTitles) {
+          const parsedTitles: Record<number, string> = JSON.parse(savedTitles);
+          for (const r of roundsArray) {
+            delete parsedTitles[r];
+          }
+          localStorage.setItem(`picklepoint_round_titles_${event.id}`, JSON.stringify(parsedTitles));
+        }
+      } catch (e) {}
+
+      // 5. Clean up collapsed rounds
+      setCollapsedRounds((prev) => {
+        const next = new Set(prev);
+        for (const r of roundsArray) next.delete(r);
+        return next;
+      });
+
+      // 6. Delete from Firestore
+      if (isFirebaseConfigured && db && matchesToDelete.length > 0) {
+        try {
+          await Promise.all(
+            matchesToDelete.map((m) =>
+              deleteDoc(doc(db!, 'openplay_matches', m.id)).catch((err) =>
+                console.warn(`Failed to delete match ${m.id} from Firestore:`, err)
+              )
+            )
+          );
+        } catch (err) {
+          console.error('Error deleting matches from Firestore:', err);
+        }
+      }
+
+      const countStr =
+        roundsArray.length === 1
+          ? `Round ${roundsArray[0]}`
+          : `${roundsArray.length} rounds`;
+      showToast(`🗑️ ${countStr} (${matchesToDelete.length} matches) deleted successfully.`);
+      setIsDeleteRoundsModalOpen(false);
+      setSelectedRoundsToDelete(new Set());
+    } catch (err: any) {
+      console.error('Failed to delete rounds:', err);
+      showToast('❌ Failed to delete rounds. Please try again.');
+    } finally {
+      setIsDeletingRounds(false);
+    }
   };
 
   const openNewManualMatchModal = (targetRound?: number) => {
@@ -931,6 +1049,37 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       }
     } catch (e) {}
 
+    // If this is a Match Matrix event, load directly from its authoritative roster pool
+    if (event.isMatchMatrix) {
+      try {
+        const savedRosterStr = localStorage.getItem(`picklepoint_openplay_roster_${event.id}`);
+        if (savedRosterStr) {
+          const savedRoster = JSON.parse(savedRosterStr) as OpenPlayMatchRosterItem[];
+          if (Array.isArray(savedRoster) && savedRoster.length > 0) {
+            // Deduplicate duplicate items that have matching base ID (e.g. id vs id-primary)
+            const seenIds = new Set<string>();
+            const uniqueRoster: OpenPlayMatchRosterItem[] = [];
+            for (const p of savedRoster) {
+              const baseId = (p.id || '').replace(/-primary$/, '');
+              if (!seenIds.has(baseId)) {
+                seenIds.add(baseId);
+                uniqueRoster.push(p);
+              }
+            }
+            // Auto-heal duplicate cache in localStorage
+            if (uniqueRoster.length !== savedRoster.length) {
+              localStorage.setItem(`picklepoint_openplay_roster_${event.id}`, JSON.stringify(uniqueRoster));
+            }
+            setRosterPool(uniqueRoster);
+            setPaddleRackQueue(uniqueRoster.filter((p) => p.status === 'active'));
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load matrix roster from localStorage:', e);
+      }
+    }
+
     const eventRegs = combinedRegs.filter(
       (r) => r.eventId === event.id && r.status !== 'cancelled' && r.status !== 'waitlisted'
     );
@@ -1014,15 +1163,27 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const savedRosterStr = localStorage.getItem(`picklepoint_openplay_roster_${event.id}`);
       if (savedRosterStr) {
         const savedRoster = JSON.parse(savedRosterStr) as OpenPlayMatchRosterItem[];
-        // Merge extra custom players added manually
+        // Merge extra custom players added manually without duplicating
         const existingIds = new Set(initialPool.map((p) => p.id));
+        const existingNames = new Set(initialPool.map((p) => p.name.toLowerCase().trim()));
         savedRoster.forEach((sp) => {
-          if (!existingIds.has(sp.id)) {
+          const isDuplicate =
+            existingIds.has(sp.id) ||
+            existingIds.has(`${sp.id}-primary`) ||
+            existingNames.has(sp.name.toLowerCase().trim());
+          if (!isDuplicate) {
             initialPool.push(sp);
+            existingIds.add(sp.id);
+            existingNames.add(sp.name.toLowerCase().trim());
           } else {
             // Restore status
-            const found = initialPool.find((p) => p.id === sp.id);
-            if (found) found.status = sp.status;
+            const found = initialPool.find(
+              (p) =>
+                p.id === sp.id ||
+                p.id === `${sp.id}-primary` ||
+                p.name.toLowerCase().trim() === sp.name.toLowerCase().trim()
+            );
+            if (found && sp.status) found.status = sp.status;
           }
         });
       }
@@ -1799,6 +1960,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
           <button
             type="button"
+            onClick={() => openDeleteRoundsModal()}
+            className="py-2.5 px-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500 hover:text-white text-rose-300 font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
+            title="Select and delete multiple rounds"
+          >
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span>Delete Rounds</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsAutoGenModalOpen(true)}
             className="py-2.5 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02]"
           >
@@ -2105,6 +2276,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   onOpenResultsModal={openGenerateResultsModal}
                   onOpenJsonModal={openJsonUploadModal}
                   onOpenManualMatchModal={openNewManualMatchModal}
+                  onDeleteRound={(r) => openDeleteRoundsModal(r)}
                 >
                   <div className={`grid gap-4 sm:gap-5 items-stretch ${
                     matchesInRound.length === 1
@@ -2282,6 +2454,23 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         onCopyCsvToClipboard={handleCopyCsvToClipboard}
         isResultsCopySuccess={isResultsCopySuccess}
         onDownloadCsv={handleDownloadCsv}
+      />
+
+      {/* MODAL 8: DELETE MULTIPLE ROUNDS */}
+      <OpenPlayDeleteRoundsModal
+        isOpen={isDeleteRoundsModalOpen}
+        onClose={() => {
+          if (!isDeletingRounds) setIsDeleteRoundsModalOpen(false);
+        }}
+        rounds={allActiveRounds}
+        getRoundTitle={getRoundTitle}
+        matches={matches}
+        selectedRounds={selectedRoundsToDelete}
+        onToggleRound={handleToggleRoundToDelete}
+        onSelectAll={handleSelectAllRoundsToDelete}
+        onDeselectAll={handleDeselectAllRoundsToDelete}
+        onConfirmDelete={handleConfirmDeleteRounds}
+        isDeleting={isDeletingRounds}
       />
     </div>
   );

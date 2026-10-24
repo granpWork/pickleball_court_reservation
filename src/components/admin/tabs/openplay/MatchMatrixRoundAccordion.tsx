@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   UploadCloud,
   Plus,
+  Trash2,
 } from 'lucide-react';
 import type { OpenPlayMatch } from '../../adminTypes';
 
@@ -27,6 +28,7 @@ interface MatchMatrixRoundAccordionProps {
   onOpenResultsModal: (roundNum: number) => void;
   onOpenJsonModal: (roundNum: number) => void;
   onOpenManualMatchModal: (roundNum: number) => void;
+  onDeleteRound?: (roundNum: number) => void;
   children: React.ReactNode;
 }
 
@@ -45,6 +47,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
   onOpenResultsModal,
   onOpenJsonModal,
   onOpenManualMatchModal,
+  onDeleteRound,
   children,
 }) => {
   // Count unique players participating in this round and completed games
@@ -186,6 +189,18 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             <Plus className="w-3.5 h-3.5" />
             <span>Add Match</span>
           </button>
+
+          {onDeleteRound && (
+            <button
+              type="button"
+              onClick={() => onDeleteRound(roundNum)}
+              className="py-1.5 px-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              title={`Delete ${roundTitle}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Round</span>
+            </button>
+          )}
         </div>
       </div>
 

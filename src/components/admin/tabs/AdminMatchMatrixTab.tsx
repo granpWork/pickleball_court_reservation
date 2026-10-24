@@ -47,7 +47,23 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
   onNavigateToScoreboard,
 }) => {
   // Active Running Matrix
-  const [activeMatrix, setActiveMatrix] = useState<OpenPlayEvent | null>(null);
+  const [activeMatrix, setActiveMatrix] = useState<OpenPlayEvent | null>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const urlMatrixId = params.get('matrixId') || params.get('matrix');
+        const savedId = urlMatrixId || sessionStorage.getItem('picklepoint_active_matrix_id');
+        if (savedId) {
+          const savedMatricesStr = localStorage.getItem('picklepoint_match_matrices');
+          const localList: OpenPlayEvent[] = savedMatricesStr ? JSON.parse(savedMatricesStr) : [];
+          const combined = [...openPlayEvents, ...localList];
+          const found = combined.find((m) => m.id === savedId);
+          if (found) return found;
+        }
+      }
+    } catch (e) {}
+    return null;
+  });
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,6 +123,49 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
       return matchesSearch && matchesStatus;
     });
   }, [allMatrices, searchQuery, statusFilter]);
+
+  // Synchronize activeMatrix with sessionStorage and URL query parameter
+  useEffect(() => {
+    try {
+      if (activeMatrix) {
+        sessionStorage.setItem('picklepoint_active_matrix_id', activeMatrix.id);
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          if (url.searchParams.get('matrixId') !== activeMatrix.id) {
+            url.searchParams.set('matrixId', activeMatrix.id);
+            window.history.replaceState(null, '', url.toString());
+          }
+        }
+      } else {
+        sessionStorage.removeItem('picklepoint_active_matrix_id');
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          if (url.searchParams.has('matrixId') || url.searchParams.has('matrix')) {
+            url.searchParams.delete('matrixId');
+            url.searchParams.delete('matrix');
+            window.history.replaceState(null, '', url.toString());
+          }
+        }
+      }
+    } catch (e) {}
+  }, [activeMatrix]);
+
+  // If activeMatrix is not yet restored but exists in allMatrices
+  useEffect(() => {
+    if (!activeMatrix && allMatrices.length > 0) {
+      try {
+        const savedId =
+          (typeof window !== 'undefined'
+            ? new URLSearchParams(window.location.search).get('matrixId') ||
+              new URLSearchParams(window.location.search).get('matrix')
+            : null) || sessionStorage.getItem('picklepoint_active_matrix_id');
+        if (savedId) {
+          const found = allMatrices.find((m) => m.id === savedId);
+          if (found) setActiveMatrix(found);
+        }
+      } catch (e) {}
+    }
+  }, [allMatrices, activeMatrix]);
 
   // Handle source Open Play event selection for Roster Pullout
   useEffect(() => {
@@ -169,6 +228,27 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
     setPulledCandidates(allCandidates);
     setSelectedCandidateIds(new Set(allCandidates.map((c) => c.id)));
   }, [selectedSourceEventId, openPlayRegistrations]);
+
+  // Compute headcount / players available in an Open Play event
+  const getEventPlayerCount = (ev: OpenPlayEvent): number => {
+    const eventRegs = openPlayRegistrations.filter((r) => r.eventId === ev.id && r.status !== 'cancelled');
+    let count = eventRegs.reduce(
+      (sum, r) => sum + (r.playerCount || 1 + (Array.isArray(r.guests) ? r.guests.length : 0)),
+      0
+    );
+
+    try {
+      const savedRosterStr = localStorage.getItem(`picklepoint_openplay_roster_${ev.id}`);
+      if (savedRosterStr) {
+        const saved = JSON.parse(savedRosterStr);
+        if (Array.isArray(saved) && saved.length > count) {
+          count = saved.length;
+        }
+      }
+    } catch {}
+
+    return count;
+  };
 
   // Open Create Modal & reset states
   const handleOpenCreateModal = () => {
@@ -252,6 +332,21 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
     const courtNames = courts.length > 0 ? courts.map((c) => c.name) : ['Court 1'];
     const courtIds = courts.map((c) => c.id);
 
+    // Auto-commit manual player if text is still in input
+    const finalRoster = [...pendingRoster];
+    if (manualPlayerName.trim()) {
+      const manualPlayer: OpenPlayMatchRosterItem = {
+        id: `manual_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        name: manualPlayerName.trim(),
+        duprId: manualPlayerDupr.trim().toUpperCase(),
+        duprRating: manualPlayerRating.trim(),
+        skillLevel: manualPlayerSkill,
+        type: 'primary',
+        status: 'active',
+      };
+      finalRoster.push(manualPlayer);
+    }
+
     const newMatrixEvent: OpenPlayEvent = {
       id: matrixId,
       title: matrixTitle.trim(),
@@ -286,8 +381,8 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
       }
 
       // 2. Save roster pool to localStorage for OpenPlayMatchManagement
-      if (pendingRoster.length > 0) {
-        localStorage.setItem(`picklepoint_openplay_roster_${matrixId}`, JSON.stringify(pendingRoster));
+      if (finalRoster.length > 0) {
+        localStorage.setItem(`picklepoint_openplay_roster_${matrixId}`, JSON.stringify(finalRoster));
       }
 
       // 3. Save to localMatrices
@@ -297,6 +392,9 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
       if (onRefreshEvents) onRefreshEvents();
 
+      setManualPlayerName('');
+      setManualPlayerDupr('');
+      setManualPlayerRating('');
       setIsCreateModalOpen(false);
       // Immediately launch the created matrix!
       setActiveMatrix(newMatrixEvent);
@@ -337,29 +435,6 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
     }
   };
 
-  // Convert pending roster to OpenPlayRegistration items for match management
-  const registrationsForActiveMatrix = useMemo(() => {
-    if (!activeMatrix) return [];
-    try {
-      const saved = localStorage.getItem(`picklepoint_openplay_roster_${activeMatrix.id}`);
-      if (saved) {
-        const roster = JSON.parse(saved) as OpenPlayMatchRosterItem[];
-        return roster.map((r) => ({
-          id: r.id,
-          eventId: activeMatrix.id,
-          playerName: r.name,
-          playerEmail: '',
-          duprId: r.duprId || r.adminDuprId || '',
-          adminDuprId: r.adminDuprId || '',
-          duprRating: r.duprRating || '',
-          status: r.status === 'active' ? 'approved' : 'resting',
-          paymentStatus: 'paid',
-        }));
-      }
-    } catch (e) {}
-    return [];
-  }, [activeMatrix]);
-
   // If a matrix is active, render the comprehensive match engine!
   if (activeMatrix) {
     return (
@@ -385,7 +460,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
         {/* Live Match Engine */}
         <AdminOpenPlayMatchManagement
           event={activeMatrix}
-          registrations={registrationsForActiveMatrix as any}
+          registrations={[]}
           onBack={() => setActiveMatrix(null)}
           onNavigateToScoreboard={onNavigateToScoreboard}
         />
@@ -771,11 +846,17 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                         className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 cursor-pointer font-medium"
                       >
                         <option value="">-- Choose an Open Play Session --</option>
-                        {openPlayEvents.map((ev) => (
-                          <option key={ev.id} value={ev.id}>
-                            {ev.title} ({ev.eventDate}) [{ev.status.toUpperCase()}]
-                          </option>
-                        ))}
+                        {openPlayEvents.map((ev) => {
+                          const playerCount = getEventPlayerCount(ev);
+                          const playerStr = `${playerCount} ${playerCount === 1 ? 'player' : 'players'}${
+                            ev.maxParticipants ? ` / ${ev.maxParticipants} max` : ''
+                          }`;
+                          return (
+                            <option key={ev.id} value={ev.id}>
+                              {ev.title} ({ev.eventDate}) [{ev.status.toUpperCase()}] • {playerStr}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
 
