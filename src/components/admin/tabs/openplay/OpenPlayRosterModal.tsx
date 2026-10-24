@@ -16,6 +16,7 @@ import {
   Check,
 } from 'lucide-react';
 import { type OpenPlayMatchRosterItem } from '../../adminTypes';
+import { isPlayerNR, getPlayerEffectiveRating } from '../../../../utils/matchGeneratorUtils';
 
 export interface OpenPlayRosterModalProps {
   isOpen: boolean;
@@ -403,7 +404,15 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                           </span>
                         )}
 
-                        {(p.adminDuprRating || p.duprRating) && (
+                        {isPlayerNR(p) ? (
+                          <span
+                            className="font-mono text-[10px] px-2 py-0.2 rounded-md font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1"
+                            title={`Unrated (No Rate) - Matches anchored with rated opponents based on estimated ~${getPlayerEffectiveRating(p).toFixed(2)} rating`}
+                          >
+                            <span>NR</span>
+                            <span className="text-amber-400/80 font-normal">• Est. ~{getPlayerEffectiveRating(p).toFixed(1)}</span>
+                          </span>
+                        ) : (
                           <span className="font-mono text-[10px] px-2 py-0.2 rounded-md font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">
                             ★ {p.adminDuprRating || p.duprRating}
                           </span>
@@ -600,23 +609,40 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
 
                   {/* DUPR Rating */}
                   <div className="space-y-1">
-                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                      <Star className="w-3.5 h-3.5 text-yellow-400" /> DUPR Rating
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Star className="w-3.5 h-3.5 text-yellow-400" /> DUPR Rating
+                      </span>
+                      {editDuprRating.toUpperCase() === 'NR' && (
+                        <span className="text-[10px] text-amber-400 font-mono font-bold">Unrated (NR)</span>
+                      )}
                     </label>
                     <input
                       type="text"
                       value={editDuprRating}
                       onChange={(e) => setEditDuprRating(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-700/80 focus:border-purple-400 text-purple-300 font-mono rounded-xl px-3.5 py-2 text-xs placeholder-slate-500 focus:outline-none transition-all"
-                      placeholder="e.g. 3.75"
+                      placeholder="e.g. 3.75 or NR"
                     />
                     <div className="flex items-center gap-1 pt-0.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setEditDuprRating('NR')}
+                        className={`text-[9px] px-2 py-0.5 rounded font-mono font-bold transition-all cursor-pointer ${
+                          editDuprRating.toUpperCase() === 'NR'
+                            ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                            : 'bg-slate-800 text-amber-300 hover:text-white'
+                        }`}
+                        title="Mark as unrated / no official DUPR rating"
+                      >
+                        NR (Unrated)
+                      </button>
                       {['2.5', '3.0', '3.5', '4.0', '4.5'].map((r) => (
                         <button
                           key={r}
                           type="button"
                           onClick={() => setEditDuprRating(r)}
-                          className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold transition-all ${
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold transition-all cursor-pointer ${
                             editDuprRating === r
                               ? 'bg-purple-600 text-white'
                               : 'bg-slate-800 text-slate-400 hover:text-white'
@@ -626,6 +652,11 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                         </button>
                       ))}
                     </div>
+                    {editDuprRating.toUpperCase() === 'NR' && (
+                      <p className="text-[10px] text-amber-300/80 pt-0.5 leading-tight">
+                        🧠 <strong>Anchor Rule:</strong> Player will be paired with rated anchors based on their skill level ({editSkillLevel}) to calibrate their initial rating.
+                      </p>
+                    )}
                   </div>
                 </div>
 

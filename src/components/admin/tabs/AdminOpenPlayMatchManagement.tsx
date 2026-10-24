@@ -45,7 +45,7 @@ import { OpenPlayReportModal } from './openplay/OpenPlayReportModal';
 import { OpenPlayJsonUploadModal } from './openplay/OpenPlayJsonUploadModal';
 import { OpenPlayResultsModal } from './openplay/OpenPlayResultsModal';
 import { OpenPlayDeleteRoundsModal } from './openplay/OpenPlayDeleteRoundsModal';
-import { generateUniquePartnerMatches } from '../../../utils/matchGeneratorUtils';
+import { generateUniquePartnerMatches, generateSmartDuprMatches } from '../../../utils/matchGeneratorUtils';
 import { isNonProductionEnvironment } from '../../../utils/envUtils';
 import { seedDummyOpenPlayRegistrations } from '../../../utils/dummyRosterUtils';
 
@@ -1527,12 +1527,14 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     showToast('Match reopened for editing.');
   };
 
-  // Auto Generation Algorithm (Unique Partner vs Paddle Stacking vs Random Matrix)
+  // Auto Generation Algorithm (Smart DUPR vs Unique Partner vs Paddle Stacking vs Random Matrix)
   const handleGenerateMatches = (
     algorithm: AutoGenAlgorithmType,
     rounds: number,
     gameType: 'doubles' | 'singles',
-    targetPoints: number
+    targetPoints: number,
+    isSmartMatch: boolean = false,
+    selectedCourts?: string[]
   ) => {
     const activeFromPool = rosterPool.filter((p) => p.status === 'active');
     const activePlayers = paddleRackQueue.length > 0
@@ -1546,15 +1548,43 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       return;
     }
 
-    const courtCount = assignedCourts.length;
+    const courtsToUse = selectedCourts && selectedCourts.length > 0 ? selectedCourts : assignedCourts;
+    const courtCount = courtsToUse.length;
     const startingRound = matches.length > 0 ? Math.max(...matches.map((m) => m.round)) + 1 : 1;
+
+    // SMART MATCH DUPR DIRECTOR ENGINE
+    if (isSmartMatch) {
+      const result = generateSmartDuprMatches({
+        eventId: event.id,
+        rosterPool,
+        assignedCourts: courtsToUse,
+        totalRounds: rounds,
+        targetPoints,
+        gameType,
+        existingMatches: matches,
+        startingRound,
+      });
+
+      if (result.matches.length === 0) {
+        alert('Could not generate DUPR Smart Matches. Please ensure you have at least 4 active players for doubles and assigned courts.');
+        return;
+      }
+
+      const combined = [...matches, ...result.matches];
+      persistMatches(combined);
+      setIsAutoGenModalOpen(false);
+      showToast(
+        `🏆 DUPR Smart Match generated ${result.matches.length} matches across ${courtCount} court(s) with balanced 1&4 vs 2&3 parity!`
+      );
+      return;
+    }
 
     // ALGORITHM 1: UNIQUE PARTNER ROTATION (Guaranteed Unique Partner Each Game)
     if (algorithm === 'unique_partner') {
       const result = generateUniquePartnerMatches({
         eventId: event.id,
         rosterPool,
-        assignedCourts,
+        assignedCourts: courtsToUse,
         totalRounds: rounds,
         targetPoints,
         gameType,
@@ -1600,7 +1630,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         for (let gIdx = 0; gIdx < gamesPerRound; gIdx++) {
           if (queue.length < playersPerMatch) break;
           const courtName =
-            assignedCourts[globalCourtCounter % courtCount] ||
+            courtsToUse[globalCourtCounter % courtCount] ||
             `Court ${(globalCourtCounter % courtCount) + 1}`;
           globalCourtCounter++;
 
@@ -1685,7 +1715,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
         for (let m = 0; m < gamesPerRound; m++) {
           const courtName =
-            assignedCourts[globalCourtCounter % courtCount] ||
+            courtsToUse[globalCourtCounter % courtCount] ||
             `Court ${(globalCourtCounter % courtCount) + 1}`;
           globalCourtCounter++;
 
@@ -2386,6 +2416,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         rosterPool={rosterPool}
         paddleRackQueue={paddleRackQueue}
         initialSessionDurationMinutes={calculateSessionDurationMinutes(event.startTime, event.endTime)}
+        isDuprEvent={Boolean(event.isDupr)}
         onGenerateMatches={handleGenerateMatches}
       />
 

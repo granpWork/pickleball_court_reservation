@@ -8,11 +8,16 @@ import {
   Timer,
   HelpCircle,
   Sparkles,
+  Trophy,
+  Building2,
+  Plus,
 } from 'lucide-react';
 import type { OpenPlayMatchRosterItem } from '../../adminTypes';
 import {
   calculateMaxUniqueDoublesRounds,
   calculateSessionRoundPacing,
+  getPlayerEffectiveRating,
+  isPlayerNR,
 } from '../../../../utils/matchGeneratorUtils';
 
 export type AutoGenAlgorithmType = 'unique_partner' | 'paddle_stacking' | 'random_rotational';
@@ -24,11 +29,14 @@ interface OpenPlayAutoGenModalProps {
   rosterPool: OpenPlayMatchRosterItem[];
   paddleRackQueue: OpenPlayMatchRosterItem[];
   initialSessionDurationMinutes: number;
+  isDuprEvent?: boolean;
   onGenerateMatches: (
     algorithm: AutoGenAlgorithmType,
     rounds: number,
     gameType: 'doubles' | 'singles',
-    targetPoints: number
+    targetPoints: number,
+    isSmartMatch?: boolean,
+    selectedCourts?: string[]
   ) => void;
 }
 
@@ -39,17 +47,47 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
   rosterPool,
   paddleRackQueue,
   initialSessionDurationMinutes,
+  isDuprEvent = false,
   onGenerateMatches,
 }) => {
   const [autoGenAlgorithm, setAutoGenAlgorithm] = useState<AutoGenAlgorithmType>('unique_partner');
   const [autoGenGameType, setAutoGenGameType] = useState<'doubles' | 'singles'>('doubles');
   const [autoGenTargetPoints, setAutoGenTargetPoints] = useState<number>(11);
+  const [isSmartMatch, setIsSmartMatch] = useState<boolean>(() => Boolean(isDuprEvent));
+
+  // Dynamic Court Selection state
+  const [availableCourts, setAvailableCourts] = useState<string[]>(() => {
+    return assignedCourts && assignedCourts.length > 0 ? assignedCourts : ['Court 1'];
+  });
+  const [selectedCourts, setSelectedCourts] = useState<string[]>(() => {
+    return assignedCourts && assignedCourts.length > 0 ? assignedCourts : ['Court 1'];
+  });
+  const [newCourtName, setNewCourtName] = useState('');
+  const [isAddingCourt, setIsAddingCourt] = useState(false);
+
+  // Sync available & selected courts when assignedCourts or modal opens
+  useEffect(() => {
+    if (assignedCourts && assignedCourts.length > 0) {
+      setAvailableCourts((prev) => Array.from(new Set([...assignedCourts, ...prev])));
+      setSelectedCourts((prev) => {
+        const valid = prev.filter((c) => assignedCourts.includes(c));
+        return valid.length > 0 ? valid : assignedCourts;
+      });
+    }
+  }, [assignedCourts, isOpen]);
   const [sessionDurationMinutes, setSessionDurationMinutes] = useState<number>(
     initialSessionDurationMinutes > 0 ? initialSessionDurationMinutes : 240
   );
   // Default game pacing (minutes per match, e.g. 15 mins for standard 11-pt game with rotation)
   const [estGameDurationMinutes, setEstGameDurationMinutes] = useState<number>(15);
   const [autoGenRounds, setAutoGenRounds] = useState<number>(5);
+
+  // Sync isSmartMatch if isDuprEvent changes
+  useEffect(() => {
+    if (isOpen && isDuprEvent !== undefined) {
+      setIsSmartMatch(Boolean(isDuprEvent));
+    }
+  }, [isOpen, isDuprEvent]);
 
   // Active Players count
   const activeCount = useMemo(() => {
@@ -59,7 +97,79 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
       : activeFromPool.length || 12;
   }, [rosterPool, paddleRackQueue]);
 
-  const courtCount = Math.max(1, assignedCourts.length);
+  // Live DUPR Stats for active players
+  const duprStats = useMemo(() => {
+    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
+    const players = paddleRackQueue.length > 0
+      ? paddleRackQueue.filter((p) => p.status === 'active')
+      : activeFromPool;
+
+    if (players.length === 0) {
+      return { avgRating: '3.00', ratedCount: 0, nrCount: 0, allNR: true, tiers: [] };
+    }
+
+    const allNR = players.every(isPlayerNR);
+    let rated = 0;
+    let sum = 0;
+    const playerRatings = players.map((p) => {
+      const isNR = isPlayerNR(p);
+      if (!isNR) rated++;
+      const eff = getPlayerEffectiveRating(p, allNR);
+      sum += eff;
+      return { player: p, rating: eff, isNR };
+    });
+
+    playerRatings.sort((a, b) => b.rating - a.rating);
+    const avgRating = (sum / players.length).toFixed(2);
+    const nrCount = players.length - rated;
+
+    // Build court tier previews for Round 1
+    const courtTierBreakdown: { court: string; avg: string; range: string; composition: string }[] = [];
+    const pPerMatch = autoGenGameType === 'doubles' ? 4 : 2;
+    const totalCourts = Math.max(1, selectedCourts.length);
+    const games = Math.ceil(players.length / pPerMatch);
+
+    for (let i = 0; i < games; i++) {
+      const slice = playerRatings.slice(i * pPerMatch, (i + 1) * pPerMatch);
+      if (slice.length > 0) {
+        const cAvg = (slice.reduce((acc, curr) => acc + curr.rating, 0) / slice.length).toFixed(2);
+        const minR = slice[slice.length - 1].rating.toFixed(2);
+        const maxR = slice[0].rating.toFixed(2);
+        const cName =
+          totalCourts === 1
+            ? `${selectedCourts[0]} (Game ${i + 1})`
+            : selectedCourts[i % totalCourts] || `Court ${(i % totalCourts) + 1}`;
+
+        const ratedOnCourt = slice.filter((s) => !s.isNR).length;
+        const nrOnCourt = slice.filter((s) => s.isNR).length;
+        const composition =
+          allNR
+            ? 'All NR'
+            : ratedOnCourt > 0 && nrOnCourt > 0
+            ? `${ratedOnCourt} Rated • ${nrOnCourt} NR`
+            : ratedOnCourt > 0
+            ? `${ratedOnCourt} Rated`
+            : `${nrOnCourt} NR`;
+
+        courtTierBreakdown.push({
+          court: cName,
+          avg: cAvg,
+          range: minR === maxR ? minR : `${minR} - ${maxR}`,
+          composition,
+        });
+      }
+    }
+
+    return {
+      avgRating,
+      ratedCount: rated,
+      nrCount,
+      allNR,
+      tiers: courtTierBreakdown,
+    };
+  }, [rosterPool, paddleRackQueue, autoGenGameType, selectedCourts]);
+
+  const courtCount = Math.max(1, selectedCourts.length);
   const playersPerMatch = autoGenGameType === 'doubles' ? 4 : 2;
 
   // Dynamic Pacing Calculation:
@@ -170,6 +280,79 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   🎲 Random Rotational Matrix
                 </option>
               </select>
+            </div>
+
+            {/* DUPR Director: Smart Match Toggle Card */}
+            <div
+              className={`p-4 rounded-2xl border transition-all space-y-2.5 ${
+                isSmartMatch
+                  ? 'bg-gradient-to-r from-amber-950/30 via-slate-950 to-amber-950/20 border-amber-500/40 shadow-inner ring-1 ring-amber-500/20'
+                  : 'bg-slate-950 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`p-2 rounded-xl shrink-0 ${
+                      isSmartMatch
+                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                  >
+                    <Trophy className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-extrabold text-white text-xs uppercase tracking-wide">
+                        DUPR Director: Smart Match
+                      </span>
+                      {isSmartMatch ? (
+                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-amber-400/20 text-amber-300 font-black border border-amber-400/40 uppercase">
+                          ACTIVE
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-slate-800 text-slate-400 font-bold border border-slate-700">
+                          OFF
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Match players based on available DUPR ratings with{' '}
+                      <strong className="text-amber-300">1&4 vs 2&3</strong> team parity.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Custom Toggle Switch */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isSmartMatch}
+                  onClick={() => setIsSmartMatch((prev) => !prev)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    isSmartMatch ? 'bg-amber-400' : 'bg-slate-800'
+                  }`}
+                  title="Toggle DUPR Smart Match"
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-slate-950 shadow-md ring-0 transition duration-200 ease-in-out ${
+                      isSmartMatch ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {isSmartMatch && (
+                <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between gap-2 text-[10px] text-amber-300/90 font-medium animate-fade-in flex-wrap">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    Adjacent DUPR rating clustering on courts
+                  </span>
+                  <span className="font-mono bg-amber-950/50 px-2 py-0.5 rounded border border-amber-500/30 text-amber-200 font-bold">
+                    Target Team Delta: &lt; 0.15 pts
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Session Duration & Game Pacing Controls */}
@@ -312,21 +495,155 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
               </div>
             </div>
 
-            {/* Assigned Courts Display */}
-            <div>
-              <label className="block text-slate-400 font-bold mb-1">
-                Assigned Open Play Courts ({assignedCourts.length})
-              </label>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {assignedCourts.map((c, i) => (
-                  <span
-                    key={i}
-                    className="px-2.5 py-1 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold text-xs"
+            {/* Dynamic Active Courts Selector */}
+            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <label className="text-slate-300 font-bold text-xs flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-brand-lime" />
+                    <span>Select Courts for Match Matrix ({selectedCourts.length} Active)</span>
+                  </label>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Choose 1 court or multiple courts. Match scheduling & waves adjust automatically.
+                  </p>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (availableCourts.length > 0) {
+                        setSelectedCourts([availableCourts[0]]);
+                      }
+                    }}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                      selectedCourts.length === 1
+                        ? 'bg-brand-lime text-slate-950 border-brand-lime font-black shadow-xs'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
                   >
-                    {c}
-                  </span>
-                ))}
+                    1 Court Only
+                  </button>
+                  {availableCourts.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCourts([...availableCourts])}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                        selectedCourts.length === availableCourts.length
+                          ? 'bg-brand-lime text-slate-950 border-brand-lime font-black shadow-xs'
+                          : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      All Courts ({availableCourts.length})
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Clickable Court Chips */}
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                {availableCourts.map((court) => {
+                  const isSelected = selectedCourts.includes(court);
+                  return (
+                    <button
+                      key={court}
+                      type="button"
+                      onClick={() => {
+                        if (isSelected) {
+                          // Prevent deselecting the only remaining court
+                          if (selectedCourts.length > 1) {
+                            setSelectedCourts(selectedCourts.filter((c) => c !== court));
+                          }
+                        } else {
+                          setSelectedCourts([...selectedCourts, court]);
+                        }
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-brand-lime/15 border-brand-lime text-brand-lime shadow-xs ring-1 ring-brand-lime/30'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                      }`}
+                    >
+                      <CheckCircle2
+                        className={`w-3.5 h-3.5 ${isSelected ? 'text-brand-lime' : 'opacity-20'}`}
+                      />
+                      <span>{court}</span>
+                    </button>
+                  );
+                })}
+
+                {/* Inline Add Custom Court */}
+                {!isAddingCourt ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingCourt(true)}
+                    className="px-2.5 py-1.5 rounded-xl border border-dashed border-slate-700 text-slate-400 hover:text-brand-lime hover:border-brand-lime text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Court</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5 animate-fade-in">
+                    <input
+                      type="text"
+                      placeholder="e.g. Court 2"
+                      value={newCourtName}
+                      onChange={(e) => setNewCourtName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const trimmed = newCourtName.trim();
+                          if (trimmed && !availableCourts.includes(trimmed)) {
+                            setAvailableCourts([...availableCourts, trimmed]);
+                            setSelectedCourts([...selectedCourts, trimmed]);
+                            setNewCourtName('');
+                            setIsAddingCourt(false);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setIsAddingCourt(false);
+                        }
+                      }}
+                      autoFocus
+                      className="bg-slate-900 border border-brand-lime text-white rounded-xl px-2.5 py-1 text-xs focus:outline-none w-28 font-medium"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const trimmed = newCourtName.trim();
+                        if (trimmed && !availableCourts.includes(trimmed)) {
+                          setAvailableCourts([...availableCourts, trimmed]);
+                          setSelectedCourts([...selectedCourts, trimmed]);
+                          setNewCourtName('');
+                        }
+                        setIsAddingCourt(false);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-brand-lime text-slate-950 font-bold text-xs cursor-pointer"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewCourtName('');
+                        setIsAddingCourt(false);
+                      }}
+                      className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {selectedCourts.length === 1 && (
+                <div className="p-2.5 rounded-xl bg-purple-950/20 border border-purple-500/30 text-purple-300 text-[11px] flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span>
+                    <strong>1 Court Active:</strong> All matches in each round will queue sequentially on <strong>{selectedCourts[0]}</strong> with {pacing.timeWavesPerRound} court time {pacing.timeWavesPerRound === 1 ? 'wave' : 'waves'}.
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -409,6 +726,74 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                 </div>
               </div>
 
+              {/* DUPR Rating & Court Tier Breakdown Preview */}
+              {isSmartMatch && (
+                <div className="p-3.5 rounded-2xl bg-amber-950/25 border border-amber-500/35 space-y-2.5 animate-fade-in">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                      <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                      DUPR Court Tier Preview (Round 1)
+                    </span>
+                    <span className="text-[10px] font-mono text-amber-200 bg-amber-500/20 px-2 py-0.5 rounded-full font-bold border border-amber-500/30">
+                      Avg {duprStats.avgRating}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="bg-slate-950/70 p-2 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[9px] text-slate-400 block font-semibold uppercase">Official DUPR</span>
+                      <span className="text-sm font-black text-amber-300 font-mono">
+                        {duprStats.ratedCount} {duprStats.ratedCount === 1 ? 'Player' : 'Players'}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2 rounded-xl border border-slate-800 text-center">
+                      <span className="text-[9px] text-slate-400 block font-semibold uppercase">Unrated (NR)</span>
+                      <span className="text-sm font-black text-amber-400 font-mono">
+                        {duprStats.nrCount} {duprStats.nrCount === 1 ? 'Player' : 'Players'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {duprStats.nrCount > 0 && (
+                    <div className="p-2 rounded-xl bg-amber-950/30 border border-amber-500/30 text-[10px] text-amber-200/90 leading-relaxed flex items-start gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                      {duprStats.ratedCount > 0 ? (
+                        <span>
+                          <strong>DUPR Anchor Calibration:</strong> {duprStats.nrCount} unrated (NR) {duprStats.nrCount === 1 ? 'player is' : 'players are'} matched alongside established rated anchor players of similar skill level.
+                        </span>
+                      ) : (
+                        <span>
+                          <strong>All Players Unrated (NR):</strong> With zero established rated anchors, all players initialize at DUPR standard baseline <strong>3.50</strong>.
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    {duprStats.tiers.map((t, idx) => (
+                      <div
+                        key={idx}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[11px] flex items-center justify-between text-slate-300"
+                      >
+                        <div className="flex items-center gap-1.5 truncate min-w-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span>
+                          <span className="font-bold text-white truncate">{t.court}</span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-slate-900 text-slate-400 border border-slate-800 font-mono shrink-0">
+                            {t.composition}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 font-mono text-[10px] shrink-0">
+                          <span className="text-slate-400">Range: {t.range}</span>
+                          <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                            Avg {t.avg}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Unique Partner Guarantee Status */}
               {autoGenAlgorithm === 'unique_partner' && (
                 <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 space-y-2">
@@ -484,12 +869,23 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             <button
               type="button"
               onClick={() =>
-                onGenerateMatches(autoGenAlgorithm, autoGenRounds, autoGenGameType, autoGenTargetPoints)
+                onGenerateMatches(
+                  autoGenAlgorithm,
+                  autoGenRounds,
+                  autoGenGameType,
+                  autoGenTargetPoints,
+                  isSmartMatch,
+                  selectedCourts
+                )
               }
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-dark-bg font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2"
+              className={`px-5 py-2.5 rounded-xl text-dark-bg font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 ${
+                isSmartMatch
+                  ? 'bg-gradient-to-r from-amber-400 via-lime-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300'
+                  : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400'
+              }`}
             >
-              <Zap className="w-4 h-4 text-dark-bg" />
-              <span>Generate {autoGenRounds} Rounds Now</span>
+              {isSmartMatch ? <Trophy className="w-4 h-4 text-dark-bg" /> : <Zap className="w-4 h-4 text-dark-bg" />}
+              <span>{isSmartMatch ? `Smart DUPR Generate (${autoGenRounds} Rounds)` : `Generate ${autoGenRounds} Rounds Now`}</span>
             </button>
           </div>
         </div>

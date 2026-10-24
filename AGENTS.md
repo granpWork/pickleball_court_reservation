@@ -68,7 +68,11 @@ pickleball_court_reservation/
 ├── .agents/                          # Customization & agent root
 │   ├── AGENTS.md                     # Agent rules mirror
 │   └── skills/                       # Registered agent skills
-│       └── picklepoint-platform/     # Core platform operations skill
+│       ├── dupr-director/            # DUPR Director procedures & rating skill
+│       ├── picklepoint-platform/     # Core platform operations skill
+│       ├── react-development/        # React 19 & TypeScript skill
+│       ├── testing/                  # Testing & mock strategies skill
+│       └── ui-ux-tailwind/           # Tailwind CSS v4 design skill
 ├── public/                           # Static assets & icons
 ├── src/
 │   ├── assets/                       # Image assets and logos
