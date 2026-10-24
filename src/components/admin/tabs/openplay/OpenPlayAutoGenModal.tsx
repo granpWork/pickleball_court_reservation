@@ -12,7 +12,7 @@ import {
   Building2,
   Plus,
 } from 'lucide-react';
-import type { OpenPlayMatchRosterItem } from '../../adminTypes';
+import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 import {
   calculateMaxUniqueDoublesRounds,
   calculateSessionRoundPacing,
@@ -31,13 +31,15 @@ interface OpenPlayAutoGenModalProps {
   paddleRackQueue: OpenPlayMatchRosterItem[];
   initialSessionDurationMinutes: number;
   isDuprEvent?: boolean;
+  existingMatches?: OpenPlayMatch[];
   onGenerateMatches: (
     algorithm: AutoGenAlgorithmType,
     rounds: number,
     gameType: 'doubles' | 'singles',
     targetPoints: number,
     isSmartMatch?: boolean,
-    selectedCourts?: string[]
+    selectedCourts?: string[],
+    onlyPresent?: boolean
   ) => void;
 }
 
@@ -49,6 +51,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
   paddleRackQueue,
   initialSessionDurationMinutes,
   isDuprEvent = false,
+  existingMatches = [],
   onGenerateMatches,
 }) => {
   const [autoGenAlgorithm, setAutoGenAlgorithm] = useState<AutoGenAlgorithmType>('unique_partner');
@@ -344,14 +347,26 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
               </div>
 
               {isSmartMatch && (
-                <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between gap-2 text-[10px] text-amber-300/90 font-medium animate-fade-in flex-wrap">
-                  <span className="flex items-center gap-1.5">
-                    <Sparkles className="w-3 h-3 text-amber-400" />
-                    Adjacent DUPR rating clustering on courts
-                  </span>
-                  <span className="font-mono bg-amber-950/50 px-2 py-0.5 rounded border border-amber-500/30 text-amber-200 font-bold">
-                    Target Team Delta: &lt; 0.15 pts
-                  </span>
+                <div className="pt-2 border-t border-amber-500/20 space-y-1.5 animate-fade-in">
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-amber-300/90 font-medium flex-wrap">
+                    <span className="flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      {autoGenAlgorithm === 'unique_partner'
+                        ? '100% Unique Partners + DUPR Rating Parity'
+                        : 'Adjacent DUPR rating clustering on courts'}
+                    </span>
+                    <span className="font-mono bg-amber-950/50 px-2 py-0.5 rounded border border-amber-500/30 text-amber-200 font-bold">
+                      Target Team Delta: &lt; 0.15 pts
+                    </span>
+                  </div>
+                  {autoGenAlgorithm === 'unique_partner' && (
+                    <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-200/90 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>
+                        <strong>Zero Duplicate Guarantee:</strong> Evaluates partner diversity across all rounds while matching 1&4 vs 2&3 rating balance.
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -843,6 +858,35 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                       </span>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Prior Rounds Inspection & Duplicate Avoidance Badge */}
+              {existingMatches && existingMatches.length > 0 ? (
+                <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/40 space-y-1.5 animate-fade-in">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-extrabold text-purple-300 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                      Prior Rounds Inspection Active
+                    </span>
+                    <span className="text-[10px] font-mono text-purple-200 bg-purple-500/20 px-2 py-0.5 rounded-full font-bold">
+                      {existingMatches.length} Prior {existingMatches.length === 1 ? 'Game' : 'Games'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-purple-200/90 leading-relaxed">
+                    Analyzing <strong>{existingMatches.length} games</strong> across{' '}
+                    <strong>{new Set(existingMatches.map((m) => m.round)).size} rounds</strong> to strictly prevent duplicate games, eliminate repeat foursomes, and guarantee unique player pairings.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                  <span className="font-bold text-slate-300 text-xs flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-brand-lime" />
+                    Duplicate Protection Active
+                  </span>
+                  <p className="text-[11px] text-slate-400">
+                    Each generated round checks all prior rounds in this session to ensure no players play the exact same game twice.
+                  </p>
                 </div>
               )}
 

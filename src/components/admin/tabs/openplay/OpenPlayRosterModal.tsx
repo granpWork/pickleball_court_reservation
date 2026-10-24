@@ -14,6 +14,7 @@ import {
   Edit2,
   Star,
   Check,
+  UserCheck,
 } from 'lucide-react';
 import { type OpenPlayMatchRosterItem } from '../../adminTypes';
 import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
@@ -32,6 +33,8 @@ export interface OpenPlayRosterModalProps {
   onAddCustomPlayer: () => void;
   rosterPool: OpenPlayMatchRosterItem[];
   onTogglePlayerStatus: (id: string) => void;
+  onToggleAttendanceStatus?: (id: string) => void;
+  onMarkAllActivePresent?: () => void;
   onDeletePlayer?: (id: string) => void;
   onUpdatePlayer?: (updated: OpenPlayMatchRosterItem) => void;
 }
@@ -50,11 +53,13 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   onAddCustomPlayer,
   rosterPool,
   onTogglePlayerStatus,
+  onToggleAttendanceStatus,
+  onMarkAllActivePresent,
   onDeletePlayer,
   onUpdatePlayer,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'resting' | 'absent'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'present' | 'active' | 'resting' | 'absent'>('all');
   const [playerToDelete, setPlayerToDelete] = useState<OpenPlayMatchRosterItem | null>(null);
 
   // Edit player states
@@ -95,14 +100,16 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   const isMaxCapacityReached = Boolean(maxParticipants && rosterPool.length >= maxParticipants);
 
   // Compute counts
-  const { activeCount, restingCount } = useMemo(() => {
+  const { activeCount, restingCount, presentCount } = useMemo(() => {
     let active = 0;
     let resting = 0;
+    let present = 0;
     for (const p of rosterPool) {
       if (p.status === 'active') active++;
       else if (p.status === 'resting') resting++;
+      if (p.isPresent || p.attendanceStatus === 'present') present++;
     }
-    return { activeCount: active, restingCount: resting };
+    return { activeCount: active, restingCount: resting, presentCount: present };
   }, [rosterPool]);
 
   // Filter roster items
@@ -115,7 +122,13 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
         (p.duprId || '').toLowerCase().includes(q) ||
         (p.adminDuprId || '').toLowerCase().includes(q);
 
-      const matchesStatus = filterStatus === 'all' || p.status === filterStatus;
+      const matchesStatus =
+        filterStatus === 'all'
+          ? true
+          : filterStatus === 'present'
+          ? p.isPresent || p.attendanceStatus === 'present'
+          : p.status === filterStatus;
+
       return matchesSearch && matchesStatus;
     });
   }, [rosterPool, searchQuery, filterStatus]);
@@ -292,10 +305,22 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => setFilterStatus('present')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                filterStatus === 'present'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              Present ({presentCount})
+            </button>
+            <button
+              type="button"
               onClick={() => setFilterStatus('active')}
               className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                 filterStatus === 'active'
-                  ? 'bg-emerald-600 text-white shadow-sm'
+                  ? 'bg-emerald-600/80 text-white shadow-sm'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -326,6 +351,18 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
               <span className="w-2 h-2 rounded-full bg-rose-400"></span>
               Absent ({absentCount})
             </button>
+
+            {onMarkAllActivePresent && (
+              <button
+                type="button"
+                onClick={onMarkAllActivePresent}
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-[11px] transition-all cursor-pointer flex items-center gap-1 shrink-0 ml-1"
+                title="Mark all currently active players as Present"
+              >
+                <Check className="w-3 h-3" />
+                <span>Check In All</span>
+              </button>
+            )}
           </div>
 
           {/* Search Box */}
@@ -416,6 +453,35 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
 
                   {/* Status Toggle & Delete Buttons */}
                   <div className="shrink-0 flex items-center gap-1.5 sm:gap-2">
+                    {/* 1-Click Attendance Check-In Button */}
+                    {onToggleAttendanceStatus && (
+                      <button
+                        type="button"
+                        onClick={() => onToggleAttendanceStatus(p.id)}
+                        className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border shrink-0 ${
+                          p.isPresent || p.attendanceStatus === 'present'
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-xs'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/30'
+                        }`}
+                        title={
+                          p.isPresent || p.attendanceStatus === 'present'
+                            ? 'Player is checked in (Present). Click to toggle attendance'
+                            : 'Click to check in player as Present'
+                        }
+                      >
+                        <UserCheck
+                          className={`w-3.5 h-3.5 ${
+                            p.isPresent || p.attendanceStatus === 'present'
+                              ? 'text-emerald-400'
+                              : 'text-slate-500'
+                          }`}
+                        />
+                        <span className="hidden sm:inline">
+                          {p.isPresent || p.attendanceStatus === 'present' ? 'Present' : 'Check In'}
+                        </span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => onTogglePlayerStatus(p.id)}
@@ -426,14 +492,14 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                           ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950'
                           : 'bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500 hover:text-white'
                       }`}
-                      title="Click to cycle status: Active -> Resting -> Absent"
+                      title="Click to cycle status: Active -> Bench -> Absent"
                     >
                       {isActive && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                       {isResting && <Clock className="w-3.5 h-3.5 text-amber-400" />}
                       {isAbsent && <AlertCircle className="w-3.5 h-3.5 text-rose-400" />}
                       <span className="hidden sm:inline">
                         {isActive
-                          ? 'Active / Present'
+                          ? 'Active'
                           : isResting
                           ? 'Bench / Resting'
                           : 'Absent / Canceled'}
@@ -473,8 +539,12 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-3 border-t border-slate-800 flex-shrink-0">
-          <div className="text-[11px] text-slate-400 font-semibold flex items-center gap-3">
+          <div className="text-[11px] text-slate-400 font-semibold flex items-center gap-3 flex-wrap">
             <span className="flex items-center gap-1 text-emerald-400 font-bold">
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              {presentCount} Present
+            </span>
+            <span className="flex items-center gap-1 text-emerald-400/80 font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
               {activeCount} Active
             </span>

@@ -191,7 +191,72 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const nextRound = maxRound + 1;
     setDeletedRounds((prev) => prev.filter((r) => r !== nextRound));
     setCreatedRounds((prev) => [...prev.filter((r) => r !== nextRound), nextRound]);
-    showToast(`⚡ Round ${nextRound} created! Click "+ Add Match to Round ${nextRound}" to create matches.`);
+    showToast(`⚡ Round ${nextRound} created! Click "Auto-Generate Round ${nextRound}" or "+ Add Match" to schedule matches.`);
+  };
+
+  // Auto-generate matches for a specific empty round (e.g. Round 2 created via "+ Add New Round")
+  // looking at all previous rounds to ensure zero duplicate games & unique partners
+  const handleAutoGenerateSingleRound = (targetRoundNum: number) => {
+    // Determine active players (prefer present players if >= 4 present, else active)
+    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
+    const presentPlayers = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
+    const candidatePlayers = presentPlayers.length >= 4 ? presentPlayers : activeFromPool;
+
+    const gameType: 'doubles' | 'singles' = 'doubles';
+    const playersPerMatch = gameType === 'doubles' ? 4 : 2;
+
+    if (candidatePlayers.length < playersPerMatch) {
+      showToast(`⚠️ Need at least ${playersPerMatch} active players to generate Round ${targetRoundNum}.`);
+      return;
+    }
+
+    const courtsToUse = assignedCourts.length > 0 ? assignedCourts : ['Court 1'];
+    // Filter existing matches to only include rounds strictly before targetRoundNum
+    const priorMatches = matches.filter((m) => m.round < targetRoundNum);
+
+    const isDupr = Boolean(event.isDupr);
+
+    let resultMatches: OpenPlayMatch[] = [];
+
+    if (isDupr) {
+      const result = generateSmartDuprMatches({
+        eventId: event.id,
+        rosterPool: candidatePlayers,
+        assignedCourts: courtsToUse,
+        totalRounds: 1,
+        targetPoints: 11,
+        gameType,
+        existingMatches: priorMatches,
+        startingRound: targetRoundNum,
+      });
+      resultMatches = result.matches;
+    } else {
+      const result = generateUniquePartnerMatches({
+        eventId: event.id,
+        rosterPool: candidatePlayers,
+        assignedCourts: courtsToUse,
+        totalRounds: 1,
+        targetPoints: 11,
+        gameType,
+        existingMatches: priorMatches,
+        startingRound: targetRoundNum,
+      });
+      resultMatches = result.matches;
+    }
+
+    if (resultMatches.length === 0) {
+      showToast(`⚠️ Could not generate matches for Round ${targetRoundNum}.`);
+      return;
+    }
+
+    // Filter out any prior matches in this same round (if any), then append
+    const cleanMatches = matches.filter((m) => m.round !== targetRoundNum);
+    const combined = [...cleanMatches, ...resultMatches];
+    persistMatches(combined);
+
+    showToast(
+      `⚡ Generated ${resultMatches.length} games for Round ${targetRoundNum} with 0 duplicate games against prior rounds!`
+    );
   };
 
   const openDeleteRoundsModal = (preselectedRound?: number) => {
@@ -1090,9 +1155,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       if (savedAtt) attendanceMap = JSON.parse(savedAtt);
     } catch (e) {}
 
-    const isAbsentInAttendance = (id: string) => {
+    const getAttendanceStatus = (id: string): 'present' | 'absent' | 'unmarked' => {
       const val = attendanceMap[id];
-      return val === 'absent';
+      if (val === true || val === 'present') return 'present';
+      if (val === 'absent') return 'absent';
+      return 'unmarked';
     };
 
     const initialPool: OpenPlayMatchRosterItem[] = [];
@@ -1111,6 +1178,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const adminDuprRating = reg.adminDuprRating || '';
 
       const pId = `${reg.id}-primary`;
+      const pAtt = getAttendanceStatus(pId);
 
       if (!isAddGuestOnly) {
         initialPool.push({
@@ -1120,7 +1188,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           phone: primaryPhone,
           photoUrl: primaryPhoto,
           type: 'primary',
-          status: isAbsentInAttendance(pId) ? 'absent' : 'active',
+          status: pAtt === 'absent' ? 'absent' : 'active',
+          attendanceStatus: pAtt,
+          isPresent: pAtt === 'present',
           skillLevel: event.skillLevel || 'Intermediate',
           duprId,
           adminDuprId,
@@ -1140,6 +1210,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         const gName = reg.guests?.[gIdx]?.name || reg.guestNames?.[gIdx] || `Guest #${gIdx + 1} (${hostName})`;
         const gEmail = reg.guests?.[gIdx]?.email || reg.guestEmails?.[gIdx] || '';
         const gId = `${reg.id}-guest-${gIdx}`;
+        const gAtt = getAttendanceStatus(gId);
         initialPool.push({
           id: gId,
           name: gName,
@@ -1147,7 +1218,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           phone: primaryPhone,
           photoUrl: (reg.guests?.[gIdx] as any)?.photoUrl || primaryPhoto,
           type: 'guest',
-          status: isAbsentInAttendance(gId) ? 'absent' : 'active',
+          status: gAtt === 'absent' ? 'absent' : 'active',
+          attendanceStatus: gAtt,
+          isPresent: gAtt === 'present',
           skillLevel: event.skillLevel || 'Intermediate',
           duprId: (reg.guests?.[gIdx] as any)?.duprId || '',
           adminDuprId: (reg.guests?.[gIdx] as any)?.adminDuprId || '',
@@ -1172,18 +1245,29 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             existingIds.has(`${sp.id}-primary`) ||
             existingNames.has(sp.name.toLowerCase().trim());
           if (!isDuplicate) {
-            initialPool.push(sp);
+            const att = sp.attendanceStatus || getAttendanceStatus(sp.id);
+            initialPool.push({
+              ...sp,
+              attendanceStatus: att,
+              isPresent: att === 'present',
+            });
             existingIds.add(sp.id);
             existingNames.add(sp.name.toLowerCase().trim());
           } else {
-            // Restore status
+            // Restore status and attendance
             const found = initialPool.find(
               (p) =>
                 p.id === sp.id ||
                 p.id === `${sp.id}-primary` ||
                 p.name.toLowerCase().trim() === sp.name.toLowerCase().trim()
             );
-            if (found && sp.status) found.status = sp.status;
+            if (found) {
+              if (sp.status) found.status = sp.status;
+              if (sp.attendanceStatus) {
+                found.attendanceStatus = sp.attendanceStatus;
+                found.isPresent = sp.attendanceStatus === 'present';
+              }
+            }
           }
         });
       }
@@ -1534,17 +1618,27 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     gameType: 'doubles' | 'singles',
     targetPoints: number,
     isSmartMatch: boolean = false,
-    selectedCourts?: string[]
+    selectedCourts?: string[],
+    onlyPresent: boolean = false
   ) => {
-    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
-    const activePlayers = paddleRackQueue.length > 0
-      ? paddleRackQueue.filter((p) => p.status === 'active')
-      : activeFromPool;
+    let candidatePool = rosterPool.filter((p) => p.status === 'active');
+    if (onlyPresent) {
+      candidatePool = candidatePool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
+    }
+
+    const activePlayers =
+      paddleRackQueue.length > 0 && !onlyPresent
+        ? paddleRackQueue.filter((p) => p.status === 'active')
+        : candidatePool;
 
     const playersPerMatch = gameType === 'doubles' ? 4 : 2;
 
     if (activePlayers.length < playersPerMatch) {
-      alert(`You need at least ${playersPerMatch} active players in the roster pool to generate ${gameType} matches.`);
+      alert(
+        onlyPresent
+          ? `You have only ${activePlayers.length} present (checked-in) player(s). You need at least ${playersPerMatch} present players to generate ${gameType} matches. Please check in more players or turn off the "Only Include Present Players" switch.`
+          : `You need at least ${playersPerMatch} active players in the roster pool to generate ${gameType} matches.`
+      );
       return;
     }
 
@@ -1556,7 +1650,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     if (isSmartMatch) {
       const result = generateSmartDuprMatches({
         eventId: event.id,
-        rosterPool,
+        rosterPool: activePlayers,
         assignedCourts: courtsToUse,
         totalRounds: rounds,
         targetPoints,
@@ -1574,7 +1668,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       persistMatches(combined);
       setIsAutoGenModalOpen(false);
       showToast(
-        `🏆 DUPR Smart Match generated ${result.matches.length} matches across ${courtCount} court(s) with balanced 1&4 vs 2&3 parity!`
+        `🏆 DUPR Smart Match generated ${result.matches.length} matches with ${result.partnerUniquenessPercent}% Unique Partners and 1&4 vs 2&3 rating parity across ${courtCount} court(s)${
+          onlyPresent ? ` (${activePlayers.length} present players only)` : ''
+        }!`
       );
       return;
     }
@@ -1583,13 +1679,14 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     if (algorithm === 'unique_partner') {
       const result = generateUniquePartnerMatches({
         eventId: event.id,
-        rosterPool,
+        rosterPool: activePlayers,
         assignedCourts: courtsToUse,
         totalRounds: rounds,
         targetPoints,
         gameType,
         existingMatches: matches,
         startingRound,
+        isSmartMatch,
       });
 
       if (result.matches.length === 0) {
@@ -1601,7 +1698,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       persistMatches(combined);
       setIsAutoGenModalOpen(false);
       showToast(
-        `✨ Generated ${result.matches.length} matches with ${result.partnerUniquenessPercent}% Unique Partners across ${courtCount} court(s)!`
+        isSmartMatch
+          ? `🏆 DUPR Rated Unique Partner: Generated ${result.matches.length} matches with ${result.partnerUniquenessPercent}% Unique Partners and rating balance across ${courtCount} court(s)!`
+          : `✨ Generated ${result.matches.length} matches with ${result.partnerUniquenessPercent}% Unique Partners across ${courtCount} court(s)!`
       );
       return;
     }
@@ -1845,14 +1944,77 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       name: newPlayerName.trim(),
       type: 'guest',
       status: 'active',
+      attendanceStatus: 'present',
+      isPresent: true,
       skillLevel: newPlayerSkill,
       adminDuprId: newPlayerDuprId.trim() || undefined,
     };
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_attendance');
+      const attMap = saved ? JSON.parse(saved) : {};
+      attMap[newId] = 'present';
+      localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+    } catch (e) {}
     const updated = [...rosterPool, newItem];
     saveRosterPool(updated);
     setNewPlayerName('');
     setNewPlayerDuprId('');
-    showToast(`Added ${newItem.name} to player pool.`);
+    showToast(`Added ${newItem.name} to player pool (marked Present).`);
+  };
+
+  // Toggle player attendance check-in status (present <-> unmarked)
+  const handleToggleAttendance = (id: string, forceStatus?: 'present' | 'absent' | 'unmarked') => {
+    let nextStatus: 'present' | 'absent' | 'unmarked' = 'present';
+    const updated: OpenPlayMatchRosterItem[] = rosterPool.map((p) => {
+      if (p.id === id) {
+        if (forceStatus) {
+          nextStatus = forceStatus;
+        } else {
+          nextStatus = p.isPresent || p.attendanceStatus === 'present' ? 'unmarked' : 'present';
+        }
+        const resolvedStatus: 'active' | 'resting' | 'absent' =
+          nextStatus === 'absent' ? 'absent' : p.status === 'absent' ? 'active' : p.status;
+        return {
+          ...p,
+          attendanceStatus: nextStatus,
+          isPresent: nextStatus === 'present',
+          status: resolvedStatus,
+        };
+      }
+      return p;
+    });
+
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_attendance');
+      const attMap = saved ? JSON.parse(saved) : {};
+      attMap[id] = nextStatus;
+      localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+    } catch (e) {}
+
+    saveRosterPool(updated);
+    showToast(
+      nextStatus === 'present'
+        ? `✓ Checked in player as Present.`
+        : `Marked player as Not Arrived (Unmarked).`
+    );
+  };
+
+  // Bulk check-in all active players as Present
+  const handleMarkAllActivePresent = () => {
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_attendance');
+      const attMap = saved ? JSON.parse(saved) : {};
+      const updated: OpenPlayMatchRosterItem[] = rosterPool.map((p) => {
+        if (p.status !== 'absent') {
+          attMap[p.id] = 'present';
+          return { ...p, attendanceStatus: 'present' as const, isPresent: true };
+        }
+        return p;
+      });
+      localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+      saveRosterPool(updated);
+      showToast('✓ All active players checked in as Present.');
+    } catch (e) {}
   };
 
   // Toggle player roster status
@@ -2374,6 +2536,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   onOpenResultsModal={openGenerateResultsModal}
                   onOpenJsonModal={openJsonUploadModal}
                   onOpenManualMatchModal={openNewManualMatchModal}
+                  onAutoGenerateRound={handleAutoGenerateSingleRound}
                   onDeleteRound={(r) => openDeleteRoundsModal(r)}
                 >
                   <div className={`grid gap-4 sm:gap-5 items-stretch ${
@@ -2417,6 +2580,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         paddleRackQueue={paddleRackQueue}
         initialSessionDurationMinutes={calculateSessionDurationMinutes(event.startTime, event.endTime)}
         isDuprEvent={Boolean(event.isDupr)}
+        existingMatches={matches}
         onGenerateMatches={handleGenerateMatches}
       />
 
@@ -2450,6 +2614,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         onAddCustomPlayer={handleAddCustomPlayer}
         rosterPool={rosterPool}
         onTogglePlayerStatus={togglePlayerStatus}
+        onToggleAttendanceStatus={handleToggleAttendance}
+        onMarkAllActivePresent={handleMarkAllActivePresent}
         onDeletePlayer={handleDeletePlayer}
         onUpdatePlayer={handleUpdatePlayer}
       />

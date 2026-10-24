@@ -809,6 +809,8 @@ export interface OpenPlayMatchRosterItem {
   photoUrl?: string;
   type: 'primary' | 'guest';
   status: 'active' | 'resting' | 'absent';
+  attendanceStatus?: 'present' | 'absent' | 'unmarked';
+  isPresent?: boolean;
   skillLevel?: string;
   duprId?: string;
   adminDuprId?: string;

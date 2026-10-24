@@ -13,6 +13,7 @@ export interface UniquePartnerOptions {
   gameType?: 'doubles' | 'singles';
   existingMatches?: OpenPlayMatch[];
   startingRound?: number;
+  isSmartMatch?: boolean;
 }
 
 export interface MatchGenerationResult {
@@ -126,14 +127,30 @@ export const mapRosterToMatchPlayer = (p: OpenPlayMatchRosterItem): OpenPlayMatc
 /**
  * Consistent symmetric key for tracking partnerships or opponent pairs between two player IDs.
  */
-const getPairKey = (id1: string, id2: string): string => {
+export const getPairKey = (id1: string, id2: string): string => {
   return id1 < id2 ? `${id1}___${id2}` : `${id2}___${id1}`;
+};
+
+/**
+ * Consistent canonical key for tracking the exact 4 players on a court regardless of ordering.
+ */
+export const getFoursomeKey = (ids: string[]): string => {
+  return [...ids].sort().join('___');
+};
+
+/**
+ * Consistent canonical key for tracking an exact doubles matchup: (Red1, Red2) vs (Blue1, Blue2).
+ */
+export const getMatchupKey = (team1Ids: string[], team2Ids: string[]): string => {
+  const k1 = [...team1Ids].sort().join('__');
+  const k2 = [...team2Ids].sort().join('__');
+  return k1 < k2 ? `${k1}__VS__${k2}` : `${k2}__VS__${k1}`;
 };
 
 /**
  * Generates multi-game rounds where EVERY Round represents a full rotation of the active roster
  * (e.g. 12 players = 3 games in Round 1), distributed across the Open Play event's available courts,
- * while guaranteeing or strictly maximizing unique partners every game.
+ * while guaranteeing or strictly maximizing unique partners every game and avoiding duplicate games.
  */
 export const generateUniquePartnerMatches = (options: UniquePartnerOptions): MatchGenerationResult => {
   const {
@@ -145,12 +162,16 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     gameType = 'doubles',
     existingMatches = [],
     startingRound = 1,
+    isSmartMatch = false,
   } = options;
 
   const activePlayers = rosterPool.filter((p) => p.status === 'active');
   const courtCount = Math.max(1, assignedCourts.length);
   const isDoubles = gameType === 'doubles';
   const playersPerMatch = isDoubles ? 4 : 2;
+
+  // Check if ALL active players are NR (unrated)
+  const allPlayersNR = activePlayers.every(isPlayerNR);
 
   if (activePlayers.length < playersPerMatch) {
     return {
@@ -168,9 +189,17 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
   // Tracking matrices
   const partnerCounts = new Map<string, number>();
   const opponentCounts = new Map<string, number>();
+  const foursomeCounts = new Map<string, number>();
+  const exactMatchCounts = new Map<string, number>();
   const matchesPlayed = new Map<string, number>();
   const consecutiveRests = new Map<string, number>();
   const courtVisits = new Map<string, Map<string, number>>();
+
+  // Track immediately preceding round recency
+  const maxExistingRound = existingMatches.length > 0 ? Math.max(...existingMatches.map((m) => m.round)) : 0;
+  const lastRoundFoursomes = new Set<string>();
+  const lastRoundPartners = new Set<string>();
+  const lastRoundOpponents = new Set<string>();
 
   // Initialize tracking maps for active players
   activePlayers.forEach((p) => {
@@ -179,19 +208,35 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     courtVisits.set(p.id, new Map());
   });
 
-  // Hydrate tracking matrices from existing matches (if any prior rounds already played)
+  // Hydrate tracking matrices from existing matches (all prior rounds already played/scheduled)
   existingMatches.forEach((m) => {
     const red = m.teamRed.players;
     const blue = m.teamBlue.players;
+    const allMatchPlayers = [...red, ...blue];
 
     if (isDoubles) {
-      if (red.length === 2) {
-        const k = getPairKey(red[0].id, red[1].id);
-        partnerCounts.set(k, (partnerCounts.get(k) || 0) + 1);
+      if (red.length === 2 && blue.length === 2) {
+        const fKey = getFoursomeKey([red[0].id, red[1].id, blue[0].id, blue[1].id]);
+        foursomeCounts.set(fKey, (foursomeCounts.get(fKey) || 0) + 1);
+
+        const mKey = getMatchupKey([red[0].id, red[1].id], [blue[0].id, blue[1].id]);
+        exactMatchCounts.set(mKey, (exactMatchCounts.get(mKey) || 0) + 1);
+
+        const kRed = getPairKey(red[0].id, red[1].id);
+        const kBlue = getPairKey(blue[0].id, blue[1].id);
+        partnerCounts.set(kRed, (partnerCounts.get(kRed) || 0) + 1);
+        partnerCounts.set(kBlue, (partnerCounts.get(kBlue) || 0) + 1);
+
+        if (m.round === maxExistingRound) {
+          lastRoundFoursomes.add(fKey);
+          lastRoundPartners.add(kRed);
+          lastRoundPartners.add(kBlue);
+        }
       }
-      if (blue.length === 2) {
-        const k = getPairKey(blue[0].id, blue[1].id);
-        partnerCounts.set(k, (partnerCounts.get(k) || 0) + 1);
+    } else {
+      if (red.length >= 1 && blue.length >= 1) {
+        const mKey = getMatchupKey([red[0].id], [blue[0].id]);
+        exactMatchCounts.set(mKey, (exactMatchCounts.get(mKey) || 0) + 1);
       }
     }
 
@@ -200,11 +245,14 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       blue.forEach((b) => {
         const ok = getPairKey(r.id, b.id);
         opponentCounts.set(ok, (opponentCounts.get(ok) || 0) + 1);
+        if (m.round === maxExistingRound) {
+          lastRoundOpponents.add(ok);
+        }
       });
     });
 
     // Counts
-    [...red, ...blue].forEach((p) => {
+    allMatchPlayers.forEach((p) => {
       matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
       const cv = courtVisits.get(p.id);
       if (cv) {
@@ -260,11 +308,23 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       if (bluePrior === 0) uniquePairingsFormed++;
       else repeatedPairingsFormed++;
 
+      // Record foursome and matchup formed
+      const foursomeKey = getFoursomeKey(matchPlayerIds);
+      foursomeCounts.set(foursomeKey, (foursomeCounts.get(foursomeKey) || 0) + 1);
+
+      const matchupKey = getMatchupKey([pRed1.id, pRed2.id], [pBlue1.id, pBlue2.id]);
+      exactMatchCounts.set(matchupKey, (exactMatchCounts.get(matchupKey) || 0) + 1);
+
+      lastRoundFoursomes.add(foursomeKey);
+      lastRoundPartners.add(redPairKey);
+      lastRoundPartners.add(bluePairKey);
+
       // Record opponent interactions
       [pRed1, pRed2].forEach((r) => {
         [pBlue1, pBlue2].forEach((b) => {
           const ok = getPairKey(r.id, b.id);
           opponentCounts.set(ok, (opponentCounts.get(ok) || 0) + 1);
+          lastRoundOpponents.add(ok);
         });
       });
 
@@ -284,6 +344,10 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
 
       const ok = getPairKey(pRed.id, pBlue.id);
       opponentCounts.set(ok, (opponentCounts.get(ok) || 0) + 1);
+      lastRoundOpponents.add(ok);
+
+      const matchupKey = getMatchupKey([pRed.id], [pBlue.id]);
+      exactMatchCounts.set(matchupKey, (exactMatchCounts.get(matchupKey) || 0) + 1);
 
       [pRed, pBlue].forEach((p) => {
         matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
@@ -323,11 +387,33 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
         const blue1 = order[base + 2];
         const blue2 = order[base + 3];
 
-        // Heavy penalty for partner repeats (10,000 per repeat)
+        // 1. Exact Match Repeat (heaviest penalty: 100,000)
+        const matchupKey = getMatchupKey([red1, red2], [blue1, blue2]);
+        const exactRepeats = exactMatchCounts.get(matchupKey) || 0;
+        if (exactRepeats > 0) {
+          cost += exactRepeats * 100000;
+        }
+
+        // 2. Exact 4-Player Court Foursome Repeat (penalty: 25,000 if activePlayers >= 8)
+        if (activePlayers.length >= 8) {
+          const foursomeKey = getFoursomeKey([red1, red2, blue1, blue2]);
+          const foursomeRepeats = foursomeCounts.get(foursomeKey) || 0;
+          if (foursomeRepeats > 0) {
+            cost += foursomeRepeats * 25000;
+          }
+          if (lastRoundFoursomes.has(foursomeKey)) {
+            cost += 15000;
+          }
+        }
+
+        // 3. Heavy penalty for partner repeats (10,000 per repeat)
         const redPartnerKey = getPairKey(red1, red2);
         const redPartnerTimes = partnerCounts.get(redPartnerKey) || 0;
         if (redPartnerTimes > 0) {
           cost += redPartnerTimes * 10000;
+        }
+        if (lastRoundPartners.has(redPartnerKey)) {
+          cost += 8000;
         }
 
         const bluePartnerKey = getPairKey(blue1, blue2);
@@ -335,8 +421,11 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
         if (bluePartnerTimes > 0) {
           cost += bluePartnerTimes * 10000;
         }
+        if (lastRoundPartners.has(bluePartnerKey)) {
+          cost += 8000;
+        }
 
-        // Moderate penalty for opponent repeats (50 per repeat)
+        // 4. Opponent repeats (200 per repeat + 1,000 if back-to-back from prev round)
         const opps = [
           getPairKey(red1, blue1),
           getPairKey(red1, blue2),
@@ -344,32 +433,76 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
           getPairKey(red2, blue2),
         ];
         opps.forEach((ok) => {
-          cost += (opponentCounts.get(ok) || 0) * 50;
+          cost += (opponentCounts.get(ok) || 0) * 200;
+          if (lastRoundOpponents.has(ok)) {
+            cost += 1000;
+          }
         });
 
-        // Small penalty for repeatedly playing on same court (5 per visit)
+        // 5. Small penalty for repeatedly playing on same court (5 per visit)
         [red1, red2, blue1, blue2].forEach((pId) => {
           const cv = courtVisits.get(pId);
           cost += (cv?.get(courtName) || 0) * 5;
         });
+
+        // 6. DUPR Smart Match Parity & Court Tier Clustering
+        if (isSmartMatch) {
+          const pR1 = playerMap.get(red1);
+          const pR2 = playerMap.get(red2);
+          const pB1 = playerMap.get(blue1);
+          const pB2 = playerMap.get(blue2);
+
+          if (pR1 && pR2 && pB1 && pB2) {
+            const rR1 = getPlayerEffectiveRating(pR1, allPlayersNR);
+            const rR2 = getPlayerEffectiveRating(pR2, allPlayersNR);
+            const rB1 = getPlayerEffectiveRating(pB1, allPlayersNR);
+            const rB2 = getPlayerEffectiveRating(pB2, allPlayersNR);
+
+            const teamRedSum = rR1 + rR2;
+            const teamBlueSum = rB1 + rB2;
+            const teamDelta = Math.abs(teamRedSum - teamBlueSum);
+
+            // Parity penalty: scaled to prioritize balance without overriding partner uniqueness
+            cost += teamDelta * 2000;
+
+            // Court tier clustering penalty: prevent excessive disparity on a single court
+            const courtSpread = Math.max(rR1, rR2, rB1, rB2) - Math.min(rR1, rR2, rB1, rB2);
+            if (courtSpread > 1.2) {
+              cost += (courtSpread - 1.2) * 800;
+            }
+          }
+        }
       } else {
         const p1 = order[base];
         const p2 = order[base + 1];
         const oppKey = getPairKey(p1, p2);
-        cost += (opponentCounts.get(oppKey) || 0) * 100;
+        cost += (opponentCounts.get(oppKey) || 0) * 200;
+        if (lastRoundOpponents.has(oppKey)) {
+          cost += 1000;
+        }
+
+        if (isSmartMatch) {
+          const pR = playerMap.get(p1);
+          const pB = playerMap.get(p2);
+          if (pR && pB) {
+            const r1 = getPlayerEffectiveRating(pR, allPlayersNR);
+            const r2 = getPlayerEffectiveRating(pB, allPlayersNR);
+            cost += Math.abs(r1 - r2) * 2000;
+          }
+        }
       }
     }
     return cost;
   };
 
-  // Optimizes ordering of player IDs across `numGames` using randomized hill-climbing
+  // Optimizes ordering of player IDs across `numGames` using randomized hill-climbing with multi-restart
   const optimizePlayerArrangement = (playerIds: string[], numGames: number, baseCourtIdx: number): string[] => {
     let bestArrangement = [...playerIds];
     let bestCost = computeBatchCost(bestArrangement, numGames, baseCourtIdx);
     if (bestCost === 0) return bestArrangement;
 
-    const RESTARTS = 45;
-    const MAX_SWAPS = 70;
+    const RESTARTS = 75;
+    const MAX_SWAPS = 120;
 
     for (let restart = 0; restart < RESTARTS; restart++) {
       const currentOrder = [...playerIds].sort(() => Math.random() - 0.5);
@@ -411,7 +544,12 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
   for (let roundOffset = 0; roundOffset < totalRounds; roundOffset++) {
     const currentRoundNum = startingRound + roundOffset;
 
-    // Sort active players by fewest matches played (so if there was an overflow game in prior round, those with fewer games go first)
+    // Reset last round tracking for newly simulated round
+    lastRoundFoursomes.clear();
+    lastRoundPartners.clear();
+    lastRoundOpponents.clear();
+
+    // Sort active players by fewest matches played, with random rotation
     const sortedPool = [...activePlayers].sort((a, b) => {
       const aMatches = matchesPlayed.get(a.id) || 0;
       const bMatches = matchesPlayed.get(b.id) || 0;
@@ -424,10 +562,14 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       return Math.random() - 0.5;
     });
 
+    // Rotate player order slightly across rounds so different players land on different courts before hill-climbing
+    const roundShift = ((maxExistingRound + roundOffset) * 3) % sortedPool.length;
+    const rotatedPool = [...sortedPool.slice(roundShift), ...sortedPool.slice(0, roundShift)];
+
     // 1. Primary batch of full games covering `fullBatchGamesCount * playersPerMatch` distinct players
     const primarySlots = fullBatchGamesCount * playersPerMatch;
-    const primaryPlayers = sortedPool.slice(0, primarySlots);
-    const leftoverPlayers = sortedPool.slice(primarySlots);
+    const primaryPlayers = rotatedPool.slice(0, primarySlots);
+    const leftoverPlayers = rotatedPool.slice(primarySlots);
 
     if (fullBatchGamesCount > 0) {
       const optimizedPrimaryIds = optimizePlayerArrangement(
@@ -613,260 +755,8 @@ export interface SmartDuprMatchOptions extends UniquePartnerOptions {
  * 5. Rotates pairings across rounds while keeping players within their competitive skill tier.
  */
 export const generateSmartDuprMatches = (options: SmartDuprMatchOptions): MatchGenerationResult => {
-  const {
-    eventId,
-    rosterPool,
-    assignedCourts,
-    totalRounds,
-    targetPoints = 11,
-    gameType = 'doubles',
-    startingRound = 1,
-  } = options;
-
-  const activePlayers = rosterPool.filter((p) => p.status === 'active');
-  const courtCount = Math.max(1, assignedCourts.length);
-  const isDoubles = gameType === 'doubles';
-  const playersPerMatch = isDoubles ? 4 : 2;
-
-  if (activePlayers.length < playersPerMatch) {
-    return {
-      matches: [],
-      partnerUniquenessPercent: 100,
-      totalPairings: 0,
-      uniquePairingsCount: 0,
-      repeatedPairingsCount: 0,
-      maxTheoreticalUniqueRounds: 0,
-      playerMatchCounts: {},
-      playerRestCounts: {},
-    };
-  }
-
-  // Check if ALL active players are NR (unrated)
-  const allPlayersNR = activePlayers.every(isPlayerNR);
-
-  const generatedMatches: OpenPlayMatch[] = [];
-  const partnerCounts = new Map<string, number>();
-  const matchesPlayed = new Map<string, number>();
-  let totalPairings = 0;
-  let uniquePairings = 0;
-  let repeatedPairings = 0;
-  let globalCourtCounter = 0;
-
-  activePlayers.forEach((p) => matchesPlayed.set(p.id, 0));
-
-  const gamesPerRound = Math.max(1, Math.ceil(activePlayers.length / playersPerMatch));
-
-  for (let r = 0; r < totalRounds; r++) {
-    const currentRoundNum = startingRound + r;
-    const permutationIndex = r % 3;
-
-    // Helper: Separate into rated and unrated pools for this round
-    const ratedPool = activePlayers
-      .filter((p) => !isPlayerNR(p))
-      .sort((a, b) => getPlayerEffectiveRating(b, allPlayersNR) - getPlayerEffectiveRating(a, allPlayersNR));
-
-    const unratedPool = activePlayers
-      .filter((p) => isPlayerNR(p))
-      .sort((a, b) => getPlayerEffectiveRating(b, allPlayersNR) - getPlayerEffectiveRating(a, allPlayersNR));
-
-    // Stagger/rotate within pools across rounds so players partner with different peers
-    let currentRated = [...ratedPool];
-    if (r > 0 && currentRated.length > 2) {
-      const shift = r % currentRated.length;
-      currentRated = [...currentRated.slice(shift), ...currentRated.slice(0, shift)];
-    }
-
-    let currentUnrated = [...unratedPool];
-    if (r > 0 && currentUnrated.length > 2) {
-      const shift = (r * 2) % currentUnrated.length;
-      currentUnrated = [...currentUnrated.slice(shift), ...currentUnrated.slice(0, shift)];
-    }
-
-    // Determine how many rated anchors are assigned to each of the games in this round
-    const ratedCountPerGame: number[] = new Array(gamesPerRound).fill(0);
-    const totalRated = currentRated.length;
-
-    if (totalRated >= playersPerMatch / 2 * gamesPerRound) {
-      // Enough rated players for at least 2 rated anchors per game
-      for (let g = 0; g < gamesPerRound; g++) {
-        ratedCountPerGame[g] = Math.min(
-          playersPerMatch,
-          Math.floor(totalRated / gamesPerRound) + (g < totalRated % gamesPerRound ? 1 : 0)
-        );
-      }
-    } else {
-      // Distribute available rated players evenly across as many games as possible
-      let remainingRated = totalRated;
-      for (let g = 0; g < gamesPerRound && remainingRated > 0; g++) {
-        const alloc = Math.min(remainingRated, Math.ceil(remainingRated / (gamesPerRound - g)));
-        ratedCountPerGame[g] = alloc;
-        remainingRated -= alloc;
-      }
-    }
-
-    let ratedIdx = 0;
-    let unratedIdx = 0;
-
-    for (let g = 0; g < gamesPerRound; g++) {
-      const targetRated = ratedCountPerGame[g] || 0;
-      const targetUnrated = playersPerMatch - targetRated;
-
-      let rCluster: OpenPlayMatchRosterItem[] = [];
-      let uCluster: OpenPlayMatchRosterItem[] = [];
-
-      // Pull rated players
-      if (targetRated > 0 && ratedIdx < currentRated.length) {
-        rCluster = currentRated.slice(ratedIdx, ratedIdx + targetRated);
-        ratedIdx += targetRated;
-      }
-
-      // Pull unrated players
-      if (targetUnrated > 0 && unratedIdx < currentUnrated.length) {
-        uCluster = currentUnrated.slice(unratedIdx, unratedIdx + targetUnrated);
-        unratedIdx += targetUnrated;
-      }
-
-      // If either pool ran out, pull from whatever remains
-      let cluster = [...rCluster, ...uCluster];
-      if (cluster.length < playersPerMatch) {
-        const remainingCandidates = activePlayers.filter((p) => !cluster.some((c) => c.id === p.id));
-        const needed = playersPerMatch - cluster.length;
-        cluster.push(...remainingCandidates.slice(0, needed));
-      }
-
-      if (cluster.length < playersPerMatch) continue;
-
-      const courtName =
-        assignedCourts[globalCourtCounter % courtCount] ||
-        `Court ${(globalCourtCounter % courtCount) + 1}`;
-      globalCourtCounter++;
-
-      let teamRedPlayers: OpenPlayMatchPlayer[] = [];
-      let teamBluePlayers: OpenPlayMatchPlayer[] = [];
-
-      if (isDoubles) {
-        // Classify the 4 players in this match
-        const matchRated = cluster
-          .filter((p) => !isPlayerNR(p))
-          .sort((a, b) => getPlayerEffectiveRating(b, allPlayersNR) - getPlayerEffectiveRating(a, allPlayersNR));
-        const matchUnrated = cluster
-          .filter((p) => isPlayerNR(p))
-          .sort((a, b) => getPlayerEffectiveRating(b, allPlayersNR) - getPlayerEffectiveRating(a, allPlayersNR));
-
-        if (matchRated.length >= 2 && matchUnrated.length >= 2) {
-          // Anchor Pairing Rule: (Rated 1 + NR 2) vs (Rated 2 + NR 1)
-          // Both teams have 1 Rated Anchor and 1 NR player.
-          const [r1, r2] = matchRated;
-          const [u1, u2] = matchUnrated;
-
-          if (permutationIndex === 0) {
-            teamRedPlayers = [mapRosterToMatchPlayer(r1), mapRosterToMatchPlayer(u2)];
-            teamBluePlayers = [mapRosterToMatchPlayer(r2), mapRosterToMatchPlayer(u1)];
-          } else if (permutationIndex === 1) {
-            teamRedPlayers = [mapRosterToMatchPlayer(r1), mapRosterToMatchPlayer(u1)];
-            teamBluePlayers = [mapRosterToMatchPlayer(r2), mapRosterToMatchPlayer(u2)];
-          } else {
-            // Test match: Rated pair vs Unrated pair
-            teamRedPlayers = [mapRosterToMatchPlayer(r1), mapRosterToMatchPlayer(r2)];
-            teamBluePlayers = [mapRosterToMatchPlayer(u1), mapRosterToMatchPlayer(u2)];
-          }
-        } else if (matchRated.length === 1 && matchUnrated.length >= 3) {
-          // 1 Rated Anchor: Pair with lowest NR, opposing 2 mid NRs
-          const [r1] = matchRated;
-          const [u1, u2, u3] = matchUnrated;
-          teamRedPlayers = [mapRosterToMatchPlayer(r1), mapRosterToMatchPlayer(u3)];
-          teamBluePlayers = [mapRosterToMatchPlayer(u1), mapRosterToMatchPlayer(u2)];
-        } else if (matchRated.length >= 3 && matchUnrated.length === 1) {
-          // 3 Rated Anchors: Pair highest Rated with NR, opposing other 2 Rated
-          const [r1, r2, r3] = matchRated;
-          const [u1] = matchUnrated;
-          teamRedPlayers = [mapRosterToMatchPlayer(r1), mapRosterToMatchPlayer(u1)];
-          teamBluePlayers = [mapRosterToMatchPlayer(r2), mapRosterToMatchPlayer(r3)];
-        } else {
-          // All 4 are Rated OR all 4 are NR: Standard 1&4 vs 2&3 parity
-          const sorted = [...cluster].sort(
-            (a, b) => getPlayerEffectiveRating(b, allPlayersNR) - getPlayerEffectiveRating(a, allPlayersNR)
-          );
-          const [p1, p2, p3, p4] = sorted;
-
-          if (permutationIndex === 0) {
-            teamRedPlayers = [mapRosterToMatchPlayer(p1), mapRosterToMatchPlayer(p4)];
-            teamBluePlayers = [mapRosterToMatchPlayer(p2), mapRosterToMatchPlayer(p3)];
-          } else if (permutationIndex === 1) {
-            teamRedPlayers = [mapRosterToMatchPlayer(p1), mapRosterToMatchPlayer(p3)];
-            teamBluePlayers = [mapRosterToMatchPlayer(p2), mapRosterToMatchPlayer(p4)];
-          } else {
-            teamRedPlayers = [mapRosterToMatchPlayer(p1), mapRosterToMatchPlayer(p2)];
-            teamBluePlayers = [mapRosterToMatchPlayer(p3), mapRosterToMatchPlayer(p4)];
-          }
-        }
-
-        const rKey = getPairKey(teamRedPlayers[0].id, teamRedPlayers[1].id);
-        const bKey = getPairKey(teamBluePlayers[0].id, teamBluePlayers[1].id);
-        partnerCounts.set(rKey, (partnerCounts.get(rKey) || 0) + 1);
-        partnerCounts.set(bKey, (partnerCounts.get(bKey) || 0) + 1);
-        totalPairings += 2;
-        if ((partnerCounts.get(rKey) || 0) === 1) uniquePairings++;
-        else repeatedPairings++;
-        if ((partnerCounts.get(bKey) || 0) === 1) uniquePairings++;
-        else repeatedPairings++;
-      } else {
-        // Singles: 1 Rated vs 1 NR if available, else adjacent rankings
-        const matchRated = cluster.filter((p) => !isPlayerNR(p));
-        const matchUnrated = cluster.filter((p) => isPlayerNR(p));
-
-        if (matchRated.length >= 1 && matchUnrated.length >= 1) {
-          teamRedPlayers = [mapRosterToMatchPlayer(matchRated[0])];
-          teamBluePlayers = [mapRosterToMatchPlayer(matchUnrated[0])];
-        } else {
-          const sorted = [...cluster].sort(
-            (a, b) => getPlayerEffectiveRating(b, allPlayersNR) - getPlayerEffectiveRating(a, allPlayersNR)
-          );
-          teamRedPlayers = [mapRosterToMatchPlayer(sorted[0])];
-          teamBluePlayers = [mapRosterToMatchPlayer(sorted[1])];
-        }
-      }
-
-      [...teamRedPlayers, ...teamBluePlayers].forEach((p) => {
-        matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
-      });
-
-      const matchId = `op-smartdupr-${eventId}-r${currentRoundNum}-g${g + 1}-${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-      generatedMatches.push({
-        id: matchId,
-        eventId,
-        round: currentRoundNum,
-        matchName: `Game ${generatedMatches.length + 1}`,
-        courtName,
-        gameType,
-        targetPoints,
-        status: 'scheduled',
-        teamRed: { players: teamRedPlayers, score: 0 },
-        teamBlue: { players: teamBluePlayers, score: 0 },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    }
-  }
-
-  const partnerUniquenessPercent =
-    totalPairings > 0 ? Math.round((uniquePairings / totalPairings) * 100) : 100;
-
-  const playerMatchCounts: Record<string, number> = {};
-  const playerRestCounts: Record<string, number> = {};
-  activePlayers.forEach((p) => {
-    playerMatchCounts[p.id] = matchesPlayed.get(p.id) || 0;
-    playerRestCounts[p.id] = 0;
+  return generateUniquePartnerMatches({
+    ...options,
+    isSmartMatch: true,
   });
-
-  return {
-    matches: generatedMatches,
-    partnerUniquenessPercent,
-    totalPairings,
-    uniquePairingsCount: uniquePairings,
-    repeatedPairingsCount: repeatedPairings,
-    maxTheoreticalUniqueRounds: calculateMaxUniqueDoublesRounds(activePlayers.length, courtCount),
-    playerMatchCounts,
-    playerRestCounts,
-  };
 };

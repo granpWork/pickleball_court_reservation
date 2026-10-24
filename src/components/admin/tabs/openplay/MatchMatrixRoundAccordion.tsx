@@ -10,6 +10,7 @@ import {
   UploadCloud,
   Plus,
   Trash2,
+  Zap,
 } from 'lucide-react';
 import type { OpenPlayMatch } from '../../adminTypes';
 
@@ -28,6 +29,7 @@ interface MatchMatrixRoundAccordionProps {
   onOpenResultsModal: (roundNum: number) => void;
   onOpenJsonModal: (roundNum: number) => void;
   onOpenManualMatchModal: (roundNum: number) => void;
+  onAutoGenerateRound?: (roundNum: number) => void;
   onDeleteRound?: (roundNum: number) => void;
   children: React.ReactNode;
 }
@@ -47,6 +49,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
   onOpenResultsModal,
   onOpenJsonModal,
   onOpenManualMatchModal,
+  onAutoGenerateRound,
   onDeleteRound,
   children,
 }) => {
@@ -181,6 +184,18 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             <span>Upload JSON</span>
           </button>
 
+          {matchesInRound.length === 0 && onAutoGenerateRound && (
+            <button
+              type="button"
+              onClick={() => onAutoGenerateRound(roundNum)}
+              className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
+            >
+              <Zap className="w-3.5 h-3.5 text-brand-lime" />
+              <span>Auto-Gen Round</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => onOpenManualMatchModal(roundNum)}
@@ -211,6 +226,16 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             <div className="p-8 text-center border border-dashed border-slate-800 rounded-3xl bg-slate-900/20 space-y-3">
               <p className="text-sm font-semibold text-slate-400">No matches created for {roundTitle} yet.</p>
               <div className="flex items-center justify-center gap-2.5 flex-wrap">
+                {onAutoGenerateRound && (
+                  <button
+                    type="button"
+                    onClick={() => onAutoGenerateRound(roundNum)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02]"
+                    title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
+                  >
+                    <Zap className="w-3.5 h-3.5 text-brand-lime" /> Auto-Generate {roundTitle} (No Duplicates)
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onOpenManualMatchModal(roundNum)}
