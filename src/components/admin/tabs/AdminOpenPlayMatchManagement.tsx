@@ -1804,6 +1804,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   // Add custom player to roster pool
   const handleAddCustomPlayer = () => {
     if (!newPlayerName.trim()) return;
+    const maxCap = event.maxParticipants || 16;
+    if (rosterPool.length >= maxCap) {
+      showToast(`⚠️ Cannot add player: Maximum session capacity of ${maxCap} players reached.`);
+      return;
+    }
     const newId = `custom-player-${Date.now()}`;
     const newItem: OpenPlayMatchRosterItem = {
       id: newId,
@@ -1831,6 +1836,69 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       return p;
     });
     saveRosterPool(updated);
+  };
+
+  // Delete player from roster pool
+  const handleDeletePlayer = (id: string) => {
+    const playerToDelete = rosterPool.find((p) => p.id === id);
+    const updated = rosterPool.filter((p) => p.id !== id);
+    saveRosterPool(updated);
+    showToast(`Deleted ${playerToDelete?.name || 'player'} from roster pool.`);
+  };
+
+  // Update player information (DUPR ID, Rating, Skill Level, Name)
+  const handleUpdatePlayer = (updatedItem: OpenPlayMatchRosterItem) => {
+    const oldPlayer = rosterPool.find((p) => p.id === updatedItem.id);
+    const updatedPool = rosterPool.map((p) => (p.id === updatedItem.id ? updatedItem : p));
+    saveRosterPool(updatedPool);
+
+    // Sync updated info into existing matches if player name or id matches
+    if (oldPlayer) {
+      const oldName = oldPlayer.name.trim().toLowerCase();
+      const newName = updatedItem.name.trim();
+      const newDupr = updatedItem.adminDuprId || updatedItem.duprId || '';
+      const newRating = updatedItem.adminDuprRating || updatedItem.duprRating || '';
+      const newSkill = updatedItem.skillLevel || '';
+
+      let anyMatchChanged = false;
+      const updatedMatches = matches.map((m) => {
+        let matchChanged = false;
+        const updateP = (p: OpenPlayMatchPlayer): OpenPlayMatchPlayer => {
+          const matchById = p.id && p.id === updatedItem.id;
+          const matchByName = p.name && p.name.trim().toLowerCase() === oldName;
+          if (matchById || matchByName) {
+            matchChanged = true;
+            return {
+              ...p,
+              name: newName,
+              duprId: newDupr || undefined,
+              duprRating: newRating || undefined,
+              skillLevel: newSkill || undefined,
+            };
+          }
+          return p;
+        };
+
+        const newRedPlayers = m.teamRed.players.map(updateP);
+        const newBluePlayers = m.teamBlue.players.map(updateP);
+
+        if (matchChanged) {
+          anyMatchChanged = true;
+          return {
+            ...m,
+            teamRed: { ...m.teamRed, players: newRedPlayers },
+            teamBlue: { ...m.teamBlue, players: newBluePlayers },
+          };
+        }
+        return m;
+      });
+
+      if (anyMatchChanged) {
+        persistMatches(updatedMatches);
+      }
+    }
+
+    showToast(`Updated player info for ${updatedItem.name}.`);
   };
 
   // Filtered Matches
@@ -2340,6 +2408,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       <OpenPlayRosterModal
         isOpen={isRosterModalOpen}
         onClose={() => setIsRosterModalOpen(false)}
+        maxParticipants={event.maxParticipants || 16}
         absentCount={absentCount}
         newPlayerName={newPlayerName}
         setNewPlayerName={setNewPlayerName}
@@ -2350,6 +2419,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         onAddCustomPlayer={handleAddCustomPlayer}
         rosterPool={rosterPool}
         onTogglePlayerStatus={togglePlayerStatus}
+        onDeletePlayer={handleDeletePlayer}
+        onUpdatePlayer={handleUpdatePlayer}
       />
 
       {/* MODAL 4: PLAYER MATCH ACTIVITY & STATISTICS REPORT */}
