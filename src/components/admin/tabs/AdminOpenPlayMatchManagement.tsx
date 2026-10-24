@@ -197,16 +197,29 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   // Auto-generate matches for a specific empty round (e.g. Round 2 created via "+ Add New Round")
   // looking at all previous rounds to ensure zero duplicate games & unique partners
   const handleAutoGenerateSingleRound = (targetRoundNum: number) => {
-    // Determine active players (prefer present players if >= 4 present, else active)
+    let onlyCheckedIn = false;
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
+      if (saved !== null) {
+        onlyCheckedIn = saved === 'true';
+      }
+    } catch (e) {}
+
     const activeFromPool = rosterPool.filter((p) => p.status === 'active');
     const presentPlayers = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
-    const candidatePlayers = presentPlayers.length >= 4 ? presentPlayers : activeFromPool;
+
+    // Strict attendance mode: if setting is active, use only checked-in players
+    const candidatePlayers = onlyCheckedIn ? presentPlayers : presentPlayers.length >= 4 ? presentPlayers : activeFromPool;
 
     const gameType: 'doubles' | 'singles' = 'doubles';
     const playersPerMatch = gameType === 'doubles' ? 4 : 2;
 
     if (candidatePlayers.length < playersPerMatch) {
-      showToast(`⚠️ Need at least ${playersPerMatch} active players to generate Round ${targetRoundNum}.`);
+      if (onlyCheckedIn) {
+        showToast(`⚠️ Only ${candidatePlayers.length} checked-in player(s). Need at least ${playersPerMatch} for Round ${targetRoundNum}. Please check in more players in Roster Pool.`);
+      } else {
+        showToast(`⚠️ Need at least ${playersPerMatch} active players to generate Round ${targetRoundNum}.`);
+      }
       return;
     }
 
@@ -1621,15 +1634,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     selectedCourts?: string[],
     onlyPresent: boolean = false
   ) => {
-    let candidatePool = rosterPool.filter((p) => p.status === 'active');
+    const baseQueue = paddleRackQueue.length > 0 ? paddleRackQueue : rosterPool;
+    let candidatePool = baseQueue.filter((p) => p.status === 'active');
     if (onlyPresent) {
       candidatePool = candidatePool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
     }
 
-    const activePlayers =
-      paddleRackQueue.length > 0 && !onlyPresent
-        ? paddleRackQueue.filter((p) => p.status === 'active')
-        : candidatePool;
+    const activePlayers = candidatePool;
 
     const playersPerMatch = gameType === 'doubles' ? 4 : 2;
 

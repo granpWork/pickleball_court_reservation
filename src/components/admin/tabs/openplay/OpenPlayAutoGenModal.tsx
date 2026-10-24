@@ -11,6 +11,8 @@ import {
   Trophy,
   Building2,
   Plus,
+  UserCheck,
+  AlertCircle,
 } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 import {
@@ -93,20 +95,73 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
     }
   }, [isOpen, isDuprEvent]);
 
-  // Active Players count
-  const activeCount = useMemo(() => {
+  // Attendance metrics: checked-in vs total active
+  const { checkedInCount, totalActiveCount } = useMemo(() => {
     const activeFromPool = rosterPool.filter((p) => p.status === 'active');
-    return paddleRackQueue.length > 0
-      ? paddleRackQueue.filter((p) => p.status === 'active').length
-      : activeFromPool.length || 12;
-  }, [rosterPool, paddleRackQueue]);
+    const checkedIn = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present').length;
+    return {
+      checkedInCount: checkedIn,
+      totalActiveCount: activeFromPool.length,
+    };
+  }, [rosterPool]);
 
-  // Live DUPR Stats for active players
-  const duprStats = useMemo(() => {
+  // Setting switch state: Include only checked-in players
+  const [onlyCheckedInPlayers, setOnlyCheckedInPlayers] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
+      if (saved !== null) {
+        return saved === 'true';
+      }
+    } catch (e) {}
     const activeFromPool = rosterPool.filter((p) => p.status === 'active');
-    const players = paddleRackQueue.length > 0
-      ? paddleRackQueue.filter((p) => p.status === 'active')
-      : activeFromPool;
+    const checkedIn = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present').length;
+    return checkedIn >= 4;
+  });
+
+  // Keep localStorage updated when toggle changes
+  const handleToggleCheckedInSwitch = (val: boolean) => {
+    setOnlyCheckedInPlayers(val);
+    try {
+      localStorage.setItem('picklepoint_openplay_only_checkedin', String(val));
+    } catch (e) {}
+  };
+
+  // Sync when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      try {
+        const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
+        if (saved !== null) {
+          setOnlyCheckedInPlayers(saved === 'true');
+          return;
+        }
+      } catch (e) {}
+      const activeFromPool = rosterPool.filter((p) => p.status === 'active');
+      const checkedIn = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present').length;
+      if (checkedIn >= 4) {
+        setOnlyCheckedInPlayers(true);
+      } else if (checkedIn === 0) {
+        setOnlyCheckedInPlayers(false);
+      }
+    }
+  }, [isOpen, rosterPool]);
+
+  // Candidate players pool filtered strictly by setting switch
+  const candidatePlayers = useMemo(() => {
+    const base = paddleRackQueue.length > 0 ? paddleRackQueue : rosterPool;
+    const activeFromPool = base.filter((p) => p.status === 'active');
+    if (onlyCheckedInPlayers) {
+      return activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
+    }
+    return activeFromPool;
+  }, [rosterPool, paddleRackQueue, onlyCheckedInPlayers]);
+
+  // Active Players count evaluated for match scheduling
+  const activeCount = candidatePlayers.length;
+
+  // Live DUPR Stats for candidate players
+  const duprStats = useMemo(() => {
+    const players = candidatePlayers;
 
     if (players.length === 0) {
       return { avgRating: '3.00', ratedCount: 0, nrCount: 0, allNR: true, tiers: [] };
@@ -284,6 +339,77 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   🎲 Random Rotational Matrix
                 </option>
               </select>
+            </div>
+
+            {/* Setting Switch Card: Include Checked-In Players Only */}
+            <div
+              className={`p-4 rounded-2xl border transition-all space-y-2.5 ${
+                onlyCheckedInPlayers
+                  ? 'bg-gradient-to-r from-emerald-950/30 via-slate-950 to-emerald-950/20 border-emerald-500/40 shadow-inner ring-1 ring-emerald-500/20'
+                  : 'bg-slate-950 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`p-2 rounded-xl shrink-0 ${
+                      onlyCheckedInPlayers
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                  >
+                    <UserCheck className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-extrabold text-white text-xs uppercase tracking-wide">
+                        Attendance: Include Checked-In Players Only
+                      </span>
+                      {onlyCheckedInPlayers ? (
+                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-emerald-400/20 text-emerald-300 font-black border border-emerald-400/40 uppercase">
+                          ACTIVE ({checkedInCount} Checked-In)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-slate-800 text-slate-400 font-bold border border-slate-700">
+                          OFF (All {totalActiveCount} Roster Players)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {onlyCheckedInPlayers
+                        ? 'Strict attendance mode: Only schedule players marked as Present. Non-checked-in players are excluded.'
+                        : 'Full roster mode: Schedule all active players in roster, even if not yet checked in.'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Custom Toggle Switch */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={onlyCheckedInPlayers}
+                  onClick={() => handleToggleCheckedInSwitch(!onlyCheckedInPlayers)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    onlyCheckedInPlayers ? 'bg-emerald-500' : 'bg-slate-800'
+                  }`}
+                  title="Toggle Include Checked-In Players Only"
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-slate-950 shadow-md ring-0 transition duration-200 ease-in-out ${
+                      onlyCheckedInPlayers ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {onlyCheckedInPlayers && checkedInCount < (autoGenGameType === 'doubles' ? 4 : 2) && (
+                <div className="pt-2 border-t border-emerald-500/20 flex items-center gap-2 text-[11px] text-amber-300 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>
+                    Only <strong>{checkedInCount}</strong> player(s) checked in. Need at least <strong>{autoGenGameType === 'doubles' ? 4 : 2}</strong> for {autoGenGameType}. Check in players in Roster Pool or turn this switch OFF.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* DUPR Director: Smart Match Toggle Card */}
@@ -672,8 +798,14 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   <Sparkles className="w-3.5 h-3.5 text-brand-lime" />
                   Live Schedule Breakdown
                 </span>
-                <span className="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/30 font-bold">
-                  {activeCount} Active Players
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-full border font-bold ${
+                    onlyCheckedInPlayers
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}
+                >
+                  {activeCount} {onlyCheckedInPlayers ? 'Checked-In' : 'Active'} Players
                 </span>
               </div>
 
@@ -923,6 +1055,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             </button>
             <button
               type="button"
+              disabled={activeCount < (autoGenGameType === 'doubles' ? 4 : 2)}
               onClick={() =>
                 onGenerateMatches(
                   autoGenAlgorithm,
@@ -930,13 +1063,16 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   autoGenGameType,
                   autoGenTargetPoints,
                   isSmartMatch,
-                  selectedCourts
+                  selectedCourts,
+                  onlyCheckedInPlayers
                 )
               }
-              className={`px-5 py-2.5 rounded-xl text-dark-bg font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 ${
-                isSmartMatch
-                  ? 'bg-gradient-to-r from-amber-400 via-lime-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300'
-                  : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400'
+              className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-all flex items-center gap-2 ${
+                activeCount < (autoGenGameType === 'doubles' ? 4 : 2)
+                  ? 'opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border border-slate-700'
+                  : isSmartMatch
+                  ? 'bg-gradient-to-r from-amber-400 via-lime-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300 text-dark-bg cursor-pointer hover:scale-[1.02] active:scale-[0.98]'
+                  : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-dark-bg cursor-pointer hover:scale-[1.02] active:scale-[0.98]'
               }`}
             >
               {isSmartMatch ? <Trophy className="w-4 h-4 text-dark-bg" /> : <Zap className="w-4 h-4 text-dark-bg" />}
