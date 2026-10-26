@@ -271,6 +271,10 @@ export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => 
     isRecurring: data.isRecurring || false,
     recurrencePattern: data.recurrencePattern,
     recurrenceGroupId: data.recurrenceGroupId,
-    isDupr: Boolean(data.isDupr ?? data.isDUPR ?? false)
+    isDupr: Boolean(data.isDupr ?? data.isDUPR ?? false),
+    isMatchMatrix: Boolean(data.isMatchMatrix ?? data.is_match_matrix ?? false),
+    matrixFormat: data.matrixFormat || data.matrix_format || undefined,
+    roundTitles: data.roundTitles || undefined,
+    rosterPool: Array.isArray(data.rosterPool) ? data.rosterPool : undefined,
   };
 };

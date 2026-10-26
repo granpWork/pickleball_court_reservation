@@ -152,6 +152,23 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
     } catch (e) {}
   }, [activeMatrix]);
 
+  // Auto-sync activeMatrix when allMatrices finishes loading from Firestore
+  useEffect(() => {
+    if (!activeMatrix && typeof window !== 'undefined') {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const urlMatrixId = params.get('matrixId') || params.get('matrix');
+        const savedId = urlMatrixId || sessionStorage.getItem('picklepoint_active_matrix_id');
+        if (savedId) {
+          const found = allMatrices.find((m) => m.id === savedId);
+          if (found) {
+            setActiveMatrix(found);
+          }
+        }
+      } catch (e) {}
+    }
+  }, [allMatrices, activeMatrix]);
+
   // If activeMatrix is not yet restored but exists in allMatrices
   useEffect(() => {
     if (!activeMatrix && allMatrices.length > 0) {
@@ -391,13 +408,17 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
       courtNames: courtNames,
       isDupr: isDupr,
       isMatchMatrix: true,
+      rosterPool: finalRoster,
     };
 
     try {
       // 1. Save event to Firestore
       if (isFirebaseConfigured && db) {
         try {
-          await setDoc(doc(db, 'openplay_events', matrixId), newMatrixEvent);
+          const cleanEvent = JSON.parse(
+            JSON.stringify(newMatrixEvent, (_, v) => (v === undefined ? null : v))
+          );
+          await setDoc(doc(db, 'openplay_events', matrixId), cleanEvent);
         } catch (cloudErr) {
           console.warn('Firestore write warning:', cloudErr);
         }

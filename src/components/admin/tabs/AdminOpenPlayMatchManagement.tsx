@@ -1127,34 +1127,40 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       }
     } catch (e) {}
 
-    // If this is a Match Matrix event, load directly from its authoritative roster pool
-    if (event.isMatchMatrix) {
+    // If this is a Match Matrix event or has an embedded cloud rosterPool, load directly from authoritative roster pool
+    if (event.isMatchMatrix || (event.rosterPool && event.rosterPool.length > 0)) {
       try {
+        let savedRoster: OpenPlayMatchRosterItem[] | null = null;
         const savedRosterStr = localStorage.getItem(`picklepoint_openplay_roster_${event.id}`);
         if (savedRosterStr) {
-          const savedRoster = JSON.parse(savedRosterStr) as OpenPlayMatchRosterItem[];
-          if (Array.isArray(savedRoster) && savedRoster.length > 0) {
-            // Deduplicate duplicate items that have matching base ID (e.g. id vs id-primary)
-            const seenIds = new Set<string>();
-            const uniqueRoster: OpenPlayMatchRosterItem[] = [];
-            for (const p of savedRoster) {
-              const baseId = (p.id || '').replace(/-primary$/, '');
-              if (!seenIds.has(baseId)) {
-                seenIds.add(baseId);
-                uniqueRoster.push(p);
-              }
+          savedRoster = JSON.parse(savedRosterStr) as OpenPlayMatchRosterItem[];
+        } else if (Array.isArray(event.rosterPool) && event.rosterPool.length > 0) {
+          savedRoster = event.rosterPool;
+          try {
+            localStorage.setItem(`picklepoint_openplay_roster_${event.id}`, JSON.stringify(event.rosterPool));
+          } catch (e) {}
+        }
+        if (Array.isArray(savedRoster) && savedRoster.length > 0) {
+          // Deduplicate duplicate items that have matching base ID (e.g. id vs id-primary)
+          const seenIds = new Set<string>();
+          const uniqueRoster: OpenPlayMatchRosterItem[] = [];
+          for (const p of savedRoster) {
+            const baseId = (p.id || '').replace(/-primary$/, '');
+            if (!seenIds.has(baseId)) {
+              seenIds.add(baseId);
+              uniqueRoster.push(p);
             }
-            // Auto-heal duplicate cache in localStorage
-            if (uniqueRoster.length !== savedRoster.length) {
-              localStorage.setItem(`picklepoint_openplay_roster_${event.id}`, JSON.stringify(uniqueRoster));
-            }
-            setRosterPool(uniqueRoster);
-            setPaddleRackQueue(uniqueRoster.filter((p) => p.status === 'active'));
-            return;
           }
+          // Auto-heal duplicate cache in localStorage
+          if (uniqueRoster.length !== savedRoster.length) {
+            localStorage.setItem(`picklepoint_openplay_roster_${event.id}`, JSON.stringify(uniqueRoster));
+          }
+          setRosterPool(uniqueRoster);
+          setPaddleRackQueue(uniqueRoster.filter((p) => p.status === 'active'));
+          return;
         }
       } catch (e) {
-        console.warn('Failed to load matrix roster from localStorage:', e);
+        console.warn('Failed to load matrix roster from localStorage / cloud:', e);
       }
     }
 
@@ -1307,13 +1313,26 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     });
   }, [rosterPool]);
 
-  // Save roster pool status changes to localStorage
+  // Save roster pool status changes to localStorage & Firestore
   const saveRosterPool = (updated: OpenPlayMatchRosterItem[]) => {
     setRosterPool(updated);
     try {
       localStorage.setItem(`picklepoint_openplay_roster_${event.id}`, JSON.stringify(updated));
     } catch (e) {
-      console.warn('Failed to save roster pool:', e);
+      console.warn('Failed to save roster pool to localStorage:', e);
+    }
+
+    if (isFirebaseConfigured && db) {
+      try {
+        const cleanedRoster = JSON.parse(
+          JSON.stringify(updated, (_, v) => (v === undefined ? null : v))
+        );
+        setDoc(doc(db, 'openplay_events', event.id), { rosterPool: cleanedRoster }, { merge: true }).catch((err) =>
+          console.warn('Failed to sync rosterPool to Firestore:', err)
+        );
+      } catch (err) {
+        console.warn('Failed to sync rosterPool to Firestore:', err);
+      }
     }
   };
 

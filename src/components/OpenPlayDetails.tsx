@@ -32,6 +32,8 @@ import {
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, getDoc, collection, getDocs, setDoc, query, where, updateDoc, onSnapshot, arrayUnion, deleteDoc } from 'firebase/firestore';
+import type { OpenPlayMatch } from './admin/adminTypes';
+import { DuprRatingBadge } from '../utils/duprColorUtils';
 
 export interface OpenPlayChatMessage {
   id: string;
@@ -87,6 +89,8 @@ export interface OpenPlayEvent {
   isDupr?: boolean;
   isMatchMatrix?: boolean;
   matrixFormat?: string;
+  roundTitles?: Record<number, string>;
+  rosterPool?: any[];
 }
 
 export interface AssignedCourtInfo {
@@ -186,17 +190,17 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   void step; void setStep; void playerPhone; void gcashRef; void receiptImage; void submitting; void setSubmitting;
 
 
-  // Bottom Roster Tabs & Chat States
-  const [rosterTab, setRosterTabState] = useState<'participants' | 'waitlist' | 'chat'>(() => {
+  // Bottom Roster Tabs, Matches & Chat States
+  const [rosterTab, setRosterTabState] = useState<'participants' | 'matches' | 'waitlist' | 'chat'>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get('tab');
-      if (tab === 'chat' || tab === 'waitlist' || tab === 'participants') return tab;
+      if (tab === 'chat' || tab === 'waitlist' || tab === 'participants' || tab === 'matches') return tab;
     }
     return 'participants';
   });
 
-  const setRosterTab = (tab: 'participants' | 'waitlist' | 'chat') => {
+  const setRosterTab = (tab: 'participants' | 'matches' | 'waitlist' | 'chat') => {
     setRosterTabState(tab);
     if (typeof window !== 'undefined') {
       try {
@@ -206,6 +210,46 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
       } catch (e) {}
     }
   };
+
+  // Real-time Matches Listener for Session / Match Matrix
+  const [eventMatches, setEventMatches] = useState<OpenPlayMatch[]>(() => {
+    try {
+      const local = localStorage.getItem(`picklepoint_openplay_matches_${eventId}`);
+      return local ? JSON.parse(local) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (!eventId) return;
+    if (isFirebaseConfigured && db) {
+      try {
+        const q = query(collection(db, 'openplay_matches'), where('eventId', '==', eventId));
+        const unsubscribe = onSnapshot(
+          q,
+          (snap) => {
+            const loaded: OpenPlayMatch[] = [];
+            snap.forEach((d) => loaded.push({ ...d.data(), id: d.id } as OpenPlayMatch));
+            loaded.sort((a, b) => {
+              if (a.round !== b.round) return a.round - b.round;
+              return (a.courtName || '').localeCompare(b.courtName || '');
+            });
+            setEventMatches(loaded);
+            try {
+              localStorage.setItem(`picklepoint_openplay_matches_${eventId}`, JSON.stringify(loaded));
+            } catch (e) {}
+          },
+          (err) => {
+            console.warn('Failed to subscribe to openplay matches on details page:', err);
+          }
+        );
+        return () => unsubscribe();
+      } catch (err) {
+        console.warn('Failed to listen to matches:', err);
+      }
+    }
+  }, [eventId]);
   const [rosterSearch, setRosterSearch] = useState('');
   const [chatMessages, setChatMessages] = useState<OpenPlayChatMessage[]>([]);
   const [newChatMessage, setNewChatMessage] = useState('');
@@ -1930,6 +1974,25 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
               p.name.toLowerCase().includes(rosterSearch.toLowerCase())
             );
 
+            const filteredMatches = eventMatches.filter((m) => {
+              if (!rosterSearch.trim()) return true;
+              const q = rosterSearch.toLowerCase().trim();
+              const redNames = m.teamRed?.players?.map((p) => p.name.toLowerCase()).join(' ') || '';
+              const blueNames = m.teamBlue?.players?.map((p) => p.name.toLowerCase()).join(' ') || '';
+              const court = (m.courtName || '').toLowerCase();
+              return redNames.includes(q) || blueNames.includes(q) || court.includes(q);
+            });
+
+            const matchesByRound = (() => {
+              const roundsMap = new Map<number, OpenPlayMatch[]>();
+              filteredMatches.forEach((m) => {
+                const list = roundsMap.get(m.round) || [];
+                list.push(m);
+                roundsMap.set(m.round, list);
+              });
+              return Array.from(roundsMap.entries()).sort((a, b) => a[0] - b[0]);
+            })();
+
             const confirmedCount = participants.filter((p) => p.isApproved).length;
             const pendingCount = participants.filter((p) => !p.isApproved).length;
 
@@ -1937,7 +2000,7 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
               <div className="text-left">
                 {/* Tab Navigation Header */}
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-6 border-b border-slate-800 pb-4">
-                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
                     <button
                       type="button"
                       onClick={() => setRosterTab('participants')}
@@ -1954,6 +2017,24 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                         rosterTab === 'participants' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
                       }`}>
                         {participants.length}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRosterTab('matches')}
+                      className={`px-2 sm:px-4 py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center justify-center sm:justify-start gap-1 sm:gap-2 transition-all cursor-pointer border min-w-0 ${
+                        rosterTab === 'matches'
+                          ? 'bg-gradient-to-r from-amber-400 to-lime-400 text-dark-bg border-amber-400/40 shadow-lg shadow-amber-400/10'
+                          : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                      <span className="truncate">Matches</span>
+                      <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shrink-0 ${
+                        rosterTab === 'matches' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
+                      }`}>
+                        {eventMatches.length}
                       </span>
                     </button>
 
@@ -1995,13 +2076,13 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                     </button>
                   </div>
 
-                  {/* Search Bar for Roster Tabs */}
-                  {(rosterTab === 'participants' || rosterTab === 'waitlist') && (
+                  {/* Search Bar for Roster Tabs & Matches */}
+                  {(rosterTab === 'participants' || rosterTab === 'waitlist' || rosterTab === 'matches') && (
                     <div className="relative w-full sm:w-64">
                       <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       <input
                         type="text"
-                        placeholder="Search roster..."
+                        placeholder={rosterTab === 'matches' ? 'Search match or player...' : 'Search roster...'}
                         value={rosterSearch}
                         onChange={(e) => setRosterSearch(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime/50"
@@ -2072,6 +2153,148 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                     ) : (
                       <div className="p-8 rounded-2xl bg-slate-900/40 border border-slate-800 text-center text-slate-400 text-xs">
                         No participants match your search criteria.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB: MATCHES / GAME SCHEDULE */}
+                {rosterTab === 'matches' && (
+                  <div className="space-y-6">
+                    {matchesByRound.length > 0 ? (
+                      matchesByRound.map(([roundNum, roundMatches]) => {
+                        const roundTitle = event.roundTitles?.[roundNum] || `Round ${roundNum}`;
+                        return (
+                          <div key={roundNum} className="space-y-3">
+                            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-brand-lime" />
+                                <h4 className="text-sm font-extrabold text-white tracking-wide">{roundTitle}</h4>
+                              </div>
+                              <span className="text-[11px] font-mono text-slate-400 font-semibold">
+                                {roundMatches.length} {roundMatches.length === 1 ? 'Match' : 'Matches'}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {roundMatches.map((m) => {
+                                const isCompleted = m.status === 'completed';
+                                const isLive = m.status === 'in_progress';
+                                const redWon = isCompleted && m.winner === 'red';
+                                const blueWon = isCompleted && m.winner === 'blue';
+
+                                return (
+                                  <div
+                                    key={m.id}
+                                    className={`p-4 rounded-2xl border transition-all ${
+                                      isLive
+                                        ? 'bg-slate-900/90 border-amber-500/50 shadow-lg shadow-amber-500/5'
+                                        : isCompleted
+                                        ? 'bg-slate-900/60 border-slate-800/90'
+                                        : 'bg-slate-900/40 border-slate-800/60'
+                                    }`}
+                                  >
+                                    {/* Match Header */}
+                                    <div className="flex items-center justify-between gap-2 mb-3 pb-2.5 border-b border-slate-800/60">
+                                      <div className="flex items-center gap-2">
+                                        <span className="px-2.5 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-[10px] font-black text-brand-lime uppercase tracking-wider">
+                                          {m.courtName}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 font-semibold">
+                                          {m.targetPoints} Pts • {m.gameType === 'singles' ? 'Singles' : 'Doubles'}
+                                        </span>
+                                      </div>
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                          isLive
+                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                                            : isCompleted
+                                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                            : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                        }`}
+                                      >
+                                        {isLive ? '● Live' : isCompleted ? 'Completed' : 'Scheduled'}
+                                      </span>
+                                    </div>
+
+                                    {/* Teams Comparison Grid */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                      {/* Team Red */}
+                                      <div
+                                        className={`p-3 rounded-xl border flex flex-col justify-between transition-all ${
+                                          redWon
+                                            ? 'bg-emerald-950/20 border-emerald-500/40 ring-1 ring-emerald-500/30'
+                                            : 'bg-slate-950/50 border-rose-900/30'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-2 mb-2">
+                                          <span className="text-[10px] font-black uppercase tracking-wider text-rose-400 flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                            Team 1
+                                          </span>
+                                          {(isCompleted || isLive) && (
+                                            <span className="text-base font-black font-mono text-white">
+                                              {m.teamRed?.score ?? 0}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          {(m.teamRed?.players || []).map((p) => (
+                                            <div key={p.id} className="flex items-center justify-between gap-2">
+                                              <span className="text-xs font-bold text-white truncate">{p.name}</span>
+                                              {(p.duprRating || p.adminDuprRating) && (
+                                                <DuprRatingBadge rating={p.adminDuprRating || p.duprRating} />
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+
+                                      {/* Team Blue */}
+                                      <div
+                                        className={`p-3 rounded-xl border flex flex-col justify-between transition-all ${
+                                          blueWon
+                                            ? 'bg-emerald-950/20 border-emerald-500/40 ring-1 ring-emerald-500/30'
+                                            : 'bg-slate-950/50 border-sky-900/30'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-2 mb-2">
+                                          <span className="text-[10px] font-black uppercase tracking-wider text-sky-400 flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+                                            Team 2
+                                          </span>
+                                          {(isCompleted || isLive) && (
+                                            <span className="text-base font-black font-mono text-white">
+                                              {m.teamBlue?.score ?? 0}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          {(m.teamBlue?.players || []).map((p) => (
+                                            <div key={p.id} className="flex items-center justify-between gap-2">
+                                              <span className="text-xs font-bold text-white truncate">{p.name}</span>
+                                              {(p.duprRating || p.adminDuprRating) && (
+                                                <DuprRatingBadge rating={p.adminDuprRating || p.duprRating} />
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="p-10 rounded-2xl bg-slate-900/40 border border-slate-800 text-center space-y-2">
+                        <Trophy className="w-8 h-8 text-slate-600 mx-auto" />
+                        <h4 className="text-sm font-bold text-white">No Matches Scheduled Yet</h4>
+                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                          Matches will automatically appear here once scheduled by the venue director or tournament organizer.
+                        </p>
                       </div>
                     )}
                   </div>
