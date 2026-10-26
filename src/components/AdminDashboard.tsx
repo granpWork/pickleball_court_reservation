@@ -8108,19 +8108,19 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       {/* APPROVE CHECKOUT PAYMENT MODAL OVERLAY */}
       {approveCheckoutModalBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
-          <div className="glass-panel border border-brand-lime/40 rounded-3xl p-6 sm:p-8 max-w-lg w-full text-left space-y-5 shadow-2xl relative animate-scale-up my-8 bg-dark-bg/95">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md animate-fade-in p-3 sm:p-4 flex items-center justify-center">
+          <div className="glass-panel border border-brand-lime/40 rounded-2xl sm:rounded-3xl max-w-lg w-full text-left shadow-2xl relative animate-scale-up flex flex-col max-h-[90vh] sm:max-h-[85vh] bg-dark-bg/95 overflow-hidden">
             {/* Header */}
-            <div className="flex justify-between items-start pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0 shadow-sm">
-                  <CheckCircle2 className="w-6 h-6 text-brand-lime" />
+            <div className="flex justify-between items-start p-4 sm:p-5 border-b border-slate-800 bg-slate-950/60 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime shrink-0 shadow-sm">
+                  <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-brand-lime" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-white tracking-tight">
+                  <h3 className="text-base sm:text-lg font-black text-white tracking-tight leading-snug">
                     Approve Payment & Confirm Reservation
                   </h3>
-                  <p className="text-xs text-brand-lime/90 font-semibold mt-0.5">
+                  <p className="text-[11px] sm:text-xs text-brand-lime/90 font-semibold mt-0.5 font-mono">
                     Booking #{approveCheckoutModalBooking.bookingReference || approveCheckoutModalBooking.id}
                   </p>
                 </div>
@@ -8128,127 +8128,154 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               <button
                 type="button"
                 onClick={() => setApproveCheckoutModalBooking(null)}
-                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                className="min-h-[44px] min-w-[44px] p-2 rounded-xl bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                aria-label="Close modal"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
-            {/* Error Alert */}
-            {approveError && (
-              <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-900/50 text-red-300 text-xs font-semibold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
-                <span>{approveError}</span>
-              </div>
-            )}
+            {/* Scrollable Modal Content with min-h-0 for proper touch scrolling */}
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-5 space-y-4 overscroll-contain">
+              {/* Error Alert */}
+              {approveError && (
+                <div className="p-3.5 rounded-xl bg-red-950/40 border border-red-900/50 text-red-300 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  <span>{approveError}</span>
+                </div>
+              )}
 
-            {/* Reservation Summary Details Box */}
-            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Court / Venue:</span>
-                <span className="font-bold text-white text-right truncate max-w-[220px]">
-                  {approveCheckoutModalBooking.courtName}
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Customer:</span>
-                <span className="font-bold text-slate-200">
-                  {approveCheckoutModalBooking.user?.name || approveCheckoutModalBooking.userName || 'Valued Player'} ({approveCheckoutModalBooking.user?.email || approveCheckoutModalBooking.userEmail || 'N/A'})
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Schedule:</span>
-                <span className="font-semibold text-slate-300">
-                  {approveCheckoutModalBooking.date} &bull; {approveCheckoutModalBooking.slots?.join(', ')}
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-slate-400">Total Amount Due:</span>
-                <span className="font-black text-brand-lime text-sm">
-                  ₱{approveCheckoutModalBooking.totalCost?.toLocaleString()}
-                </span>
-              </div>
-            </div>
-
-            {/* Approval Inputs */}
-            <div className="space-y-4 text-xs">
-              {/* Reference Number Field */}
-              <div>
-                <label className="block text-slate-300 font-extrabold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                  <CreditCard className="w-3.5 h-3.5 text-brand-lime" />
-                  <span>GCash / Bank Reference Number (Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={approveGcashRef}
-                  onChange={(e) => setApproveGcashRef(e.target.value)}
-                  placeholder="e.g. 10023456789 (From receipt screenshot)"
-                  className="w-full bg-slate-900 border border-slate-800 text-white font-mono font-bold rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-lime"
-                />
+              {/* Reservation Summary Details Box */}
+              <div className="p-3.5 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-900/90 border border-slate-800/80 space-y-2 text-xs">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-1 border-b border-slate-800/60 gap-0.5 sm:gap-2">
+                  <span className="text-slate-400 font-medium">Court / Venue:</span>
+                  <span className="font-bold text-white text-left sm:text-right truncate max-w-full sm:max-w-[260px]">
+                    {approveCheckoutModalBooking.courtName}
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-1 border-b border-slate-800/60 gap-0.5 sm:gap-2">
+                  <span className="text-slate-400 font-medium">Customer:</span>
+                  <span className="font-bold text-slate-200 text-left sm:text-right break-all sm:break-normal">
+                    {approveCheckoutModalBooking.user?.name || approveCheckoutModalBooking.userName || 'Valued Player'}{' '}
+                    <span className="text-slate-400 font-normal text-[11px]">
+                      ({approveCheckoutModalBooking.user?.email || approveCheckoutModalBooking.userEmail || 'N/A'})
+                    </span>
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-1 border-b border-slate-800/60 gap-0.5 sm:gap-2">
+                  <span className="text-slate-400 font-medium">Schedule:</span>
+                  <span className="font-semibold text-slate-300 text-left sm:text-right">
+                    {approveCheckoutModalBooking.date} &bull; {approveCheckoutModalBooking.slots?.join(', ')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-slate-400 font-medium">Total Amount Due:</span>
+                  <span className="font-black text-brand-lime text-sm sm:text-base">
+                    ₱{approveCheckoutModalBooking.totalCost?.toLocaleString()}
+                  </span>
+                </div>
               </div>
 
-              {/* Upload Proof of Payment Screenshot */}
-              <div>
-                <label className="block text-slate-300 font-extrabold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                  <FileText className="w-3.5 h-3.5 text-brand-lime" />
-                  <span>Attach / Upload Proof of Payment Receipt</span>
-                </label>
-
-                {approveReceiptBase64 ? (
-                  <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900 p-2 space-y-2">
-                    <img
-                      src={approveReceiptBase64}
-                      alt="Proof of Payment"
-                      className="max-h-40 w-full object-contain rounded-xl bg-black/40"
-                    />
-                    <div className="flex items-center justify-between px-2 text-[11px]">
-                      <span className="text-slate-400 font-medium">Receipt Screenshot Attached</span>
+              {/* Approval Inputs */}
+              <div className="space-y-4 text-xs">
+                {/* Reference Number Field */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
+                    <label className="text-slate-300 font-extrabold uppercase tracking-wider flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-brand-lime" />
+                      <span>GCash / Bank Reference Number</span>
+                    </label>
+                    {approveCheckoutModalBooking.gcashReferenceNumber && approveGcashRef !== approveCheckoutModalBooking.gcashReferenceNumber && (
                       <button
                         type="button"
-                        onClick={() => setApproveReceiptBase64('')}
-                        className="text-red-400 hover:text-red-300 font-bold cursor-pointer"
+                        onClick={() => setApproveGcashRef(approveCheckoutModalBooking.gcashReferenceNumber || '')}
+                        className="text-[10px] font-bold text-brand-lime hover:underline cursor-pointer"
                       >
-                        Remove / Change Image
+                        Auto-fill #{approveCheckoutModalBooking.gcashReferenceNumber}
                       </button>
-                    </div>
+                    )}
                   </div>
-                ) : (
-                  <label className="flex flex-col items-center justify-center p-5 border-2 border-dashed border-slate-700 hover:border-brand-lime/60 rounded-2xl cursor-pointer bg-slate-900/40 hover:bg-slate-900/80 transition-all text-center group">
-                    <Upload className="w-6 h-6 text-slate-500 group-hover:text-brand-lime transition-colors mb-1.5" />
-                    <span className="text-xs font-bold text-slate-300 group-hover:text-white">Click to upload payment receipt screenshot</span>
-                    <span className="text-[10px] text-slate-500 mt-0.5">PNG, JPG, WEBP formats accepted</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleApproveReceiptChange}
-                      className="hidden"
-                    />
-                  </label>
-                )}
-              </div>
+                  <input
+                    type="text"
+                    value={approveGcashRef}
+                    onChange={(e) => setApproveGcashRef(e.target.value)}
+                    placeholder="e.g. 10023456789 (From receipt screenshot)"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-mono font-bold rounded-xl px-4 py-2.5 text-xs sm:text-sm focus:outline-none focus:border-brand-lime transition-all"
+                  />
+                </div>
 
-              {/* Internal Staff Approval Notes */}
-              <div>
-                <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
-                  Internal Approval Notes (Optional)
-                </label>
-                <textarea
-                  rows={2}
-                  value={approvePaymentNotes}
-                  onChange={(e) => setApprovePaymentNotes(e.target.value)}
-                  placeholder="e.g. Verified payment received by reception staff"
-                  className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-brand-lime"
-                />
+                {/* Upload Proof of Payment Screenshot */}
+                <div>
+                  <label className="block text-slate-300 font-extrabold uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-brand-lime" />
+                    <span>Proof of Payment Receipt Screenshot</span>
+                  </label>
+
+                  {approveReceiptBase64 ? (
+                    <div className="relative rounded-2xl overflow-hidden border border-slate-700 bg-slate-900/90 p-3 space-y-2.5">
+                      <div className="relative group max-h-48 w-full flex items-center justify-center bg-black/50 rounded-xl overflow-hidden border border-slate-800">
+                        <img
+                          src={approveReceiptBase64}
+                          alt="Proof of Payment"
+                          className="max-h-48 w-full object-contain rounded-xl"
+                        />
+                      </div>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setReceiptLightboxImage(approveReceiptBase64)}
+                          className="min-h-[40px] px-3 py-1.5 rounded-lg bg-brand-lime/10 hover:bg-brand-lime/20 border border-brand-lime/30 text-brand-lime font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>View Full Image</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setApproveReceiptBase64('')}
+                          className="min-h-[40px] px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 hover:text-rose-200 font-bold text-xs flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <span>Remove / Replace Image</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="min-h-[96px] flex flex-col items-center justify-center p-4 sm:p-5 border-2 border-dashed border-slate-700 hover:border-brand-lime/60 rounded-2xl cursor-pointer bg-slate-900/40 hover:bg-slate-900/80 transition-all text-center group">
+                      <Upload className="w-6 h-6 text-slate-500 group-hover:text-brand-lime transition-colors mb-1.5" />
+                      <span className="text-xs font-bold text-slate-300 group-hover:text-white">Tap to upload receipt screenshot</span>
+                      <span className="text-[10px] text-slate-500 mt-0.5">PNG, JPG, WEBP formats accepted</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleApproveReceiptChange}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Internal Staff Approval Notes */}
+                <div>
+                  <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Internal Approval Notes (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={approvePaymentNotes}
+                    onChange={(e) => setApprovePaymentNotes(e.target.value)}
+                    placeholder="e.g. Verified payment received by reception staff"
+                    className="w-full min-h-[60px] bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-2 text-xs focus:outline-none focus:border-brand-lime transition-all resize-none"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-2">
+            {/* Pinned Action Buttons Footer */}
+            <div className="p-4 sm:p-5 pt-3 sm:pt-3.5 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3">
               <button
                 type="button"
                 onClick={() => setApproveCheckoutModalBooking(null)}
                 disabled={approveSubmitting}
-                className="flex-1 py-3 rounded-xl bg-slate-900 text-slate-300 font-bold text-xs hover:bg-slate-800 transition-all cursor-pointer border border-slate-800"
+                className="w-full sm:flex-1 min-h-[44px] sm:min-h-[48px] py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs transition-all cursor-pointer border border-slate-800 flex items-center justify-center"
               >
                 Cancel
               </button>
@@ -8256,7 +8283,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 type="button"
                 disabled={approveSubmitting}
                 onClick={handleConfirmApproveCheckout}
-                className="flex-1 py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full sm:flex-1 min-h-[44px] sm:min-h-[48px] py-3 rounded-xl bg-brand-lime text-dark-bg font-black text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/20 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {approveSubmitting ? (
                   <>
@@ -8277,150 +8304,158 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       {/* REJECT CHECKOUT PAYMENT CONFIRMATION MODAL ALERT */}
       {rejectCheckoutModalBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in overflow-y-auto">
-          <div className="glass-panel border border-red-900/50 rounded-3xl p-6 sm:p-8 max-w-lg w-full text-left space-y-5 shadow-2xl relative animate-scale-up my-8 bg-dark-bg/95">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md animate-fade-in p-3 sm:p-4 flex items-center justify-center">
+          <div className="glass-panel border border-red-900/50 rounded-2xl sm:rounded-3xl max-w-lg w-full text-left shadow-2xl relative animate-scale-up flex flex-col max-h-[90vh] sm:max-h-[85vh] bg-dark-bg/95 overflow-hidden">
             {/* Header */}
-            <div className="flex justify-between items-start pb-4 border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 flex-shrink-0">
-                  <AlertTriangle className="w-6 h-6" />
+            <div className="flex justify-between items-start p-4 sm:p-5 border-b border-slate-800 bg-slate-950/60 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
+                  <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-black text-white tracking-tight">
+                  <h3 className="text-base sm:text-lg font-black text-white tracking-tight leading-snug">
                     Reject Checkout Payment
                   </h3>
-                  <p className="text-xs text-red-400/90 font-semibold mt-0.5">
+                  <p className="text-[11px] sm:text-xs text-red-400/90 font-semibold mt-0.5 font-mono">
                     Cancel booking #{rejectCheckoutModalBooking.bookingReference || rejectCheckoutModalBooking.id}
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setRejectCheckoutModalBooking(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                className="min-h-[44px] min-w-[44px] p-2 rounded-xl bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center shrink-0"
+                aria-label="Close modal"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
-            {/* Summary Details Box */}
-            <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-2 text-xs">
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Court / Venue:</span>
-                <span className="font-bold text-white text-right truncate max-w-[220px]">
-                  {rejectCheckoutModalBooking.ownerCompanyName && rejectCheckoutModalBooking.ownerCompanyName !== rejectCheckoutModalBooking.courtName
-                    ? `${rejectCheckoutModalBooking.ownerCompanyName} — ${rejectCheckoutModalBooking.courtName}`
-                    : rejectCheckoutModalBooking.courtName}
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Customer:</span>
-                <span className="font-bold text-slate-200">
-                  {rejectCheckoutModalBooking.user?.name || 'Valued Player'} ({rejectCheckoutModalBooking.user?.email || 'N/A'})
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Schedule:</span>
-                <span className="font-semibold text-slate-300">
-                  {rejectCheckoutModalBooking.date} &bull; {rejectCheckoutModalBooking.slots?.join(', ')}
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">GCash Ref Number:</span>
-                <span className="font-mono font-bold text-brand-lime">
-                  {rejectCheckoutModalBooking.gcashReferenceNumber || 'Not Provided'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-slate-400">Total Amount:</span>
-                <span className="font-extrabold text-white text-sm">
-                  ₱{rejectCheckoutModalBooking.totalCost?.toLocaleString()}
-                </span>
-              </div>
-
-              {/* Receipt Preview Trigger if available */}
-              {rejectCheckoutModalBooking.receiptImageUrl && (
-                <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between">
-                  <span className="text-slate-400">Uploaded Receipt:</span>
-                  <button
-                    type="button"
-                    onClick={() => setReceiptLightboxImage(rejectCheckoutModalBooking.receiptImageUrl || null)}
-                    className="inline-flex items-center gap-1.5 text-xs text-brand-lime hover:underline font-bold cursor-pointer"
-                  >
-                    <span>View Uploaded Proof</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
+            {/* Scrollable Modal Content with min-h-0 for proper touch scrolling */}
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-5 space-y-4 overscroll-contain">
+              {/* Summary Details Box */}
+              <div className="p-3.5 sm:p-4 rounded-xl sm:rounded-2xl bg-slate-900/90 border border-slate-800/80 space-y-2 text-xs">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-1 border-b border-slate-800/60 gap-0.5 sm:gap-2">
+                  <span className="text-slate-400 font-medium">Court / Venue:</span>
+                  <span className="font-bold text-white text-left sm:text-right truncate max-w-full sm:max-w-[260px]">
+                    {rejectCheckoutModalBooking.ownerCompanyName && rejectCheckoutModalBooking.ownerCompanyName !== rejectCheckoutModalBooking.courtName
+                      ? `${rejectCheckoutModalBooking.ownerCompanyName} — ${rejectCheckoutModalBooking.courtName}`
+                      : rejectCheckoutModalBooking.courtName}
+                  </span>
                 </div>
-              )}
-            </div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-1 border-b border-slate-800/60 gap-0.5 sm:gap-2">
+                  <span className="text-slate-400 font-medium">Customer:</span>
+                  <span className="font-bold text-slate-200 text-left sm:text-right break-all sm:break-normal">
+                    {rejectCheckoutModalBooking.user?.name || 'Valued Player'}{' '}
+                    <span className="text-slate-400 font-normal text-[11px]">
+                      ({rejectCheckoutModalBooking.user?.email || 'N/A'})
+                    </span>
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-1 border-b border-slate-800/60 gap-0.5 sm:gap-2">
+                  <span className="text-slate-400 font-medium">Schedule:</span>
+                  <span className="font-semibold text-slate-300 text-left sm:text-right">
+                    {rejectCheckoutModalBooking.date} &bull; {rejectCheckoutModalBooking.slots?.join(', ')}
+                  </span>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-1 border-b border-slate-800/60 gap-0.5 sm:gap-2">
+                  <span className="text-slate-400 font-medium">GCash Ref Number:</span>
+                  <span className="font-mono font-bold text-brand-lime text-left sm:text-right">
+                    {rejectCheckoutModalBooking.gcashReferenceNumber || 'Not Provided'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-slate-400 font-medium">Total Amount:</span>
+                  <span className="font-extrabold text-white text-sm sm:text-base">
+                    ₱{rejectCheckoutModalBooking.totalCost?.toLocaleString()}
+                  </span>
+                </div>
 
-            {/* Rejection Reason Selector */}
-            <div className="space-y-2 text-xs">
-              <label className="block text-slate-300 font-extrabold uppercase tracking-wider">
-                Select Reason for Rejection:
-              </label>
+                {/* Receipt Preview Trigger if available */}
+                {rejectCheckoutModalBooking.receiptImageUrl && (
+                  <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between">
+                    <span className="text-slate-400 font-medium">Uploaded Receipt:</span>
+                    <button
+                      type="button"
+                      onClick={() => setReceiptLightboxImage(rejectCheckoutModalBooking.receiptImageUrl || null)}
+                      className="min-h-[36px] inline-flex items-center gap-1.5 text-xs text-brand-lime hover:underline font-bold cursor-pointer"
+                    >
+                      <span>View Uploaded Proof</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
 
-              <div className="space-y-1.5">
-                {[
-                  { id: 'invalid_ref', label: 'GCash Reference Number not found or invalid' },
-                  { id: 'unclear_receipt', label: 'Uploaded screenshot is blurry, cut off, or illegible' },
-                  { id: 'amount_mismatch', label: 'Transferred amount does not match required fee' },
-                  { id: 'payment_not_received', label: 'Payment was not credited to venue GCash account' },
-                  { id: 'custom', label: 'Other / Custom explanation' },
-                ].map((opt) => (
-                  <label
-                    key={opt.id}
-                    className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                      rejectReasonOption === opt.id
-                        ? 'bg-red-950/30 border-red-500/50 text-white'
-                        : 'bg-slate-900/40 border-slate-800/80 text-slate-400 hover:text-slate-300 hover:bg-slate-900'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="rejectReason"
-                      checked={rejectReasonOption === opt.id}
-                      onChange={() => setRejectReasonOption(opt.id)}
-                      className="accent-red-500 cursor-pointer"
+              {/* Rejection Reason Selector */}
+              <div className="space-y-2 text-xs">
+                <label className="block text-slate-300 font-extrabold uppercase tracking-wider">
+                  Select Reason for Rejection:
+                </label>
+
+                <div className="space-y-1.5">
+                  {[
+                    { id: 'invalid_ref', label: 'GCash Reference Number not found or invalid' },
+                    { id: 'unclear_receipt', label: 'Uploaded screenshot is blurry, cut off, or illegible' },
+                    { id: 'amount_mismatch', label: 'Transferred amount does not match required fee' },
+                    { id: 'payment_not_received', label: 'Payment was not credited to venue GCash account' },
+                    { id: 'custom', label: 'Other / Custom explanation' },
+                  ].map((opt) => (
+                    <label
+                      key={opt.id}
+                      className={`min-h-[44px] flex items-center gap-2.5 p-2.5 sm:p-3 rounded-xl border cursor-pointer transition-all ${
+                        rejectReasonOption === opt.id
+                          ? 'bg-red-950/30 border-red-500/50 text-white'
+                          : 'bg-slate-900/40 border-slate-800/80 text-slate-400 hover:text-slate-300 hover:bg-slate-900'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="rejectReason"
+                        checked={rejectReasonOption === opt.id}
+                        onChange={() => setRejectReasonOption(opt.id)}
+                        className="accent-red-500 cursor-pointer min-w-[16px] min-h-[16px]"
+                      />
+                      <span className="font-semibold text-xs leading-snug">{opt.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {rejectReasonOption === 'custom' && (
+                  <div className="pt-2 animate-fade-in">
+                    <textarea
+                      rows={3}
+                      required
+                      placeholder="Enter specific explanation for rejecting this transaction proof..."
+                      value={rejectCustomReason}
+                      onChange={(e) => setRejectCustomReason(e.target.value)}
+                      className="w-full min-h-[72px] bg-slate-900 border border-slate-800 text-white rounded-xl p-3 text-xs focus:outline-none focus:border-red-500 transition-all resize-none"
                     />
-                    <span className="font-semibold text-xs">{opt.label}</span>
-                  </label>
-                ))}
+                  </div>
+                )}
               </div>
 
-              {rejectReasonOption === 'custom' && (
-                <div className="pt-2 animate-fade-in">
-                  <textarea
-                    rows={3}
-                    required
-                    placeholder="Enter specific explanation for rejecting this transaction proof..."
-                    value={rejectCustomReason}
-                    onChange={(e) => setRejectCustomReason(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl p-3 text-xs focus:outline-none focus:border-red-500 transition-all resize-none"
-                  />
-                </div>
-              )}
+              {/* Email Notification Option */}
+              <label className="min-h-[44px] flex items-center gap-2.5 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rejectSendEmail}
+                  onChange={(e) => setRejectSendEmail(e.target.checked)}
+                  className="accent-brand-lime rounded cursor-pointer min-w-[16px] min-h-[16px]"
+                />
+                <span className="text-xs text-slate-300 font-medium">
+                  Send automated cancellation notice to <strong className="text-white">{rejectCheckoutModalBooking.user?.email || 'player'}</strong>
+                </span>
+              </label>
             </div>
 
-            {/* Email Notification Option */}
-            <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-900/60 border border-slate-800 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={rejectSendEmail}
-                onChange={(e) => setRejectSendEmail(e.target.checked)}
-                className="accent-brand-lime rounded cursor-pointer"
-              />
-              <span className="text-xs text-slate-300 font-medium">
-                Send automated cancellation notice to <strong className="text-white">{rejectCheckoutModalBooking.user?.email || 'player'}</strong>
-              </span>
-            </label>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-2">
+            {/* Pinned Action Buttons Footer */}
+            <div className="p-4 sm:p-5 pt-3 sm:pt-3.5 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3">
               <button
                 type="button"
                 onClick={() => setRejectCheckoutModalBooking(null)}
                 disabled={rejectCheckoutSubmitting}
-                className="flex-1 py-3 rounded-xl bg-slate-900 text-slate-300 font-bold text-xs hover:bg-slate-800 transition-all cursor-pointer border border-slate-800"
+                className="w-full sm:flex-1 min-h-[44px] sm:min-h-[48px] py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold text-xs transition-all cursor-pointer border border-slate-800 flex items-center justify-center"
               >
                 Cancel / Keep Booking
               </button>
@@ -8428,7 +8463,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 type="button"
                 disabled={rejectCheckoutSubmitting}
                 onClick={handleConfirmRejectCheckout}
-                className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full sm:flex-1 min-h-[44px] sm:min-h-[48px] py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {rejectCheckoutSubmitting ? (
                   <>
