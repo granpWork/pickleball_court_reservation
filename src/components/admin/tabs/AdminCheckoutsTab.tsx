@@ -383,39 +383,42 @@ Thank you!`;
 
   return (
     <div className="space-y-8 animate-fade-in text-left">
-      {/* 1. HEADER & QUEUE MODE TOGGLE */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-slate-900/80 border border-slate-800 p-4 sm:p-5 lg:p-6 rounded-2xl sm:rounded-3xl shadow-xl">
-        <div className="flex items-center gap-3 sm:gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime shrink-0 shadow-inner">
-            <ShieldCheck className="w-6 h-6 text-brand-lime" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-lg sm:text-xl font-black text-white tracking-tight">Payment Verification Queue</h2>
-              {pendingQueueCount > 0 ? (
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-500/20 border border-amber-500/40 text-amber-300 animate-pulse">
-                  {pendingQueueCount} Pending
-                </span>
-              ) : (
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-                  All Clear
-                </span>
-              )}
+      {/* 1. UNIFIED COMPACT COMMAND BAR (Row 1: Title & Queue Switcher | Row 2: Search, Filters, Chips, View Mode) */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-xl space-y-3 sm:space-y-4">
+        {/* ROW 1: Title, Status Badge, and Queue Switcher */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+          {/* Left: Icon + Title + Pending Pill */}
+          <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime shrink-0 shadow-inner">
+              <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 text-brand-lime" />
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Review and approve or reject player payment proofs. Complete bookings remain accessible on the Reservations page.
-            </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-lg lg:text-xl font-black text-white tracking-tight truncate">
+                  Payment Verification Queue
+                </h2>
+                {pendingQueueCount > 0 ? (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-500/20 border border-amber-500/40 text-amber-300 animate-pulse shrink-0">
+                    {pendingQueueCount} Pending
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 shrink-0">
+                    All Clear
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5 hidden sm:block truncate">
+                Review and verify player GCash payment proofs.
+              </p>
+            </div>
           </div>
-        </div>
 
-        {/* Action Controls: Queue Switcher & View Mode Toggle */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
-          {/* View Mode Segment Switcher: Pending Queue vs Audit History */}
-          <div className="grid grid-cols-2 sm:flex items-center p-1 bg-slate-950/80 border border-slate-800 rounded-2xl shrink-0 w-full sm:w-auto">
+          {/* Right: Queue Switcher (Action Required vs Audit History) */}
+          <div className="grid grid-cols-2 sm:flex items-center p-1 bg-slate-950/80 border border-slate-800 rounded-xl sm:rounded-2xl shrink-0 w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setCheckoutStatusFilter('pending')}
-              className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+              className={`min-h-[44px] px-3.5 sm:px-4 py-2 rounded-lg sm:rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                 checkoutStatusFilter === 'pending'
                   ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-md font-black'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
@@ -432,7 +435,7 @@ Thank you!`;
             <button
               type="button"
               onClick={() => setCheckoutStatusFilter('all')}
-              className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+              className={`min-h-[44px] px-3.5 sm:px-4 py-2 rounded-lg sm:rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
                 checkoutStatusFilter !== 'pending'
                   ? 'bg-slate-800 border border-slate-700 text-white shadow-md font-black'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
@@ -442,116 +445,126 @@ Thank you!`;
               <span className="text-[10px] text-slate-400 font-mono">({checkouts.length})</span>
             </button>
           </div>
-
-          {/* View Mode Toggle: Cards vs Table (Visible on Tablet & Desktop) */}
-          <div className="hidden md:flex items-center p-1 bg-slate-950/80 border border-slate-800 rounded-2xl shrink-0">
-            <button
-              type="button"
-              onClick={() => handleToggleViewMode('cards')}
-              title="Cards Grid View (Tablet & Mobile Optimized)"
-              className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
-                viewMode === 'cards'
-                  ? 'bg-brand-lime text-dark-bg font-black shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
-              }`}
-            >
-              <LayoutGrid className="w-4 h-4" />
-              <span className="text-[11px] hidden lg:inline">Cards</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleToggleViewMode('table')}
-              title="Table View (Full Multi-Column View)"
-              className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
-                viewMode === 'table'
-                  ? 'bg-brand-lime text-dark-bg font-black shadow-md'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
-              }`}
-            >
-              <TableIcon className="w-4 h-4" />
-              <span className="text-[11px] hidden lg:inline">Table</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. FILTER TOOLBAR & QUICK SEARCH */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 glass-panel p-3.5 sm:p-4 rounded-2xl border border-slate-800">
-        {/* Search Bar Input */}
-        <div className="relative w-full sm:w-72 lg:w-80">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Search player, phone, ref, court..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full min-h-[42px] bg-slate-950/80 border border-slate-800 rounded-xl pl-9.5 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime/50 transition-all"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1 rounded cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
 
-        {/* Filter Trigger & Reset Controls */}
-        <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end shrink-0">
-          {/* Active Filter Summary Pills */}
-          {checkoutCategoryFilter !== 'all' && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-blue-500/10 border border-blue-500/30 text-blue-300">
-              {checkoutCategoryFilter === 'court' ? 'Court Only' : 'Open Play'}
-              <button onClick={() => setCheckoutCategoryFilter('all')} className="hover:text-white ml-0.5 cursor-pointer">
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-          {checkoutDateFilter && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
-              {checkoutDateFilter}
-              <button onClick={() => setCheckoutDateFilter('')} className="hover:text-white ml-0.5 cursor-pointer">
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
+        {/* Divider between Row 1 and Row 2 */}
+        <div className="h-px bg-slate-800/80 w-full" />
 
-          <button
-            type="button"
-            onClick={() => setIsFilterModalOpen(true)}
-            className={`min-h-[42px] px-4 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-2 cursor-pointer transition-all ${
-              activeFilterCount > 0
-                ? 'bg-brand-lime/10 border-brand-lime/40 text-brand-lime shadow-md'
-                : 'bg-slate-900 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-            title="Open Filter Settings Modal"
-          >
-            <SlidersHorizontal className="w-4 h-4 text-brand-lime" />
-            <span>Filters</span>
-            {activeFilterCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-brand-lime text-slate-950 text-[10px] font-black">
-                ({activeFilterCount})
-              </span>
+        {/* ROW 2: Search Input, Filters Button, Active Chips, and View Mode */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+          {/* Left Sub-row: Search Bar + Filter Trigger + Reset Button */}
+          <div className="flex items-center gap-2 w-full sm:w-auto flex-1 min-w-0">
+            {/* Search Input (Expands on Mobile) */}
+            <div className="relative flex-1 sm:max-w-xs md:max-w-sm lg:max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search player, ref, court..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full min-h-[44px] bg-slate-950/80 border border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime/50 transition-all"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white p-1 rounded cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Filters Modal Trigger Button */}
+            <button
+              type="button"
+              onClick={() => setIsFilterModalOpen(true)}
+              className={`min-h-[44px] px-3 sm:px-3.5 py-2 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shrink-0 transition-all ${
+                activeFilterCount > 0
+                  ? 'bg-brand-lime/10 border-brand-lime/40 text-brand-lime shadow-md'
+                  : 'bg-slate-950/80 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900'
+              }`}
+              title="Open Filter Settings Modal"
+            >
+              <SlidersHorizontal className="w-4 h-4 text-brand-lime shrink-0" />
+              <span className="hidden xs:inline">Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-brand-lime text-slate-950 text-[10px] font-black">
+                  ({activeFilterCount})
+                </span>
+              )}
+            </button>
+
+            {/* Reset Button (Visible if active filter or search) */}
+            {(activeFilterCount > 0 || searchQuery) && (
+              <button
+                onClick={() => {
+                  setCheckoutCategoryFilter('all');
+                  setCheckoutStatusFilter('pending');
+                  setCheckoutDateFilter('');
+                  setSearchQuery('');
+                }}
+                className="min-h-[44px] text-xs text-slate-400 hover:text-white px-2.5 sm:px-3 py-2 rounded-xl bg-slate-950/80 hover:bg-slate-900 border border-slate-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 shadow-sm"
+                title="Reset checkout filters"
+              >
+                <X className="w-3.5 h-3.5 text-rose-400" />
+                <span className="hidden sm:inline font-semibold">Reset</span>
+              </button>
             )}
-          </button>
+          </div>
 
-          {(activeFilterCount > 0 || searchQuery) && (
-            <button
-              onClick={() => {
-                setCheckoutCategoryFilter('all');
-                setCheckoutStatusFilter('pending');
-                setCheckoutDateFilter('');
-                setSearchQuery('');
-              }}
-              className="min-h-[42px] text-xs text-slate-400 hover:text-white px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Reset checkout filters"
-            >
-              <X className="w-3.5 h-3.5 text-rose-400" />
-              <span className="font-semibold">Reset</span>
-            </button>
-          )}
+          {/* Right Sub-row: Active Filter Chips & View Mode Toggle */}
+          <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
+            {/* Active Filter Chips */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {checkoutCategoryFilter !== 'all' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-500/10 border border-blue-500/30 text-blue-300">
+                  {checkoutCategoryFilter === 'court' ? 'Court Only' : 'Open Play'}
+                  <button onClick={() => setCheckoutCategoryFilter('all')} className="hover:text-white ml-0.5 cursor-pointer">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {checkoutDateFilter && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
+                  {checkoutDateFilter}
+                  <button onClick={() => setCheckoutDateFilter('')} className="hover:text-white ml-0.5 cursor-pointer">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+            </div>
+
+            {/* View Mode Toggle: Cards vs Table (Desktop & Tablet) */}
+            <div className="hidden md:flex items-center p-1 bg-slate-950/80 border border-slate-800 rounded-xl shrink-0">
+              <button
+                type="button"
+                onClick={() => handleToggleViewMode('cards')}
+                title="Cards Grid View"
+                className={`p-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                  viewMode === 'cards'
+                    ? 'bg-brand-lime text-dark-bg font-black shadow-md'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                <span className="text-[11px] hidden lg:inline">Cards</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleViewMode('table')}
+                title="Table View"
+                className={`p-2 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                  viewMode === 'table'
+                    ? 'bg-brand-lime text-dark-bg font-black shadow-md'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+                }`}
+              >
+                <TableIcon className="w-4 h-4" />
+                <span className="text-[11px] hidden lg:inline">Table</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
