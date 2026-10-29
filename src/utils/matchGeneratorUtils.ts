@@ -14,6 +14,7 @@ export interface UniquePartnerOptions {
   existingMatches?: OpenPlayMatch[];
   startingRound?: number;
   isSmartMatch?: boolean;
+  allowOverflowMatch?: boolean;
 }
 
 export interface MatchGenerationResult {
@@ -68,15 +69,20 @@ export const calculateSessionRoundPacing = (
   courtCount: number,
   sessionDurationMinutes: number,
   estGameDurationMinutes: number,
-  playersPerMatch: number = 4
+  playersPerMatch: number = 4,
+  allowOverflowMatch: boolean = false
 ): SessionRoundPacing => {
   const safePlayers = Math.max(playersPerMatch, activePlayerCount);
   const safeCourts = Math.max(1, courtCount);
   const safeGameMins = Math.max(5, estGameDurationMinutes);
   const safeSessionMins = Math.max(safeGameMins, sessionDurationMinutes);
 
-  // 1. Games required in 1 Round so every active player plays once
-  const gamesPerRound = Math.max(1, Math.ceil(safePlayers / playersPerMatch));
+  // 1. Games required in 1 Round so active players rotate:
+  // When allowOverflowMatch is true: ceil (extra overflow game with repeat fillers)
+  // When allowOverflowMatch is false: floor (leftovers sit out this round and play next round)
+  const gamesPerRound = allowOverflowMatch
+    ? Math.max(1, Math.ceil(safePlayers / playersPerMatch))
+    : Math.max(1, Math.floor(safePlayers / playersPerMatch));
 
   // 2. Time Waves needed in 1 Round given C available courts running simultaneously
   const timeWavesPerRound = Math.max(1, Math.ceil(gamesPerRound / safeCourts));
@@ -163,6 +169,7 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     existingMatches = [],
     startingRound = 1,
     isSmartMatch = false,
+    allowOverflowMatch = false,
   } = options;
 
   const activePlayers = rosterPool.filter((p) => p.status === 'active');
@@ -193,19 +200,25 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
   const exactMatchCounts = new Map<string, number>();
   const matchesPlayed = new Map<string, number>();
   const consecutiveRests = new Map<string, number>();
+  const totalRests = new Map<string, number>();
   const courtVisits = new Map<string, Map<string, number>>();
 
   // Track immediately preceding round recency
   const maxExistingRound = existingMatches.length > 0 ? Math.max(...existingMatches.map((m) => m.round)) : 0;
+  const existingRounds = Array.from(new Set(existingMatches.map((m) => m.round))).sort((a, b) => a - b);
+  const playerRoundsPlayed = new Map<string, Set<number>>();
   const lastRoundFoursomes = new Set<string>();
   const lastRoundPartners = new Set<string>();
   const lastRoundOpponents = new Set<string>();
+  const lastRoundRepeaters = new Set<string>();
 
   // Initialize tracking maps for active players
   activePlayers.forEach((p) => {
     matchesPlayed.set(p.id, 0);
     consecutiveRests.set(p.id, 0);
+    totalRests.set(p.id, 0);
     courtVisits.set(p.id, new Map());
+    playerRoundsPlayed.set(p.id, new Set());
   });
 
   // Hydrate tracking matrices from existing matches (all prior rounds already played/scheduled)
@@ -251,9 +264,10 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       });
     });
 
-    // Counts
+    // Counts & round participation
     allMatchPlayers.forEach((p) => {
       matchesPlayed.set(p.id, (matchesPlayed.get(p.id) || 0) + 1);
+      playerRoundsPlayed.get(p.id)?.add(m.round);
       const cv = courtVisits.get(p.id);
       if (cv) {
         cv.set(m.courtName, (cv.get(m.courtName) || 0) + 1);
@@ -261,16 +275,35 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     });
   });
 
+  // Calculate prior consecutive rests and lifetime rests from existing matches
+  if (existingRounds.length > 0) {
+    activePlayers.forEach((p) => {
+      const roundsPlayed = playerRoundsPlayed.get(p.id) || new Set();
+      const restsCount = existingRounds.filter((r) => !roundsPlayed.has(r)).length;
+      totalRests.set(p.id, restsCount);
+
+      let streak = 0;
+      for (let rIdx = existingRounds.length - 1; rIdx >= 0; rIdx--) {
+        const r = existingRounds[rIdx];
+        if (!roundsPlayed.has(r)) {
+          streak++;
+        } else {
+          break;
+        }
+      }
+      consecutiveRests.set(p.id, streak);
+    });
+  }
+
   const generatedMatches: OpenPlayMatch[] = [];
   let totalPairingsFormed = 0;
   let uniquePairingsFormed = 0;
   let repeatedPairingsFormed = 0;
   let globalCourtCounter = existingMatches.length;
 
-  // Number of games per round to rotate all active players once
-  const gamesPerRound = Math.max(1, Math.ceil(activePlayers.length / playersPerMatch));
+  // Number of games per round
   const fullBatchGamesCount = Math.floor(activePlayers.length / playersPerMatch);
-  const hasPartialOverflowGame = gamesPerRound > fullBatchGamesCount;
+  const hasLeftoverPlayers = activePlayers.length % playersPerMatch !== 0;
 
   // Map to player object lookup
   const playerMap = new Map<string, OpenPlayMatchRosterItem>(activePlayers.map((p) => [p.id, p]));
@@ -374,6 +407,118 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     });
   };
 
+  /**
+   * Given 4 player IDs for a single doubles court, evaluates all 3 possible team splits:
+   * - Split A (1&4 vs 2&3): [P1, P4] vs [P2, P3] (Peak DUPR Parity)
+   * - Split B (1&3 vs 2&4): [P1, P3] vs [P2, P4] (Balanced Alternate)
+   * - Split C (1&2 vs 3&4): [P1, P2] vs [P3, P4] (Tier Split)
+   * Returns the optimal [red1, red2, blue1, blue2] ordering that enforces 1&4 vs 2&3 parity
+   * while avoiding repeat partnerships and exact match repeats.
+   */
+  const arrangeFoursomeTeams = (fourIds: string[]): string[] => {
+    if (fourIds.length !== 4) return fourIds;
+
+    // Sort descending by effective DUPR rating: P1 >= P2 >= P3 >= P4
+    const sorted = [...fourIds].sort((a, b) => {
+      const pA = playerMap.get(a);
+      const pB = playerMap.get(b);
+      const rA = pA ? getPlayerEffectiveRating(pA, allPlayersNR) : 3.0;
+      const rB = pB ? getPlayerEffectiveRating(pB, allPlayersNR) : 3.0;
+      return rB - rA;
+    });
+
+    const [p1, p2, p3, p4] = sorted;
+    const candidates: string[][] = [
+      [p1, p4, p2, p3], // 0: 1&4 vs 2&3 (Peak Parity)
+      [p1, p3, p2, p4], // 1: 1&3 vs 2&4 (Balanced Alternate)
+      [p1, p2, p3, p4], // 2: 1&2 vs 3&4 (Top vs Bottom)
+    ];
+
+    let bestSplit = candidates[0];
+    let bestSplitCost = Infinity;
+
+    candidates.forEach((split, idx) => {
+      const [r1, r2, b1, b2] = split;
+      let splitCost = 0;
+
+      // 1. Exact Matchup Repeat (150,000)
+      const mKey = getMatchupKey([r1, r2], [b1, b2]);
+      splitCost += (exactMatchCounts.get(mKey) || 0) * 150000;
+
+      // 2. Partner Repeats (12,000 + 8,000 if back-to-back)
+      const kRed = getPairKey(r1, r2);
+      const kBlue = getPairKey(b1, b2);
+      splitCost += (partnerCounts.get(kRed) || 0) * 12000;
+      splitCost += (partnerCounts.get(kBlue) || 0) * 12000;
+      if (lastRoundPartners.has(kRed)) splitCost += 8000;
+      if (lastRoundPartners.has(kBlue)) splitCost += 8000;
+
+      // 3. Opponent Repeats
+      const opps = [
+        getPairKey(r1, b1),
+        getPairKey(r1, b2),
+        getPairKey(r2, b1),
+        getPairKey(r2, b2),
+      ];
+      opps.forEach((ok) => {
+        splitCost += (opponentCounts.get(ok) || 0) * 200;
+        if (lastRoundOpponents.has(ok)) splitCost += 1000;
+      });
+
+      // 4. DUPR Smart Match Parity & NR Anchor Calibration
+      if (isSmartMatch) {
+        const objR1 = playerMap.get(r1);
+        const objR2 = playerMap.get(r2);
+        const objB1 = playerMap.get(b1);
+        const objB2 = playerMap.get(b2);
+
+        if (objR1 && objR2 && objB1 && objB2) {
+          const rateR1 = getPlayerEffectiveRating(objR1, allPlayersNR);
+          const rateR2 = getPlayerEffectiveRating(objR2, allPlayersNR);
+          const rateB1 = getPlayerEffectiveRating(objB1, allPlayersNR);
+          const rateB2 = getPlayerEffectiveRating(objB2, allPlayersNR);
+
+          const teamDelta = Math.abs((rateR1 + rateR2) - (rateB1 + rateB2));
+
+          // Strong preference for 1&4 vs 2&3 parity (delta <= 0.15)
+          splitCost += teamDelta * 35000;
+
+          // Heavy barrier penalty if team rating delta exceeds 0.20 so we never allow blowouts
+          if (teamDelta > 0.20) {
+            splitCost += (teamDelta - 0.20) * 120000;
+          }
+          if (teamDelta > 0.35) {
+            splitCost += 250000;
+          }
+
+          // Slight tie-breaker preference for canonical 1&4 vs 2&3
+          if (idx === 0) splitCost -= 50;
+          if (idx === 2 && teamDelta > 0.10) splitCost += 50000;
+
+          // Official DUPR Rule #2: Anchor Pairing (1 Rated + 1 NR vs 1 Rated + 1 NR)
+          if (!allPlayersNR) {
+            const nrFlags = [objR1, objR2, objB1, objB2].map(isPlayerNR);
+            const totalNR = nrFlags.filter(Boolean).length;
+            if (totalNR === 2) {
+              const redNR = (nrFlags[0] ? 1 : 0) + (nrFlags[1] ? 1 : 0);
+              if (redNR !== 1) {
+                // Penalize putting both NR players on the same team instead of anchoring each with a rated partner
+                splitCost += 18000;
+              }
+            }
+          }
+        }
+      }
+
+      if (splitCost < bestSplitCost) {
+        bestSplitCost = splitCost;
+        bestSplit = split;
+      }
+    });
+
+    return bestSplit;
+  };
+
   // Evaluates penalty cost of an arrangement of players across `numGames` games
   const computeBatchCost = (order: string[], numGames: number, baseCourtIdx: number): number => {
     let cost = 0;
@@ -387,11 +532,11 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
         const blue1 = order[base + 2];
         const blue2 = order[base + 3];
 
-        // 1. Exact Match Repeat (heaviest penalty: 100,000)
+        // 1. Exact Match Repeat (heaviest penalty: 150,000)
         const matchupKey = getMatchupKey([red1, red2], [blue1, blue2]);
         const exactRepeats = exactMatchCounts.get(matchupKey) || 0;
         if (exactRepeats > 0) {
-          cost += exactRepeats * 100000;
+          cost += exactRepeats * 150000;
         }
 
         // 2. Exact 4-Player Court Foursome Repeat (penalty: 25,000 if activePlayers >= 8)
@@ -406,11 +551,11 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
           }
         }
 
-        // 3. Heavy penalty for partner repeats (10,000 per repeat)
+        // 3. Heavy penalty for partner repeats (12,000 per repeat)
         const redPartnerKey = getPairKey(red1, red2);
         const redPartnerTimes = partnerCounts.get(redPartnerKey) || 0;
         if (redPartnerTimes > 0) {
-          cost += redPartnerTimes * 10000;
+          cost += redPartnerTimes * 12000;
         }
         if (lastRoundPartners.has(redPartnerKey)) {
           cost += 8000;
@@ -419,7 +564,7 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
         const bluePartnerKey = getPairKey(blue1, blue2);
         const bluePartnerTimes = partnerCounts.get(bluePartnerKey) || 0;
         if (bluePartnerTimes > 0) {
-          cost += bluePartnerTimes * 10000;
+          cost += bluePartnerTimes * 12000;
         }
         if (lastRoundPartners.has(bluePartnerKey)) {
           cost += 8000;
@@ -462,13 +607,34 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
             const teamBlueSum = rB1 + rB2;
             const teamDelta = Math.abs(teamRedSum - teamBlueSum);
 
-            // Parity penalty: scaled to prioritize balance without overriding partner uniqueness
-            cost += teamDelta * 2000;
+            // High-priority parity penalty: enforces 1&4 vs 2&3 balance (delta <= 0.15)
+            cost += teamDelta * 35000;
+            if (teamDelta > 0.20) {
+              cost += (teamDelta - 0.20) * 120000;
+            }
+            if (teamDelta > 0.35) {
+              cost += 250000;
+            }
 
-            // Court tier clustering penalty: prevent excessive disparity on a single court
+            // Court tier clustering penalty: keep players of similar rating on the same court
             const courtSpread = Math.max(rR1, rR2, rB1, rB2) - Math.min(rR1, rR2, rB1, rB2);
-            if (courtSpread > 1.2) {
-              cost += (courtSpread - 1.2) * 800;
+            cost += courtSpread * 3500;
+            if (courtSpread > 1.0) {
+              cost += (courtSpread - 1.0) * 20000;
+            }
+
+            // DUPR Rule #2: Never isolate 4 NR players on a court if rated anchors exist
+            if (!allPlayersNR) {
+              const nrFlags = [pR1, pR2, pB1, pB2].map(isPlayerNR);
+              const nrCountOnCourt = nrFlags.filter(Boolean).length;
+              if (nrCountOnCourt === 4) {
+                cost += 45000;
+              } else if (nrCountOnCourt === 2) {
+                const redNR = (nrFlags[0] ? 1 : 0) + (nrFlags[1] ? 1 : 0);
+                if (redNR !== 1) {
+                  cost += 18000;
+                }
+              }
             }
           }
         }
@@ -487,7 +653,8 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
           if (pR && pB) {
             const r1 = getPlayerEffectiveRating(pR, allPlayersNR);
             const r2 = getPlayerEffectiveRating(pB, allPlayersNR);
-            cost += Math.abs(r1 - r2) * 2000;
+            const delta = Math.abs(r1 - r2);
+            cost += delta * 25000;
           }
         }
       }
@@ -495,20 +662,56 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     return cost;
   };
 
-  // Optimizes ordering of player IDs across `numGames` using randomized hill-climbing with multi-restart
-  const optimizePlayerArrangement = (playerIds: string[], numGames: number, baseCourtIdx: number): string[] => {
-    let bestArrangement = [...playerIds];
-    let bestCost = computeBatchCost(bestArrangement, numGames, baseCourtIdx);
-    if (bestCost === 0) return bestArrangement;
+  // Normalizes each 4-player court slice in `order` using `arrangeFoursomeTeams`
+  const normalizeOrderFoursomes = (order: string[], numGames: number): string[] => {
+    if (!isDoubles) return order;
+    const normalized = [...order];
+    for (let gIdx = 0; gIdx < numGames; gIdx++) {
+      const base = gIdx * 4;
+      const slice = normalized.slice(base, base + 4);
+      if (slice.length === 4) {
+        const bestTeams = arrangeFoursomeTeams(slice);
+        normalized[base] = bestTeams[0];
+        normalized[base + 1] = bestTeams[1];
+        normalized[base + 2] = bestTeams[2];
+        normalized[base + 3] = bestTeams[3];
+      }
+    }
+    return normalized;
+  };
 
-    const RESTARTS = 75;
-    const MAX_SWAPS = 120;
+  // Optimizes ordering of player IDs across `numGames` using rating-seeded + randomized hill-climbing
+  const optimizePlayerArrangement = (playerIds: string[], numGames: number, baseCourtIdx: number): string[] => {
+    // Seed 0: Rating-sorted tier clusters with 1&4 vs 2&3 parity
+    const ratingSortedIds = [...playerIds].sort((a, b) => {
+      const pA = playerMap.get(a);
+      const pB = playerMap.get(b);
+      const rA = pA ? getPlayerEffectiveRating(pA, allPlayersNR) : 3.0;
+      const rB = pB ? getPlayerEffectiveRating(pB, allPlayersNR) : 3.0;
+      return rB - rA;
+    });
+
+    let bestArrangement = normalizeOrderFoursomes(
+      isSmartMatch ? ratingSortedIds : [...playerIds],
+      numGames
+    );
+    let bestCost = computeBatchCost(bestArrangement, numGames, baseCourtIdx);
+    if (bestCost <= 0) return bestArrangement;
+
+    const RESTARTS = 80;
+    const MAX_SWAPS = 100;
 
     for (let restart = 0; restart < RESTARTS; restart++) {
-      const currentOrder = [...playerIds].sort(() => Math.random() - 0.5);
-      let currentCost = computeBatchCost(currentOrder, numGames, baseCourtIdx);
+      const currentOrder =
+        restart === 0
+          ? [...ratingSortedIds]
+          : [...playerIds].sort(() => Math.random() - 0.5);
 
-      if (currentCost === 0) {
+      const normalizedInit = normalizeOrderFoursomes(currentOrder, numGames);
+      for (let k = 0; k < normalizedInit.length; k++) currentOrder[k] = normalizedInit[k];
+
+      let currentCost = computeBatchCost(currentOrder, numGames, baseCourtIdx);
+      if (currentCost <= 0) {
         return currentOrder;
       }
 
@@ -517,28 +720,65 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
         const j = Math.floor(Math.random() * currentOrder.length);
         if (i === j) continue;
 
+        // If swapping within the same doubles court, arrangeFoursomeTeams already found the optimal split
+        if (isDoubles && Math.floor(i / 4) === Math.floor(j / 4)) continue;
+
+        const backup = [...currentOrder];
         const temp = currentOrder[i];
         currentOrder[i] = currentOrder[j];
         currentOrder[j] = temp;
 
+        // Re-balance the two affected courts into optimal 1&4 vs 2&3 teams
+        if (isDoubles) {
+          const courtI = Math.floor(i / 4);
+          const courtJ = Math.floor(j / 4);
+          for (const cIdx of [courtI, courtJ]) {
+            const base = cIdx * 4;
+            const arranged = arrangeFoursomeTeams(currentOrder.slice(base, base + 4));
+            currentOrder[base] = arranged[0];
+            currentOrder[base + 1] = arranged[1];
+            currentOrder[base + 2] = arranged[2];
+            currentOrder[base + 3] = arranged[3];
+          }
+        }
+
         const newCost = computeBatchCost(currentOrder, numGames, baseCourtIdx);
         if (newCost < currentCost) {
           currentCost = newCost;
-          if (currentCost === 0) break;
+          if (currentCost <= 0) break;
         } else {
-          currentOrder[j] = currentOrder[i];
-          currentOrder[i] = temp;
+          for (let k = 0; k < backup.length; k++) currentOrder[k] = backup[k];
         }
       }
 
       if (currentCost < bestCost) {
         bestCost = currentCost;
         bestArrangement = [...currentOrder];
-        if (bestCost === 0) break;
+        if (bestCost <= 0) break;
       }
     }
 
-    return bestArrangement;
+    return normalizeOrderFoursomes(bestArrangement, numGames);
+  };
+
+  // Helper to generate combinations of size `k` from array `arr`
+  const getCombinations = <T>(arr: T[], k: number): T[][] => {
+    if (k <= 0) return [[]];
+    if (arr.length < k) return [arr];
+    const results: T[][] = [];
+    const helper = (start: number, combo: T[]) => {
+      if (combo.length === k) {
+        results.push([...combo]);
+        return;
+      }
+      for (let i = start; i <= arr.length - (k - combo.length); i++) {
+        combo.push(arr[i]);
+        helper(i + 1, combo);
+        combo.pop();
+      }
+    };
+    helper(0, []);
+    return results;
   };
 
   for (let roundOffset = 0; roundOffset < totalRounds; roundOffset++) {
@@ -549,38 +789,288 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     lastRoundPartners.clear();
     lastRoundOpponents.clear();
 
-    // Sort active players by fewest matches played, with random rotation
-    const sortedPool = [...activePlayers].sort((a, b) => {
-      const aMatches = matchesPlayed.get(a.id) || 0;
-      const bMatches = matchesPlayed.get(b.id) || 0;
-      if (aMatches !== bMatches) return aMatches - bMatches;
+    // Fair full-cycle rotation offset across all active players (coprime step-1 shift)
+    const shiftOffset = (maxExistingRound + roundOffset) % activePlayers.length;
+    const shiftedBase = [
+      ...activePlayers.slice(shiftOffset),
+      ...activePlayers.slice(0, shiftOffset),
+    ];
 
-      const aRests = consecutiveRests.get(a.id) || 0;
-      const bRests = consecutiveRests.get(b.id) || 0;
-      if (aRests !== bRests) return bRests - aRests;
+    const indexInShifted = new Map<string, number>(shiftedBase.map((p, idx) => [p.id, idx]));
 
-      return Math.random() - 0.5;
-    });
-
-    // Rotate player order slightly across rounds so different players land on different courts before hill-climbing
-    const roundShift = ((maxExistingRound + roundOffset) * 3) % sortedPool.length;
-    const rotatedPool = [...sortedPool.slice(roundShift), ...sortedPool.slice(0, roundShift)];
-
-    // 1. Primary batch of full games covering `fullBatchGamesCount * playersPerMatch` distinct players
-    const primarySlots = fullBatchGamesCount * playersPerMatch;
-    const primaryPlayers = rotatedPool.slice(0, primarySlots);
-    const leftoverPlayers = rotatedPool.slice(primarySlots);
-
-    if (fullBatchGamesCount > 0) {
+    // Case A: Exact multiple of playersPerMatch (e.g. 8, 12, 16 players)
+    if (!hasLeftoverPlayers) {
       const optimizedPrimaryIds = optimizePlayerArrangement(
-        primaryPlayers.map((p) => p.id),
+        shiftedBase.map((p) => p.id),
         fullBatchGamesCount,
         globalCourtCounter
       );
 
       for (let gIdx = 0; gIdx < fullBatchGamesCount; gIdx++) {
         const base = gIdx * playersPerMatch;
-        const courtName = assignedCourts[globalCourtCounter % courtCount] || `Court ${(globalCourtCounter % courtCount) + 1}`;
+        const courtName =
+          assignedCourts[globalCourtCounter % courtCount] || ('Court ' + ((globalCourtCounter % courtCount) + 1));
+        globalCourtCounter++;
+
+        commitMatchToRound(
+          currentRoundNum,
+          courtName,
+          optimizedPrimaryIds.slice(base, base + playersPerMatch)
+        );
+      }
+      activePlayers.forEach((p) => consecutiveRests.set(p.id, 0));
+      continue;
+    }
+
+    // Case B1: Uneven Roster with Sit Out & Priority Next Round (allowOverflowMatch === false, Default)
+    // Strict Quota: Leftover player(s) rest this round with guaranteed 100% priority next round.
+    // Strictly enforces max 1-game difference across all players at all times.
+    if (!allowOverflowMatch) {
+      const primarySlots = fullBatchGamesCount * playersPerMatch;
+      const sitOutCount = activePlayers.length - primarySlots;
+
+      // 1. Filter out players who sat out in the immediately preceding round (100% immune from sitting out!)
+      let eligibleSitOutCandidates = shiftedBase.filter(
+        (p) => (consecutiveRests.get(p.id) || 0) === 0
+      );
+
+      // Defensive fallback if almost everyone sat out previously
+      if (eligibleSitOutCandidates.length < sitOutCount) {
+        eligibleSitOutCandidates = [...shiftedBase].sort(
+          (a, b) => (consecutiveRests.get(a.id) || 0) - (consecutiveRests.get(b.id) || 0)
+        );
+      }
+
+      // 2. Strict Tier Partitioning: players with the MOST games played MUST sit out first.
+      // No player with fewer games is ever allowed to sit out while players with more games exist!
+      const maxPlayed = Math.max(...eligibleSitOutCandidates.map((p) => matchesPlayed.get(p.id) || 0));
+      const candidatesAtMax = eligibleSitOutCandidates.filter((p) => (matchesPlayed.get(p.id) || 0) === maxPlayed);
+      const minRestsAtMax = Math.min(...candidatesAtMax.map((p) => totalRests.get(p.id) || 0));
+      const topTier = candidatesAtMax
+        .filter((p) => (totalRests.get(p.id) || 0) === minRestsAtMax)
+        .sort((a, b) => (indexInShifted.get(a.id) || 0) - (indexInShifted.get(b.id) || 0));
+
+      let sitOutCombos: string[][] = [];
+
+      if (topTier.length >= sitOutCount) {
+        // 100% of sit-out players come strictly from the top tier
+        const topSubset = topTier.slice(0, Math.min(topTier.length, sitOutCount + 5));
+        sitOutCombos = getCombinations(topSubset.map((p) => p.id), sitOutCount);
+      } else {
+        // All top-tier players are mandatory sit-outs; remaining spots filled from next tier
+        const mandatorySitOutIds = topTier.map((p) => p.id);
+        const remainingNeeded = sitOutCount - mandatorySitOutIds.length;
+        const remainingCandidates = eligibleSitOutCandidates.filter((p) => !mandatorySitOutIds.includes(p.id));
+        const nextMaxPlayed = Math.max(...remainingCandidates.map((p) => matchesPlayed.get(p.id) || 0));
+        const nextTier = remainingCandidates
+          .filter((p) => (matchesPlayed.get(p.id) || 0) === nextMaxPlayed)
+          .sort((a, b) => (indexInShifted.get(a.id) || 0) - (indexInShifted.get(b.id) || 0));
+        const nextSubset = nextTier.slice(0, Math.min(nextTier.length, remainingNeeded + 4));
+        const nextCombos = getCombinations(nextSubset.map((p) => p.id), remainingNeeded);
+        sitOutCombos = nextCombos.map((combo) => [...mandatorySitOutIds, ...combo]);
+      }
+
+      let bestPlayingIds: string[] = [];
+      let bestBatchCost = Infinity;
+
+      for (const sitIds of sitOutCombos) {
+        const sitSet = new Set(sitIds);
+        const candidatePlayingIds = shiftedBase.filter((p) => !sitSet.has(p.id)).map((p) => p.id);
+
+        if (candidatePlayingIds.length !== primarySlots) continue;
+
+        const seededOrder = normalizeOrderFoursomes(
+          isSmartMatch
+            ? [...candidatePlayingIds].sort((a, b) => {
+                const pA = playerMap.get(a);
+                const pB = playerMap.get(b);
+                const rA = pA ? getPlayerEffectiveRating(pA, allPlayersNR) : 3.0;
+                const rB = pB ? getPlayerEffectiveRating(pB, allPlayersNR) : 3.0;
+                return rB - rA;
+              })
+            : [...candidatePlayingIds],
+          fullBatchGamesCount
+        );
+
+        const cost = computeBatchCost(seededOrder, fullBatchGamesCount, globalCourtCounter);
+        if (cost < bestBatchCost) {
+          bestBatchCost = cost;
+          bestPlayingIds = candidatePlayingIds;
+        }
+      }
+
+      // Optimize and commit the games
+      const finalPlayingIds =
+        bestPlayingIds.length === primarySlots
+          ? bestPlayingIds
+          : shiftedBase.slice(0, primarySlots).map((p) => p.id);
+
+      const optimizedPrimaryIds = optimizePlayerArrangement(
+        finalPlayingIds,
+        fullBatchGamesCount,
+        globalCourtCounter
+      );
+
+      for (let gIdx = 0; gIdx < fullBatchGamesCount; gIdx++) {
+        const base = gIdx * playersPerMatch;
+        const courtName =
+          assignedCourts[globalCourtCounter % courtCount] || ('Court ' + ((globalCourtCounter % courtCount) + 1));
+        globalCourtCounter++;
+
+        commitMatchToRound(
+          currentRoundNum,
+          courtName,
+          optimizedPrimaryIds.slice(base, base + playersPerMatch)
+        );
+      }
+
+      // Update rests and streak for this round
+      const playingSet = new Set(optimizedPrimaryIds);
+      activePlayers.forEach((p) => {
+        if (playingSet.has(p.id)) {
+          consecutiveRests.set(p.id, 0);
+        } else {
+          consecutiveRests.set(p.id, (consecutiveRests.get(p.id) || 0) + 1);
+          totalRests.set(p.id, (totalRests.get(p.id) || 0) + 1);
+        }
+      });
+
+      continue;
+    }
+
+    // Case B2: Uneven Roster with Sequential Wave Overflow Game (allowOverflowMatch === true)
+    // Generates an extra match with repeat fillers so every player plays in this round.
+    const primarySlots = fullBatchGamesCount * playersPerMatch;
+    const leftoverCount = activePlayers.length - primarySlots;
+    const neededFillCount = playersPerMatch - leftoverCount;
+
+    // Sort players by fewest matchesPlayed ascending to identify who deserves the extra game in this round
+    const sortedByMatches = [...shiftedBase].sort((a, b) => {
+      const aM = matchesPlayed.get(a.id) || 0;
+      const bM = matchesPlayed.get(b.id) || 0;
+      if (aM !== bM) return aM - bM;
+      return (indexInShifted.get(a.id) || 0) - (indexInShifted.get(b.id) || 0);
+    });
+
+    // Strict Tier Lock for Repeaters: players with fewest matches played MUST repeat first!
+    const minPlayed = Math.min(...shiftedBase.map((p) => matchesPlayed.get(p.id) || 0));
+    const lowestTier = shiftedBase
+      .filter((p) => (matchesPlayed.get(p.id) || 0) === minPlayed)
+      .sort((a, b) => (lastRoundRepeaters.has(a.id) ? 1 : 0) - (lastRoundRepeaters.has(b.id) ? 1 : 0));
+
+    let repeaterCombos: string[][] = [];
+
+    if (lowestTier.length >= neededFillCount) {
+      const subset = lowestTier.slice(0, Math.min(lowestTier.length, neededFillCount + 5));
+      repeaterCombos = getCombinations(subset.map((p) => p.id), neededFillCount);
+    } else {
+      const mandatoryRepeatIds = lowestTier.map((p) => p.id);
+      const remainingNeeded = neededFillCount - mandatoryRepeatIds.length;
+      const remainingPool = shiftedBase.filter((p) => !mandatoryRepeatIds.includes(p.id));
+      const nextMinPlayed = Math.min(...remainingPool.map((p) => matchesPlayed.get(p.id) || 0));
+      const nextTier = remainingPool
+        .filter((p) => (matchesPlayed.get(p.id) || 0) === nextMinPlayed)
+        .sort((a, b) => (lastRoundRepeaters.has(a.id) ? 1 : 0) - (lastRoundRepeaters.has(b.id) ? 1 : 0));
+      const nextSubset = nextTier.slice(0, Math.min(nextTier.length, remainingNeeded + 4));
+      const nextCombos = getCombinations(nextSubset.map((p) => p.id), remainingNeeded);
+      repeaterCombos = nextCombos.map((c) => [...mandatoryRepeatIds, ...c]);
+    }
+
+    let bestWave1PrimaryIds: string[] = [];
+    let bestWave2OverflowIds: string[] = [];
+    let bestRoundTotalCost = Infinity;
+
+    for (const repeatIds of repeaterCombos) {
+      const repeatSet = new Set(repeatIds);
+      // Players who play only 1 game in this round
+      const singleGamePlayers = sortedByMatches.filter((p) => !repeatSet.has(p.id));
+
+      // Among singleGamePlayers, `leftoverCount` players will play their 1 game in Wave 2 (Overflow Game)
+      // Pick candidate single-game players closest in rating to the repeatIds so Wave 2 is skill-balanced
+      const avgRepeatRating =
+        repeatIds.reduce((sum, id) => {
+          const pObj = playerMap.get(id);
+          return sum + (pObj ? getPlayerEffectiveRating(pObj, allPlayersNR) : 3.0);
+        }, 0) / repeatIds.length;
+
+      const sortedSingleCandidates = [...singleGamePlayers].sort((a, b) => {
+        if (isSmartMatch) {
+          const rA = getPlayerEffectiveRating(a, allPlayersNR);
+          const rB = getPlayerEffectiveRating(b, allPlayersNR);
+          return Math.abs(rA - avgRepeatRating) - Math.abs(rB - avgRepeatRating);
+        }
+        return (indexInShifted.get(b.id) || 0) - (indexInShifted.get(a.id) || 0);
+      });
+
+      const leftoverCandidateSubset = sortedSingleCandidates.slice(
+        0,
+        Math.min(sortedSingleCandidates.length, Math.max(leftoverCount + 3, 5))
+      );
+
+      const leftoverCombos = getCombinations(
+        leftoverCandidateSubset.map((p) => p.id),
+        leftoverCount
+      );
+
+      for (const leftIds of leftoverCombos) {
+        const overflowFoursome = [...leftIds, ...repeatIds];
+        if (overflowFoursome.length !== playersPerMatch) continue;
+
+        const arrangedOverflow = isDoubles
+          ? arrangeFoursomeTeams(overflowFoursome)
+          : overflowFoursome;
+
+        const overflowCost = computeBatchCost(
+          arrangedOverflow,
+          1,
+          globalCourtCounter + fullBatchGamesCount
+        );
+
+        // Quick estimate of Wave 1 (all players except `leftIds`)
+        const leftSet = new Set(leftIds);
+        const wave1PlayerIds = activePlayers
+          .filter((p) => !leftSet.has(p.id))
+          .map((p) => p.id);
+
+        const wave1Seeded = normalizeOrderFoursomes(
+          [...wave1PlayerIds].sort((a, b) => {
+            const pA = playerMap.get(a);
+            const pB = playerMap.get(b);
+            const rA = pA ? getPlayerEffectiveRating(pA, allPlayersNR) : 3.0;
+            const rB = pB ? getPlayerEffectiveRating(pB, allPlayersNR) : 3.0;
+            return rB - rA;
+          }),
+          fullBatchGamesCount
+        );
+
+        const wave1QuickCost = computeBatchCost(
+          wave1Seeded,
+          fullBatchGamesCount,
+          globalCourtCounter
+        );
+
+        const totalEstCost = overflowCost + wave1QuickCost;
+        if (totalEstCost < bestRoundTotalCost) {
+          bestRoundTotalCost = totalEstCost;
+          bestWave1PrimaryIds = wave1PlayerIds;
+          bestWave2OverflowIds = arrangedOverflow;
+        }
+      }
+    }
+
+    // Commit Wave 1 (Primary full games)
+    if (fullBatchGamesCount > 0 && bestWave1PrimaryIds.length === primarySlots) {
+      const optimizedPrimaryIds = optimizePlayerArrangement(
+        bestWave1PrimaryIds,
+        fullBatchGamesCount,
+        globalCourtCounter
+      );
+
+      for (let gIdx = 0; gIdx < fullBatchGamesCount; gIdx++) {
+        const base = gIdx * playersPerMatch;
+        const courtName =
+          assignedCourts[globalCourtCounter % courtCount] ||
+          `Court ${(globalCourtCounter % courtCount) + 1}`;
         globalCourtCounter++;
 
         commitMatchToRound(
@@ -591,39 +1081,23 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       }
     }
 
-    // 2. If activePlayers is not an exact multiple of playersPerMatch (e.g. 10 players -> 2 leftover),
-    // form 1 additional game in this round so the leftover players also get to play in this round!
-    if (hasPartialOverflowGame && leftoverPlayers.length > 0) {
-      const neededFillCount = playersPerMatch - leftoverPlayers.length;
-      // Pick fill players from those with the fewest matches played who aren't in leftoverPlayers
-      const leftoverIds = new Set(leftoverPlayers.map((p) => p.id));
-      const fillCandidates = [...activePlayers]
-        .filter((p) => !leftoverIds.has(p.id))
-        .sort((a, b) => {
-          const aMatches = matchesPlayed.get(a.id) || 0;
-          const bMatches = matchesPlayed.get(b.id) || 0;
-          if (aMatches !== bMatches) return aMatches - bMatches;
-          return Math.random() - 0.5;
-        })
-        .slice(0, neededFillCount);
+    // Commit Wave 2 (Overflow game, e.g. Game 3 for 9 or 10 players)
+    if (bestWave2OverflowIds.length === playersPerMatch) {
+      const finalOverflowIds = isDoubles
+        ? arrangeFoursomeTeams(bestWave2OverflowIds)
+        : bestWave2OverflowIds;
+      const courtName =
+        assignedCourts[globalCourtCounter % courtCount] ||
+        `Court ${(globalCourtCounter % courtCount) + 1}`;
+      globalCourtCounter++;
 
-      const overflowGamePlayerIds = [
-        ...leftoverPlayers.map((p) => p.id),
-        ...fillCandidates.map((p) => p.id),
-      ];
-
-      if (overflowGamePlayerIds.length === playersPerMatch) {
-        const optimizedOverflowIds = optimizePlayerArrangement(
-          overflowGamePlayerIds,
-          1,
-          globalCourtCounter
-        );
-        const courtName = assignedCourts[globalCourtCounter % courtCount] || `Court ${(globalCourtCounter % courtCount) + 1}`;
-        globalCourtCounter++;
-
-        commitMatchToRound(currentRoundNum, courtName, optimizedOverflowIds);
-      }
+      commitMatchToRound(currentRoundNum, courtName, finalOverflowIds);
     }
+    lastRoundRepeaters.clear();
+    bestWave2OverflowIds.forEach((id) => lastRoundRepeaters.add(id));
+    activePlayers.forEach((p) => {
+      consecutiveRests.set(p.id, 0);
+    });
   }
 
   const partnerUniquenessPercent =
@@ -636,7 +1110,7 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
 
   activePlayers.forEach((p) => {
     playerMatchCounts[p.id] = matchesPlayed.get(p.id) || 0;
-    playerRestCounts[p.id] = 0; // Every player plays in every round!
+    playerRestCounts[p.id] = totalRests.get(p.id) || 0;
   });
 
   return {

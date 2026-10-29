@@ -41,7 +41,8 @@ interface OpenPlayAutoGenModalProps {
     targetPoints: number,
     isSmartMatch?: boolean,
     selectedCourts?: string[],
-    onlyPresent?: boolean
+    onlyPresent?: boolean,
+    allowOverflowMatch?: boolean
   ) => void;
 }
 
@@ -50,7 +51,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
   onClose,
   assignedCourts,
   rosterPool,
-  paddleRackQueue,
+  paddleRackQueue: _paddleRackQueue,
   initialSessionDurationMinutes,
   isDuprEvent = false,
   existingMatches = [],
@@ -105,6 +106,24 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
     };
   }, [rosterPool]);
 
+  // Uneven roster overflow mode (false = Sit Out & Priority Next Round [default], true = Extra Overflow Match)
+  const [allowOverflowMatch, setAllowOverflowMatch] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_allow_overflow');
+      if (saved !== null) {
+        return saved === 'true';
+      }
+    } catch (e) {}
+    return false;
+  });
+
+  const handleToggleOverflow = (val: boolean) => {
+    setAllowOverflowMatch(val);
+    try {
+      localStorage.setItem('picklepoint_openplay_allow_overflow', String(val));
+    } catch (e) {}
+  };
+
   // Setting switch state: Include only checked-in players
   const [onlyCheckedInPlayers, setOnlyCheckedInPlayers] = useState<boolean>(() => {
     try {
@@ -148,13 +167,12 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
 
   // Candidate players pool filtered strictly by setting switch
   const candidatePlayers = useMemo(() => {
-    const base = paddleRackQueue.length > 0 ? paddleRackQueue : rosterPool;
-    const activeFromPool = base.filter((p) => p.status === 'active');
+    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
     if (onlyCheckedInPlayers) {
       return activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
     }
     return activeFromPool;
-  }, [rosterPool, paddleRackQueue, onlyCheckedInPlayers]);
+  }, [rosterPool, onlyCheckedInPlayers]);
 
   // Active Players count evaluated for match scheduling
   const activeCount = candidatePlayers.length;
@@ -189,7 +207,11 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
     const games = Math.ceil(players.length / pPerMatch);
 
     for (let i = 0; i < games; i++) {
-      const slice = playerRatings.slice(i * pPerMatch, (i + 1) * pPerMatch);
+      let slice = playerRatings.slice(i * pPerMatch, (i + 1) * pPerMatch);
+      // If uneven roster (e.g. 9 or 10 players), pad overflow wave preview with closest-rated fill players
+      if (slice.length > 0 && slice.length < pPerMatch && playerRatings.length >= pPerMatch) {
+        slice = playerRatings.slice(playerRatings.length - pPerMatch);
+      }
       if (slice.length > 0) {
         const cAvg = (slice.reduce((acc, curr) => acc + curr.rating, 0) / slice.length).toFixed(2);
         const minR = slice[slice.length - 1].rating.toFixed(2);
@@ -226,7 +248,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
       allNR,
       tiers: courtTierBreakdown,
     };
-  }, [rosterPool, paddleRackQueue, autoGenGameType, selectedCourts]);
+  }, [candidatePlayers, autoGenGameType, selectedCourts]);
 
   const courtCount = Math.max(1, selectedCourts.length);
   const playersPerMatch = autoGenGameType === 'doubles' ? 4 : 2;
@@ -240,9 +262,10 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
       courtCount,
       sessionDurationMinutes,
       estGameDurationMinutes,
-      playersPerMatch
+      playersPerMatch,
+      allowOverflowMatch
     );
-  }, [activeCount, courtCount, sessionDurationMinutes, estGameDurationMinutes, playersPerMatch]);
+  }, [activeCount, courtCount, sessionDurationMinutes, estGameDurationMinutes, playersPerMatch, allowOverflowMatch]);
 
   // Max simultaneous courts usable by active players during a time wave
   const maxCourtsInUse = useMemo(() => {
@@ -263,12 +286,13 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
   const scheduleBreakdown = useMemo(() => {
     const gamesPerRound = pacing.gamesPerRound;
     const totalMatches = autoGenRounds * gamesPerRound;
-    // In a full-rotation round, every active player plays at least 1 game per round
+    const totalPlayerSlots = totalMatches * playersPerMatch;
     const avgGamesPerPlayer =
-      activeCount > 0 ? (totalMatches * playersPerMatch) / activeCount : autoGenRounds;
-    // Actual minutes allocated per round
+      activeCount > 0 ? totalPlayerSlots / activeCount : autoGenRounds;
+    const minGamesPerPlayer = activeCount > 0 ? Math.floor(totalPlayerSlots / activeCount) : autoGenRounds;
+    const maxGamesPerPlayer = activeCount > 0 ? Math.ceil(totalPlayerSlots / activeCount) : autoGenRounds;
+    const isExactEqual = minGamesPerPlayer === maxGamesPerPlayer;
     const actualMinutesPerRound = pacing.minutesPerRound;
-    // Unique partners possible
     const maxUniquePartners = Math.max(1, activeCount - 1);
 
     return {
@@ -276,10 +300,26 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
       timeWavesPerRound: pacing.timeWavesPerRound,
       totalMatches,
       avgGamesPerPlayer: Number(avgGamesPerPlayer.toFixed(1)),
+      minGamesPerPlayer,
+      maxGamesPerPlayer,
+      isExactEqual,
       actualMinutesPerRound,
       maxUniquePartners,
     };
   }, [autoGenRounds, pacing, activeCount, playersPerMatch]);
+
+  // Compute round presets that give 100% exact equal games per player
+  const equalGameRoundPresets = useMemo(() => {
+    if (activeCount <= 0 || activeCount % playersPerMatch === 0) return [];
+    const presets: number[] = [];
+    const slotsPerRound = pacing.gamesPerRound * playersPerMatch;
+    for (let r = 1; r <= 15; r++) {
+      if ((r * slotsPerRound) % activeCount === 0) {
+        presets.push(r);
+      }
+    }
+    return presets;
+  }, [activeCount, playersPerMatch, pacing.gamesPerRound]);
 
   if (!isOpen) return null;
 
@@ -497,6 +537,82 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
               )}
             </div>
 
+            {/* Uneven Roster Handling Card */}
+            {activeCount % playersPerMatch !== 0 && (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/30 via-slate-950 to-indigo-950/20 border border-purple-500/30 space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🪑</span>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-extrabold text-white text-xs uppercase tracking-wide">
+                          Uneven Roster Handling
+                        </span>
+                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-purple-500/20 text-purple-300 font-bold border border-purple-500/30 font-mono">
+                          {activeCount} Players ({activeCount % playersPerMatch} Leftover)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Choose how the generator handles rosters not evenly divisible by {playersPerMatch}.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {/* Option 1: Sit Out & Priority Next Round */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleOverflow(false)}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer space-y-1 ${
+                      !allowOverflowMatch
+                        ? 'bg-purple-950/40 border-purple-500/60 ring-1 ring-purple-500/30 shadow-sm'
+                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 opacity-70'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-white flex items-center gap-1.5">
+                        <span>🪑</span> Sit Out & Priority Next Round
+                      </span>
+                      {!allowOverflowMatch && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-brand-lime/20 text-brand-lime font-extrabold border border-brand-lime/30">
+                          RECOMMENDED
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-300 leading-relaxed">
+                      Generates <strong>{Math.floor(activeCount / playersPerMatch)} games</strong> ({Math.floor(activeCount / playersPerMatch) * playersPerMatch} players). {activeCount % playersPerMatch} player(s) rest and get <strong>100% priority next round</strong> with zero consecutive sits.
+                    </p>
+                  </button>
+
+                  {/* Option 2: Extra Overflow Match */}
+                  <button
+                    type="button"
+                    onClick={() => handleToggleOverflow(true)}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer space-y-1 ${
+                      allowOverflowMatch
+                        ? 'bg-indigo-950/40 border-indigo-500/60 ring-1 ring-indigo-500/30 shadow-sm'
+                        : 'bg-slate-900/60 border-slate-800 hover:border-slate-700 opacity-70'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-white flex items-center gap-1.5">
+                        <span>⚡</span> Extra Overflow Match
+                      </span>
+                      {allowOverflowMatch && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-400/20 text-indigo-300 font-extrabold border border-indigo-400/30">
+                          ACTIVE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-300 leading-relaxed">
+                      Generates <strong>{Math.ceil(activeCount / playersPerMatch)} games</strong> with repeat fillers so all {activeCount} players play in every round.
+                    </p>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Session Duration & Game Pacing Controls */}
             <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
@@ -606,6 +722,42 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                     ))}
                   </select>
                 </div>
+
+                {/* Smart Equal-Game Round Presets */}
+                {equalGameRoundPresets.length > 0 && (
+                  <div className="pt-2.5 border-t border-slate-800/60 flex items-center gap-2 flex-wrap animate-fade-in">
+                    <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 shrink-0">
+                      <span>⚖️</span> Equal-Game Rounds:
+                    </span>
+                    {equalGameRoundPresets.slice(0, 5).map((presetRounds) => {
+                      const totalSlots = presetRounds * pacing.gamesPerRound * playersPerMatch;
+                      const gamesEach = Math.floor(totalSlots / activeCount);
+                      const isSelected = autoGenRounds === presetRounds;
+                      return (
+                        <button
+                          key={presetRounds}
+                          type="button"
+                          onClick={() => setAutoGenRounds(presetRounds)}
+                          className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1 shadow-sm ${
+                            isSelected
+                              ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black ring-1 ring-emerald-300'
+                              : 'bg-slate-900 border-slate-700 text-emerald-300 hover:bg-slate-800 hover:border-emerald-500/50'
+                          }`}
+                          title={`Select ${presetRounds} rounds for exact ${gamesEach} games per player`}
+                        >
+                          <span>{presetRounds} Rnds</span>
+                          <span
+                            className={`text-[9px] px-1 py-0.2 rounded font-mono ${
+                              isSelected ? 'bg-slate-950/20 text-slate-950 font-black' : 'bg-emerald-500/10 text-emerald-300'
+                            }`}
+                          >
+                            ({gamesEach} games each)
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -844,10 +996,12 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                 <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80 ring-1 ring-brand-lime/30">
                   <span className="text-[10px] text-brand-lime block font-bold uppercase">Games / Player</span>
                   <span className="text-xl font-black text-brand-lime font-mono">
-                    ~{scheduleBreakdown.avgGamesPerPlayer}
+                    {scheduleBreakdown.isExactEqual
+                      ? `${scheduleBreakdown.minGamesPerPlayer}`
+                      : `${scheduleBreakdown.minGamesPerPlayer}–${scheduleBreakdown.maxGamesPerPlayer}`}
                   </span>
                   <span className="text-[9px] text-slate-400 block">
-                    1 game every round
+                    {scheduleBreakdown.isExactEqual ? 'Exact equal games' : 'Max 1-game diff'}
                   </span>
                 </div>
               </div>
@@ -1042,7 +1196,11 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             <span>•</span>
             <span>{scheduleBreakdown.totalMatches} Matches</span>
             <span>•</span>
-            <span>~{scheduleBreakdown.avgGamesPerPlayer} Games/Player</span>
+            <span className={scheduleBreakdown.isExactEqual ? 'text-emerald-400 font-bold' : ''}>
+              {scheduleBreakdown.isExactEqual
+                ? `Exact ${scheduleBreakdown.minGamesPerPlayer} Games/Player`
+                : `${scheduleBreakdown.minGamesPerPlayer}–${scheduleBreakdown.maxGamesPerPlayer} Games/Player (Max 1-Game Diff)`}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -1064,7 +1222,8 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   autoGenTargetPoints,
                   isSmartMatch,
                   selectedCourts,
-                  onlyCheckedInPlayers
+                  onlyCheckedInPlayers,
+                  allowOverflowMatch
                 )
               }
               className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-all flex items-center gap-2 ${

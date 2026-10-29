@@ -7690,16 +7690,51 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       {receiptLightboxImage && (
         <div 
           onClick={() => setReceiptLightboxImage(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-hidden animate-fade-in cursor-zoom-out"
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center p-3 sm:p-6 bg-black/90 backdrop-blur-md overflow-y-auto animate-fade-in cursor-zoom-out select-none"
         >
-          <div className="relative max-w-lg w-full max-h-[85vh] flex items-center justify-center animate-scale-up" onClick={(e) => e.stopPropagation()}>
-            <img src={receiptLightboxImage} alt="Payment Receipt Zoom" className="max-w-full max-h-[85vh] object-contain rounded-2xl border border-slate-800 shadow-2xl" />
-            <button
-              onClick={() => setReceiptLightboxImage(null)}
-              className="absolute -top-12 right-0 text-slate-400 hover:text-white transition-colors cursor-pointer bg-slate-900/80 border border-slate-800 p-2 rounded-full backdrop-blur"
-            >
-              <X className="w-4 h-4" />
-            </button>
+          {/* Prominent Fixed Top-Right Close Button */}
+          <button
+            type="button"
+            onClick={() => setReceiptLightboxImage(null)}
+            className="fixed top-4 right-4 z-[110] flex items-center gap-2 px-4 py-2.5 rounded-full bg-slate-900/95 hover:bg-slate-800 text-white font-extrabold text-xs border border-slate-700 shadow-2xl backdrop-blur-md cursor-pointer transition-all active:scale-95"
+            title="Close Preview (Esc)"
+          >
+            <X className="w-4 h-4 text-emerald-400" />
+            <span>Close</span>
+          </button>
+
+          <div 
+            className="relative max-w-lg w-full flex flex-col items-center justify-center animate-scale-up cursor-default my-auto" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between w-full mb-3 px-1">
+              <span className="text-xs font-bold text-slate-300">Payment Receipt Preview</span>
+              <button
+                type="button"
+                onClick={() => setReceiptLightboxImage(null)}
+                className="p-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <img 
+              src={receiptLightboxImage} 
+              alt="Payment Receipt Zoom" 
+              className="max-w-full max-h-[65dvh] sm:max-h-[70vh] object-contain rounded-2xl border border-slate-800 shadow-2xl bg-slate-950 p-2" 
+            />
+            <div className="mt-4 flex flex-col items-center gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => setReceiptLightboxImage(null)}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 shadow-lg cursor-pointer transition-all flex items-center justify-center gap-2"
+              >
+                <X className="w-4 h-4 text-emerald-400" />
+                <span>Close Preview</span>
+              </button>
+              <span className="text-[11px] text-slate-400 text-center">
+                Tap anywhere outside or press Esc to close
+              </span>
+            </div>
           </div>
         </div>
       )}

@@ -12,12 +12,13 @@ import {
   Trash2,
   Zap,
 } from 'lucide-react';
-import type { OpenPlayMatch } from '../../adminTypes';
+import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 
 interface MatchMatrixRoundAccordionProps {
   roundNum: number;
   roundTitle: string;
   matchesInRound: OpenPlayMatch[];
+  restingPlayers?: OpenPlayMatchRosterItem[];
   isCollapsed: boolean;
   isEditingTitle: boolean;
   tempRoundTitle: string;
@@ -38,6 +39,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
   roundNum,
   roundTitle,
   matchesInRound,
+  restingPlayers,
   isCollapsed,
   isEditingTitle,
   tempRoundTitle,
@@ -144,7 +146,8 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
 
               <span className="text-xs text-slate-400 font-semibold">
                 ({matchesInRound.length} {matchesInRound.length === 1 ? 'game' : 'games'}
-                {uniquePlayerCount > 0 ? ` • ${uniquePlayerCount} players` : ''})
+                {uniquePlayerCount > 0 ? ` • ${uniquePlayerCount} players` : ''}
+                {restingPlayers && restingPlayers.length > 0 ? ` • ${restingPlayers.length} resting` : ''})
               </span>
 
               {matchesInRound.length > 0 && (
@@ -253,7 +256,49 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
               </div>
             </div>
           ) : (
-            children
+            <>
+              {restingPlayers && restingPlayers.length > 0 && (
+                <div className="mb-4 p-3 sm:p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex items-center justify-between gap-3 flex-wrap animate-fade-in shadow-inner">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 text-base">
+                      🪑
+                    </div>
+                    <div>
+                      <div className="text-xs font-black text-amber-300 uppercase tracking-wide flex items-center gap-2">
+                        <span>Resting This Round</span>
+                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 font-black border border-emerald-500/40 uppercase">
+                          ⚡ Priority Next Up
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-amber-200/80 mt-0.5">
+                        {restingPlayers.length === 1
+                          ? 'This player is sitting out this round and is guaranteed first priority to play in the next round.'
+                          : 'These players are sitting out this round and are guaranteed first priority to play in the next round.'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {restingPlayers.map((rp) => {
+                      const rating = rp.adminDuprRating || rp.duprRating;
+                      return (
+                        <span
+                          key={rp.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-900 border border-amber-500/40 text-xs font-bold text-white shadow-sm"
+                        >
+                          <span className="text-amber-400 font-black">{rp.name}</span>
+                          {rating && (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+                              {rating}
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {children}
+            </>
           )}
         </div>
       )}

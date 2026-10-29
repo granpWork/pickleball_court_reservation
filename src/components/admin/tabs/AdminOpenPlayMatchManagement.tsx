@@ -208,8 +208,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const activeFromPool = rosterPool.filter((p) => p.status === 'active');
     const presentPlayers = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
 
-    // Strict attendance mode: if setting is active, use only checked-in players
-    const candidatePlayers = onlyCheckedIn ? presentPlayers : presentPlayers.length >= 4 ? presentPlayers : activeFromPool;
+    // Strict attendance mode: if setting is active, use only checked-in players; otherwise include all active players
+    const candidatePlayers = onlyCheckedIn ? presentPlayers : activeFromPool;
 
     const gameType: 'doubles' | 'singles' = 'doubles';
     const playersPerMatch = gameType === 'doubles' ? 4 : 2;
@@ -227,6 +227,14 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     // Filter existing matches to only include rounds strictly before targetRoundNum
     const priorMatches = matches.filter((m) => m.round < targetRoundNum);
 
+    let allowOverflow = false;
+    try {
+      const savedOverflow = localStorage.getItem('picklepoint_openplay_allow_overflow');
+      if (savedOverflow !== null) {
+        allowOverflow = savedOverflow === 'true';
+      }
+    } catch (e) {}
+
     const isDupr = Boolean(event.isDupr);
 
     let resultMatches: OpenPlayMatch[] = [];
@@ -241,6 +249,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         gameType,
         existingMatches: priorMatches,
         startingRound: targetRoundNum,
+        allowOverflowMatch: allowOverflow,
       });
       resultMatches = result.matches;
     } else {
@@ -253,6 +262,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         gameType,
         existingMatches: priorMatches,
         startingRound: targetRoundNum,
+        allowOverflowMatch: allowOverflow,
       });
       resultMatches = result.matches;
     }
@@ -1651,9 +1661,23 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     targetPoints: number,
     isSmartMatch: boolean = false,
     selectedCourts?: string[],
-    onlyPresent: boolean = false
+    onlyPresent: boolean = false,
+    allowOverflowMatch?: boolean
   ) => {
-    const baseQueue = paddleRackQueue.length > 0 ? paddleRackQueue : rosterPool;
+    let effectiveAllowOverflow = allowOverflowMatch;
+    if (effectiveAllowOverflow === undefined) {
+      try {
+        const saved = localStorage.getItem('picklepoint_openplay_allow_overflow');
+        if (saved !== null) {
+          effectiveAllowOverflow = saved === 'true';
+        }
+      } catch (e) {}
+    }
+    const activeFromRoster = rosterPool.filter((p) => p.status === 'active');
+    const baseQueue =
+      algorithm === 'paddle_stacking' && paddleRackQueue.length >= activeFromRoster.length
+        ? paddleRackQueue
+        : rosterPool;
     let candidatePool = baseQueue.filter((p) => p.status === 'active');
     if (onlyPresent) {
       candidatePool = candidatePool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
@@ -1687,6 +1711,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         gameType,
         existingMatches: matches,
         startingRound,
+        allowOverflowMatch: effectiveAllowOverflow,
       });
 
       if (result.matches.length === 0) {
@@ -1717,6 +1742,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         existingMatches: matches,
         startingRound,
         isSmartMatch,
+        allowOverflowMatch: effectiveAllowOverflow,
       });
 
       if (result.matches.length === 0) {
@@ -1747,8 +1773,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       duprRating: p.adminDuprRating || p.duprRating || undefined,
     });
 
-    // Number of games required in 1 Round so every active player plays at least once
-    const gamesPerRound = Math.max(1, Math.ceil(activePlayers.length / playersPerMatch));
+    // Number of games per round respecting allowOverflowMatch
+    const fullBatchGamesCount = Math.floor(activePlayers.length / playersPerMatch);
+    const gamesPerRound = effectiveAllowOverflow
+      ? Math.max(1, Math.ceil(activePlayers.length / playersPerMatch))
+      : Math.max(1, fullBatchGamesCount);
 
     // ALGORITHM 2: PADDLE STACKING (Continuous Queue & 1&4 vs 2&3 Split)
     if (algorithm === 'paddle_stacking') {
@@ -2549,12 +2578,34 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 return null;
               }
 
+              // Compute players resting in this round
+              const roundPlayerIds = new Set<string>();
+              matchesInRound.forEach((m) => {
+                m.teamRed.players.forEach((p) => roundPlayerIds.add(p.id));
+                m.teamBlue.players.forEach((p) => roundPlayerIds.add(p.id));
+              });
+
+              let isStrictAttendance = false;
+              try {
+                isStrictAttendance = localStorage.getItem('picklepoint_openplay_only_checkedin') === 'true';
+              } catch (e) {}
+
+              const activeCandidates = rosterPool.filter((p) => p.status === 'active');
+              const eligibleForRoster = isStrictAttendance
+                ? activeCandidates.filter((p) => p.isPresent || p.attendanceStatus === 'present')
+                : activeCandidates;
+
+              const restingPlayersInRound = matchesInRound.length > 0
+                ? eligibleForRoster.filter((p) => !roundPlayerIds.has(p.id))
+                : [];
+
               return (
                 <MatchMatrixRoundAccordion
                   key={roundNum}
                   roundNum={roundNum}
                   roundTitle={getRoundTitle(roundNum)}
                   matchesInRound={matchesInRound}
+                  restingPlayers={restingPlayersInRound}
                   isCollapsed={collapsedRounds.has(roundNum)}
                   isEditingTitle={editingRoundNum === roundNum}
                   tempRoundTitle={tempRoundTitle}

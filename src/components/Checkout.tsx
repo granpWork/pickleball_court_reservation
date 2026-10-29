@@ -3,7 +3,7 @@ import {
   ArrowLeft, ArrowRight, CheckCircle, Calendar, Clock, 
   MapPin, User, Mail, Phone, ShieldCheck, 
   Download, Lock, Check, Shield, X,
-  Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap, Trophy
+  Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap, Trophy, QrCode
 } from 'lucide-react';
 import type { Voucher } from './AdminDashboard';
 import { db, isFirebaseConfigured } from '../firebase';
@@ -118,6 +118,26 @@ export default function Checkout({
   const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
   const [receiptLightboxImage, setReceiptLightboxImage] = useState<string | null>(null);
   const [liveBookingStatus, setLiveBookingStatus] = useState<'pending_verification' | 'approved' | 'paid' | 'cancelled' | 'rejected' | 'pending'>('pending_verification');
+
+  // Lightbox keyboard (Esc) and body scroll lock handlers
+  useEffect(() => {
+    if (!receiptLightboxImage) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setReceiptLightboxImage(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [receiptLightboxImage]);
 
   const checkLiveBookingStatus = async (targetRef: string) => {
     if (!targetRef) return;
@@ -2719,17 +2739,64 @@ export default function Checkout({
       {receiptLightboxImage && (
         <div 
           onClick={() => setReceiptLightboxImage(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-hidden animate-fade-in cursor-zoom-out"
+          className="fixed inset-0 z-[100] flex flex-col items-center justify-center p-3 sm:p-6 bg-black/90 backdrop-blur-md overflow-y-auto animate-fade-in cursor-zoom-out select-none"
         >
-          <div className="relative max-w-lg w-full max-h-[85vh] flex items-center justify-center animate-scale-up" onClick={(e) => e.stopPropagation()}>
-            <img src={receiptLightboxImage} alt="GCash QR Code Enlarged" className="max-w-full max-h-[85vh] object-contain rounded-2xl border border-slate-850 shadow-2xl bg-white p-4" />
-            <button
-              type="button"
-              onClick={() => setReceiptLightboxImage(null)}
-              className="absolute -top-12 right-0 text-slate-400 hover:text-white transition-colors cursor-pointer bg-slate-900/80 border border-slate-800 p-2 rounded-full backdrop-blur"
-            >
-              <X className="w-4 h-4" />
-            </button>
+          {/* Prominent Fixed Top-Right Close Button (Always visible on any device) */}
+          <button
+            type="button"
+            onClick={() => setReceiptLightboxImage(null)}
+            className="fixed top-4 right-4 z-[110] flex items-center gap-2 px-4 py-2.5 rounded-full bg-slate-900/95 hover:bg-slate-800 text-white font-extrabold text-xs border border-slate-700 shadow-2xl backdrop-blur-md cursor-pointer transition-all active:scale-95"
+            title="Close Preview (Esc)"
+            aria-label="Close Preview"
+          >
+            <X className="w-4 h-4 text-brand-lime" />
+            <span>Close</span>
+          </button>
+
+          {/* Modal Container */}
+          <div 
+            className="relative max-w-lg w-full flex flex-col items-center justify-center animate-scale-up cursor-default my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header bar above image */}
+            <div className="flex items-center justify-between w-full mb-3 px-1">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <QrCode className="w-4 h-4 text-brand-lime" />
+                {receiptLightboxImage === receiptImageBase64 ? 'Receipt Screenshot Preview' : 'GCash QR Code'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setReceiptLightboxImage(null)}
+                className="p-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Enlarged Image */}
+            <div className="relative w-full flex items-center justify-center bg-white rounded-3xl p-4 sm:p-6 border border-slate-800 shadow-2xl overflow-hidden">
+              <img 
+                src={receiptLightboxImage} 
+                alt="Enlarged Preview" 
+                className="max-w-full max-h-[65dvh] sm:max-h-[70vh] object-contain rounded-xl select-none" 
+              />
+            </div>
+
+            {/* Bottom Actions & Tap Hint */}
+            <div className="mt-4 flex flex-col items-center gap-2 w-full">
+              <button
+                type="button"
+                onClick={() => setReceiptLightboxImage(null)}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 shadow-lg cursor-pointer transition-all flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <X className="w-4 h-4 text-brand-lime" />
+                <span>Close Preview</span>
+              </button>
+              <span className="text-[11px] text-slate-400 text-center font-medium">
+                Tap anywhere outside the card or press <kbd className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] font-mono text-slate-300">Esc</kbd> to close
+              </span>
+            </div>
           </div>
         </div>
       )}
