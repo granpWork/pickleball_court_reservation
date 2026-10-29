@@ -1873,7 +1873,7 @@ export default function Checkout({
                     </div>
 
                     {/* OPEN PLAY GUEST (+1 / +2) QUANTITY & EMAIL SELECTOR */}
-                    {isOpenPlay && (
+                    {isOpenPlay && !isDuprSession && (
                       <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 animate-fade-in text-left mt-4">
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
                           <div>

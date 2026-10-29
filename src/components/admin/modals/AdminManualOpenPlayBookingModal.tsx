@@ -78,6 +78,13 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
 
   const isSessionClosed = isExpired || event.status === 'expired';
 
+  const isDuprEvent = typeof event.isDupr === 'boolean'
+    ? event.isDupr
+    : Boolean(
+        /\bdupr\b/i.test(event.title || '') &&
+        !/non[- ]?dupr|no[- ]?dupr/i.test(event.title || '')
+      );
+
   // Calculate Capacity (Subtracting any attendees marked absent)
   const activeRegs = currentRegistrations.filter(r => r.eventId === event.id && r.status !== 'cancelled');
   const totalRegHeadcount = activeRegs.reduce((sum, r) => sum + (r.playerCount || (1 + (r.guestCount || 0))), 0);
@@ -308,42 +315,44 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
             </div>
           </div>
 
-          {/* Guest Players Section */}
-          <div className="space-y-3 pt-3 border-t border-slate-800/80">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-normal text-slate-400 uppercase tracking-wider">
-                Guest Registrations ({guests.length})
-              </span>
-              <button
-                type="button"
-                onClick={handleAddGuest}
-                disabled={totalHeadcount >= spotsRemaining}
-                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-brand-lime text-xs md:text-sm font-normal flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-              >
-                <Plus className="w-4 h-4" /> Add Guest
-              </button>
-            </div>
-
-            {guests.map((guest, idx) => (
-              <div key={idx} className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center gap-3">
-                <span className="text-slate-500 font-mono text-xs md:text-sm font-normal pl-1">#{idx + 1}</span>
-                <input
-                  type="text"
-                  placeholder="Guest Full Name"
-                  value={guest.name}
-                  onChange={(e) => handleGuestChange(idx, 'name', e.target.value)}
-                  className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-sm font-normal text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
-                />
+          {/* Guest Players Section - Non-DUPR Only */}
+          {!isDuprEvent && (
+            <div className="space-y-3 pt-3 border-t border-slate-800/80">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-normal text-slate-400 uppercase tracking-wider">
+                  Guest Registrations ({guests.length})
+                </span>
                 <button
                   type="button"
-                  onClick={() => handleRemoveGuest(idx)}
-                  className="p-2 rounded-xl hover:bg-slate-900 text-slate-500 hover:text-red-400 transition-colors"
+                  onClick={handleAddGuest}
+                  disabled={totalHeadcount >= spotsRemaining}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-brand-lime text-xs md:text-sm font-normal flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Plus className="w-4 h-4" /> Add Guest
                 </button>
               </div>
-            ))}
-          </div>
+
+              {guests.map((guest, idx) => (
+                <div key={idx} className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center gap-3">
+                  <span className="text-slate-500 font-mono text-xs md:text-sm font-normal pl-1">#{idx + 1}</span>
+                  <input
+                    type="text"
+                    placeholder="Guest Full Name"
+                    value={guest.name}
+                    onChange={(e) => handleGuestChange(idx, 'name', e.target.value)}
+                    className="flex-1 px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-sm font-normal text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveGuest(idx)}
+                    className="p-2 rounded-xl hover:bg-slate-900 text-slate-500 hover:text-red-400 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Payment & Fee Options Section */}
           <div className="space-y-3.5 pt-3 border-t border-slate-800/80">

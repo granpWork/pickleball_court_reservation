@@ -996,6 +996,13 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   const displayCompanyName = event?.companyName || companyInfo.name || 'PicklePoint Venue Host';
   const displayCompanyLogo = companyInfo.logoUrl || event?.companyLogoUrl || '';
 
+  const isDuprEvent = typeof event?.isDupr === 'boolean'
+    ? event.isDupr
+    : Boolean(
+        /\bdupr\b/i.test(event?.title || '') &&
+        !/non[- ]?dupr|no[- ]?dupr/i.test(event?.title || '')
+      );
+
   const handleProceedToCheckout = (isAddGuestMode: boolean = false) => {
     if (!event) return;
     if (isExpired) {
@@ -1004,6 +1011,10 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
     }
     if (isFull) {
       alert('This Open Play session is at maximum capacity.');
+      return;
+    }
+    if (isDuprEvent && isAddGuestMode) {
+      alert('Guest reservations are disabled for DUPR rated events. Each participant must register individually with their own account and DUPR ID.');
       return;
     }
     if (!user) {
@@ -1018,13 +1029,6 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
 
     const durationText = calculateDuration(event.startTime, event.endTime);
     const slotString = `${formatTime12h(event.startTime)} - ${formatTime12h(event.endTime)}${durationText ? ` (${durationText})` : ''}`;
-
-    const isDuprEvent = typeof event.isDupr === 'boolean'
-      ? event.isDupr
-      : Boolean(
-          /\bdupr\b/i.test(event.title || '') &&
-          !/non[- ]?dupr|no[- ]?dupr/i.test(event.title || '')
-        );
 
     const checkoutPayload = {
       type: 'open_play',
@@ -1837,21 +1841,23 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleProceedToCheckout(true)}
-                    disabled={isExpired || isFull}
-                    className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 border ${
-                      isExpired || isFull
-                        ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
-                        : 'bg-emerald-500 text-dark-bg border-emerald-400 hover:bg-emerald-400 shadow-md cursor-pointer'
-                    }`}
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    <span>+ Add Guest</span>
-                  </button>
-                </div>
+                {!isDuprEvent && (
+                  <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleProceedToCheckout(true)}
+                      disabled={isExpired || isFull}
+                      className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 border ${
+                        isExpired || isFull
+                          ? 'bg-slate-900 border-slate-800 text-slate-500 cursor-not-allowed'
+                          : 'bg-emerald-500 text-dark-bg border-emerald-400 hover:bg-emerald-400 shadow-md cursor-pointer'
+                      }`}
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      <span>+ Add Guest</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
