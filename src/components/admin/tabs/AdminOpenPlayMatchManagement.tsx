@@ -2268,9 +2268,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       {/* Main Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-4 rounded-3xl shadow-lg">
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handleAddNewRound}
+          {activeView === 'matrix' && (
+            <>
+              <button
+                type="button"
+                onClick={handleAddNewRound}
             className="py-2.5 px-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02]"
           >
             <Plus className="w-4 h-4 text-white" />
@@ -2323,7 +2325,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
             <span>📊 Export All Results CSV</span>
-          </button>
+              </button>
+            </>
+          )}
 
           <button
             type="button"
@@ -2388,8 +2392,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         )}
       </div>
 
-      {/* Filters & Search Row */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+      {/* Filters & Search Row - Only shown in Match Matrix View */}
+      {activeView === 'matrix' && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-3 overflow-x-auto w-full sm:w-auto">
           {/* Status Filter Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto shrink-0">
@@ -2493,6 +2498,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
         </div>
       </div>
+      )}
 
       {/* Dynamic View Switcher: Leaderboard Standings View vs Match Matrix View */}
       {activeView === 'leaderboard' ? (
