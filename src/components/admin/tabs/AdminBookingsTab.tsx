@@ -400,6 +400,28 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
     }
   };
 
+  const handleShiftSelectedDay = (offsetDays: number) => {
+    if (!selectedCalendarDate) return;
+    const [y, m, d] = selectedCalendarDate.split('-').map((n) => parseInt(n, 10));
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return;
+    const current = new Date(y, m - 1, d);
+    current.setDate(current.getDate() + offsetDays);
+    const newY = current.getFullYear();
+    const newM = String(current.getMonth() + 1).padStart(2, '0');
+    const newD = String(current.getDate()).padStart(2, '0');
+    const newDateStr = `${newY}-${newM}-${newD}`;
+    setSelectedCalendarDate(newDateStr);
+    if (current.getMonth() !== calendarMonth.getMonth() || current.getFullYear() !== calendarMonth.getFullYear()) {
+      setCalendarMonth(new Date(current.getFullYear(), current.getMonth(), 1));
+    }
+  };
+
+  const handleSelectToday = () => {
+    const today = getTodayString();
+    setSelectedCalendarDate(today);
+    setCalendarMonth(new Date());
+  };
+
   const handleCopyEmail = (email: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!email) return;
@@ -436,7 +458,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
           {/* View Mode Toggle Switcher */}
           <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
             <button
@@ -469,7 +491,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
             <button
               type="button"
               onClick={onOpenManualBookingModal}
-              className="px-4 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-brand-lime/10 shrink-0"
+              className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-brand-lime/10 shrink-0 active:scale-95"
               title="Create a manual / walk-in reservation"
             >
               <Plus className="w-4 h-4 text-dark-bg stroke-[3]" />
@@ -480,7 +502,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           <button
             type="button"
             onClick={() => setIsFilterModalOpen(true)}
-            className={`flex-1 sm:flex-none px-4 py-2.5 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm ${
+            className={`flex-1 sm:flex-none px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm active:scale-95 ${
               activeFilterCount > 0
                 ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-brand-lime/20'
                 : 'bg-slate-900 border-slate-700/80 text-slate-200 hover:border-brand-lime/50 hover:text-white'
@@ -1111,7 +1133,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   <select
                     value={selectedCalendarCourtId}
                     onChange={(e) => setSelectedCalendarCourtId(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 text-white rounded-xl px-3 py-2.5 text-xs font-bold focus:outline-none focus:border-brand-lime transition-all cursor-pointer"
+                    className="w-full sm:w-auto bg-slate-900 border border-slate-800 text-white rounded-xl px-3 py-2.5 text-xs font-bold focus:outline-none focus:border-brand-lime transition-all cursor-pointer"
                   >
                     <option value="all">🏟️ All Courts ({courts.length})</option>
                     {courts.map((c) => (
@@ -1126,7 +1148,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   <button
                     type="button"
                     onClick={onOpenManualBookingModal}
-                    className="px-4 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-black text-xs hover:bg-[#a6e224] hover:shadow-lg hover:shadow-brand-lime/20 transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 shadow-md active:scale-95"
+                    className="hidden sm:flex px-4 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-black text-xs hover:bg-[#a6e224] hover:shadow-lg hover:shadow-brand-lime/20 transition-all cursor-pointer items-center justify-center gap-2 shrink-0 shadow-md active:scale-95"
                   >
                     <Plus className="w-4 h-4 text-dark-bg stroke-[3]" />
                     <span>Manual Booking</span>
@@ -1140,25 +1162,26 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
               {/* Left Side: Interactive Month Calendar (7 cols) */}
               <div className="lg:col-span-7 space-y-4">
                 {/* Calendar Header Controls */}
-                <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800/90 p-2.5 sm:p-3 rounded-2xl shadow-inner">
+                <div className="flex items-center justify-between bg-slate-900/90 border border-slate-800/90 p-2 sm:p-3 rounded-2xl shadow-inner">
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <button
                       type="button"
                       onClick={handlePrevMonth}
-                      className="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
+                      className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
                       title="Previous Month"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
 
-                    <h4 className="text-xs sm:text-sm font-black text-white min-w-[130px] sm:min-w-[150px] text-center tracking-wide">
-                      {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    <h4 className="text-xs sm:text-sm font-black text-white min-w-[110px] sm:min-w-[150px] text-center tracking-wide">
+                      <span className="sm:hidden">{calendarMonth.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                      <span className="hidden sm:inline">{calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
                     </h4>
 
                     <button
                       type="button"
                       onClick={handleNextMonth}
-                      className="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
+                      className="p-1.5 sm:p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
                       title="Next Month"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -1168,7 +1191,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   <button
                     type="button"
                     onClick={handleTodayMonth}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-extrabold text-slate-200 hover:text-brand-lime hover:border-brand-lime/40 transition-all cursor-pointer shadow-sm active:scale-95"
+                    className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-[11px] sm:text-xs font-extrabold text-slate-200 hover:text-brand-lime hover:border-brand-lime/40 transition-all cursor-pointer shadow-sm active:scale-95"
                   >
                     Today
                   </button>
@@ -1176,13 +1199,12 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
                 {/* Days of Week Header */}
                 <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-[10px] sm:text-[11px] font-black uppercase text-slate-400 tracking-wider py-1">
-                  <span>Sun</span>
-                  <span>Mon</span>
-                  <span>Tue</span>
-                  <span>Wed</span>
-                  <span>Thu</span>
-                  <span>Fri</span>
-                  <span>Sat</span>
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                    <span key={d}>
+                      <span className="inline sm:hidden">{d[0]}</span>
+                      <span className="hidden sm:inline">{d}</span>
+                    </span>
+                  ))}
                 </div>
 
                 {/* Days Grid */}
@@ -1204,7 +1226,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                         key={idx}
                         type="button"
                         onClick={() => handleSelectCalendarDate(day.dateStr)}
-                        className={`min-h-[58px] sm:min-h-[76px] p-1 sm:p-1.5 rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer relative overflow-hidden group ${
+                        className={`min-h-[52px] sm:min-h-[76px] p-1 sm:p-1.5 rounded-xl sm:rounded-2xl border text-left flex flex-col justify-between transition-all cursor-pointer relative overflow-hidden group ${
                           isSelected
                             ? 'bg-brand-lime/10 border-brand-lime shadow-[0_0_15px_rgba(166,226,36,0.15)] ring-1 ring-brand-lime'
                             : isToday
@@ -1217,7 +1239,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                         {/* Top Day Number & Status Indicator */}
                         <div className="flex items-center justify-between w-full">
                           <span
-                            className={`text-[11px] sm:text-xs font-black px-1 sm:px-1.5 py-0.2 rounded-md ${
+                            className={`text-[10px] sm:text-xs font-black px-1 sm:px-1.5 py-0.2 rounded-md ${
                               isSelected
                                 ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
                                 : isToday
@@ -1232,7 +1254,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
                           {totalCount > 0 && (
                             <span
-                              className={`w-2 h-2 rounded-full shadow-sm shrink-0 ${
+                              className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full shadow-sm shrink-0 ${
                                 pendingCount > 0
                                   ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)] animate-pulse'
                                   : openPlayCount > 0
@@ -1248,7 +1270,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           <div className="mt-1 w-full space-y-0.5">
                             {bookingCount > 0 && (
                               <span
-                                className={`inline-flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-black leading-tight w-full justify-center shadow-sm ${
+                                className={`inline-flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 py-0.5 rounded-md sm:rounded-lg text-[9px] sm:text-[10px] font-black leading-tight w-full justify-center shadow-sm ${
                                   pendingCount > 0
                                     ? 'bg-amber-500/20 border border-amber-500/30 text-amber-300'
                                     : 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
@@ -1259,8 +1281,9 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                               </span>
                             )}
                             {openPlayCount > 0 && (
-                              <span className="inline-flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[9px] sm:text-[10px] font-black leading-tight w-full justify-center shadow-sm">
-                                <span>🏆 Open Play</span>
+                              <span className="inline-flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 py-0.5 rounded-md sm:rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[9px] sm:text-[10px] font-black leading-tight w-full justify-center shadow-sm">
+                                <span>🏆</span>
+                                <span className="hidden sm:inline">Open Play</span>
                               </span>
                             )}
                           </div>
@@ -1278,22 +1301,58 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
               {/* Right Side: Selected Day Schedule & Player List (5 cols) */}
               <div ref={agendaRef} className="lg:col-span-5 space-y-4">
                 <div className="glass-panel border border-slate-800/90 rounded-2xl p-4 sm:p-5 bg-slate-900/80 space-y-4 shadow-xl backdrop-blur-md">
-                  {/* Header: Selected Date Title & Count */}
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                    <div>
-                      <div className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
-                        <CalendarDays className="w-3 h-3 text-brand-lime" />
-                        <span>SCHEDULED RESERVATIONS</span>
+                  {/* Header: Selected Date Title, Count & Quick Date Chips */}
+                  <div className="space-y-2.5 pb-3 border-b border-slate-800">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-[10px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
+                          <CalendarDays className="w-3 h-3 text-brand-lime" />
+                          <span>SCHEDULED RESERVATIONS</span>
+                        </div>
+                        <h4 className="text-xs sm:text-sm font-extrabold text-white mt-0.5">
+                          {formatNiceDate(selectedCalendarDate)}
+                        </h4>
                       </div>
-                      <h4 className="text-xs sm:text-sm font-extrabold text-white mt-0.5">
-                        {formatNiceDate(selectedCalendarDate)}
-                      </h4>
+
+                      <span className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-black shadow-sm shrink-0">
+                        {selectedDayBookings.length + selectedDayOpenPlay.length} Item
+                        {selectedDayBookings.length + selectedDayOpenPlay.length !== 1 ? 's' : ''}
+                      </span>
                     </div>
 
-                    <span className="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-black shadow-sm">
-                      {selectedDayBookings.length + selectedDayOpenPlay.length} Item
-                      {selectedDayBookings.length + selectedDayOpenPlay.length !== 1 ? 's' : ''}
-                    </span>
+                    {/* Quick Date Switcher Chips (Yesterday, Today, Tomorrow) */}
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleShiftSelectedDay(-1)}
+                        className="flex-1 py-1.5 px-2 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer shadow-sm"
+                        title="Previous Day"
+                      >
+                        <ChevronLeft className="w-3 h-3" />
+                        <span>Prev</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSelectToday}
+                        className={`flex-1 py-1.5 px-2 rounded-xl border text-[11px] font-black flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer shadow-sm ${
+                          selectedCalendarDate === getTodayString()
+                            ? 'bg-brand-lime/20 border-brand-lime text-brand-lime'
+                            : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white'
+                        }`}
+                        title="Select Today"
+                      >
+                        <span>Today</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleShiftSelectedDay(1)}
+                        className="flex-1 py-1.5 px-2 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer shadow-sm"
+                        title="Next Day"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Bookings & Open Play List for Selected Date */}
@@ -1306,14 +1365,14 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/90 border border-cyan-500/40 border-l-4 border-l-cyan-400 transition-all space-y-3 shadow-md group hover:border-cyan-400/60"
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
                               <div className="w-9 h-9 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300 font-black text-sm shrink-0">
                                 <Trophy className="w-4 h-4 text-cyan-300" />
                               </div>
-                              <div>
+                              <div className="min-w-0">
                                 <div className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
-                                  <span>{ev.title}</span>
-                                  <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-cyan-950/60 text-cyan-300 border border-cyan-800/60">
+                                  <span className="truncate">{ev.title}</span>
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-cyan-950/60 text-cyan-300 border border-cyan-800/60 shrink-0">
                                     Open Play
                                   </span>
                                 </div>
@@ -1330,7 +1389,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                               onClick={() => {
                                 window.location.href = `/?eventId=${ev.id}`;
                               }}
-                              className="px-3 py-1.5 rounded-xl bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/60 text-xs font-bold transition-all cursor-pointer shadow-sm shrink-0"
+                              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/60 text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-sm shrink-0 active:scale-95"
                             >
                               View Roster
                             </button>
@@ -1388,7 +1447,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                   </div>
                                   <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
                                     <Mail className="w-3 h-3 text-slate-500 shrink-0" />
-                                    <span className="truncate max-w-[140px] sm:max-w-[180px] font-medium">
+                                    <span className="truncate max-w-[130px] sm:max-w-[180px] font-medium">
                                       {playerEmail}
                                     </span>
                                     {playerEmail && playerEmail !== 'No email on file' && (
@@ -1407,9 +1466,15 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                     )}
                                   </div>
                                   {playerPhone && (
-                                    <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5 font-mono">
-                                      <Phone className="w-3 h-3 text-slate-500" />
-                                      <span>{playerPhone}</span>
+                                    <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5 font-mono">
+                                      <Phone className="w-3 h-3 text-brand-lime shrink-0" />
+                                      <a
+                                        href={`tel:${playerPhone}`}
+                                        className="text-brand-lime hover:underline transition-colors font-bold"
+                                        title="Tap to Call"
+                                      >
+                                        {playerPhone}
+                                      </a>
                                     </div>
                                   )}
                                 </div>
@@ -1449,9 +1514,9 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                               </div>
 
                               {/* Payment Method, Reference, Total Cost & Quick Actions */}
-                              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-1.5 border-t border-slate-900/60 flex-wrap">
+                              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 pt-2 border-t border-slate-900/60 flex-wrap">
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-mono text-slate-500">
+                                  <span className="font-mono text-slate-500 text-[10px] sm:text-[11px]">
                                     Ref: {b.bookingReference || b.id?.substring(0, 8) || 'N/A'}
                                   </span>
                                   {b.paymentMethod && (
@@ -1466,7 +1531,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => handleOpenEditManualModal(b)}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition-colors cursor-pointer"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition-colors cursor-pointer active:scale-95"
                                       title="Edit Manual Booking"
                                     >
                                       <Edit3 className="w-3 h-3" />
@@ -1477,14 +1542,14 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => onViewReceipt(b)}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold transition-colors cursor-pointer"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold transition-colors cursor-pointer active:scale-95"
                                       title="View Payment Receipt"
                                     >
                                       <Eye className="w-3 h-3 text-brand-lime" />
                                       <span>Proof</span>
                                     </button>
                                   )}
-                                  <span className="font-black text-white font-mono text-xs">
+                                  <span className="font-black text-white font-mono text-xs sm:text-sm">
                                     ₱{b.totalCost?.toLocaleString() || 0}
                                   </span>
                                 </div>
