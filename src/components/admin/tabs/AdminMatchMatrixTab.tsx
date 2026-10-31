@@ -36,7 +36,6 @@ export interface AdminMatchMatrixTabProps {
   currentAdminEmail?: string;
   currentAdminName?: string;
   myCompany?: any;
-  onNavigateToScoreboard?: (match: any) => void;
 }
 
 export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
@@ -46,7 +45,6 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
   onRefreshEvents,
   currentAdminEmail = 'admin@picklepoint.com',
   myCompany,
-  onNavigateToScoreboard,
 }) => {
   // Active Running Matrix
   const [activeMatrix, setActiveMatrix] = useState<OpenPlayEvent | null>(() => {
@@ -506,7 +504,6 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
           event={activeMatrix}
           registrations={[]}
           onBack={() => setActiveMatrix(null)}
-          onNavigateToScoreboard={onNavigateToScoreboard}
         />
       </div>
     );

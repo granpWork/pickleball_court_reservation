@@ -16,7 +16,6 @@ import { AdminServiceFeeTab } from './admin/tabs/AdminServiceFeeTab';
 import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
-import { AdminScoreboardTab } from './admin/tabs/AdminScoreboardTab';
 import { AdminIntegrationsTab } from './admin/tabs/AdminIntegrationsTab';
 import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
@@ -486,7 +485,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         'shortener',
         'support',
         'image_converter',
-        'scoreboard',
         'integrations',
       ];
 
@@ -7170,8 +7168,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Technical Support & Helpdesk'
                 : activeTab === 'image_converter'
                 ? 'WebP Image Converter'
-                : activeTab === 'scoreboard'
-                ? 'Match Scoreboard & Referee Console'
                 : activeTab === 'integrations'
                 ? 'External API & System Integrations'
                 : 'Facility Operations & Settings'}
@@ -7181,8 +7177,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
                 : activeTab === 'integrations'
                 ? 'Configure credentials, API environments, and automated synchronizations for external sports systems like DUPR.'
-                : activeTab === 'scoreboard'
-                ? 'Create live scoreboards, pull Open Play rosters, referee matches with official pickleball callouts, swap sides, and reset match scores.'
                 : activeTab === 'support'
                 ? 'Inspect, manage, and resolve support ticket concerns submitted by Client Administrators & Facility Managers.'
                 : activeTab === 'image_converter'
@@ -7438,9 +7432,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               currentAdminEmail={user?.email || currentUserEmail}
               currentAdminName={user?.name || adminDisplayName || 'Admin'}
               myCompany={currentCompany}
-              onNavigateToScoreboard={() => {
-                setActiveTab('scoreboard');
-              }}
             />
           )}
 
@@ -7667,14 +7658,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           )}
           {activeTab === 'image_converter' && (
             <AdminImageConverterTab />
-          )}
-          {activeTab === 'scoreboard' && (
-            <AdminScoreboardTab
-              user={user}
-              openPlayEvents={openPlayEvents}
-              myCompany={currentCompany}
-              isSuperAdmin={isSuperAdmin}
-            />
           )}
           {activeTab === 'integrations' && isSuperAdmin && (
             <AdminIntegrationsTab

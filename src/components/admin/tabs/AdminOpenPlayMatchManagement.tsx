@@ -77,7 +77,6 @@ interface AdminOpenPlayMatchManagementProps {
   event: OpenPlayEvent;
   registrations: OpenPlayRegistrationItem[];
   onBack: () => void;
-  onNavigateToScoreboard?: (match: OpenPlayMatch) => void;
 }
 
 export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagementProps> = ({
