@@ -102,9 +102,17 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   bookingLeadTimeMinutes: _bookingLeadTimeMinutes = 30,
 }) => {
   const [supportSubMenuOpen, setSupportSubMenuOpen] = React.useState(false);
-  const [courtsSubMenuOpen, setCourtsSubMenuOpen] = React.useState(true);
-  const [bookingsSubMenuOpen, setBookingsSubMenuOpen] = React.useState(true);
-  const [integrationsSubMenuOpen, setIntegrationsSubMenuOpen] = React.useState(true);
+  const [courtsSubMenuOpen, setCourtsSubMenuOpen] = React.useState(activeTab === 'courts');
+  const [bookingsSubMenuOpen, setBookingsSubMenuOpen] = React.useState(activeTab === 'bookings');
+  const [integrationsSubMenuOpen, setIntegrationsSubMenuOpen] = React.useState(activeTab === 'integrations');
+
+  // Keep submenus open for whichever tab is active
+  React.useEffect(() => {
+    if (activeTab === 'bookings') setBookingsSubMenuOpen(true);
+    if (activeTab === 'courts') setCourtsSubMenuOpen(true);
+    if (activeTab === 'integrations') setIntegrationsSubMenuOpen(true);
+    if (activeTab === 'settings') setSettingsSubMenuOpen(true);
+  }, [activeTab, setSettingsSubMenuOpen]);
   const isClientAdminRole = user?.role === 'client_admin';
   const isManagerRole = user?.role === 'manager';
 
@@ -212,13 +220,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             <div className="space-y-1">
               <button
                 onClick={() => {
-                  if (activeTab !== 'courts') {
-                    handleTabClick('courts');
-                    setCourtsSubTab('list');
-                    setCourtsSubMenuOpen(true);
-                  } else {
-                    setCourtsSubMenuOpen(!courtsSubMenuOpen);
-                  }
+                  setCourtsSubMenuOpen(!courtsSubMenuOpen);
                 }}
                 disabled={isTrialOrSubExpired}
                 title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
@@ -238,19 +240,19 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 </div>
                 <div className="flex items-center gap-1">
                   {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 flex-shrink-0" />}
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${courtsSubMenuOpen && activeTab === 'courts' ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${courtsSubMenuOpen ? 'rotate-180' : ''}`} />
                 </div>
               </button>
 
               {/* Submenu for Courts */}
-              {courtsSubMenuOpen && activeTab === 'courts' && (
+              {courtsSubMenuOpen && (
                 <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3">
                   <button
                     type="button"
                     disabled={isTrialOrSubExpired}
                     onClick={() => {
                       if (!isTrialOrSubExpired) {
-                        handleTabClick('courts');
+                        setActiveTab('courts');
                         setCourtsSubTab('list');
                         setMobileMenuOpen(false);
                       }
@@ -258,7 +260,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : courtsSubTab === 'list'
+                        : activeTab === 'courts' && courtsSubTab === 'list'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -275,7 +277,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     disabled={isTrialOrSubExpired}
                     onClick={() => {
                       if (!isTrialOrSubExpired) {
-                        handleTabClick('courts');
+                        setActiveTab('courts');
                         setCourtsSubTab('manual_booking');
                         setMobileMenuOpen(false);
                       }
@@ -283,7 +285,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : courtsSubTab === 'manual_booking'
+                        : activeTab === 'courts' && courtsSubTab === 'manual_booking'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -365,13 +367,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             <div className="space-y-1">
               <button
                 onClick={() => {
-                  if (activeTab !== 'bookings') {
-                    handleTabClick('bookings');
-                    setBookingsSubTab('list');
-                    setBookingsSubMenuOpen(true);
-                  } else {
-                    setBookingsSubMenuOpen(!bookingsSubMenuOpen);
-                  }
+                  setBookingsSubMenuOpen(!bookingsSubMenuOpen);
                 }}
                 disabled={isTrialOrSubExpired}
                 title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
@@ -391,19 +387,19 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                 </div>
                 <div className="flex items-center gap-1">
                   {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 flex-shrink-0" />}
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${bookingsSubMenuOpen && activeTab === 'bookings' ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${bookingsSubMenuOpen ? 'rotate-180' : ''}`} />
                 </div>
               </button>
 
               {/* Submenu for Reservations */}
-              {bookingsSubMenuOpen && activeTab === 'bookings' && (
+              {bookingsSubMenuOpen && (
                 <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3">
                   <button
                     type="button"
                     disabled={isTrialOrSubExpired}
                     onClick={() => {
                       if (!isTrialOrSubExpired) {
-                        handleTabClick('bookings');
+                        setActiveTab('bookings');
                         setBookingsSubTab('list');
                         setMobileMenuOpen(false);
                       }
@@ -411,7 +407,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : bookingsSubTab === 'list'
+                        : activeTab === 'bookings' && bookingsSubTab === 'list'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -428,7 +424,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     disabled={isTrialOrSubExpired}
                     onClick={() => {
                       if (!isTrialOrSubExpired) {
-                        handleTabClick('bookings');
+                        setActiveTab('bookings');
                         setBookingsSubTab('calendar');
                         setMobileMenuOpen(false);
                       }
@@ -436,7 +432,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : bookingsSubTab === 'calendar'
+                        : activeTab === 'bookings' && bookingsSubTab === 'calendar'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -604,13 +600,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
               <div className="space-y-1">
                 <button
                   onClick={() => {
-                    if (activeTab !== 'integrations') {
-                      setActiveTab('integrations');
-                      setIntegrationsSubTab?.('dupr');
-                      setIntegrationsSubMenuOpen(true);
-                    } else {
-                      setIntegrationsSubMenuOpen(!integrationsSubMenuOpen);
-                    }
+                    setIntegrationsSubMenuOpen(!integrationsSubMenuOpen);
                   }}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
                     activeTab === 'integrations'
@@ -626,21 +616,22 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
                       Admin
                     </span>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${integrationsSubMenuOpen && activeTab === 'integrations' ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${integrationsSubMenuOpen ? 'rotate-180' : ''}`} />
                   </div>
                 </button>
 
                 {/* Submenu for Integrations */}
-                {integrationsSubMenuOpen && activeTab === 'integrations' && (
+                {integrationsSubMenuOpen && (
                   <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3 animate-fade-in">
                     <button
                       type="button"
                       onClick={() => {
+                        setActiveTab('integrations');
                         setIntegrationsSubTab?.('dupr');
                         setMobileMenuOpen(false);
                       }}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                        integrationsSubTab === 'dupr'
+                        activeTab === 'integrations' && integrationsSubTab === 'dupr'
                           ? 'text-brand-lime bg-brand-lime/10 font-bold'
                           : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
                       }`}
@@ -662,15 +653,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             <div className="space-y-1">
               <button
                 onClick={() => {
-                  if (activeTab !== 'settings') {
-                    setActiveTab('settings');
-                    if (isTrialOrSubExpired) {
-                      setSettingsSubTab('subscription');
-                    }
-                    setSettingsSubMenuOpen(true);
-                  } else {
-                    setSettingsSubMenuOpen(!settingsSubMenuOpen);
-                  }
+                  setSettingsSubMenuOpen(!settingsSubMenuOpen);
                 }}
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
                   activeTab === 'settings'
@@ -683,21 +666,21 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   <span>Settings</span>
                 </div>
                 <div className="flex items-center">
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${settingsSubMenuOpen && activeTab === 'settings' ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${settingsSubMenuOpen ? 'rotate-180' : ''}`} />
                 </div>
               </button>
 
               {/* Submenu for Settings */}
-              {settingsSubMenuOpen && activeTab === 'settings' && (
+              {settingsSubMenuOpen && (
                 <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3">
                   <button
                     type="button"
                     disabled={isTrialOrSubExpired}
-                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('profile'); setMobileMenuOpen(false); } }}
+                    onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('profile'); setMobileMenuOpen(false); } }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : settingsSubTab === 'profile'
+                        : activeTab === 'settings' && settingsSubTab === 'profile'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -712,11 +695,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   <button
                     type="button"
                     disabled={isTrialOrSubExpired}
-                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('organization'); setMobileMenuOpen(false); } }}
+                    onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('organization'); setMobileMenuOpen(false); } }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : settingsSubTab === 'organization'
+                        : activeTab === 'settings' && settingsSubTab === 'organization'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -732,11 +715,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     <button
                       type="button"
                       disabled={isTrialOrSubExpired}
-                      onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('team'); setMobileMenuOpen(false); } }}
+                      onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('team'); setMobileMenuOpen(false); } }}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                         isTrialOrSubExpired
                           ? 'opacity-40 cursor-not-allowed text-slate-600'
-                          : settingsSubTab === 'team'
+                          : activeTab === 'settings' && settingsSubTab === 'team'
                           ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                           : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                       }`}
@@ -752,11 +735,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   <button
                     type="button"
                     disabled={isTrialOrSubExpired}
-                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('policies'); setMobileMenuOpen(false); } }}
+                    onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('policies'); setMobileMenuOpen(false); } }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : settingsSubTab === 'policies'
+                        : activeTab === 'settings' && settingsSubTab === 'policies'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -772,11 +755,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     <button
                       type="button"
                       disabled={isTrialOrSubExpired}
-                      onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('gcash'); setMobileMenuOpen(false); } }}
+                      onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('gcash'); setMobileMenuOpen(false); } }}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                         isTrialOrSubExpired
                           ? 'opacity-40 cursor-not-allowed text-slate-600'
-                          : settingsSubTab === 'gcash'
+                          : activeTab === 'settings' && settingsSubTab === 'gcash'
                           ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                           : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                       }`}
@@ -792,11 +775,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   <button
                     type="button"
                     disabled={isTrialOrSubExpired}
-                    onClick={() => { if (!isTrialOrSubExpired) { setSettingsSubTab('lead_time'); setMobileMenuOpen(false); } }}
+                    onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('lead_time'); setMobileMenuOpen(false); } }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
                       isTrialOrSubExpired
                         ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : settingsSubTab === 'lead_time'
+                        : activeTab === 'settings' && settingsSubTab === 'lead_time'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                     }`}
@@ -810,9 +793,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => { setSettingsSubTab('subscription'); setMobileMenuOpen(false); }}
+                    onClick={() => { setActiveTab('settings'); setSettingsSubTab('subscription'); setMobileMenuOpen(false); }}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                      settingsSubTab === 'subscription'
+                      activeTab === 'settings' && settingsSubTab === 'subscription'
                         ? 'text-brand-lime bg-brand-lime/10 font-bold'
                         : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
                     }`}
@@ -831,9 +814,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   {isSuperAdmin && (
                     <button
                       type="button"
-                      onClick={() => { setSettingsSubTab('service_fee'); setMobileMenuOpen(false); }}
+                      onClick={() => { setActiveTab('settings'); setSettingsSubTab('service_fee'); setMobileMenuOpen(false); }}
                       className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                        settingsSubTab === 'service_fee'
+                        activeTab === 'settings' && settingsSubTab === 'service_fee'
                           ? 'text-brand-lime bg-brand-lime/10 font-bold'
                           : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
                       }`}
