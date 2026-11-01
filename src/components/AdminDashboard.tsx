@@ -1051,10 +1051,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       regId = regDocRef.id;
     }
     const finalPayload = { ...payload, id: regId };
+    const cleanPayload = Object.fromEntries(
+      Object.entries(finalPayload).filter(([_, v]) => v !== undefined)
+    );
 
     try {
       if (isFirebaseConfigured && db) {
-        await setDoc(doc(db, 'openplay_registrations', regId), finalPayload);
+        await setDoc(doc(db, 'openplay_registrations', regId), cleanPayload);
       }
       const localStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
       const localRegs = localStr ? JSON.parse(localStr) as OpenPlayRegistration[] : [];
@@ -13678,6 +13681,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         onClose={() => setManualOpenPlayModalState({ isOpen: false, event: null })}
         event={manualOpenPlayModalState.event}
         currentRegistrations={openPlayRegistrations}
+        users={users}
         onSaveManualBooking={handleSaveManualOpenPlayRegistration}
         formatEventDateLong={formatEventDateLong}
         formatTime12h={formatTime12h}
