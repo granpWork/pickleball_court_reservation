@@ -71,7 +71,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   bookingStatusFilter,
   setBookingStatusFilter,
   actionLoading: _actionLoading,
-  onApproveBooking: _onApproveBooking,
+  onApproveBooking,
   onOpenCancelModal: _onOpenCancelModal,
   onViewReceipt,
   onDeleteBooking: _onDeleteBooking,
@@ -377,22 +377,56 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
     return days;
   };
 
+  // Robust date normalization helper (handles YYYY-MM-DD, unpadded dates, and ISO timestamps)
+  const normalizeDateStr = (raw?: string): string => {
+    if (!raw) return '';
+    const trimmed = raw.trim().split('T')[0];
+    const parts = trimmed.split('-');
+    if (parts.length === 3) {
+      const y = parts[0];
+      const m = parts[1].padStart(2, '0');
+      const d = parts[2].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return trimmed;
+  };
+
   const calendarDays = generateMonthDays();
 
   // Navigation & selection handlers
   const handlePrevMonth = () => {
-    setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1));
+    const newMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1);
+    setCalendarMonth(newMonth);
+    const y = newMonth.getFullYear();
+    const m = String(newMonth.getMonth() + 1).padStart(2, '0');
+    const today = getTodayString();
+    if (today.startsWith(`${y}-${m}`)) {
+      setSelectedCalendarDate(today);
+    } else {
+      setSelectedCalendarDate(`${y}-${m}-01`);
+    }
   };
+
   const handleNextMonth = () => {
-    setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1));
+    const newMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1);
+    setCalendarMonth(newMonth);
+    const y = newMonth.getFullYear();
+    const m = String(newMonth.getMonth() + 1).padStart(2, '0');
+    const today = getTodayString();
+    if (today.startsWith(`${y}-${m}`)) {
+      setSelectedCalendarDate(today);
+    } else {
+      setSelectedCalendarDate(`${y}-${m}-01`);
+    }
   };
+
   const handleTodayMonth = () => {
     setCalendarMonth(new Date());
     setSelectedCalendarDate(getTodayString());
   };
 
   const handleSelectCalendarDate = (dateStr: string) => {
-    setSelectedCalendarDate(dateStr);
+    setSelectedCalendarDate(normalizeDateStr(dateStr));
     if (typeof window !== 'undefined' && window.innerWidth < 1024 && agendaRef.current) {
       setTimeout(() => {
         agendaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1095,9 +1129,11 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           );
         });
 
-        const selectedDayBookings = calendarFilteredBookings.filter((b) => b.date === selectedCalendarDate);
+        const selectedDayBookings = calendarFilteredBookings.filter(
+          (b) => normalizeDateStr(b.date) === normalizeDateStr(selectedCalendarDate)
+        );
         const selectedDayOpenPlay = calendarFilteredOpenPlay.filter(
-          (ev) => (ev.eventDate || (ev as any).date) === selectedCalendarDate
+          (ev) => normalizeDateStr(ev.eventDate || (ev as any).date) === normalizeDateStr(selectedCalendarDate)
         );
         const selectedCourtObj = courts.find((c) => c.id === selectedCalendarCourtId);
 
@@ -1210,16 +1246,18 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                 {/* Days Grid */}
                 <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
                   {calendarDays.map((day, idx) => {
-                    const dayBookings = calendarFilteredBookings.filter((b) => b.date === day.dateStr);
+                    const dayBookings = calendarFilteredBookings.filter(
+                      (b) => normalizeDateStr(b.date) === normalizeDateStr(day.dateStr)
+                    );
                     const dayOpenPlay = calendarFilteredOpenPlay.filter(
-                      (ev) => (ev.eventDate || (ev as any).date) === day.dateStr
+                      (ev) => normalizeDateStr(ev.eventDate || (ev as any).date) === normalizeDateStr(day.dateStr)
                     );
                     const bookingCount = dayBookings.length;
                     const openPlayCount = dayOpenPlay.length;
                     const pendingCount = dayBookings.filter((b) => b.status === 'pending').length;
                     const totalCount = bookingCount + openPlayCount;
-                    const isSelected = day.dateStr === selectedCalendarDate;
-                    const isToday = day.dateStr === getTodayString();
+                    const isSelected = normalizeDateStr(day.dateStr) === normalizeDateStr(selectedCalendarDate);
+                    const isToday = normalizeDateStr(day.dateStr) === normalizeDateStr(getTodayString());
 
                     return (
                       <button
@@ -1335,7 +1373,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                         type="button"
                         onClick={handleSelectToday}
                         className={`flex-1 py-1.5 px-2 rounded-xl border text-[11px] font-black flex items-center justify-center gap-1 transition-all active:scale-95 cursor-pointer shadow-sm ${
-                          selectedCalendarDate === getTodayString()
+                          normalizeDateStr(selectedCalendarDate) === normalizeDateStr(getTodayString())
                             ? 'bg-brand-lime/20 border-brand-lime text-brand-lime'
                             : 'bg-slate-950/70 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white'
                         }`}
@@ -1357,7 +1395,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
                   {/* Bookings & Open Play List for Selected Date */}
                   {selectedDayBookings.length > 0 || selectedDayOpenPlay.length > 0 ? (
-                    <div className="space-y-3.5 max-h-[520px] overflow-y-auto pr-1">
+                    <div className="space-y-3.5 lg:max-h-[520px] lg:overflow-y-auto pr-1">
                       {/* 1. Open Play Events Scheduled for Selected Date */}
                       {selectedDayOpenPlay.map((ev, index) => (
                         <div
@@ -1415,6 +1453,19 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                         const isCopied = copiedEmail === playerEmail;
                         const catInfo = getBookingCategoryInfo(b);
                         const manualFlag = isBookingManual(b);
+                        const bUid = b.user?.uid || (b as any).userId;
+                        const matchedUser = users.find(
+                          (u) => (u.uid && bUid && u.uid === bUid) || (u.email && playerEmail && u.email.toLowerCase() === playerEmail.toLowerCase())
+                        );
+                        const avatarSrc =
+                          matchedUser?.photoUrl ||
+                          matchedUser?.avatarUrl ||
+                          (b.user as any)?.photoUrl ||
+                          (b.user as any)?.avatarUrl ||
+                          (b as any).photoUrl ||
+                          (b as any).avatarUrl ||
+                          (b as any).playerPhotoUrl ||
+                          (b as any).userPhotoUrl;
 
                         return (
                           <div
@@ -1438,9 +1489,15 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                             {/* Player Info Header */}
                             <div className="flex items-start justify-between gap-2">
                               <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-lime/20 to-emerald-500/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-black text-sm shrink-0 shadow-inner">
-                                  {playerName.charAt(0).toUpperCase()}
-                                </div>
+                                {avatarSrc ? (
+                                  <div className="w-9 h-9 rounded-xl border border-slate-700/80 bg-slate-900 overflow-hidden shrink-0 shadow-inner ring-1 ring-slate-800 flex items-center justify-center">
+                                    <img src={avatarSrc} alt={playerName} className="w-full h-full object-cover" />
+                                  </div>
+                                ) : (
+                                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-lime/20 to-emerald-500/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime font-black text-sm shrink-0 shadow-inner">
+                                    {playerName.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
                                 <div className="min-w-0">
                                   <div className="text-xs sm:text-sm font-black text-white flex items-center gap-1.5 truncate">
                                     <span className="truncate">{playerName}</span>
@@ -1492,6 +1549,27 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                               </span>
                             </div>
 
+                            {/* Guest Players Roster (if registered) */}
+                            {b.guests && b.guests.length > 0 && (
+                              <div className="pt-2 border-t border-slate-900/60 text-[11px] text-slate-400">
+                                <span className="font-semibold text-purple-300">
+                                  👥 +{b.guests.length} Guest{b.guests.length > 1 ? 's' : ''}:{' '}
+                                  {b.guests.map((g, idx) => g.name || g.email || `Guest ${idx + 1}`).filter(Boolean).join(', ')}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Rental Equipment (if attached) */}
+                            {b.rentals && b.rentals.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-1.5 border-t border-slate-900/60">
+                                {b.rentals.map((r, rIdx) => (
+                                  <span key={rIdx} className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-300 font-medium">
+                                    🎾 {r.name} x{r.quantity || 1}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
                             {/* Time Slots & Booking Details */}
                             <div className="pt-2.5 border-t border-slate-900 space-y-2.5 text-xs">
                               {/* Time Slots */}
@@ -1527,6 +1605,17 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                 </div>
 
                                 <div className="flex items-center gap-2 ml-auto">
+                                  {!isApproved && onApproveBooking && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onApproveBooking(b.id)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-[10px] font-black transition-colors cursor-pointer active:scale-95"
+                                      title="Approve Reservation"
+                                    >
+                                      <Check className="w-3 h-3 stroke-[3]" />
+                                      <span>Approve</span>
+                                    </button>
+                                  )}
                                   {manualFlag && onUpdateManualBooking && (
                                     <button
                                       type="button"
