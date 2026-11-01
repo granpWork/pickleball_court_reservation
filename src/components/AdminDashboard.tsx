@@ -577,12 +577,43 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [_reminderSaveSuccess, setReminderSaveSuccess] = useState(false);
   const [_testEmailLoading, setTestEmailLoading] = useState(false);
   const [_testEmailMessage, setTestEmailMessage] = useState<string | null>(null);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [courts, setCourts] = useState<Court[]>([]);
-  const [users, setUsers] = useState<UserAccount[]>([]);
-  const [vouchers, setVouchers] = useState<Voucher[]>([]);
-  const [shortLinks, setShortLinks] = useState<ShortLink[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [bookings, setBookings] = useState<Booking[]>(() => {
+    try {
+      const s = localStorage.getItem('picklepoint_bookings');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
+  const [courts, setCourts] = useState<Court[]>(() => {
+    try {
+      const s = localStorage.getItem('picklepoint_courts');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
+  const [users, setUsers] = useState<UserAccount[]>(() => {
+    try {
+      const s = localStorage.getItem('picklepoint_users');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
+  const [vouchers, setVouchers] = useState<Voucher[]>(() => {
+    try {
+      const s = localStorage.getItem('picklepoint_vouchers');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
+  const [shortLinks, setShortLinks] = useState<ShortLink[]>(() => {
+    try {
+      const s = localStorage.getItem('picklepoint_short_links');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    try {
+      const hasBookings = Boolean(localStorage.getItem('picklepoint_bookings'));
+      const hasCourts = Boolean(localStorage.getItem('picklepoint_courts'));
+      return !(hasBookings || hasCourts);
+    } catch { return true; }
+  });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isManualBookingModalOpen, setIsManualBookingModalOpen] = useState(false);
   const [isSubmittingManualBooking, setIsSubmittingManualBooking] = useState(false);
@@ -970,8 +1001,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   // Open Play States
-  const [openPlayEvents, setOpenPlayEvents] = useState<OpenPlayEvent[]>([]);
-  const [openPlayRegistrations, setOpenPlayRegistrations] = useState<OpenPlayRegistration[]>([]);
+  const [openPlayEvents, setOpenPlayEvents] = useState<OpenPlayEvent[]>(() => {
+    try {
+      const s = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+      return s ? JSON.parse(s).map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e)) : [];
+    } catch { return []; }
+  });
+  const [openPlayRegistrations, setOpenPlayRegistrations] = useState<OpenPlayRegistration[]>(() => {
+    try {
+      const s = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
+      return s ? JSON.parse(s) : [];
+    } catch { return []; }
+  });
   const [openPlayModalOpen, setOpenPlayModalOpen] = useState(false);
   const [editingOpenPlay, setEditingOpenPlay] = useState<OpenPlayEvent | null>(null);
   const [registrationsModalOpen, setRegistrationsModalOpen] = useState(false);
@@ -3005,161 +3046,232 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   // Fetch all data
-  const fetchData = async () => {
-    setLoading(true);
-    
-    // Instant synchronous pre-load of Open Play events from Local/Session Storage for 0ms rendering
-    const cachedEStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-    if (cachedEStr) {
-      try {
-        const cachedEvents = JSON.parse(cachedEStr).map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
-        if (cachedEvents.length > 0) {
-          setOpenPlayEvents(cachedEvents);
-        }
-      } catch (e) {}
+  const fetchData = async (isBackgroundSilent = false) => {
+    // Only show full-screen spinner if we don't have any cached data loaded yet
+    if (!isBackgroundSilent && courts.length === 0 && bookings.length === 0 && openPlayEvents.length === 0) {
+      setLoading(true);
     }
 
-    // --- Independent OpenPlay Fetch (runs regardless of other fetch failures) ---
-    (async () => {
-      const eventsMap = new Map<string, OpenPlayEvent>();
-
-      // 1. Pre-load local events into map
-      const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-      if (localStr) {
-        try {
-          const localEventsRaw = JSON.parse(localStr);
-          localEventsRaw.forEach((e: any) => {
-            const normalized = normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e);
-            if (normalized.id) eventsMap.set(normalized.id, normalized);
-          });
-        } catch (e) {}
-      }
-
-      // 2. Fetch cloud events and merge into map
+    try {
       if (isFirebaseConfigured && db) {
-        try {
-          const eventsSnap = await getDocs(collection(db, 'openplay_events'));
-          eventsSnap.forEach((dSnap) => {
+        // Parallel queries via Promise.allSettled to drastically reduce network round trips on mobile
+        const compPromise = isSuperAdmin
+          ? getDocs(collection(db, 'companies'))
+          : (currentUserEmail ? getDocs(query(collection(db, 'companies'), where('clientAdminEmail', '==', currentUserEmail))) : Promise.resolve(null));
+        const courtsPromise = getDocs(collection(db, 'courts'));
+        const bookingsPromise = getDocs(collection(db, 'bookings'));
+        const usersPromise = getDocs(collection(db, 'users'));
+        const invitationsPromise = getDocs(collection(db, 'invitations'));
+        const eventsPromise = getDocs(collection(db, 'openplay_events'));
+        const regsPromise = getDocs(collection(db, 'openplay_registrations'));
+        const vouchersPromise = getDocs(collection(db, 'vouchers'));
+        const shortLinksPromise = getDocs(collection(db, 'short_links'));
+        const remindersPromise = currentUserUid ? getDoc(doc(db, 'settings', 'reminders', 'users', currentUserUid)) : Promise.resolve(null);
+        const globalGcashPromise = getDoc(doc(db, 'settings', 'checkout'));
+
+        const [
+          compRes,
+          courtsRes,
+          bookingsRes,
+          usersRes,
+          invitationsRes,
+          eventsRes,
+          regsRes,
+          vouchersRes,
+          shortLinksRes,
+          remindersRes,
+          globalGcashRes
+        ] = await Promise.allSettled([
+          compPromise,
+          courtsPromise,
+          bookingsPromise,
+          usersPromise,
+          invitationsPromise,
+          eventsPromise,
+          regsPromise,
+          vouchersPromise,
+          shortLinksPromise,
+          remindersPromise,
+          globalGcashPromise
+        ]);
+
+        // 1. Process Companies
+        let loadedCompanies: Company[] = [];
+        if (compRes.status === 'fulfilled' && compRes.value) {
+          compRes.value.forEach((docSnap) => {
+            loadedCompanies.push({ id: docSnap.id, ...docSnap.data() } as Company);
+          });
+        }
+        if (loadedCompanies.length === 0) {
+          const compStr = localStorage.getItem('picklepoint_companies');
+          loadedCompanies = compStr ? JSON.parse(compStr) : [];
+        }
+        setCompanies(loadedCompanies);
+        try { localStorage.setItem('picklepoint_companies', JSON.stringify(loadedCompanies)); } catch (e) {}
+
+        const myActiveCompany = loadedCompanies.find((c) =>
+          (c.clientAdminEmail && currentUserEmail && c.clientAdminEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
+          c.id === currentUserUid ||
+          c.id === (user as any)?.companyId ||
+          (c.name && (user as any)?.companyName && c.name.toLowerCase() === (user as any).companyName.toLowerCase())
+        );
+
+        // 2. Process Courts
+        let loadedCourts: Court[] = [];
+        if (courtsRes.status === 'fulfilled' && courtsRes.value) {
+          courtsRes.value.forEach((docSnap) => {
+            if (docSnap.id !== 'court-championship') {
+              loadedCourts.push({ id: docSnap.id, ...docSnap.data() } as Court);
+            }
+          });
+        }
+        if (loadedCourts.length === 0) {
+          const courtsStr = localStorage.getItem('picklepoint_courts');
+          loadedCourts = courtsStr ? JSON.parse(courtsStr) : [];
+          loadedCourts = loadedCourts.filter(c => c.id !== 'court-championship');
+        }
+        setCourts(loadedCourts);
+        try { localStorage.setItem('picklepoint_courts', JSON.stringify(loadedCourts)); } catch (e) {}
+
+        const scopedAdminCourts = (() => {
+          const hostEmail = currentUserEmail.trim().toLowerCase();
+          const hostCompanyId = myActiveCompany?.id || (user as any)?.companyId;
+          const hostCompName = (myActiveCompany?.name || (user as any)?.companyName || '').trim().toLowerCase();
+          const inviterEmail = ((user as any)?.invitedBy || myActiveCompany?.clientAdminEmail || '').trim().toLowerCase();
+          const isGenericPlaceholder = !hostCompName || hostCompName === 'picklepoint venue' || hostCompName === 'book picklecourt venue';
+
+          const matched = loadedCourts.filter((c) => {
+            if (c.ownerId && currentUserUid && currentUserUid !== 'unknown' && c.ownerId === currentUserUid) return true;
+            if (hostEmail) {
+              if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === hostEmail) return true;
+              if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === hostEmail) return true;
+            }
+            if (inviterEmail) {
+              if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === inviterEmail) return true;
+              if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === inviterEmail) return true;
+            }
+            if (hostCompanyId && c.companyId && c.companyId === hostCompanyId) return true;
+            if (!isGenericPlaceholder) {
+              if (c.ownerCompanyName && c.ownerCompanyName.trim().toLowerCase() === hostCompName) return true;
+              if (c.companyName && c.companyName.trim().toLowerCase() === hostCompName) return true;
+            }
+            return false;
+          });
+
+          if (matched.length > 0) return matched;
+          if (!isSuperAdmin) return loadedCourts;
+          if (isSuperAdmin && !myActiveCompany) return loadedCourts;
+          return [];
+        })();
+        const ownedCourtIds = scopedAdminCourts.map(c => c.id);
+
+        // 3. Process Bookings (Single fetch reused for bookings and OpenPlay registrations!)
+        let localBookingsList: Booking[] = [];
+        const localBookingsStr = localStorage.getItem('picklepoint_bookings');
+        if (localBookingsStr) {
+          try {
+            const parsed = JSON.parse(localBookingsStr);
+            if (Array.isArray(parsed)) localBookingsList = parsed as Booking[];
+          } catch (e) {}
+        }
+
+        const cloudBookingDocs: { docId: string; data: Booking }[] = [];
+        if (bookingsRes.status === 'fulfilled' && bookingsRes.value) {
+          bookingsRes.value.forEach((docSnap) => {
+            cloudBookingDocs.push({ docId: docSnap.id, data: docSnap.data() as Booking });
+          });
+        }
+
+        let loadedBookings: Booking[] = mergeAndDeduplicateBookings(cloudBookingDocs, localBookingsList);
+        if (!isSuperAdmin) {
+          if (ownedCourtIds.length > 0) {
+            loadedBookings = loadedBookings.filter(b => {
+              const isOwnedCourt = ownedCourtIds.includes(b.courtId);
+              const isOwnedByUid = b.courtOwnerId && b.courtOwnerId === currentUserUid;
+              const isOwnedByEmail = b.ownerEmail && currentUserEmail && b.ownerEmail.toLowerCase() === currentUserEmail.toLowerCase();
+              const isOwnedByInviter = (user as any)?.invitedBy && b.ownerEmail && b.ownerEmail.toLowerCase() === (user as any).invitedBy.toLowerCase();
+              const isOwnedByCompanyName = myActiveCompany?.name && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === myActiveCompany.name.toLowerCase();
+              const isOwnedByCompanyId = myActiveCompany?.id && (b as any).companyId && (b as any).companyId === myActiveCompany.id;
+              const isUserCompanyMatch = (user as any)?.companyName && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === (user as any).companyName.toLowerCase();
+              return isOwnedCourt || isOwnedByUid || isOwnedByEmail || isOwnedByInviter || isOwnedByCompanyName || isOwnedByCompanyId || isUserCompanyMatch;
+            });
+          }
+        }
+        loadedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setBookings(loadedBookings);
+
+        // 4. Process OpenPlay Events
+        const eventsMap = new Map<string, OpenPlayEvent>();
+        const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+        if (localEventsStr) {
+          try {
+            const localEventsRaw = JSON.parse(localEventsStr);
+            localEventsRaw.forEach((e: any) => {
+              const normalized = normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e);
+              if (normalized.id) eventsMap.set(normalized.id, normalized);
+            });
+          } catch (e) {}
+        }
+        if (eventsRes.status === 'fulfilled' && eventsRes.value) {
+          eventsRes.value.forEach((dSnap) => {
             const cloudEvent = normalizeOpenPlayEvent(dSnap.id, dSnap.data());
             eventsMap.set(cloudEvent.id, cloudEvent);
           });
-        } catch (err) {
-          console.warn('Firestore openplay_events fetch error, loading local fallback:', err);
         }
-      }
+        const mergedEvents = Array.from(eventsMap.values());
+        try {
+          localStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
+          sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
+        } catch (e) {}
+        setOpenPlayEvents(mergedEvents);
 
-      const mergedEvents = Array.from(eventsMap.values());
-      try {
-        localStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
-        sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
-      } catch (e) {}
-      setOpenPlayEvents(mergedEvents);
-    })();
-
-    // --- Independent OpenPlay Registrations Fetch (runs regardless of other fetch failures) ---
-    (async () => {
-      const regMap = new Map<string, OpenPlayRegistration>();
-
-      // 1. Load from LocalStorage picklepoint_bookings
-      try {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const allBookings = JSON.parse(bookingsStr);
-          allBookings.forEach((b: any) => {
-            if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId && b.status !== 'cancelled') {
-              const regId = b.id || b.bookingReference;
-              regMap.set(regId, {
-                id: regId,
-                eventId: b.openPlayEventId,
-                eventTitle: b.openPlayTitle || b.courtName,
-                playerUid: b.userId || b.user?.uid || '',
-                playerName: b.user?.name || b.userName || 'Player',
-                playerEmail: b.user?.email || b.userEmail || '',
-                playerPhone: b.userPhone,
-                playerCount: b.playerCount || 1,
-                guestCount: b.guestCount || (b.guests?.length || 0),
-                guests: b.guests || [],
-                guestNames: b.guestNames || [],
-                guestEmails: b.guestEmails || [],
-                gcashReferenceNumber: b.gcashReferenceNumber,
-                paymentStatus: b.paymentStatus || 'paid',
-                status: b.status || 'approved',
-                createdAt: b.createdAt || new Date().toISOString(),
-                isAddGuestOnly: b.isAddGuestOnly === true,
-                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
-                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
-                duprId: b.duprId || b.user?.duprId || '',
-                adminDuprId: b.adminDuprId || '',
-                duprRating: b.duprRating || b.user?.duprRating || '',
-                adminDuprRating: b.adminDuprRating || '',
-              } as OpenPlayRegistration);
-            }
-          });
-        }
+        // 5. Process OpenPlay Registrations
+        const regMap = new Map<string, OpenPlayRegistration>();
         const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || sessionStorage.getItem('picklepoint_openplay_registrations');
         if (localRegsStr) {
-          const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
-          allRegs.forEach((r) => {
-            if (r.eventId) {
-              const existing = regMap.get(r.id);
-              if (existing) {
-                regMap.set(r.id, {
-                  ...existing,
-                  guests: Array.isArray(r.guests) && r.guests.length > 0 ? r.guests : (existing.guests || []),
-                  adminDuprId: r.adminDuprId || existing.adminDuprId || '',
-                  adminDuprRating: r.adminDuprRating || existing.adminDuprRating || '',
-                  duprId: r.duprId || existing.duprId || '',
-                  duprRating: r.duprRating || existing.duprRating || '',
-                });
-              } else {
-                regMap.set(r.id, r);
-              }
-            }
-          });
+          try {
+            const allRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
+            allRegs.forEach((r) => {
+              if (r.eventId) regMap.set(r.id, r);
+            });
+          } catch (e) {}
         }
-      } catch (e) {}
 
-      // 2. Load from Firestore
-      if (isFirebaseConfigured && db) {
-        try {
-          // Query bookings collection for open play
-          const bSnap = await getDocs(collection(db, 'bookings'));
-          bSnap.forEach(dSnap => {
-            const b = dSnap.data();
-            if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId && b.status !== 'cancelled') {
-              const regId = dSnap.id;
-              const existing = regMap.get(regId);
-              regMap.set(regId, {
-                id: regId,
-                eventId: b.openPlayEventId,
-                eventTitle: b.openPlayTitle || b.courtName,
-                playerUid: b.userId || b.user?.uid || '',
-                playerName: b.user?.name || b.userName || 'Player',
-                playerEmail: b.user?.email || b.userEmail || '',
-                playerPhone: b.userPhone,
-                playerCount: b.playerCount || 1,
-                guestCount: b.guestCount || (b.guests?.length || 0),
-                guests: b.guests || [],
-                guestNames: b.guestNames || [],
-                guestEmails: b.guestEmails || [],
-                gcashReferenceNumber: b.gcashReferenceNumber,
-                paymentStatus: b.paymentStatus || 'paid',
-                status: b.status || 'approved',
-                createdAt: b.createdAt || new Date().toISOString(),
-                isAddGuestOnly: b.isAddGuestOnly === true,
-                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
-                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
-                duprId: b.duprId || b.user?.duprId || existing?.duprId || '',
-                adminDuprId: b.adminDuprId || existing?.adminDuprId || '',
-                duprRating: b.duprRating || b.user?.duprRating || existing?.duprRating || '',
-                adminDuprRating: b.adminDuprRating || existing?.adminDuprRating || '',
-              } as OpenPlayRegistration);
-            }
-          });
+        // Extract open play bookings from already fetched cloudBookingDocs
+        cloudBookingDocs.forEach(({ docId, data: b }: any) => {
+          if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId && b.status !== 'cancelled') {
+            const existing = regMap.get(docId);
+            regMap.set(docId, {
+              id: docId,
+              eventId: b.openPlayEventId,
+              eventTitle: b.openPlayTitle || b.courtName,
+              playerUid: b.userId || b.user?.uid || '',
+              playerName: b.user?.name || b.userName || 'Player',
+              playerEmail: b.user?.email || b.userEmail || '',
+              playerPhone: b.userPhone,
+              playerCount: b.playerCount || 1,
+              guestCount: b.guestCount || (b.guests?.length || 0),
+              guests: b.guests || [],
+              guestNames: b.guestNames || [],
+              guestEmails: b.guestEmails || [],
+              gcashReferenceNumber: b.gcashReferenceNumber,
+              paymentStatus: b.paymentStatus || 'paid',
+              status: b.status || 'approved',
+              createdAt: b.createdAt || new Date().toISOString(),
+              isAddGuestOnly: b.isAddGuestOnly === true,
+              primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+              primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+              duprId: b.duprId || b.user?.duprId || existing?.duprId || '',
+              adminDuprId: b.adminDuprId || existing?.adminDuprId || '',
+              duprRating: b.duprRating || b.user?.duprRating || existing?.duprRating || '',
+              adminDuprRating: b.adminDuprRating || existing?.adminDuprRating || '',
+            } as OpenPlayRegistration);
+          }
+        });
 
-          // Query openplay_registrations collection
-          const regsSnap = await getDocs(collection(db, 'openplay_registrations'));
-          regsSnap.forEach((dSnap) => {
+        // Merge openplay_registrations collection
+        if (regsRes.status === 'fulfilled' && regsRes.value) {
+          regsRes.value.forEach((dSnap) => {
             const rData = dSnap.data();
             const existing = regMap.get(dSnap.id);
             if (existing) {
@@ -3176,167 +3288,21 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               regMap.set(dSnap.id, { id: dSnap.id, ...rData } as OpenPlayRegistration);
             }
           });
-        } catch (err) {
-          console.warn('Firestore registrations fetch error:', err);
         }
-      }
-
-      const loadedOpenPlayRegs = Array.from(regMap.values());
-      try {
-        localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(loadedOpenPlayRegs));
-        sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(loadedOpenPlayRegs));
-      } catch (e) {}
-      setOpenPlayRegistrations(loadedOpenPlayRegs);
-    })();
-
-    try {
-      // 1. Fetch companies first so company context is available immediately for filtering
-      let loadedCompanies: Company[] = [];
-      if (isFirebaseConfigured && db) {
+        const loadedOpenPlayRegs = Array.from(regMap.values());
         try {
-          if (isSuperAdmin) {
-            const compSnapshot = await getDocs(collection(db, 'companies'));
-            compSnapshot.forEach((docSnap) => {
-              loadedCompanies.push({
-                id: docSnap.id,
-                ...docSnap.data(),
-              } as Company);
-            });
-          } else if (currentUserEmail) {
-            const compQuery = query(collection(db, 'companies'), where('clientAdminEmail', '==', currentUserEmail));
-            const compSnapshot = await getDocs(compQuery);
-            compSnapshot.forEach((docSnap) => {
-              loadedCompanies.push({
-                id: docSnap.id,
-                ...docSnap.data(),
-              } as Company);
-            });
-          }
-        } catch (err) {
-          console.warn('Error fetching companies collection from cloud, loading local fallback:', err);
-          const compStr = localStorage.getItem('picklepoint_companies');
-          loadedCompanies = compStr ? JSON.parse(compStr) : [];
-        }
-      } else {
-        const compStr = localStorage.getItem('picklepoint_companies');
-        loadedCompanies = compStr ? JSON.parse(compStr) : [];
-      }
-      setCompanies(loadedCompanies);
-
-      const myActiveCompany = loadedCompanies.find((c) =>
-        (c.clientAdminEmail && currentUserEmail && c.clientAdminEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
-        c.id === currentUserUid ||
-        c.id === (user as any)?.companyId ||
-        (c.name && (user as any)?.companyName && c.name.toLowerCase() === (user as any).companyName.toLowerCase())
-      );
-
-      // 2. Fetch courts
-      let loadedCourts: Court[] = [];
-      if (isFirebaseConfigured && db) {
-        try {
-          const courtsSnapshot = await getDocs(collection(db, 'courts'));
-          courtsSnapshot.forEach((docSnap) => {
-            if (docSnap.id !== 'court-championship') {
-              loadedCourts.push({ id: docSnap.id, ...docSnap.data() } as Court);
-            }
-          });
-        } catch (err) {
-          console.warn('Error fetching courts collection from cloud, loading local fallback:', err);
-          const courtsStr = localStorage.getItem('picklepoint_courts');
-          loadedCourts = courtsStr ? JSON.parse(courtsStr) : [];
-          loadedCourts = loadedCourts.filter(c => c.id !== 'court-championship');
-        }
-      } else {
-        const courtsStr = localStorage.getItem('picklepoint_courts');
-        loadedCourts = courtsStr ? JSON.parse(courtsStr) : [];
-        loadedCourts = loadedCourts.filter(c => c.id !== 'court-championship');
-        localStorage.setItem('picklepoint_courts', JSON.stringify(loadedCourts));
-      }
-      setCourts(loadedCourts);
-
-      const scopedAdminCourts = (() => {
-        const hostEmail = currentUserEmail.trim().toLowerCase();
-        const hostCompanyId = myActiveCompany?.id || (user as any)?.companyId;
-        const hostCompName = (myActiveCompany?.name || (user as any)?.companyName || '').trim().toLowerCase();
-        const inviterEmail = ((user as any)?.invitedBy || myActiveCompany?.clientAdminEmail || '').trim().toLowerCase();
-        const isGenericPlaceholder = !hostCompName || hostCompName === 'picklepoint venue' || hostCompName === 'book picklecourt venue';
-
-        const matched = loadedCourts.filter((c) => {
-          if (c.ownerId && currentUserUid && currentUserUid !== 'unknown' && c.ownerId === currentUserUid) return true;
-          if (hostEmail) {
-            if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === hostEmail) return true;
-            if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === hostEmail) return true;
-          }
-          if (inviterEmail) {
-            if (c.ownerEmail && c.ownerEmail.trim().toLowerCase() === inviterEmail) return true;
-            if (c.createdByEmail && c.createdByEmail.trim().toLowerCase() === inviterEmail) return true;
-          }
-          if (hostCompanyId && c.companyId && c.companyId === hostCompanyId) return true;
-          if (!isGenericPlaceholder) {
-            if (c.ownerCompanyName && c.ownerCompanyName.trim().toLowerCase() === hostCompName) return true;
-            if (c.companyName && c.companyName.trim().toLowerCase() === hostCompName) return true;
-          }
-          return false;
-        });
-
-        if (matched.length > 0) return matched;
-        if (!isSuperAdmin) return loadedCourts;
-        if (isSuperAdmin && !myActiveCompany) return loadedCourts;
-        return [];
-      })();
-      const ownedCourtIds = scopedAdminCourts.map(c => c.id);
-
-      // 3. Fetch bookings (Merge Firestore & LocalStorage for 100% data fidelity)
-      let localBookingsList: Booking[] = [];
-      const localBookingsStr = localStorage.getItem('picklepoint_bookings');
-      if (localBookingsStr) {
-        try {
-          const parsed = JSON.parse(localBookingsStr);
-          if (Array.isArray(parsed)) localBookingsList = parsed as Booking[];
+          localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(loadedOpenPlayRegs));
+          sessionStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(loadedOpenPlayRegs));
         } catch (e) {}
-      }
+        setOpenPlayRegistrations(loadedOpenPlayRegs);
 
-      const cloudBookingDocs: { docId: string; data: Booking }[] = [];
-      if (isFirebaseConfigured && db) {
-        try {
-          const querySnapshot = await getDocs(collection(db, 'bookings'));
-          querySnapshot.forEach((docSnap) => {
-            cloudBookingDocs.push({ docId: docSnap.id, data: docSnap.data() as Booking });
-          });
-        } catch (err) {
-          console.warn('Error fetching bookings collection from cloud:', err);
-        }
-      }
-
-      let loadedBookings: Booking[] = mergeAndDeduplicateBookings(cloudBookingDocs, localBookingsList);
-
-      // Filter bookings: each admin sees bookings/checkouts for courts or organization they own.
-      if (!isSuperAdmin) {
-        if (ownedCourtIds.length > 0) {
-          loadedBookings = loadedBookings.filter(b => {
-            const isOwnedCourt = ownedCourtIds.includes(b.courtId);
-            const isOwnedByUid = b.courtOwnerId && b.courtOwnerId === currentUserUid;
-            const isOwnedByEmail = b.ownerEmail && currentUserEmail && b.ownerEmail.toLowerCase() === currentUserEmail.toLowerCase();
-            const isOwnedByInviter = (user as any)?.invitedBy && b.ownerEmail && b.ownerEmail.toLowerCase() === (user as any).invitedBy.toLowerCase();
-            const isOwnedByCompanyName = myActiveCompany?.name && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === myActiveCompany.name.toLowerCase();
-            const isOwnedByCompanyId = myActiveCompany?.id && (b as any).companyId && (b as any).companyId === myActiveCompany.id;
-            const isUserCompanyMatch = (user as any)?.companyName && b.ownerCompanyName && b.ownerCompanyName.toLowerCase() === (user as any).companyName.toLowerCase();
-            return isOwnedCourt || isOwnedByUid || isOwnedByEmail || isOwnedByInviter || isOwnedByCompanyName || isOwnedByCompanyId || isUserCompanyMatch;
-          });
-        }
-      }
-      loadedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setBookings(loadedBookings);
-
-      // 4. Fetch users (For both Super Admin and Client Admin)
-      let loadedUsers: UserAccount[] = [];
-      if (isFirebaseConfigured && db) {
-        try {
-          const usersSnapshot = await getDocs(collection(db, 'users'));
+        // 6. Process Users & Invitations
+        let loadedUsers: UserAccount[] = [];
+        if (usersRes.status === 'fulfilled' && usersRes.value) {
           const userMap = new Map<string, UserAccount>();
           const orphanDocIdsToDelete: string[] = [];
 
-          usersSnapshot.forEach((docSnap) => {
+          usersRes.value.forEach((docSnap) => {
             const uData = docSnap.data();
             const emailKey = (uData.email || '').trim().toLowerCase();
             if (!emailKey) return;
@@ -3352,7 +3318,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             if (!existing) {
               userMap.set(emailKey, userObj);
             } else {
-              // Deduplicate: prefer real non-invited auth accounts over placeholder invited-* documents
               if (existing.uid?.startsWith('invited-') && !isPlaceholder) {
                 orphanDocIdsToDelete.push(existing.uid);
                 userObj.companyId = userObj.companyId || existing.companyId;
@@ -3363,7 +3328,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 existing.companyId = existing.companyId || userObj.companyId;
                 existing.companyName = existing.companyName || userObj.companyName;
               } else {
-                // Both are real accounts or both placeholders: prefer active over deleted
                 if (existing.status === 'deleted' && userObj.status !== 'deleted') {
                   orphanDocIdsToDelete.push(existing.uid!);
                   userMap.set(emailKey, userObj);
@@ -3374,10 +3338,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             }
           });
 
-          // Also query invitations to display pending invited Client Admins
-          try {
-            const invitationsSnapshot = await getDocs(collection(db, 'invitations'));
-            invitationsSnapshot.forEach((invDoc) => {
+          // Merge invitations
+          if (invitationsRes.status === 'fulfilled' && invitationsRes.value) {
+            invitationsRes.value.forEach((invDoc) => {
               const invData = invDoc.data();
               const invEmail = (invData.email || '').trim().toLowerCase();
               if (!invEmail) return;
@@ -3408,7 +3371,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   });
                 }
               } else {
-                // Attach invitation metadata if available and override pending invitation status/role/company
                 if (isPending) {
                   existingUser.status = 'pending';
                   existingUser.isInvitedPending = true;
@@ -3417,9 +3379,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   existingUser.expiresAt = invData.expiresAt;
                   existingUser.invitedBy = invData.invitedBy;
                   existingUser.customMessage = invData.customMessage;
-                  if (invData.role) {
-                    existingUser.role = invData.role;
-                  }
+                  if (invData.role) existingUser.role = invData.role;
                   existingUser.companyId = invData.companyId || existingUser.companyId || (user as any)?.companyId || myCompany?.id || '';
                   existingUser.companyName = invData.company || invData.companyName || existingUser.companyName || myCompany?.name || '';
                   existingUser.permissions = invData.permissions || getUserEffectivePermissions({ role: invData.role || existingUser.role });
@@ -3429,217 +3389,93 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 }
               }
             });
-          } catch (invErr) {
-            console.warn('Error querying invitations collection in fetchData:', invErr);
           }
 
-          // Clean up orphan duplicate placeholder documents in the background
           for (const orphanId of orphanDocIdsToDelete) {
             deleteDoc(doc(db, 'users', orphanId)).catch(() => {});
           }
 
           loadedUsers = Array.from(userMap.values());
-        } catch (err) {
-          console.error('Error fetching users collection:', err);
+        }
+        if (loadedUsers.length === 0) {
           const usersStr = localStorage.getItem('picklepoint_users');
           loadedUsers = usersStr ? JSON.parse(usersStr) : [];
         }
-      } else {
-        // Simulated Users Fallback
-        const usersStr = localStorage.getItem('picklepoint_users');
-        const localUsers = (usersStr ? JSON.parse(usersStr) : []) as any[];
-        const localMap = new Map<string, any>();
-        localUsers.forEach((u) => {
-          const emailKey = (u.email || '').trim().toLowerCase();
-          if (emailKey && !localMap.has(emailKey)) {
-            localMap.set(emailKey, u);
-          }
+        setUsers(loadedUsers);
+
+        // 7. Process GCash Accounts & Checkout Settings
+        let gcashAccountsList: GcashAccount[] = [];
+        const ownerUidsToTry = new Set<string>();
+        if (currentUserUid && currentUserUid !== 'unknown') ownerUidsToTry.add(currentUserUid);
+        const hostCompanyId = myActiveCompany?.id || (user as any)?.companyId;
+        if (hostCompanyId) ownerUidsToTry.add(hostCompanyId);
+        if ((myActiveCompany as any)?.clientAdminUid) ownerUidsToTry.add((myActiveCompany as any).clientAdminUid);
+        const inviterEmail = ((user as any)?.invitedBy || myActiveCompany?.clientAdminEmail || '').trim().toLowerCase();
+        if (inviterEmail) {
+          const inviterUser = loadedUsers.find(u => u.email?.toLowerCase() === inviterEmail);
+          if (inviterUser?.uid && !inviterUser.uid.startsWith('invite-')) ownerUidsToTry.add(inviterUser.uid);
+        }
+        scopedAdminCourts.forEach(c => {
+          if (c.ownerId && !c.ownerId.startsWith('invite-')) ownerUidsToTry.add(c.ownerId);
         });
 
-        // Merge simulated invitations
-        const invStr = localStorage.getItem('picklepoint_invitations');
-        if (invStr) {
+        // Fast parallel fetch of personal settings docs
+        const personalFetches = Array.from(ownerUidsToTry).map(async (targetUid) => {
           try {
-            const localInvs = JSON.parse(invStr);
-            localInvs.forEach((inv: any) => {
-              const invEmail = (inv.email || '').trim().toLowerCase();
-              if (invEmail && inv.status === 'pending' && !localMap.has(invEmail)) {
-                const invRole = inv.role || 'client_admin';
-                const defaultName = invRole === 'manager' ? 'Invited Manager' : invRole === 'editor' ? 'Invited Editor' : 'Invited Client Admin';
-                localMap.set(invEmail, {
-                  uid: `invite-${inv.token}`,
-                  name: inv.name || defaultName,
-                  email: inv.email,
-                  role: invRole,
-                  status: 'pending',
-                  isInvitedPending: true,
-                  isInvitation: true,
-                  inviteToken: inv.token,
-                  expiresAt: inv.expiresAt,
-                  invitedBy: inv.invitedBy,
-                  createdAt: inv.createdAt,
-                });
+            const pSnap = await getDoc(doc(db!, 'settings', 'checkout', 'users', targetUid));
+            if (pSnap.exists()) {
+              const data = pSnap.data();
+              if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
+                return data.accounts as GcashAccount[];
               }
-            });
+            }
           } catch (e) {}
-        }
-
-        loadedUsers = Array.from(localMap.values()).map((u) => ({
-          uid: u.uid || 'simulated-uid-' + u.email,
-          name: u.name,
-          email: u.email,
-          role: u.role || (u.email?.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player'),
-          status: u.status || (u.isInvitedPending ? 'pending' : 'active'),
-          companyId: u.companyId,
-          companyName: u.companyName,
-          isInvitedPending: u.isInvitedPending,
-          isInvitation: u.isInvitation,
-          inviteToken: u.inviteToken,
-          expiresAt: u.expiresAt,
-          invitedBy: u.invitedBy,
-          createdAt: u.createdAt,
-        }));
-        
-        // Ensure default accounts are shown if list is empty
-        if (loadedUsers.length === 0) {
-          loadedUsers.push({ name: 'Demo Player', email: 'demo@picklepoint.com', role: 'player', status: 'active' });
-          loadedUsers.push({ name: 'Admin User', email: 'admin@picklepoint.com', role: 'super_admin', status: 'active' });
-        }
-      }
-      setUsers(loadedUsers);
-
-      // 4. Fetch GCash checkout settings (both personal/facility and global fallback)
-      if (isFirebaseConfigured && db) {
-        try {
-          // Fetch personal/facility GCash details list
-          try {
-            let gcashAccountsList: GcashAccount[] = [];
-            const ownerUidsToTry = new Set<string>();
-
-            if (currentUserUid && currentUserUid !== 'unknown') {
-              ownerUidsToTry.add(currentUserUid);
-            }
-
-            const hostCompanyId = myActiveCompany?.id || (user as any)?.companyId;
-            if (hostCompanyId) {
-              ownerUidsToTry.add(hostCompanyId);
-            }
-            if ((myActiveCompany as any)?.clientAdminUid) {
-              ownerUidsToTry.add((myActiveCompany as any).clientAdminUid);
-            }
-
-            const inviterEmail = ((user as any)?.invitedBy || myActiveCompany?.clientAdminEmail || '').trim().toLowerCase();
-            if (inviterEmail) {
-              const inviterUser = loadedUsers.find(u => u.email?.toLowerCase() === inviterEmail);
-              if (inviterUser?.uid && !inviterUser.uid.startsWith('invite-')) {
-                ownerUidsToTry.add(inviterUser.uid);
-              }
-            }
-
-            scopedAdminCourts.forEach(c => {
-              if (c.ownerId && !c.ownerId.startsWith('invite-')) {
-                ownerUidsToTry.add(c.ownerId);
-              }
-            });
-
-            for (const targetUid of ownerUidsToTry) {
-              if (isFirebaseConfigured && db) {
-                try {
-                  const personalSnap = await getDoc(doc(db, 'settings', 'checkout', 'users', targetUid));
-                  if (personalSnap.exists()) {
-                    const data = personalSnap.data();
-                    if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
-                      gcashAccountsList = data.accounts;
-                      break;
-                    }
-                  }
-                } catch (pErr) {
-                  console.warn(`Failed to read personal settings from Firestore for UID ${targetUid}:`, pErr);
-                }
-              }
-
-              const localStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${targetUid}`);
-              if (localStr) {
-                try {
-                  const parsed = JSON.parse(localStr);
-                  if (Array.isArray(parsed) && parsed.length > 0) {
-                    gcashAccountsList = parsed;
-                    break;
-                  }
-                } catch (e) {}
-              }
-            }
-
-            setPersonalAccounts(gcashAccountsList);
-          } catch (pErr) {
-            console.warn('Failed to read personal settings from Firestore:', pErr);
+          const localStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${targetUid}`);
+          if (localStr) {
+            try {
+              const parsed = JSON.parse(localStr);
+              if (Array.isArray(parsed) && parsed.length > 0) return parsed as GcashAccount[];
+            } catch (e) {}
           }
+          return null;
+        });
+        const personalResults = await Promise.all(personalFetches);
+        for (const res of personalResults) {
+          if (res && res.length > 0) {
+            gcashAccountsList = res;
+            break;
+          }
+        }
+        setPersonalAccounts(gcashAccountsList);
 
-          // Fetch global fallback details
-          try {
-            const globalSnap = await getDoc(doc(db, 'settings', 'checkout'));
-            if (globalSnap.exists()) {
-              const data = globalSnap.data();
-              setGlobalGcashQrSetting(data.gcashQrCode || '');
-              setGlobalGcashNameSetting(data.gcashName || '');
-              setGlobalGcashNumberSetting(data.gcashNumber || '');
-              setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
-              setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
-            } else {
-              const globalStr = localStorage.getItem('picklepoint_checkout_settings');
-              if (globalStr) {
-                const data = JSON.parse(globalStr);
-                setGlobalGcashQrSetting(data.gcashQrCode || '');
-                setGlobalGcashNameSetting(data.gcashName || '');
-                setGlobalGcashNumberSetting(data.gcashNumber || '');
-                setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
-                setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
-              }
-            }
-          } catch (gErr) {
-            console.warn('Failed to read global settings from Firestore:', gErr);
-            const globalStr = localStorage.getItem('picklepoint_checkout_settings');
-            if (globalStr) {
+        // Global GCash settings
+        if (globalGcashRes.status === 'fulfilled' && globalGcashRes.value && globalGcashRes.value.exists()) {
+          const data = globalGcashRes.value.data();
+          setGlobalGcashQrSetting(data.gcashQrCode || '');
+          setGlobalGcashNameSetting(data.gcashName || '');
+          setGlobalGcashNumberSetting(data.gcashNumber || '');
+          setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
+          setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
+        } else {
+          const globalStr = localStorage.getItem('picklepoint_checkout_settings');
+          if (globalStr) {
+            try {
               const data = JSON.parse(globalStr);
               setGlobalGcashQrSetting(data.gcashQrCode || '');
               setGlobalGcashNameSetting(data.gcashName || '');
               setGlobalGcashNumberSetting(data.gcashNumber || '');
               setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
               setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
-            }
+            } catch (e) {}
           }
-        } catch (err) {
-          console.error('Error fetching checkout settings:', err);
         }
-      } else {
-        // LocalStorage fallback for personal settings list
-        const personalStr = localStorage.getItem(`picklepoint_checkout_settings_accounts_${currentUserUid}`);
-        if (personalStr) {
-          setPersonalAccounts(JSON.parse(personalStr) as GcashAccount[]);
-        } else {
-          setPersonalAccounts([]);
-        }
-        // LocalStorage fallback for global settings
-        const globalStr = localStorage.getItem('picklepoint_checkout_settings');
-        if (globalStr) {
-          const data = JSON.parse(globalStr);
-          setGlobalGcashQrSetting(data.gcashQrCode || '');
-          setGlobalGcashNameSetting(data.gcashName || '');
-          setGlobalGcashNumberSetting(data.gcashNumber || '');
-          setGlobalServiceFeeSetting(typeof data.serviceFee === 'number' ? data.serviceFee : 30);
-          setGlobalServiceFeeEnabled(data.serviceFeeEnabled !== undefined ? Boolean(data.serviceFeeEnabled) : true);
-        }
-        // Fetch Vouchers
+
+        // 8. Process Vouchers
         let loadedVouchers: Voucher[] = [];
-        if (isFirebaseConfigured && db) {
-          try {
-            const vouchersSnap = await getDocs(collection(db, 'vouchers'));
-            vouchersSnap.forEach((dSnap) => {
-              loadedVouchers.push({ id: dSnap.id, ...dSnap.data() } as Voucher);
-            });
-          } catch (err) {
-            console.warn('Firestore vouchers fetch error:', err);
-          }
+        if (vouchersRes.status === 'fulfilled' && vouchersRes.value) {
+          vouchersRes.value.forEach((dSnap) => {
+            loadedVouchers.push({ id: dSnap.id, ...dSnap.data() } as Voucher);
+          });
         }
         if (loadedVouchers.length === 0) {
           const vStr = localStorage.getItem('picklepoint_vouchers');
@@ -3647,61 +3483,71 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
         loadedVouchers = loadedVouchers.filter(v => !v.ownerId || v.ownerId === currentUserUid);
         setVouchers(loadedVouchers);
-      }
 
-      // 5. Fetch Payment Approval Reminder settings
-      let loadedReminderSettings: PaymentReminderSettings | null = null;
-      if (isFirebaseConfigured && db) {
-        try {
-          const remSnap = await getDoc(doc(db, 'settings', 'reminders', 'users', currentUserUid));
-          if (remSnap.exists()) {
-            const data = remSnap.data();
-            loadedReminderSettings = {
-              enabled: Boolean(data.enabled),
-              preset: data.preset || '15',
-              intervalMinutes: Number(data.intervalMinutes) || 15,
-              customMinutes: Number(data.customMinutes) || 15,
-              emailEnabled: Boolean(data.emailEnabled),
-              emailRecipient: data.emailRecipient || user?.email || '',
-              soundEnabled: data.soundEnabled !== undefined ? Boolean(data.soundEnabled) : true,
-              browserNotificationEnabled: Boolean(data.browserNotificationEnabled),
-            };
-          }
-        } catch (remErr) {
-          console.warn('Failed to load payment reminder settings from cloud:', remErr);
+        // 9. Process Reminders
+        let loadedReminderSettings: PaymentReminderSettings | null = null;
+        if (remindersRes.status === 'fulfilled' && remindersRes.value && remindersRes.value.exists()) {
+          const data = remindersRes.value.data();
+          loadedReminderSettings = {
+            enabled: Boolean(data.enabled),
+            preset: data.preset || '15',
+            intervalMinutes: Number(data.intervalMinutes) || 15,
+            customMinutes: Number(data.customMinutes) || 15,
+            emailEnabled: Boolean(data.emailEnabled),
+            emailRecipient: data.emailRecipient || user?.email || '',
+            soundEnabled: data.soundEnabled !== undefined ? Boolean(data.soundEnabled) : true,
+            browserNotificationEnabled: Boolean(data.browserNotificationEnabled),
+          };
         }
-      }
-      if (!loadedReminderSettings) {
-        const localRemStr = localStorage.getItem(`picklepoint_payment_reminder_settings_${currentUserUid}`);
-        if (localRemStr) {
-          try {
-            loadedReminderSettings = JSON.parse(localRemStr);
-          } catch (e) {
-            console.warn('Failed to parse local reminder settings:', e);
+        if (!loadedReminderSettings) {
+          const localRemStr = localStorage.getItem(`picklepoint_payment_reminder_settings_${currentUserUid}`);
+          if (localRemStr) {
+            try { loadedReminderSettings = JSON.parse(localRemStr); } catch (e) {}
           }
         }
-      }
-      if (loadedReminderSettings) {
-        setPaymentReminderSettings(loadedReminderSettings);
-      }
+        if (loadedReminderSettings) setPaymentReminderSettings(loadedReminderSettings);
 
-      // 6. Fetch Short Links
-      let loadedShortLinks: ShortLink[] = [];
-      if (isFirebaseConfigured && db) {
-        try {
-          const shortSnap = await getDocs(collection(db, 'short_links'));
-          shortSnap.forEach((dSnap) => {
+        // 10. Process Short Links
+        let loadedShortLinks: ShortLink[] = [];
+        if (shortLinksRes.status === 'fulfilled' && shortLinksRes.value) {
+          shortLinksRes.value.forEach((dSnap) => {
             loadedShortLinks.push({ id: dSnap.id, ...dSnap.data() } as ShortLink);
           });
-        } catch (err) {
-          console.warn('Firestore short links fetch error:', err);
         }
-      }
-      if (loadedShortLinks.length === 0) {
+        if (loadedShortLinks.length === 0) {
+          const slStr = localStorage.getItem('picklepoint_short_links');
+          loadedShortLinks = slStr ? JSON.parse(slStr) : [];
+        }
+        setShortLinks(loadedShortLinks);
+
+      } else {
+        // Fallback when Firebase is not configured (offline / simulated demo mode)
+        const compStr = localStorage.getItem('picklepoint_companies');
+        setCompanies(compStr ? JSON.parse(compStr) : []);
+
+        const courtsStr = localStorage.getItem('picklepoint_courts');
+        const localCourts = (courtsStr ? JSON.parse(courtsStr) : []).filter((c: any) => c.id !== 'court-championship');
+        setCourts(localCourts);
+
+        const localBookingsStr = localStorage.getItem('picklepoint_bookings');
+        const localBookings = localBookingsStr ? JSON.parse(localBookingsStr) : [];
+        setBookings(localBookings);
+
+        const localEventsStr = localStorage.getItem('picklepoint_openplay_events');
+        setOpenPlayEvents(localEventsStr ? JSON.parse(localEventsStr) : []);
+
+        const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        setOpenPlayRegistrations(localRegsStr ? JSON.parse(localRegsStr) : []);
+
+        const usersStr = localStorage.getItem('picklepoint_users');
+        setUsers(usersStr ? JSON.parse(usersStr) : []);
+
+        const vStr = localStorage.getItem('picklepoint_vouchers');
+        setVouchers(vStr ? JSON.parse(vStr) : []);
+
         const slStr = localStorage.getItem('picklepoint_short_links');
-        loadedShortLinks = slStr ? JSON.parse(slStr) : [];
+        setShortLinks(slStr ? JSON.parse(slStr) : []);
       }
-      setShortLinks(loadedShortLinks);
     } catch (err) {
       console.error('Error fetching admin data:', err);
     } finally {
@@ -3732,10 +3578,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   }, [courts, isSuperAdmin, currentUserUid, currentUserEmail, myCompany, user]);
 
   // Tab visibility tracker to pause background work when user leaves tab idle
+  const lastFetchTimestampRef = useRef<number>(Date.now());
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
-        fetchData();
+        const now = Date.now();
+        // 5-minute cooldown to prevent refetch storms when switching mobile apps or locking screen
+        if (now - lastFetchTimestampRef.current > 5 * 60 * 1000) {
+          lastFetchTimestampRef.current = now;
+          fetchData(true); // silent background refresh, no loading spinner!
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);

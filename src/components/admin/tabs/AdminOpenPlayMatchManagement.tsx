@@ -1211,6 +1211,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       if (!isAddGuestOnly) {
         initialPool.push({
           id: pId,
+          registrationId: reg.id,
           name: primaryName,
           email: primaryEmail,
           phone: primaryPhone,
@@ -1241,6 +1242,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         const gAtt = getAttendanceStatus(gId);
         initialPool.push({
           id: gId,
+          registrationId: reg.id,
           name: gName,
           email: gEmail,
           phone: primaryPhone,
@@ -2088,12 +2090,91 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     saveRosterPool(updated);
   };
 
-  // Delete player from roster pool
-  const handleDeletePlayer = (id: string) => {
+  // Delete player from roster pool (and cancel registration in Firestore / local storage)
+  const handleDeletePlayer = async (id: string) => {
     const playerToDelete = rosterPool.find((p) => p.id === id);
     const updated = rosterPool.filter((p) => p.id !== id);
     saveRosterPool(updated);
+
+    const regId = (playerToDelete as any)?.registrationId || id.replace(/-primary$/, '').replace(/-guest-\d+$/, '');
+    if (isFirebaseConfigured && db && regId) {
+      try {
+        await setDoc(doc(db, 'openplay_registrations', regId), { status: 'cancelled' }, { merge: true });
+      } catch (e) {
+        console.warn('Error cancelling openplay_registrations doc from match roster:', e);
+      }
+      try {
+        await setDoc(doc(db, 'bookings', regId), { status: 'cancelled' }, { merge: true });
+      } catch (e) {
+        console.warn('Error cancelling bookings doc from match roster:', e);
+      }
+    }
+
+    const updateLocal = (str: string | null) => {
+      if (!str) return;
+      try {
+        const list = JSON.parse(str).map((r: any) =>
+          r.id === regId ? { ...r, status: 'cancelled' } : r
+        );
+        return JSON.stringify(list);
+      } catch { return null; }
+    };
+    const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+    const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+    const updatedLs = updateLocal(lsStr);
+    const updatedSs = updateLocal(ssStr);
+    if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+    if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
     showToast(`Deleted ${playerToDelete?.name || 'player'} from roster pool.`);
+  };
+
+  // Move player to waitlist
+  const handleMovePlayerToWaitlist = async (id: string) => {
+    const targetPlayer = rosterPool.find((p) => p.id === id);
+    if (!targetPlayer) return;
+    if (!window.confirm(`Move ${targetPlayer.name} to the waiting list? This will remove them from the active match roster.`)) return;
+
+    const updated = rosterPool.filter((p) => p.id !== id);
+    saveRosterPool(updated);
+
+    const regId = (targetPlayer as any)?.registrationId || id.replace(/-primary$/, '').replace(/-guest-\d+$/, '');
+    if (isFirebaseConfigured && db && regId) {
+      try {
+        await setDoc(doc(db, 'openplay_registrations', regId), {
+          status: 'waitlisted',
+          paymentStatus: 'waitlisted',
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Error moving openplay_registrations doc to waitlist:', e);
+      }
+      try {
+        await setDoc(doc(db, 'bookings', regId), {
+          status: 'waitlisted',
+          paymentStatus: 'waitlisted',
+        }, { merge: true });
+      } catch (e) {
+        console.warn('Error moving bookings doc to waitlist:', e);
+      }
+    }
+
+    const updateLocal = (str: string | null) => {
+      if (!str) return;
+      try {
+        const list = JSON.parse(str).map((r: any) =>
+          r.id === regId ? { ...r, status: 'waitlisted', paymentStatus: 'waitlisted' } : r
+        );
+        return JSON.stringify(list);
+      } catch { return null; }
+    };
+    const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+    const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+    const updatedLs = updateLocal(lsStr);
+    const updatedSs = updateLocal(ssStr);
+    if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+    if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+
+    showToast(`⏳ Moved ${targetPlayer.name} to waiting list.`);
   };
 
   // Update player information (DUPR ID, Rating, Skill Level, Name)
@@ -2703,6 +2784,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         onToggleAttendanceStatus={handleToggleAttendance}
         onMarkAllActivePresent={handleMarkAllActivePresent}
         onDeletePlayer={handleDeletePlayer}
+        onMoveToWaitlist={handleMovePlayerToWaitlist}
         onUpdatePlayer={handleUpdatePlayer}
       />
 

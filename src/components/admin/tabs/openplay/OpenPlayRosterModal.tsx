@@ -36,6 +36,7 @@ export interface OpenPlayRosterModalProps {
   onToggleAttendanceStatus?: (id: string) => void;
   onMarkAllActivePresent?: () => void;
   onDeletePlayer?: (id: string) => void;
+  onMoveToWaitlist?: (id: string) => void;
   onUpdatePlayer?: (updated: OpenPlayMatchRosterItem) => void;
 }
 
@@ -56,6 +57,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   onToggleAttendanceStatus,
   onMarkAllActivePresent,
   onDeletePlayer,
+  onMoveToWaitlist,
   onUpdatePlayer,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -517,6 +519,17 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                         title={`Edit ${p.name}'s info & DUPR`}
                       >
                         <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {onMoveToWaitlist && (
+                      <button
+                        type="button"
+                        onClick={() => onMoveToWaitlist(p.id)}
+                        className="p-1.5 sm:p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all cursor-pointer shrink-0"
+                        title={`Move ${p.name} to waitlist (frees up 1 roster slot)`}
+                      >
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
                       </button>
                     )}
 

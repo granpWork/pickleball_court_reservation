@@ -753,6 +753,7 @@ export interface OpenPlayMatch {
 
 export interface OpenPlayMatchRosterItem {
   id: string;
+  registrationId?: string;
   name: string;
   email?: string;
   phone?: string;

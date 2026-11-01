@@ -712,6 +712,236 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     }
   };
 
+  const [isMovingToWaitlist, setIsMovingToWaitlist] = useState<string | null>(null);
+  const [isRemovingFromRoster, setIsRemovingFromRoster] = useState<string | null>(null);
+
+  const handleMoveToWaitlist = async (att: RosterAttendee) => {
+    if (!window.confirm(`Move ${att.name} to the waiting list? This will free up 1 roster spot.`)) return;
+    setIsMovingToWaitlist(att.id);
+    try {
+      if (att.type === 'primary') {
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', att.registrationId), {
+              status: 'waitlisted',
+              paymentStatus: 'waitlisted',
+            }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc openplay_registrations move waitlist error:', e);
+          }
+          try {
+            await setDoc(doc(db, 'bookings', att.registrationId), {
+              status: 'waitlisted',
+              paymentStatus: 'waitlisted',
+            }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc bookings move waitlist error:', e);
+          }
+        }
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [att.registrationId]: {
+            ...(prev[att.registrationId] || {}),
+            status: 'waitlisted',
+            paymentStatus: 'waitlisted',
+          },
+        }));
+
+        const updateLocal = (str: string | null) => {
+          if (!str) return;
+          try {
+            const updated = JSON.parse(str).map((r: any) =>
+              r.id === att.registrationId ? { ...r, status: 'waitlisted', paymentStatus: 'waitlisted' } : r
+            );
+            return JSON.stringify(updated);
+          } catch {
+            return null;
+          }
+        };
+        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+        const updatedLs = updateLocal(lsStr);
+        const updatedSs = updateLocal(ssStr);
+        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+      } else {
+        const rawReg = registrations.find((r) => r.id === att.registrationId);
+        const targetReg = localRegOverrides[att.registrationId]
+          ? { ...rawReg, ...localRegOverrides[att.registrationId] }
+          : rawReg;
+
+        const gIndex = (att.guestIndex || 1) - 1;
+        let existingGuests = Array.isArray(targetReg?.guests) ? [...targetReg.guests] : [];
+        if (existingGuests.length === 0 && Array.isArray(targetReg?.guestNames)) {
+          existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
+            name,
+            email: targetReg.guestEmails?.[i] || '',
+          }));
+        }
+        if (gIndex >= 0 && gIndex < existingGuests.length) {
+          existingGuests.splice(gIndex, 1);
+        }
+
+        const newPlayerCount = Math.max(1, (targetReg?.playerCount || 1) - 1);
+        const newGuestCount = Math.max(0, (targetReg?.guestCount || (existingGuests.length + 1)) - 1);
+
+        const newWaitlistRegId = `waitlist-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        const newWaitlistReg = {
+          id: newWaitlistRegId,
+          eventId: event.id,
+          eventTitle: event.title,
+          playerName: att.name,
+          playerEmail: att.email || '',
+          playerPhone: att.phone || '',
+          playerCount: 1,
+          guestCount: 0,
+          status: 'waitlisted',
+          paymentStatus: 'waitlisted',
+          createdAt: new Date().toISOString(),
+          duprId: att.duprId || '',
+          adminDuprId: att.adminDuprId || '',
+          duprRating: att.duprRating || '',
+          adminDuprRating: att.adminDuprRating || '',
+        };
+
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', att.registrationId), {
+              guests: existingGuests,
+              playerCount: newPlayerCount,
+              guestCount: newGuestCount,
+            }, { merge: true });
+            await setDoc(doc(db, 'openplay_registrations', newWaitlistRegId), newWaitlistReg);
+          } catch (e) {
+            console.warn('Firestore move guest to waitlist error:', e);
+          }
+        }
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [att.registrationId]: {
+            ...(prev[att.registrationId] || {}),
+            guests: existingGuests,
+            playerCount: newPlayerCount,
+            guestCount: newGuestCount,
+          },
+          [newWaitlistRegId]: newWaitlistReg,
+        }));
+      }
+
+      setAttendeeAttendanceStatus(att.id, 'unmarked');
+      alert(`✅ ${att.name} has been moved to the waitlist.`);
+    } catch (err) {
+      console.error('Failed to move player to waitlist:', err);
+      alert('Failed to move player to waitlist.');
+    } finally {
+      setIsMovingToWaitlist(null);
+    }
+  };
+
+  const handleRemoveFromRoster = async (att: RosterAttendee) => {
+    if (!window.confirm(`Are you sure you want to remove ${att.name} from this open play session? This will free up their spot.`)) return;
+    setIsRemovingFromRoster(att.id);
+    try {
+      if (att.type === 'primary') {
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', att.registrationId), { status: 'cancelled' }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc openplay_registrations cancel error:', e);
+          }
+          try {
+            await setDoc(doc(db, 'bookings', att.registrationId), { status: 'cancelled' }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore setDoc bookings cancel error:', e);
+          }
+        }
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [att.registrationId]: {
+            ...(prev[att.registrationId] || {}),
+            status: 'cancelled',
+          },
+        }));
+
+        const updateLocal = (str: string | null) => {
+          if (!str) return;
+          try {
+            const updated = JSON.parse(str).map((r: any) =>
+              r.id === att.registrationId ? { ...r, status: 'cancelled' } : r
+            );
+            return JSON.stringify(updated);
+          } catch {
+            return null;
+          }
+        };
+        const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
+        const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
+        const updatedLs = updateLocal(lsStr);
+        const updatedSs = updateLocal(ssStr);
+        if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
+        if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+      } else {
+        const rawReg = registrations.find((r) => r.id === att.registrationId);
+        const targetReg = localRegOverrides[att.registrationId]
+          ? { ...rawReg, ...localRegOverrides[att.registrationId] }
+          : rawReg;
+
+        const gIndex = (att.guestIndex || 1) - 1;
+        let existingGuests = Array.isArray(targetReg?.guests) ? [...targetReg.guests] : [];
+        if (existingGuests.length === 0 && Array.isArray(targetReg?.guestNames)) {
+          existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
+            name,
+            email: targetReg.guestEmails?.[i] || '',
+          }));
+        }
+        if (gIndex >= 0 && gIndex < existingGuests.length) {
+          existingGuests.splice(gIndex, 1);
+        }
+
+        const newPlayerCount = Math.max(1, (targetReg?.playerCount || 1) - 1);
+        const newGuestCount = Math.max(0, (targetReg?.guestCount || (existingGuests.length + 1)) - 1);
+
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', att.registrationId), {
+              guests: existingGuests,
+              playerCount: newPlayerCount,
+              guestCount: newGuestCount,
+            }, { merge: true });
+            await setDoc(doc(db, 'bookings', att.registrationId), {
+              guests: existingGuests,
+              playerCount: newPlayerCount,
+              guestCount: newGuestCount,
+            }, { merge: true });
+          } catch (e) {
+            console.warn('Firestore remove guest error:', e);
+          }
+        }
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [att.registrationId]: {
+            ...(prev[att.registrationId] || {}),
+            guests: existingGuests,
+            playerCount: newPlayerCount,
+            guestCount: newGuestCount,
+          },
+        }));
+      }
+
+      setAttendeeAttendanceStatus(att.id, 'unmarked');
+      alert(`✅ ${att.name} has been removed from the roster.`);
+    } catch (err) {
+      console.error('Failed to remove player from roster:', err);
+      alert('Failed to remove player.');
+    } finally {
+      setIsRemovingFromRoster(null);
+    }
+  };
+
   // Build complete attendees list expanding primary players and guests
   const allAttendees: RosterAttendee[] = [];
   activeEventRegs.forEach((reg) => {
@@ -2122,6 +2352,39 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         </div>
                       )}
 
+                      {!isWaitlisted && (
+                        <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                          <button
+                            type="button"
+                            onClick={() => handleMoveToWaitlist(att)}
+                            disabled={isMovingToWaitlist === att.id}
+                            className="flex-1 py-1.5 px-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer"
+                            title="Move player to waitlist (frees up 1 roster slot)"
+                          >
+                            {isMovingToWaitlist === att.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                            ) : (
+                              <Hourglass className="w-3 h-3 text-amber-400" />
+                            )}
+                            <span>Move to Waitlist</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFromRoster(att)}
+                            disabled={isRemovingFromRoster === att.id}
+                            className="py-1.5 px-2.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer"
+                            title="Remove player from roster"
+                          >
+                            {isRemovingFromRoster === att.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin text-red-400" />
+                            ) : (
+                              <Trash2 className="w-3 h-3 text-red-400" />
+                            )}
+                            <span>Remove</span>
+                          </button>
+                        </div>
+                      )}
+
                       {att.gcashReferenceNumber && (
                         <div className="flex items-center justify-between text-slate-300 pt-1">
                           <span className="text-slate-500 font-bold uppercase text-[9px]">GCash Ref:</span>
@@ -2151,7 +2414,10 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             {filteredAttendees.length === 0 ? (
               <div className="py-8 text-center text-slate-500 italic">No attendees match filter.</div>
             ) : (
-              filteredAttendees.map((att, idx) => (
+              filteredAttendees.map((att, idx) => {
+                const isWaitlisted = att.status === 'waitlisted' || att.paymentStatus === 'waitlisted';
+
+                return (
                 <div
                   key={att.id}
                   className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-2xl border transition-all text-xs gap-3 ${
@@ -2283,6 +2549,39 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     }`}>
                       {att.status === 'approved' || att.paymentStatus === 'paid' ? '✓ Confirmed' : att.paymentStatus === 'pending_verification' ? '⏳ Pending' : '✕ Rejected'}
                     </span>
+
+                    {!isWaitlisted && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleMoveToWaitlist(att)}
+                          disabled={isMovingToWaitlist === att.id}
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                          title="Move player to waitlist (frees up 1 roster slot)"
+                        >
+                          {isMovingToWaitlist === att.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                          ) : (
+                            <Hourglass className="w-3.5 h-3.5 text-amber-400" />
+                          )}
+                          <span className="hidden md:inline">Waitlist</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFromRoster(att)}
+                          disabled={isRemovingFromRoster === att.id}
+                          className="p-1.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 transition-all cursor-pointer"
+                          title="Remove player from roster"
+                        >
+                          {isRemovingFromRoster === att.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                          )}
+                        </button>
+                      </div>
+                    )}
+
                     {att.type === 'guest' && (
                       <button
                         type="button"
@@ -2295,7 +2594,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     )}
                   </div>
                 </div>
-              ))
+              );
+              })
             )}
           </div>
         )}
@@ -2323,6 +2623,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     </tr>
                   ) : (
                     filteredAttendees.map((att, idx) => {
+                      const isWaitlisted = att.status === 'waitlisted' || att.paymentStatus === 'waitlisted';
                       const isApproved = att.status === 'approved' || att.paymentStatus === 'paid';
                       const isPending = att.paymentStatus === 'pending_verification';
 
@@ -2483,6 +2784,37 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                 >
                                   🟢 Present
                                 </button>
+                              )}
+                              {!isWaitlisted && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveToWaitlist(att)}
+                                    disabled={isMovingToWaitlist === att.id}
+                                    className="px-2 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
+                                    title="Move player to waitlist (frees up 1 roster slot)"
+                                  >
+                                    {isMovingToWaitlist === att.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                                    ) : (
+                                      <Hourglass className="w-3 h-3 text-amber-400" />
+                                    )}
+                                    <span className="hidden lg:inline">Waitlist</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveFromRoster(att)}
+                                    disabled={isRemovingFromRoster === att.id}
+                                    className="p-1.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 transition-all cursor-pointer shrink-0"
+                                    title="Remove player from roster"
+                                  >
+                                    {isRemovingFromRoster === att.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                    )}
+                                  </button>
+                                </>
                               )}
                               {att.type === 'guest' && (
                                 <button

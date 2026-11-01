@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   UserPlus,
@@ -68,27 +68,39 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Reset/Initialize State whenever modal opens or target event changes
+  // Track previous open state & event id so switching tabs / background re-fetches don't wipe form state
+  const prevIsOpenRef = useRef(false);
+  const prevEventIdRef = useRef<string | null>(null);
+
+  // Reset/Initialize State ONLY when modal transitions from closed to open, or when opening a different event
   useEffect(() => {
     if (isOpen && event) {
-      setUserMode(users && users.length > 0 ? 'existing' : 'new');
-      setUserSearchQuery('');
-      setSelectedUser(null);
-      setPlayerName('');
-      setPlayerEmail('');
-      setPlayerPhone('');
-      setPlayerDuprId('');
-      setPlayerDuprRating('');
-      setGuests([]);
-      setPaymentMethod('cash');
-      setPaymentStatus('paid');
-      setCustomFee(event.registrationFee ? String(event.registrationFee) : '0');
-      setGcashRef('');
-      setAdminNotes('');
-      setErrorMsg(null);
-      setIsSubmitting(false);
+      const isJustOpened = !prevIsOpenRef.current;
+      const isDifferentEvent = prevEventIdRef.current !== event.id;
+
+      if (isJustOpened || isDifferentEvent) {
+        setUserMode(users && users.length > 0 ? 'existing' : 'new');
+        setUserSearchQuery('');
+        setSelectedUser(null);
+        setPlayerName('');
+        setPlayerEmail('');
+        setPlayerPhone('');
+        setPlayerDuprId('');
+        setPlayerDuprRating('');
+        setGuests([]);
+        setPaymentMethod('cash');
+        setPaymentStatus('paid');
+        setCustomFee(event.registrationFee ? String(event.registrationFee) : '0');
+        setGcashRef('');
+        setAdminNotes('');
+        setErrorMsg(null);
+        setIsSubmitting(false);
+      }
     }
-  }, [isOpen, event?.id, users]);
+
+    prevIsOpenRef.current = isOpen;
+    prevEventIdRef.current = event?.id || null;
+  }, [isOpen, event?.id]);
 
   // ALL HOOKS MUST BE DECLARED ABOVE THIS LINE!
   // Early return when modal is not open or no event selected:
