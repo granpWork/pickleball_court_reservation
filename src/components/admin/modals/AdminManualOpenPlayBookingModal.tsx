@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   UserPlus,
@@ -22,7 +22,7 @@ interface AdminManualOpenPlayBookingModalProps {
   isOpen: boolean;
   onClose: () => void;
   event: OpenPlayEvent | null;
-  currentRegistrations: OpenPlayRegistration[];
+  currentRegistrations?: OpenPlayRegistration[];
   users?: UserAccount[];
   onSaveManualBooking: (payload: any) => Promise<void>;
   formatEventDateLong?: (dateStr: string) => string;
@@ -33,7 +33,7 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   isOpen,
   onClose,
   event,
-  currentRegistrations,
+  currentRegistrations = [],
   users = [],
   onSaveManualBooking,
   formatEventDateLong,
@@ -68,7 +68,7 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Initialize/Reset State whenever modal opens or active event changes
+  // Reset/Initialize State whenever modal opens or target event changes
   useEffect(() => {
     if (isOpen && event) {
       setUserMode(users && users.length > 0 ? 'existing' : 'new');
@@ -88,8 +88,10 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
       setErrorMsg(null);
       setIsSubmitting(false);
     }
-  }, [isOpen, event, users]);
+  }, [isOpen, event?.id, users]);
 
+  // ALL HOOKS MUST BE DECLARED ABOVE THIS LINE!
+  // Early return when modal is not open or no event selected:
   if (!isOpen || !event) return null;
 
   // Check if event date/time is expired
@@ -127,7 +129,8 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
         );
 
   // Calculate Capacity (Subtracting any attendees marked absent)
-  const activeRegs = currentRegistrations.filter((r) => r.eventId === event.id && r.status !== 'cancelled');
+  const safeRegistrations = Array.isArray(currentRegistrations) ? currentRegistrations : [];
+  const activeRegs = safeRegistrations.filter((r) => r.eventId === event.id && r.status !== 'cancelled');
   const totalRegHeadcount = activeRegs.reduce(
     (sum, r) => sum + (r.playerCount || 1 + (r.guestCount || 0)),
     0
@@ -151,26 +154,23 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
   const feePerPlayer = Number(customFee) || 0;
   const totalAmount = paymentMethod === 'free' ? 0 : feePerPlayer * totalHeadcount;
 
-  // Filtered Users List for Search
-  const filteredUsers = useMemo(() => {
-    if (!users || users.length === 0) return [];
-    const q = userSearchQuery.trim().toLowerCase();
-    if (!q) {
-      return users.slice(0, 15);
-    }
-    return users
-      .filter((u) => {
-        const name = (u.name || '').toLowerCase();
-        const email = (u.email || '').toLowerCase();
-        const phone = (u.phone || '').toLowerCase();
-        const dupr = (u.adminDuprId || u.duprId || '').toLowerCase();
-        return name.includes(q) || email.includes(q) || phone.includes(q) || dupr.includes(q);
-      })
-      .slice(0, 15);
-  }, [users, userSearchQuery]);
+  // Filtered Users List for Search (plain computation, no hooks)
+  const safeUsers = Array.isArray(users) ? users : [];
+  const q = userSearchQuery.trim().toLowerCase();
+  const filteredUsers = !q
+    ? safeUsers.slice(0, 15)
+    : safeUsers
+        .filter((u) => {
+          const name = (u.name || '').toLowerCase();
+          const email = (u.email || '').toLowerCase();
+          const phone = (u.phone || '').toLowerCase();
+          const dupr = (u.adminDuprId || u.duprId || '').toLowerCase();
+          return name.includes(q) || email.includes(q) || phone.includes(q) || dupr.includes(q);
+        })
+        .slice(0, 15);
 
   // Check if selected existing user is already registered for this event session
-  const isAlreadyRegistered = useMemo(() => {
+  const isAlreadyRegistered = (() => {
     if (!selectedUser) return false;
     const userUid = selectedUser.uid?.trim().toLowerCase();
     const userEmail = selectedUser.email?.trim().toLowerCase();
@@ -182,7 +182,7 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
       if (userEmail && regEmail && userEmail === regEmail) return true;
       return false;
     });
-  }, [selectedUser, activeRegs]);
+  })();
 
   // Handle selecting an existing user
   const handleSelectUser = (u: UserAccount) => {
@@ -578,7 +578,7 @@ export const AdminManualOpenPlayBookingModal: React.FC<AdminManualOpenPlayBookin
                       />
                     ) : (
                       <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-lime/20 to-emerald-500/10 border border-brand-lime/40 flex items-center justify-center text-brand-lime font-black text-sm shrink-0">
-                        {(selectedUser.name || selectedUser.email).charAt(0).toUpperCase()}
+                        {(selectedUser.name || selectedUser.email || 'P').charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div className="min-w-0">
