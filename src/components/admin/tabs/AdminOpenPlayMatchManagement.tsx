@@ -76,12 +76,14 @@ const calculateSessionDurationMinutes = (startTime?: string, endTime?: string): 
 interface AdminOpenPlayMatchManagementProps {
   event: OpenPlayEvent;
   registrations: OpenPlayRegistrationItem[];
+  initialView?: 'matrix' | 'leaderboard';
   onBack: () => void;
 }
 
 export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagementProps> = ({
   event,
   registrations,
+  initialView = 'matrix',
   onBack,
 }) => {
   // Assigned courts fallback
@@ -428,7 +430,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [isResultsCopySuccess, setIsResultsCopySuccess] = useState<boolean>(false);
 
   // Leaderboard View State
-  const [activeView, setActiveView] = useState<'matrix' | 'leaderboard'>('matrix');
+  const [activeView, setActiveView] = useState<'matrix' | 'leaderboard'>(initialView);
+
+  useEffect(() => {
+    if (initialView) {
+      setActiveView(initialView);
+    }
+  }, [initialView]);
   const [leaderboardSortField, setLeaderboardSortField] = useState<'wins' | 'winRate' | 'pointDiff' | 'pointsScored' | 'matches'>('wins');
   const [leaderboardSearch, setLeaderboardSearch] = useState<string>('');
   const [expandedLeaderboardPlayerId, setExpandedLeaderboardPlayerId] = useState<string | null>(null);
@@ -959,9 +967,32 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Compute Per-Player Match Statistics
+  // Compute Per-Player Match Statistics from ALL players in rosterPool AND matches
   const playerStatsList = useMemo<PlayerMatchStats[]>(() => {
-    return rosterPool.map((player) => {
+    // Collect all unique players by name & ID so standings populate even if rosterPool is empty on device
+    const playersMap = new Map<string, { id: string; name: string; type?: 'primary' | 'guest' }>();
+
+    // 1. Add all players from rosterPool
+    rosterPool.forEach((p) => {
+      const key = (p.name || '').trim().toLowerCase() || p.id;
+      if (key) {
+        playersMap.set(key, { id: p.id, name: p.name || 'Player', type: p.type });
+      }
+    });
+
+    // 2. Also add any players appearing in matches
+    matches.forEach((m) => {
+      const allMatchPlayers = [...(m.teamRed?.players || []), ...(m.teamBlue?.players || [])];
+      allMatchPlayers.forEach((p) => {
+        if (!p) return;
+        const key = (p.name || '').trim().toLowerCase() || p.id;
+        if (key && !playersMap.has(key)) {
+          playersMap.set(key, { id: p.id || key, name: p.name || 'Player', type: p.type });
+        }
+      });
+    });
+
+    return Array.from(playersMap.values()).map((player) => {
       let totalMatches = 0;
       let completedMatches = 0;
       let wins = 0;
@@ -971,20 +1002,29 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       let pointsConceded = 0;
       const courtsBreakdown: Record<string, number> = {};
 
+      const pKey = (player.name || '').trim().toLowerCase();
+
       matches.forEach((m) => {
-        const isRed = m.teamRed.players.some((p) => p.id === player.id);
-        const isBlue = m.teamBlue.players.some((p) => p.id === player.id);
+        const redPlayers = Array.isArray(m.teamRed?.players) ? m.teamRed.players : [];
+        const bluePlayers = Array.isArray(m.teamBlue?.players) ? m.teamBlue.players : [];
+
+        const isRed = redPlayers.some(
+          (p) => (p?.id && p.id === player.id) || (p?.name && p.name.trim().toLowerCase() === pKey)
+        );
+        const isBlue = bluePlayers.some(
+          (p) => (p?.id && p.id === player.id) || (p?.name && p.name.trim().toLowerCase() === pKey)
+        );
 
         if (isRed || isBlue) {
           totalMatches++;
           courtsBreakdown[m.courtName] = (courtsBreakdown[m.courtName] || 0) + 1;
 
           if (isRed) {
-            pointsScored += m.teamRed.score;
-            pointsConceded += m.teamBlue.score;
+            pointsScored += Number(m.teamRed?.score || 0);
+            pointsConceded += Number(m.teamBlue?.score || 0);
           } else {
-            pointsScored += m.teamBlue.score;
-            pointsConceded += m.teamRed.score;
+            pointsScored += Number(m.teamBlue?.score || 0);
+            pointsConceded += Number(m.teamRed?.score || 0);
           }
 
           if (m.status === 'completed') {
@@ -1006,7 +1046,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       return {
         playerId: player.id,
         playerName: player.name,
-        playerType: player.type,
+        playerType: (player.type === 'guest' ? 'guest' : 'primary') as 'primary' | 'guest',
         totalMatches,
         completedMatches,
         wins,
@@ -2270,7 +2310,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       )}
 
       {/* Top Navigation & Header */}
-      <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-800 flex-wrap">
+      <div className="flex items-center justify-between gap-3 pb-4 border-b border-slate-800 flex-wrap">
         <button
           type="button"
           onClick={(e) => {
@@ -2282,14 +2322,42 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Session Details
         </button>
 
-        <div className="flex items-center gap-2">
-          <span className="px-3.5 py-1.5 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
-            <Trophy className="w-3.5 h-3.5 text-purple-400" /> Open Play Match Matrix
-          </span>
+        {/* View Switcher Segmented Tabs - Front & Center on Mobile & Desktop */}
+        <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-700/80 p-1 rounded-2xl shadow-inner w-full sm:w-auto justify-center sm:justify-end">
+          <button
+            type="button"
+            onClick={() => setActiveView('matrix')}
+            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeView === 'matrix'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>📋 Match Matrix</span>
+            <span className="font-mono text-[10px] bg-slate-950/60 px-1.5 py-0.5 rounded-full text-slate-300">
+              {matches.length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('leaderboard')}
+            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeView === 'leaderboard'
+                ? 'bg-amber-400 text-dark-bg shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5" />
+            <span>Leaderboard</span>
+            <span className="font-mono text-[10px] bg-slate-950/60 px-1.5 py-0.5 rounded-full text-amber-400">
+              {sortedLeaderboardList.length}
+            </span>
+          </button>
         </div>
       </div>
 
-      {/* Hero Header & Assigned Courts Info */}
+      {/* Hero Header & Assigned Courts Info - Shown in Match Matrix View */}
+      {activeView === 'matrix' && (
       <div className="glass-panel border border-slate-800 rounded-3xl p-5 md:p-6 shadow-2xl space-y-4 bg-slate-900/60">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
@@ -2370,8 +2438,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
         </div>
       </div>
+      )}
 
-      {/* Main Action Bar */}
+      {/* Main Action Bar - Shown in Match Matrix View */}
+      {activeView === 'matrix' && (
       <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-4 rounded-3xl shadow-lg">
         <div className="flex items-center gap-2 flex-wrap">
           {activeView === 'matrix' && (
@@ -2437,16 +2507,12 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
           <button
             type="button"
-            onClick={() => setActiveView(activeView === 'leaderboard' ? 'matrix' : 'leaderboard')}
-            className={`py-2.5 px-4 rounded-2xl font-black text-xs flex items-center gap-2 cursor-pointer transition-all shadow-lg hover:scale-[1.02] ${
-              activeView === 'leaderboard'
-                ? 'bg-amber-400 text-dark-bg hover:bg-amber-300 ring-2 ring-amber-300'
-                : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-dark-bg'
-            }`}
-            title="Switch between Match Matrix and Individual Player Leaderboard"
+            onClick={() => setActiveView('leaderboard')}
+            className="py-2.5 px-4 rounded-2xl font-black text-xs flex items-center gap-2 cursor-pointer transition-all shadow-lg hover:scale-[1.02] bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-dark-bg"
+            title="Switch to Individual Player Leaderboard"
           >
             <Trophy className="w-4 h-4 text-dark-bg" />
-            <span>{activeView === 'leaderboard' ? '📋 Match Matrix' : '🏆 Leaderboard Standings'}</span>
+            <span>🏆 Leaderboard Standings</span>
           </button>
 
           <button
@@ -2497,6 +2563,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </button>
         )}
       </div>
+      )}
 
       {/* Filters & Search Row - Only shown in Match Matrix View */}
       {activeView === 'matrix' && (

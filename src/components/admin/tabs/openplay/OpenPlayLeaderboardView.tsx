@@ -32,6 +32,35 @@ interface OpenPlayLeaderboardViewProps {
   onExportReportCSV: () => void;
 }
 
+// Safe player matching helpers for leaderboard calculations
+const matchPlayerHelper = (
+  p: { id?: string; name?: string } | undefined | null,
+  playerId?: string,
+  playerName?: string
+): boolean => {
+  if (!p) return false;
+  if (playerId && p.id && p.id === playerId) return true;
+  if (playerName && p.name && p.name.trim().toLowerCase() === playerName.trim().toLowerCase()) return true;
+  return false;
+};
+
+const isPlayerInTeam = (
+  team: { players?: any[] } | undefined | null,
+  playerId?: string,
+  playerName?: string
+): boolean => {
+  if (!team || !Array.isArray(team.players)) return false;
+  return team.players.some((p) => matchPlayerHelper(p, playerId, playerName));
+};
+
+const isPlayerInMatch = (
+  m: OpenPlayMatch,
+  playerId?: string,
+  playerName?: string
+): boolean => {
+  return isPlayerInTeam(m.teamRed, playerId, playerName) || isPlayerInTeam(m.teamBlue, playerId, playerName);
+};
+
 export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = ({
   sortedLeaderboardList,
   matches,
@@ -52,19 +81,14 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
   const [viewMode, setViewMode] = useState<'auto' | 'cards' | 'table'>('auto');
 
   // Helper to extract player's DUPR info from matches
-  const getPlayerDuprInfo = (playerId: string, playerName: string) => {
+  const getPlayerDuprInfo = (playerId?: string, playerName?: string) => {
+    if (!playerId && !playerName) return null;
     for (const m of matches) {
+      const red = Array.isArray(m.teamRed?.players) ? m.teamRed.players : [];
+      const blue = Array.isArray(m.teamBlue?.players) ? m.teamBlue.players : [];
       const p =
-        m.teamRed.players.find(
-          (pl) =>
-            (pl.id && pl.id === playerId) ||
-            (pl.name && pl.name.trim().toLowerCase() === playerName.trim().toLowerCase())
-        ) ||
-        m.teamBlue.players.find(
-          (pl) =>
-            (pl.id && pl.id === playerId) ||
-            (pl.name && pl.name.trim().toLowerCase() === playerName.trim().toLowerCase())
-        );
+        red.find((pl) => matchPlayerHelper(pl, playerId, playerName)) ||
+        blue.find((pl) => matchPlayerHelper(pl, playerId, playerName));
       if (p && (p.duprId || p.duprRating)) {
         return { duprId: p.duprId, duprRating: p.duprRating };
       }
@@ -426,18 +450,8 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
         >
           {sortedLeaderboardList.map((stat, idx) => {
             const isExpanded = expandedLeaderboardPlayerId === stat.playerId;
-            const playerMatches = matches.filter(
-              (m) =>
-                m.teamRed.players.some(
-                  (p) =>
-                    (p.id && p.id === stat.playerId) ||
-                    (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase())
-                ) ||
-                m.teamBlue.players.some(
-                  (p) =>
-                    (p.id && p.id === stat.playerId) ||
-                    (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase())
-                )
+            const playerMatches = matches.filter((m) =>
+              isPlayerInMatch(m, stat.playerId, stat.playerName)
             );
             const duprInfo = getPlayerDuprInfo(stat.playerId, stat.playerName);
 
@@ -563,11 +577,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                       Results:
                     </span>
                     {playerMatches.map((m) => {
-                      const isRed = m.teamRed.players.some(
-                        (p) =>
-                          (p.id && p.id === stat.playerId) ||
-                          (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase())
-                      );
+                      const isRed = isPlayerInTeam(m.teamRed, stat.playerId, stat.playerName);
                       const myTeam = isRed ? m.teamRed : m.teamBlue;
                       const oppTeam = isRed ? m.teamBlue : m.teamRed;
                       const isWin =
@@ -622,11 +632,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                     ) : (
                       <div className="space-y-2.5">
                         {playerMatches.map((m) => {
-                          const isRed = m.teamRed.players.some(
-                            (p) =>
-                              (p.id && p.id === stat.playerId) ||
-                              (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase())
-                          );
+                          const isRed = isPlayerInTeam(m.teamRed, stat.playerId, stat.playerName);
                           const myTeam = isRed ? m.teamRed : m.teamBlue;
                           const oppTeam = isRed ? m.teamBlue : m.teamRed;
                           const isWin =
@@ -685,10 +691,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                                     {isRed ? 'Team Red (My Team)' : 'Team Blue (My Team)'}
                                   </span>
                                   {myTeam.players.map((p, pIdx) => {
-                                    const isMe =
-                                      (p.id && p.id === stat.playerId) ||
-                                      (p.name &&
-                                        p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase());
+                                    const isMe = matchPlayerHelper(p, stat.playerId, stat.playerName);
                                     return (
                                       <div
                                         key={pIdx}
@@ -760,18 +763,8 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
               <tbody className="divide-y divide-slate-800/80">
                 {sortedLeaderboardList.map((stat, idx) => {
                   const isExpanded = expandedLeaderboardPlayerId === stat.playerId;
-                  const playerMatches = matches.filter(
-                    (m) =>
-                      m.teamRed.players.some(
-                        (p) =>
-                          (p.id && p.id === stat.playerId) ||
-                          (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase())
-                      ) ||
-                      m.teamBlue.players.some(
-                        (p) =>
-                          (p.id && p.id === stat.playerId) ||
-                          (p.name && p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase())
-                      )
+                  const playerMatches = matches.filter((m) =>
+                    isPlayerInMatch(m, stat.playerId, stat.playerName)
                   );
                   const duprInfo = getPlayerDuprInfo(stat.playerId, stat.playerName);
 
@@ -883,12 +876,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                               <span className="text-slate-500 text-[10px] italic">No matches</span>
                             ) : (
                               playerMatches.map((m) => {
-                                const isRed = m.teamRed.players.some(
-                                  (p) =>
-                                    (p.id && p.id === stat.playerId) ||
-                                    (p.name &&
-                                      p.name.trim().toLowerCase() === stat.playerName.trim().toLowerCase())
-                                );
+                                const isRed = isPlayerInTeam(m.teamRed, stat.playerId, stat.playerName);
                                 const myTeam = isRed ? m.teamRed : m.teamBlue;
                                 const oppTeam = isRed ? m.teamBlue : m.teamRed;
                                 const isWin =
@@ -996,13 +984,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                               ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                                   {playerMatches.map((m) => {
-                                    const isRed = m.teamRed.players.some(
-                                      (p) =>
-                                        (p.id && p.id === stat.playerId) ||
-                                        (p.name &&
-                                          p.name.trim().toLowerCase() ===
-                                            stat.playerName.trim().toLowerCase())
-                                    );
+                                    const isRed = isPlayerInTeam(m.teamRed, stat.playerId, stat.playerName);
                                     const myTeam = isRed ? m.teamRed : m.teamBlue;
                                     const oppTeam = isRed ? m.teamBlue : m.teamRed;
                                     const isWin =

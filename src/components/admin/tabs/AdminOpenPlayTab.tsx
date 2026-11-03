@@ -152,6 +152,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
 
   // Open Play Match Management State
   const [matchManagementEvent, setMatchManagementEvent] = useState<OpenPlayEvent | null>(null);
+  const [matchManagementInitialView, setMatchManagementInitialView] = useState<'matrix' | 'leaderboard'>('matrix');
 
   const DEFAULT_OPENPLAY_IMAGE = 'https://images.unsplash.com/photo-1599474924187-334a4ae5bd3c?auto=format&fit=crop&w=800&q=80';
 
@@ -164,6 +165,12 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
         const savedMatrixId = sessionStorage.getItem('picklepoint_matrix_event_id');
         const isMatrix = urlParams.get('matrix') === 'true' || Boolean(savedMatrixId);
         const targetId = eventId || savedMatrixId;
+        const viewParam = urlParams.get('view');
+        if (viewParam === 'leaderboard') {
+          setMatchManagementInitialView('leaderboard');
+        } else {
+          setMatchManagementInitialView('matrix');
+        }
 
         if (targetId) {
           const matched = events.find((e) => e.id === targetId);
@@ -186,6 +193,13 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           const urlParams = new URLSearchParams(window.location.search);
           const eventId = urlParams.get('eventId') || urlParams.get('openplay');
           const isMatrix = urlParams.get('matrix') === 'true';
+
+          const viewParam = urlParams.get('view');
+          if (viewParam === 'leaderboard') {
+            setMatchManagementInitialView('leaderboard');
+          } else {
+            setMatchManagementInitialView('matrix');
+          }
 
           if (eventId) {
             const matched = events.find((e) => e.id === eventId);
@@ -216,13 +230,19 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
     }
   }, [selectedEventForRegs]);
 
-  const handleOpenMatchManagement = (evt: OpenPlayEvent) => {
+  const handleOpenMatchManagement = (evt: OpenPlayEvent, initialView: 'matrix' | 'leaderboard' = 'matrix') => {
+    setMatchManagementInitialView(initialView);
     setMatchManagementEvent(evt);
     setSelectedEventForRegs(evt);
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('eventId', evt.id);
       url.searchParams.set('matrix', 'true');
+      if (initialView === 'leaderboard') {
+        url.searchParams.set('view', 'leaderboard');
+      } else {
+        url.searchParams.delete('view');
+      }
       window.history.pushState(null, '', url.toString());
       sessionStorage.setItem('picklepoint_matrix_event_id', evt.id);
       sessionStorage.setItem('picklepoint_selected_openplay_event_id', evt.id);
@@ -237,6 +257,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('matrix');
+      url.searchParams.delete('view');
       window.history.pushState(null, '', url.toString());
       sessionStorage.removeItem('picklepoint_matrix_event_id');
     } catch (e) {}
@@ -407,6 +428,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
         <AdminOpenPlayMatchManagement
           event={matchManagementEvent}
           registrations={openPlayRegistrations}
+          initialView={matchManagementInitialView}
           onBack={handleCloseMatchManagement}
         />
       ) : selectedEventForRegs ? (

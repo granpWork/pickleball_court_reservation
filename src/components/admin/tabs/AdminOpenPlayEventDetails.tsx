@@ -75,7 +75,7 @@ interface AdminOpenPlayEventDetailsProps {
   onOpenManualBookingModal?: (event: OpenPlayEvent) => void;
   onOpenQrModal: (event: OpenPlayEvent) => void;
   onOpenJsonModal: (event: OpenPlayEvent) => void;
-  onOpenMatchManagement?: (event: OpenPlayEvent) => void;
+  onOpenMatchManagement?: (event: OpenPlayEvent, initialView?: 'matrix' | 'leaderboard') => void;
   formatEventDateLong?: (dateStr: string) => string;
   formatTime12h?: (time24h: string) => string;
 }
@@ -1615,15 +1615,26 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
           {/* Action Toolbar Row next to Copy Shareable Link */}
           <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-800 text-xs mt-auto">
             {onOpenMatchManagement && (
-              <button
-                type="button"
-                onClick={() => onOpenMatchManagement(event)}
-                className="py-2 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/25 transition-all hover:scale-[1.02]"
-                title="Create, auto-generate, assign courts, edit and score open play matches"
-              >
-                <Trophy className="w-4 h-4 text-brand-lime" />
-                <span>Matches / Court Matrix</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => onOpenMatchManagement(event, 'matrix')}
+                  className="py-2 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/25 transition-all hover:scale-[1.02]"
+                  title="Create, auto-generate, assign courts, edit and score open play matches"
+                >
+                  <Trophy className="w-4 h-4 text-brand-lime" />
+                  <span>Matches / Court Matrix</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenMatchManagement(event, 'leaderboard')}
+                  className="py-2 px-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-dark-bg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-400/20 transition-all hover:scale-[1.02]"
+                  title="View participant leaderboard, win rates, and standings"
+                >
+                  <Trophy className="w-4 h-4 text-dark-bg" />
+                  <span>Standings & Leaderboard</span>
+                </button>
+              </>
             )}
 
             {onOpenManualBookingModal && (
