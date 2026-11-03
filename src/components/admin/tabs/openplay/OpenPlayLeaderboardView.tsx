@@ -154,25 +154,35 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-950/80 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-amber-500/30 text-center text-xs">
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Win Rate</span>
-                    <span className="font-black text-brand-lime font-mono text-xs sm:text-sm">
+                <div className="grid grid-cols-2 min-[420px]:grid-cols-4 sm:grid-cols-4 gap-1.5 sm:gap-2 bg-slate-950/80 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl border border-amber-500/30 text-center text-xs">
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Played</span>
+                    <span className="font-normal text-white font-mono text-xs sm:text-sm md:text-base">
+                      {sortedLeaderboardList[0].completedMatches}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Record (W-L-T)</span>
+                    <span className="font-normal text-xs sm:text-sm md:text-base font-mono whitespace-nowrap">
+                      <span className="text-brand-lime">{sortedLeaderboardList[0].wins}W</span>-
+                      <span className="text-red-400">{sortedLeaderboardList[0].losses}L</span>
+                      {sortedLeaderboardList[0].ties > 0 && (
+                        <span className="text-amber-400">-{sortedLeaderboardList[0].ties}T</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Win Rate</span>
+                    <span className="font-normal text-brand-lime font-mono text-xs sm:text-sm md:text-base whitespace-nowrap">
                       {sortedLeaderboardList[0].winRate}%
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Point Diff</span>
-                    <span className="font-black text-amber-300 font-mono text-xs sm:text-sm">
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Point Diff</span>
+                    <span className="font-normal text-amber-300 font-mono text-xs sm:text-sm md:text-base whitespace-nowrap">
                       {sortedLeaderboardList[0].pointDiff >= 0
                         ? `+${sortedLeaderboardList[0].pointDiff}`
                         : sortedLeaderboardList[0].pointDiff}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Played</span>
-                    <span className="font-black text-white font-mono text-xs sm:text-sm">
-                      {sortedLeaderboardList[0].completedMatches}
                     </span>
                   </div>
                 </div>
@@ -205,25 +215,35 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-950/80 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-slate-700 text-center text-xs">
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Win Rate</span>
-                    <span className="font-black text-brand-lime font-mono text-xs sm:text-sm">
+                <div className="grid grid-cols-2 min-[420px]:grid-cols-4 sm:grid-cols-4 gap-1.5 sm:gap-2 bg-slate-950/80 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl border border-slate-700 text-center text-xs">
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Played</span>
+                    <span className="font-normal text-white font-mono text-xs sm:text-sm md:text-base">
+                      {sortedLeaderboardList[1].completedMatches}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Record (W-L-T)</span>
+                    <span className="font-normal text-xs sm:text-sm md:text-base font-mono whitespace-nowrap">
+                      <span className="text-brand-lime">{sortedLeaderboardList[1].wins}W</span>-
+                      <span className="text-red-400">{sortedLeaderboardList[1].losses}L</span>
+                      {sortedLeaderboardList[1].ties > 0 && (
+                        <span className="text-amber-400">-{sortedLeaderboardList[1].ties}T</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Win Rate</span>
+                    <span className="font-normal text-brand-lime font-mono text-xs sm:text-sm md:text-base whitespace-nowrap">
                       {sortedLeaderboardList[1].winRate}%
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Point Diff</span>
-                    <span className="font-black text-slate-200 font-mono text-xs sm:text-sm">
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Point Diff</span>
+                    <span className="font-normal text-slate-200 font-mono text-xs sm:text-sm md:text-base whitespace-nowrap">
                       {sortedLeaderboardList[1].pointDiff >= 0
                         ? `+${sortedLeaderboardList[1].pointDiff}`
                         : sortedLeaderboardList[1].pointDiff}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Played</span>
-                    <span className="font-black text-white font-mono text-xs sm:text-sm">
-                      {sortedLeaderboardList[1].completedMatches}
                     </span>
                   </div>
                 </div>
@@ -256,25 +276,35 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                     </div>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-2 bg-slate-950/80 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-amber-900/50 text-center text-xs">
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Win Rate</span>
-                    <span className="font-black text-brand-lime font-mono text-xs sm:text-sm">
+                <div className="grid grid-cols-2 min-[420px]:grid-cols-4 sm:grid-cols-4 gap-1.5 sm:gap-2 bg-slate-950/80 p-2 sm:p-2.5 rounded-xl sm:rounded-2xl border border-amber-900/50 text-center text-xs">
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Played</span>
+                    <span className="font-normal text-white font-mono text-xs sm:text-sm md:text-base">
+                      {sortedLeaderboardList[2].completedMatches}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Record (W-L-T)</span>
+                    <span className="font-normal text-xs sm:text-sm md:text-base font-mono whitespace-nowrap">
+                      <span className="text-brand-lime">{sortedLeaderboardList[2].wins}W</span>-
+                      <span className="text-red-400">{sortedLeaderboardList[2].losses}L</span>
+                      {sortedLeaderboardList[2].ties > 0 && (
+                        <span className="text-amber-400">-{sortedLeaderboardList[2].ties}T</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Win Rate</span>
+                    <span className="font-normal text-brand-lime font-mono text-xs sm:text-sm md:text-base whitespace-nowrap">
                       {sortedLeaderboardList[2].winRate}%
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Point Diff</span>
-                    <span className="font-black text-amber-400 font-mono text-xs sm:text-sm">
+                  <div className="bg-slate-900/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-[11px] text-slate-400 uppercase font-normal block truncate">Point Diff</span>
+                    <span className="font-normal text-amber-400 font-mono text-xs sm:text-sm md:text-base whitespace-nowrap">
                       {sortedLeaderboardList[2].pointDiff >= 0
                         ? `+${sortedLeaderboardList[2].pointDiff}`
                         : sortedLeaderboardList[2].pointDiff}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Played</span>
-                    <span className="font-black text-white font-mono text-xs sm:text-sm">
-                      {sortedLeaderboardList[2].completedMatches}
                     </span>
                   </div>
                 </div>
@@ -354,7 +384,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
           </div>
 
           {/* Search Input */}
-          <div className="relative flex-1 md:w-60 shrink-0">
+          <div className="relative flex-1 min-w-0 md:w-60">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
@@ -426,7 +456,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
               >
                 {/* Header: Rank + Avatar + Name + Expand Button */}
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
                     {/* Rank Badge */}
                     <div className="shrink-0">
                       {idx === 0 ? (
@@ -449,7 +479,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                     </div>
 
                     {/* Avatar + Player Details */}
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-extrabold text-white text-sm truncate">
                           {stat.playerName}
@@ -493,27 +523,27 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                 </div>
 
                 {/* 4-KPI Stats Grid */}
-                <div className="grid grid-cols-4 gap-2 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800/80 text-center text-xs">
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Played</span>
-                    <span className="font-black text-white font-mono text-sm">{stat.completedMatches}</span>
+                <div className="grid grid-cols-2 min-[420px]:grid-cols-4 sm:grid-cols-4 gap-1.5 sm:gap-2 bg-slate-900/80 p-2 sm:p-2.5 rounded-xl border border-slate-800/80 text-center text-xs">
+                  <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-xs text-slate-400 uppercase font-normal block truncate">Played</span>
+                    <span className="font-normal text-white font-mono text-xs sm:text-sm md:text-base">{stat.completedMatches}</span>
                   </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Record</span>
-                    <span className="font-black text-xs font-mono">
+                  <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-xs text-slate-400 uppercase font-normal block truncate">Record (W-L-T)</span>
+                    <span className="font-normal text-xs sm:text-sm md:text-base font-mono whitespace-nowrap">
                       <span className="text-brand-lime">{stat.wins}W</span>-
                       <span className="text-red-400">{stat.losses}L</span>
                       {stat.ties > 0 && <span className="text-amber-400">-{stat.ties}T</span>}
                     </span>
                   </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Win Rate</span>
-                    <span className="font-black text-brand-lime font-mono text-sm">{stat.winRate}%</span>
+                  <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-xs text-slate-400 uppercase font-normal block truncate">Win Rate</span>
+                    <span className="font-normal text-brand-lime font-mono text-xs sm:text-sm md:text-base whitespace-nowrap">{stat.winRate}%</span>
                   </div>
-                  <div>
-                    <span className="text-[9px] text-slate-400 uppercase font-bold block">Point Diff</span>
+                  <div className="bg-slate-950/60 p-1.5 rounded-lg border border-slate-800/40">
+                    <span className="text-[10px] sm:text-xs text-slate-400 uppercase font-normal block truncate">Point Diff</span>
                     <span
-                      className={`font-black font-mono text-sm ${
+                      className={`font-normal font-mono text-xs sm:text-sm md:text-base whitespace-nowrap ${
                         stat.pointDiff > 0
                           ? 'text-brand-lime'
                           : stat.pointDiff < 0
@@ -708,18 +738,23 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
             viewMode === 'cards' ? 'hidden' : viewMode === 'table' ? 'block' : 'hidden lg:block'
           }`}
         >
+          {/* Mobile swipe hint when in table view */}
+          <div className="lg:hidden text-[11px] text-slate-400 px-3.5 py-2 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+            <span className="font-bold text-slate-300">Standings Table</span>
+            <span className="text-slate-400 text-[10px] font-mono">← Swipe horizontally to view all stats →</span>
+          </div>
           <div className="overflow-x-auto w-full">
-            <table className="w-full min-w-[840px] text-left border-collapse">
+            <table className="w-full min-w-[760px] lg:min-w-[840px] text-left border-collapse">
               <thead className="bg-slate-900 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider border-b border-slate-800">
                 <tr>
-                  <th className="p-3.5 text-center w-14">Rank</th>
-                  <th className="p-3.5 min-w-[200px]">Player Name & Info</th>
-                  <th className="p-3.5 text-center w-20">Played</th>
-                  <th className="p-3.5 text-center min-w-[120px]">Record (W-L-T)</th>
-                  <th className="p-3.5 text-center w-24">Win Rate</th>
-                  <th className="p-3.5 text-center w-24">Point Diff</th>
-                  <th className="p-3.5 min-w-[200px]">Game History</th>
-                  <th className="p-3.5 text-center w-24">Action</th>
+                  <th className="p-2.5 sm:p-3.5 text-center w-12 sm:w-14">Rank</th>
+                  <th className="p-2.5 sm:p-3.5 min-w-[170px] sm:min-w-[200px]">Player Name & Info</th>
+                  <th className="p-2.5 sm:p-3.5 text-center w-16 sm:w-20 font-normal text-xs sm:text-sm text-slate-300">Played</th>
+                  <th className="p-2.5 sm:p-3.5 text-center min-w-[110px] sm:min-w-[120px] font-normal text-xs sm:text-sm text-slate-300 whitespace-nowrap">Record (W-L-T)</th>
+                  <th className="p-2.5 sm:p-3.5 text-center w-20 sm:w-24 font-normal text-xs sm:text-sm text-slate-300 whitespace-nowrap">Win Rate</th>
+                  <th className="p-2.5 sm:p-3.5 text-center w-20 sm:w-24 font-normal text-xs sm:text-sm text-slate-300 whitespace-nowrap">Point Diff</th>
+                  <th className="p-2.5 sm:p-3.5 min-w-[170px] sm:min-w-[200px]">Game History</th>
+                  <th className="p-2.5 sm:p-3.5 text-center w-20 sm:w-24">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/80">
@@ -755,7 +790,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                         }`}
                       >
                         {/* Rank Position Badge */}
-                        <td className="p-3.5 text-center font-black">
+                        <td className="p-2.5 sm:p-3.5 text-center font-black">
                           {idx === 0 ? (
                             <span className="w-7 h-7 rounded-full bg-amber-400 text-dark-bg flex items-center justify-center font-black text-xs mx-auto shadow-md">
                               1
@@ -769,14 +804,14 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                               3
                             </span>
                           ) : (
-                            <span className="text-slate-400 font-mono text-sm">#{idx + 1}</span>
+                            <span className="text-slate-400 font-mono text-xs sm:text-sm">#{idx + 1}</span>
                           )}
                         </td>
 
                         {/* Player Profile & Name */}
-                        <td className="p-3.5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
+                        <td className="p-2.5 sm:p-3.5">
+                          <div className="flex items-center gap-2.5 sm:gap-3">
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0 shadow-sm">
                               <img
                                 src={`https://robohash.org/${encodeURIComponent(stat.playerName)}?set=set4`}
                                 alt={stat.playerName}
@@ -804,12 +839,12 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                         </td>
 
                         {/* Games Played */}
-                        <td className="p-3.5 text-center font-mono font-bold text-white">
+                        <td className="p-2.5 sm:p-3.5 text-center font-mono font-normal text-xs sm:text-sm md:text-base text-white">
                           {stat.completedMatches}
                         </td>
 
                         {/* W-L-T Record */}
-                        <td className="p-3.5 text-center font-mono font-black text-xs whitespace-nowrap">
+                        <td className="p-2.5 sm:p-3.5 text-center font-mono font-normal text-xs sm:text-sm md:text-base whitespace-nowrap">
                           <span className="text-brand-lime">{stat.wins}W</span>
                           <span className="text-slate-500 mx-1">-</span>
                           <span className="text-red-400">{stat.losses}L</span>
@@ -822,12 +857,12 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                         </td>
 
                         {/* Win Rate */}
-                        <td className="p-3.5 text-center font-mono font-black text-brand-lime">
+                        <td className="p-2.5 sm:p-3.5 text-center font-mono font-normal text-xs sm:text-sm md:text-base text-brand-lime whitespace-nowrap">
                           {stat.winRate}%
                         </td>
 
                         {/* Point Diff */}
-                        <td className="p-3.5 text-center font-mono font-black">
+                        <td className="p-2.5 sm:p-3.5 text-center font-mono font-normal text-xs sm:text-sm md:text-base whitespace-nowrap">
                           <span
                             className={
                               stat.pointDiff > 0
@@ -842,7 +877,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                         </td>
 
                         {/* Game History Pills */}
-                        <td className="p-3.5">
+                        <td className="p-2.5 sm:p-3.5">
                           <div className="flex items-center gap-1 flex-wrap">
                             {playerMatches.length === 0 ? (
                               <span className="text-slate-500 text-[10px] italic">No matches</span>
@@ -905,7 +940,7 @@ export const OpenPlayLeaderboardView: React.FC<OpenPlayLeaderboardViewProps> = (
                         </td>
 
                         {/* Expand History Button Column */}
-                        <td className="p-3.5 text-center">
+                        <td className="p-2.5 sm:p-3.5 text-center">
                           <button
                             type="button"
                             onClick={(e) => {

@@ -150,7 +150,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   };
 
   // Filter States
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'completed' | 'active'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'live' | 'scheduled' | 'completed' | 'active'>('all');
   const [selectedCourtFilter, setSelectedCourtFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -2234,6 +2234,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   // Filtered Matches
   const filteredMatches = matches.filter((m) => {
+    if (selectedStatusFilter === 'live' && m.status !== 'in_progress') return false;
+    if (selectedStatusFilter === 'scheduled' && m.status !== 'scheduled') return false;
     if (selectedStatusFilter === 'completed' && m.status !== 'completed') return false;
     if (selectedStatusFilter === 'active' && m.status === 'completed') return false;
     if (selectedCourtFilter !== 'all' && m.courtName !== selectedCourtFilter) return false;
@@ -2251,7 +2253,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const restingCount = rosterPool.filter((p) => p.status === 'resting').length;
   const absentCount = rosterPool.filter((p) => p.status === 'absent').length;
   const completedCount = matches.filter((m) => m.status === 'completed').length;
-  const liveCount = matches.filter((m) => m.status === 'in_progress').length;
+  const liveMatches = matches.filter((m) => m.status === 'in_progress');
+  const liveCount = liveMatches.length;
+  const scheduledCount = matches.filter((m) => m.status === 'scheduled').length;
 
   return (
     <div className="animate-fade-in space-y-6 text-left pb-12">
@@ -2326,9 +2330,31 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             <span className="text-xl font-black text-white font-mono">{matches.length}</span>
           </div>
 
-          <div className="bg-slate-950/50 border border-slate-800/80 rounded-2xl p-3 text-left">
-            <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block">Live Matches</span>
-            <span className="text-xl font-black text-blue-400 font-mono">{liveCount}</span>
+          <div
+            onClick={() => setSelectedStatusFilter(selectedStatusFilter === 'live' ? 'all' : 'live')}
+            className={`rounded-2xl p-3 text-left transition-all cursor-pointer ${
+              selectedStatusFilter === 'live'
+                ? 'bg-blue-600 border-2 border-blue-400 shadow-xl shadow-blue-500/30 ring-2 ring-blue-400/50'
+                : liveCount > 0
+                ? 'bg-blue-950/40 border-2 border-blue-500/80 shadow-lg shadow-blue-500/20 hover:border-blue-400 ring-1 ring-blue-500/30'
+                : 'bg-slate-950/50 border border-slate-800/80'
+            }`}
+            title="Click to toggle Live matches filter"
+          >
+            <div className="flex items-center justify-between">
+              <span className={`text-[10px] uppercase font-bold tracking-wider block ${selectedStatusFilter === 'live' ? 'text-white' : 'text-slate-400'}`}>
+                Live Matches
+              </span>
+              {liveCount > 0 && (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-90" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400" />
+                </span>
+              )}
+            </div>
+            <span className={`text-xl font-black font-mono ${selectedStatusFilter === 'live' ? 'text-white' : liveCount > 0 ? 'text-blue-300' : 'text-slate-400'}`}>
+              {liveCount}
+            </span>
           </div>
 
           <div className="bg-slate-950/50 border border-slate-800/80 rounded-2xl p-3 text-left">
@@ -2482,7 +2508,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('all')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
                 selectedStatusFilter === 'all'
                   ? 'bg-brand-lime text-dark-bg'
                   : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
@@ -2492,19 +2518,38 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             </button>
             <button
               type="button"
-              onClick={() => setSelectedStatusFilter('active')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
-                selectedStatusFilter === 'active'
-                  ? 'bg-blue-600 text-white'
+              onClick={() => setSelectedStatusFilter('live')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+                selectedStatusFilter === 'live'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : liveCount > 0
+                  ? 'bg-blue-950/60 border border-blue-500/60 text-blue-300 hover:bg-blue-900/60'
                   : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
               }`}
             >
-              Active ({matches.length - completedCount})
+              {liveCount > 0 && (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-90" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400" />
+                </span>
+              )}
+              <span>Live ({liveCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedStatusFilter('scheduled')}
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
+                selectedStatusFilter === 'scheduled'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              Scheduled ({scheduledCount})
             </button>
             <button
               type="button"
               onClick={() => setSelectedStatusFilter('completed')}
-              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition-all shrink-0 cursor-pointer ${
                 selectedStatusFilter === 'completed'
                   ? 'bg-emerald-600 text-white'
                   : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
@@ -2656,6 +2701,55 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
         ) : (
           <div className="space-y-8">
+            {/* ONGOING / LIVE MATCHES SPOTLIGHT */}
+            {liveMatches.length > 0 && selectedStatusFilter !== 'completed' && selectedStatusFilter !== 'scheduled' && (
+              <div className="rounded-3xl border-2 border-blue-500/80 bg-gradient-to-b from-blue-950/60 via-slate-900 to-slate-950 p-4 sm:p-6 shadow-2xl shadow-blue-500/20 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-blue-500/30 flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-90" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500" />
+                    </span>
+                    <h3 className="text-base sm:text-lg font-black text-white tracking-tight flex items-center gap-2">
+                      <span>Currently Live on Court</span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/50 text-blue-300 font-mono text-xs font-bold">
+                        {liveMatches.length} {liveMatches.length === 1 ? 'Game' : 'Games'} In Progress
+                      </span>
+                    </h3>
+                  </div>
+                  <span className="text-xs text-blue-300 font-semibold flex items-center gap-1.5">
+                    ⚡ Live Real-Time Referee Scoring
+                  </span>
+                </div>
+
+                <div className={`grid gap-4 items-stretch ${
+                  liveMatches.length === 1
+                    ? 'grid-cols-1 max-w-3xl'
+                    : liveMatches.length === 2
+                    ? 'grid-cols-1 md:grid-cols-2'
+                    : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                }`}>
+                  {liveMatches.map((m) => (
+                    <MatchMatrixCard
+                      key={`spotlight-${m.id}`}
+                      match={m}
+                      assignedCourts={assignedCourts}
+                      roundTitle={getRoundTitle(m.round)}
+                      onInlineCourtChange={handleInlineCourtChange}
+                      onStartMatch={handleStartMatch}
+                      onCompleteMatch={handleCompleteMatch}
+                      onReopenMatch={handleReopenMatch}
+                      onScoreDelta={updateMatchScore}
+                      onDirectScoreChange={handleDirectScoreChange}
+                      onDownloadSingleCsv={handleDownloadSingleMatchCsv}
+                      onEditMatch={openEditModal}
+                      onDeleteMatch={(match) => setDeletingMatch(match)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {allActiveRounds.map((roundNum) => {
               const matchesInRound = filteredMatches.filter((m) => m.round === roundNum);
 

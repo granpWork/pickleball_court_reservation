@@ -55,20 +55,28 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
   onDeleteRound,
   children,
 }) => {
-  // Count unique players participating in this round and completed games
-  const { uniquePlayerCount, completedCount } = React.useMemo(() => {
+  // Count unique players participating in this round, completed games, and live ongoing games
+  const { uniquePlayerCount, completedCount, liveCount } = React.useMemo(() => {
     const playerIds = new Set<string>();
     let completed = 0;
+    let live = 0;
     for (const m of matchesInRound) {
       if (m.status === 'completed') completed++;
+      if (m.status === 'in_progress') live++;
       for (const p of m.teamRed.players) playerIds.add(p.id);
       for (const p of m.teamBlue.players) playerIds.add(p.id);
     }
-    return { uniquePlayerCount: playerIds.size, completedCount: completed };
+    return { uniquePlayerCount: playerIds.size, completedCount: completed, liveCount: live };
   }, [matchesInRound]);
 
   return (
-    <div className="border border-slate-800/80 bg-slate-950/40 rounded-3xl shadow-xl overflow-hidden transition-all space-y-0">
+    <div
+      className={`rounded-3xl shadow-xl overflow-hidden transition-all space-y-0 ${
+        liveCount > 0
+          ? 'border-2 border-blue-500/80 bg-blue-950/15 ring-2 ring-blue-500/30 shadow-blue-500/10'
+          : 'border border-slate-800/80 bg-slate-950/40'
+      }`}
+    >
       {/* Accordion Header Bar */}
       <div
         onClick={() => onToggleCollapse(roundNum)}
@@ -159,6 +167,16 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
                   }`}
                 >
                   {completedCount}/{matchesInRound.length} completed
+                </span>
+              )}
+
+              {liveCount > 0 && (
+                <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/60 text-blue-300 font-black text-[10px] sm:text-[11px] flex items-center gap-1.5 shadow-sm animate-pulse">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-90" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400" />
+                  </span>
+                  <span>{liveCount} LIVE ON COURT</span>
                 </span>
               )}
             </div>

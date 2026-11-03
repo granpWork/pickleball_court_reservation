@@ -42,14 +42,30 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
 }) => {
   return (
     <div
-      className={`@container min-w-0 overflow-hidden rounded-3xl border p-4 sm:p-5 transition-all shadow-lg flex flex-col justify-between gap-3.5 ${
+      className={`@container min-w-0 overflow-hidden rounded-3xl border p-4 sm:p-5 transition-all shadow-lg flex flex-col justify-between gap-3.5 relative ${
         m.status === 'completed'
           ? 'bg-slate-900/40 border-slate-800/90'
           : m.status === 'in_progress'
-          ? 'bg-blue-950/20 border-blue-500/40 ring-1 ring-blue-500/30'
+          ? 'bg-gradient-to-b from-blue-950/45 via-slate-900 to-slate-950 border-blue-500/85 ring-2 ring-blue-500/50 shadow-2xl shadow-blue-500/20'
           : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
       }`}
     >
+      {/* Live Ongoing Match Top Banner Strip */}
+      {m.status === 'in_progress' && (
+        <div className="-mx-4 -mt-4 sm:-mx-5 sm:-mt-5 mb-1 px-4 py-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white flex items-center justify-between text-[11px] font-black uppercase tracking-wider shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-90" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
+            </span>
+            <span>ONGOING LIVE MATCH</span>
+          </div>
+          <span className="font-mono text-[10px] bg-slate-950/70 px-2 py-0.5 rounded-full border border-white/20">
+            📍 {m.courtName}
+          </span>
+        </div>
+      )}
+
       {/* Card Header: Match Name, Round, Court Selector & Status */}
       <div className="flex items-start justify-between gap-2 text-xs pb-3 border-b border-slate-800/80 min-w-0">
         <div className="min-w-0 space-y-1">
@@ -215,18 +231,29 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
           </div>
         </div>
 
-        {/* VS Divider Badge & Final Score Display */}
+        {/* VS Divider Badge & Live/Final Score Display */}
         <div className="flex @xl:flex-col items-center justify-center gap-2 py-0.5 shrink-0">
-          <div className="h-px flex-1 @xl:w-px @xl:h-6 bg-slate-800/80" />
-          <span className="px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 uppercase tracking-widest shadow-inner">
-            VS
-          </span>
+          <div className={`h-px flex-1 @xl:w-px @xl:h-6 ${m.status === 'in_progress' ? 'bg-blue-500/50' : 'bg-slate-800/80'}`} />
+          {m.status === 'in_progress' ? (
+            <div className="flex items-center @xl:flex-col gap-1.5 shrink-0">
+              <span className="px-2.5 py-0.5 rounded-full bg-blue-500 text-slate-950 text-[10px] font-mono font-black uppercase tracking-wider shadow-sm animate-pulse">
+                LIVE
+              </span>
+              <span className="px-2.5 py-1 rounded-xl bg-blue-950/90 border border-blue-400/60 text-white font-mono font-black text-sm shadow-md whitespace-nowrap">
+                {m.teamRed.score} - {m.teamBlue.score}
+              </span>
+            </div>
+          ) : (
+            <span className="px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 text-[10px] font-mono font-black text-slate-400 uppercase tracking-widest shadow-inner">
+              VS
+            </span>
+          )}
           {m.status === 'completed' && (
             <span className="px-2 py-0.5 rounded-lg bg-emerald-950/80 border border-emerald-500/50 text-brand-lime font-mono font-black text-[10px] shadow-sm whitespace-nowrap">
               {m.teamRed.score} - {m.teamBlue.score}
             </span>
           )}
-          <div className="h-px flex-1 @xl:w-px @xl:h-6 bg-slate-800/80" />
+          <div className={`h-px flex-1 @xl:w-px @xl:h-6 ${m.status === 'in_progress' ? 'bg-blue-500/50' : 'bg-slate-800/80'}`} />
         </div>
 
         {/* Team Blue */}
@@ -365,8 +392,11 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 </span>
               </span>
             ) : m.status === 'in_progress' ? (
-              <span className="text-blue-300 font-black text-[11px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-950/60 border border-blue-500/40 shadow-sm animate-pulse truncate">
-                <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping inline-block shrink-0" />
+              <span className="text-blue-200 font-black text-xs flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-950/90 border border-blue-400/60 shadow-lg shadow-blue-500/20 truncate">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-90" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-400" />
+                </span>
                 <span className="truncate">LIVE ({m.teamRed.score} - {m.teamBlue.score})</span>
               </span>
             ) : (
@@ -442,9 +472,14 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
             <button
               type="button"
               onClick={() => onCompleteMatch(m.id)}
-              className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              className={`flex-1 py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer ${
+                m.status === 'in_progress'
+                  ? 'bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                  : 'bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white'
+              }`}
             >
-              <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0" /> Complete
+              <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${m.status === 'in_progress' ? 'text-slate-950' : 'text-white'}`} />
+              <span>{m.status === 'in_progress' ? 'Finish & Complete Match' : 'Complete'}</span>
             </button>
           ) : (
             <button
