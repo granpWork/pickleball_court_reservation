@@ -489,7 +489,7 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
             {filteredEvents.map((event) => {
               const isExpired = isEventExpired(event.eventDate, event.endTime) || event.status === 'expired' || event.status === 'completed';
               const eventRegCount = registrations
-                .filter((r) => r.eventId === event.id && r.status !== 'cancelled')
+                .filter((r) => r.eventId === event.id && r.status !== 'cancelled' && r.status !== 'waitlisted' && r.paymentStatus !== 'waitlisted')
                 .reduce((sum, r) => sum + (r.playerCount || 1), 0);
               const approvedCount = registrations
                 .filter((r) => r.eventId === event.id && (r.status === 'approved' || r.paymentStatus === 'paid'))

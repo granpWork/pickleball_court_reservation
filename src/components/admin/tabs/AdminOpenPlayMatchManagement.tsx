@@ -2030,7 +2030,28 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setEditingMatch(null);
   };
 
-  // Add custom player to roster pool
+  const updateLocalBookingRecord = (regId: string, updates: Record<string, any>) => {
+    ['picklepoint_bookings', 'picklepoint_openplay_registrations'].forEach((key) => {
+      ['localStorage', 'sessionStorage'].forEach((storageType) => {
+        try {
+          const storage = storageType === 'localStorage' ? localStorage : sessionStorage;
+          const str = storage.getItem(key);
+          if (!str) return;
+          const parsed = JSON.parse(str);
+          if (!Array.isArray(parsed)) return;
+          const updated = parsed.map((item: any) => {
+            if (item.id === regId || item.bookingReference === regId || item.bookingId === regId) {
+              return { ...item, ...updates };
+            }
+            return item;
+          });
+          storage.setItem(key, JSON.stringify(updated));
+        } catch (e) {}
+      });
+    });
+  };
+
+  // Add custom player to roster pool (also registers in Firestore openplay_registrations)
   const handleAddCustomPlayer = () => {
     if (!newPlayerName.trim()) return;
     const maxCap = event.maxParticipants || 16;
@@ -2039,6 +2060,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       return;
     }
     const newId = `custom-player-${Date.now()}`;
+    const cleanDuprId = newPlayerDuprId.trim() || undefined;
     const newItem: OpenPlayMatchRosterItem = {
       id: newId,
       name: newPlayerName.trim(),
@@ -2047,7 +2069,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       attendanceStatus: 'present',
       isPresent: true,
       skillLevel: newPlayerSkill,
-      adminDuprId: newPlayerDuprId.trim() || undefined,
+      adminDuprId: cleanDuprId,
+      duprId: cleanDuprId,
     };
     try {
       const saved = localStorage.getItem('picklepoint_openplay_attendance');
@@ -2057,6 +2080,42 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     } catch (e) {}
     const updated = [...rosterPool, newItem];
     saveRosterPool(updated);
+
+    // Save to openplay_registrations in Firestore & local storage
+    if (isFirebaseConfigured && db) {
+      const customPayload = {
+        id: newId,
+        eventId: event.id,
+        eventTitle: event.title,
+        playerName: newPlayerName.trim(),
+        playerEmail: '',
+        playerPhone: '',
+        playerCount: 1,
+        guestCount: 0,
+        status: 'approved',
+        paymentStatus: 'paid',
+        paymentMethod: 'cash',
+        createdAt: new Date().toISOString(),
+        adminDuprId: cleanDuprId,
+        duprId: cleanDuprId,
+        isManual: true,
+      };
+      setDoc(doc(db, 'openplay_registrations', newId), customPayload).catch((err) =>
+        console.warn('Failed to save custom player to openplay_registrations:', err)
+      );
+      ['picklepoint_openplay_registrations'].forEach((key) => {
+        ['localStorage', 'sessionStorage'].forEach((st) => {
+          try {
+            const storage = st === 'localStorage' ? localStorage : sessionStorage;
+            const str = storage.getItem(key);
+            const list = str ? JSON.parse(str) : [];
+            list.push(customPayload);
+            storage.setItem(key, JSON.stringify(list));
+          } catch (e) {}
+        });
+      });
+    }
+
     setNewPlayerName('');
     setNewPlayerDuprId('');
     showToast(`Added ${newItem.name} to player pool (marked Present).`);
@@ -2137,34 +2196,56 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     saveRosterPool(updated);
 
     const regId = (playerToDelete as any)?.registrationId || id.replace(/-primary$/, '').replace(/-guest-\d+$/, '');
-    if (isFirebaseConfigured && db && regId) {
-      try {
-        await setDoc(doc(db, 'openplay_registrations', regId), { status: 'cancelled' }, { merge: true });
-      } catch (e) {
-        console.warn('Error cancelling openplay_registrations doc from match roster:', e);
-      }
-      try {
-        await setDoc(doc(db, 'bookings', regId), { status: 'cancelled' }, { merge: true });
-      } catch (e) {
-        console.warn('Error cancelling bookings doc from match roster:', e);
-      }
-    }
+    const isGuest = playerToDelete?.type === 'guest' || id.includes('-guest-');
+    const rawReg = registrations.find((r) => r.id === regId);
 
-    const updateLocal = (str: string | null) => {
-      if (!str) return;
-      try {
-        const list = JSON.parse(str).map((r: any) =>
-          r.id === regId ? { ...r, status: 'cancelled' } : r
-        );
-        return JSON.stringify(list);
-      } catch { return null; }
-    };
-    const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
-    const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
-    const updatedLs = updateLocal(lsStr);
-    const updatedSs = updateLocal(ssStr);
-    if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
-    if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+    if (isGuest && rawReg) {
+      const gIndex = ((playerToDelete as any)?.guestIndex || 1) - 1;
+      let existingGuests = Array.isArray(rawReg.guests) ? [...rawReg.guests] : [];
+      if (existingGuests.length === 0 && Array.isArray(rawReg.guestNames)) {
+        existingGuests = rawReg.guestNames.map((name: string, i: number) => ({
+          name,
+          email: rawReg.guestEmails?.[i] || '',
+        }));
+      }
+      if (gIndex >= 0 && gIndex < existingGuests.length) {
+        existingGuests.splice(gIndex, 1);
+      } else {
+        existingGuests = existingGuests.filter((g) => (g?.name || '').trim().toLowerCase() !== (playerToDelete?.name || '').trim().toLowerCase());
+      }
+      const newPlayerCount = Math.max(1, (rawReg.playerCount || 1) - 1);
+      const newGuestCount = Math.max(0, (rawReg.guestCount || (existingGuests.length + 1)) - 1);
+      const updatePayload = {
+        guests: existingGuests,
+        guestNames: existingGuests.map((g: any) => g.name).filter(Boolean),
+        guestEmails: existingGuests.map((g: any) => g.email).filter(Boolean),
+        playerCount: newPlayerCount,
+        guestCount: newGuestCount,
+      };
+      if (isFirebaseConfigured && db && regId) {
+        try {
+          await setDoc(doc(db, 'openplay_registrations', regId), updatePayload, { merge: true });
+        } catch (e) {}
+        try {
+          await setDoc(doc(db, 'bookings', regId), updatePayload, { merge: true });
+        } catch (e) {}
+      }
+      updateLocalBookingRecord(regId, updatePayload);
+    } else {
+      if (isFirebaseConfigured && db && regId) {
+        try {
+          await setDoc(doc(db, 'openplay_registrations', regId), { status: 'cancelled' }, { merge: true });
+        } catch (e) {
+          console.warn('Error cancelling openplay_registrations doc from match roster:', e);
+        }
+        try {
+          await setDoc(doc(db, 'bookings', regId), { status: 'cancelled' }, { merge: true });
+        } catch (e) {
+          console.warn('Error cancelling bookings doc from match roster:', e);
+        }
+      }
+      updateLocalBookingRecord(regId, { status: 'cancelled' });
+    }
 
     showToast(`Deleted ${playerToDelete?.name || 'player'} from roster pool.`);
   };
@@ -2179,40 +2260,97 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     saveRosterPool(updated);
 
     const regId = (targetPlayer as any)?.registrationId || id.replace(/-primary$/, '').replace(/-guest-\d+$/, '');
-    if (isFirebaseConfigured && db && regId) {
-      try {
-        await setDoc(doc(db, 'openplay_registrations', regId), {
-          status: 'waitlisted',
-          paymentStatus: 'waitlisted',
-        }, { merge: true });
-      } catch (e) {
-        console.warn('Error moving openplay_registrations doc to waitlist:', e);
-      }
-      try {
-        await setDoc(doc(db, 'bookings', regId), {
-          status: 'waitlisted',
-          paymentStatus: 'waitlisted',
-        }, { merge: true });
-      } catch (e) {
-        console.warn('Error moving bookings doc to waitlist:', e);
-      }
-    }
+    const isGuest = targetPlayer?.type === 'guest' || id.includes('-guest-');
+    const rawReg = registrations.find((r) => r.id === regId);
 
-    const updateLocal = (str: string | null) => {
-      if (!str) return;
-      try {
-        const list = JSON.parse(str).map((r: any) =>
-          r.id === regId ? { ...r, status: 'waitlisted', paymentStatus: 'waitlisted' } : r
-        );
-        return JSON.stringify(list);
-      } catch { return null; }
-    };
-    const lsStr = localStorage.getItem('picklepoint_openplay_registrations');
-    const ssStr = sessionStorage.getItem('picklepoint_openplay_registrations');
-    const updatedLs = updateLocal(lsStr);
-    const updatedSs = updateLocal(ssStr);
-    if (updatedLs) localStorage.setItem('picklepoint_openplay_registrations', updatedLs);
-    if (updatedSs) sessionStorage.setItem('picklepoint_openplay_registrations', updatedSs);
+    if (isGuest && rawReg) {
+      const gIndex = ((targetPlayer as any)?.guestIndex || 1) - 1;
+      let existingGuests = Array.isArray(rawReg.guests) ? [...rawReg.guests] : [];
+      if (existingGuests.length === 0 && Array.isArray(rawReg.guestNames)) {
+        existingGuests = rawReg.guestNames.map((name: string, i: number) => ({
+          name,
+          email: rawReg.guestEmails?.[i] || '',
+        }));
+      }
+      if (gIndex >= 0 && gIndex < existingGuests.length) {
+        existingGuests.splice(gIndex, 1);
+      } else {
+        existingGuests = existingGuests.filter((g) => (g?.name || '').trim().toLowerCase() !== (targetPlayer.name || '').trim().toLowerCase());
+      }
+      const newPlayerCount = Math.max(1, (rawReg.playerCount || 1) - 1);
+      const newGuestCount = Math.max(0, (rawReg.guestCount || (existingGuests.length + 1)) - 1);
+      const updatePayload = {
+        guests: existingGuests,
+        guestNames: existingGuests.map((g: any) => g.name).filter(Boolean),
+        guestEmails: existingGuests.map((g: any) => g.email).filter(Boolean),
+        playerCount: newPlayerCount,
+        guestCount: newGuestCount,
+      };
+
+      const newWaitlistRegId = `waitlist-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const newWaitlistReg = {
+        id: newWaitlistRegId,
+        eventId: event.id,
+        eventTitle: event.title,
+        playerName: targetPlayer.name,
+        playerEmail: targetPlayer.email || '',
+        playerPhone: targetPlayer.phone || '',
+        playerCount: 1,
+        guestCount: 0,
+        status: 'waitlisted',
+        paymentStatus: 'waitlisted',
+        createdAt: new Date().toISOString(),
+        duprId: targetPlayer.duprId || '',
+        adminDuprId: targetPlayer.adminDuprId || '',
+        duprRating: targetPlayer.duprRating || '',
+        adminDuprRating: targetPlayer.adminDuprRating || '',
+      };
+
+      if (isFirebaseConfigured && db && regId) {
+        try {
+          await setDoc(doc(db, 'openplay_registrations', regId), updatePayload, { merge: true });
+        } catch (e) {}
+        try {
+          await setDoc(doc(db, 'bookings', regId), updatePayload, { merge: true });
+        } catch (e) {}
+        try {
+          await setDoc(doc(db, 'openplay_registrations', newWaitlistRegId), newWaitlistReg);
+        } catch (e) {}
+      }
+      updateLocalBookingRecord(regId, updatePayload);
+      // Sync newWaitlistReg
+      ['picklepoint_openplay_registrations'].forEach((key) => {
+        ['localStorage', 'sessionStorage'].forEach((st) => {
+          try {
+            const storage = st === 'localStorage' ? localStorage : sessionStorage;
+            const str = storage.getItem(key);
+            const list = str ? JSON.parse(str) : [];
+            list.push(newWaitlistReg);
+            storage.setItem(key, JSON.stringify(list));
+          } catch (e) {}
+        });
+      });
+    } else {
+      if (isFirebaseConfigured && db && regId) {
+        try {
+          await setDoc(doc(db, 'openplay_registrations', regId), {
+            status: 'waitlisted',
+            paymentStatus: 'waitlisted',
+          }, { merge: true });
+        } catch (e) {
+          console.warn('Error moving openplay_registrations doc to waitlist:', e);
+        }
+        try {
+          await setDoc(doc(db, 'bookings', regId), {
+            status: 'waitlisted',
+            paymentStatus: 'waitlisted',
+          }, { merge: true });
+        } catch (e) {
+          console.warn('Error moving bookings doc to waitlist:', e);
+        }
+      }
+      updateLocalBookingRecord(regId, { status: 'waitlisted', paymentStatus: 'waitlisted' });
+    }
 
     showToast(`⏳ Moved ${targetPlayer.name} to waiting list.`);
   };

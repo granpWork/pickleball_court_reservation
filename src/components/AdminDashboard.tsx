@@ -3239,33 +3239,37 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
         // Extract open play bookings from already fetched cloudBookingDocs
         cloudBookingDocs.forEach(({ docId, data: b }: any) => {
-          if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId && b.status !== 'cancelled') {
-            const existing = regMap.get(docId);
-            regMap.set(docId, {
-              id: docId,
-              eventId: b.openPlayEventId,
-              eventTitle: b.openPlayTitle || b.courtName,
-              playerUid: b.userId || b.user?.uid || '',
-              playerName: b.user?.name || b.userName || 'Player',
-              playerEmail: b.user?.email || b.userEmail || '',
-              playerPhone: b.userPhone,
-              playerCount: b.playerCount || 1,
-              guestCount: b.guestCount || (b.guests?.length || 0),
-              guests: b.guests || [],
-              guestNames: b.guestNames || [],
-              guestEmails: b.guestEmails || [],
-              gcashReferenceNumber: b.gcashReferenceNumber,
-              paymentStatus: b.paymentStatus || 'paid',
-              status: b.status || 'approved',
-              createdAt: b.createdAt || new Date().toISOString(),
-              isAddGuestOnly: b.isAddGuestOnly === true,
-              primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
-              primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
-              duprId: b.duprId || b.user?.duprId || existing?.duprId || '',
-              adminDuprId: b.adminDuprId || existing?.adminDuprId || '',
-              duprRating: b.duprRating || b.user?.duprRating || existing?.duprRating || '',
-              adminDuprRating: b.adminDuprRating || existing?.adminDuprRating || '',
-            } as OpenPlayRegistration);
+          if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.openPlayEventId) {
+            if (b.status === 'cancelled') {
+              regMap.delete(docId);
+            } else {
+              const existing = regMap.get(docId);
+              regMap.set(docId, {
+                id: docId,
+                eventId: b.openPlayEventId,
+                eventTitle: b.openPlayTitle || b.courtName,
+                playerUid: b.userId || b.user?.uid || '',
+                playerName: b.user?.name || b.userName || 'Player',
+                playerEmail: b.user?.email || b.userEmail || '',
+                playerPhone: b.userPhone,
+                playerCount: b.playerCount || 1,
+                guestCount: b.guestCount || (b.guests?.length || 0),
+                guests: b.guests || [],
+                guestNames: b.guestNames || [],
+                guestEmails: b.guestEmails || [],
+                gcashReferenceNumber: b.gcashReferenceNumber,
+                paymentStatus: b.paymentStatus || 'paid',
+                status: b.status || 'approved',
+                createdAt: b.createdAt || new Date().toISOString(),
+                isAddGuestOnly: b.isAddGuestOnly === true,
+                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+                duprId: b.duprId || b.user?.duprId || existing?.duprId || '',
+                adminDuprId: b.adminDuprId || existing?.adminDuprId || '',
+                duprRating: b.duprRating || b.user?.duprRating || existing?.duprRating || '',
+                adminDuprRating: b.adminDuprRating || existing?.adminDuprRating || '',
+              } as OpenPlayRegistration);
+            }
           }
         });
 
@@ -3273,19 +3277,23 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         if (regsRes.status === 'fulfilled' && regsRes.value) {
           regsRes.value.forEach((dSnap) => {
             const rData = dSnap.data();
-            const existing = regMap.get(dSnap.id);
-            if (existing) {
-              regMap.set(dSnap.id, {
-                ...existing,
-                ...rData,
-                guests: (Array.isArray(rData.guests) && rData.guests.length > 0) ? rData.guests : (existing.guests || []),
-                adminDuprId: rData.adminDuprId || existing.adminDuprId || '',
-                adminDuprRating: rData.adminDuprRating || existing.adminDuprRating || '',
-                duprId: rData.duprId || existing.duprId || '',
-                duprRating: rData.duprRating || existing.duprRating || '',
-              });
+            if (rData.status === 'cancelled') {
+              regMap.delete(dSnap.id);
             } else {
-              regMap.set(dSnap.id, { id: dSnap.id, ...rData } as OpenPlayRegistration);
+              const existing = regMap.get(dSnap.id);
+              if (existing) {
+                regMap.set(dSnap.id, {
+                  ...existing,
+                  ...rData,
+                  guests: (Array.isArray(rData.guests) && rData.guests.length > 0) ? rData.guests : (existing.guests || []),
+                  adminDuprId: rData.adminDuprId || existing.adminDuprId || '',
+                  adminDuprRating: rData.adminDuprRating || existing.adminDuprRating || '',
+                  duprId: rData.duprId || existing.duprId || '',
+                  duprRating: rData.duprRating || existing.duprRating || '',
+                });
+              } else {
+                regMap.set(dSnap.id, { id: dSnap.id, ...rData } as OpenPlayRegistration);
+              }
             }
           });
         }

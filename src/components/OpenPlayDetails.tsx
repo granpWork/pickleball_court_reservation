@@ -250,6 +250,103 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
       }
     }
   }, [eventId]);
+
+  // Real-time synchronization for Open Play registrations & bookings
+  useEffect(() => {
+    if (!eventId || !isFirebaseConfigured || !db) return;
+
+    let unsubRegs: (() => void) | null = null;
+    let unsubBookings: (() => void) | null = null;
+
+    try {
+      const qQuery = query(collection(db, 'openplay_registrations'), where('eventId', '==', eventId));
+      const bQuery = query(collection(db, 'bookings'), where('openPlayEventId', '==', eventId));
+
+      const bDocsMap = new Map<string, any>();
+      const rDocsMap = new Map<string, any>();
+
+      const syncFromMaps = () => {
+        const regMap = new Map<string, OpenPlayRegistration>();
+
+        bDocsMap.forEach((b, docId) => {
+          if (b.status === 'cancelled') return;
+          regMap.set(docId, {
+            id: docId,
+            eventId: b.openPlayEventId || eventId,
+            eventTitle: b.openPlayTitle || b.courtName,
+            playerUid: b.userId || b.user?.uid || '',
+            playerName: b.user?.name || b.userName || 'Player',
+            playerEmail: b.user?.email || b.userEmail || '',
+            playerPhone: b.userPhone,
+            playerCount: b.playerCount || 1,
+            guestCount: b.guestCount || (b.guests?.length || 0),
+            guests: b.guests || [],
+            guestNames: b.guestNames || [],
+            guestEmails: b.guestEmails || [],
+            gcashReferenceNumber: b.gcashReferenceNumber,
+            paymentStatus: b.paymentStatus || 'paid',
+            status: b.status || 'approved',
+            createdAt: b.createdAt || new Date().toISOString(),
+            isAddGuestOnly: b.isAddGuestOnly === true,
+            primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+            primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+            adminDuprId: b.adminDuprId,
+            duprId: b.duprId || b.user?.duprId,
+            duprRating: b.duprRating || b.user?.duprRating,
+            adminDuprRating: b.adminDuprRating,
+          });
+        });
+
+        rDocsMap.forEach((r, docId) => {
+          if (r.status === 'cancelled') {
+            regMap.delete(docId);
+            return;
+          }
+          const existing = regMap.get(docId);
+          if (existing) {
+            regMap.set(docId, {
+              ...existing,
+              ...r,
+              guests: Array.isArray(r.guests) ? r.guests : existing.guests,
+              guestNames: Array.isArray(r.guestNames) ? r.guestNames : existing.guestNames,
+              guestEmails: Array.isArray(r.guestEmails) ? r.guestEmails : existing.guestEmails,
+              playerCount: r.playerCount !== undefined ? r.playerCount : existing.playerCount,
+              guestCount: r.guestCount !== undefined ? r.guestCount : existing.guestCount,
+              status: r.status || existing.status,
+              paymentStatus: r.paymentStatus || existing.paymentStatus,
+            });
+          } else {
+            regMap.set(docId, { ...r, id: docId });
+          }
+        });
+
+        const list = Array.from(regMap.values());
+        setRegistrations(list);
+        try {
+          localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(list));
+        } catch (e) {}
+      };
+
+      unsubBookings = onSnapshot(bQuery, (snap) => {
+        bDocsMap.clear();
+        snap.forEach((d) => bDocsMap.set(d.id, d.data()));
+        syncFromMaps();
+      }, (err) => console.warn('Bookings snapshot error:', err));
+
+      unsubRegs = onSnapshot(qQuery, (snap) => {
+        rDocsMap.clear();
+        snap.forEach((d) => rDocsMap.set(d.id, d.data()));
+        syncFromMaps();
+      }, (err) => console.warn('Registrations snapshot error:', err));
+    } catch (e) {
+      console.warn('Real-time registration listener init error:', e);
+    }
+
+    return () => {
+      if (unsubBookings) unsubBookings();
+      if (unsubRegs) unsubRegs();
+    };
+  }, [eventId]);
   const [rosterSearch, setRosterSearch] = useState('');
   const [chatMessages, setChatMessages] = useState<OpenPlayChatMessage[]>([]);
   const [newChatMessage, setNewChatMessage] = useState('');
@@ -830,48 +927,80 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
         }
 
         const regMap = new Map<string, OpenPlayRegistration>();
-        localData.cachedRegs.forEach((r) => regMap.set(r.id, r));
 
+        // 1. Process bookings from Firestore
         if (bSnapResult.status === 'fulfilled') {
           bSnapResult.value.forEach((dSnap) => {
             const b = dSnap.data();
-            if (b.status !== 'cancelled') {
-              const regId = dSnap.id;
-              regMap.set(regId, {
-                id: regId,
-                eventId: b.openPlayEventId,
-                eventTitle: b.openPlayTitle || b.courtName,
-                playerUid: b.userId || b.user?.uid || '',
-                playerName: b.user?.name || b.userName || 'Player',
-                playerEmail: b.user?.email || b.userEmail || '',
-                playerPhone: b.userPhone,
-                playerCount: b.playerCount || 1,
-                guestCount: b.guestCount || (b.guests?.length || 0),
-                guests: b.guests || [],
-                guestNames: b.guestNames || [],
-                guestEmails: b.guestEmails || [],
-                gcashReferenceNumber: b.gcashReferenceNumber,
-                paymentStatus: b.paymentStatus || 'paid',
-                status: b.status || 'approved',
-                createdAt: b.createdAt || new Date().toISOString(),
-                isAddGuestOnly: b.isAddGuestOnly === true,
-                primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
-                primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
-              });
-            }
+            if (b.status === 'cancelled') return;
+            const regId = dSnap.id;
+            regMap.set(regId, {
+              id: regId,
+              eventId: b.openPlayEventId || eventId,
+              eventTitle: b.openPlayTitle || b.courtName,
+              playerUid: b.userId || b.user?.uid || '',
+              playerName: b.user?.name || b.userName || 'Player',
+              playerEmail: b.user?.email || b.userEmail || '',
+              playerPhone: b.userPhone,
+              playerCount: b.playerCount || 1,
+              guestCount: b.guestCount || (b.guests?.length || 0),
+              guests: b.guests || [],
+              guestNames: b.guestNames || [],
+              guestEmails: b.guestEmails || [],
+              gcashReferenceNumber: b.gcashReferenceNumber,
+              paymentStatus: b.paymentStatus || 'paid',
+              status: b.status || 'approved',
+              createdAt: b.createdAt || new Date().toISOString(),
+              isAddGuestOnly: b.isAddGuestOnly === true,
+              primaryPlayerName: b.primaryPlayerName || b.userName || b.user?.name,
+              primaryPlayerEmail: b.primaryPlayerEmail || b.userEmail || b.user?.email,
+              adminDuprId: b.adminDuprId,
+              duprId: b.duprId || b.user?.duprId,
+              duprRating: b.duprRating || b.user?.duprRating,
+              adminDuprRating: b.adminDuprRating,
+            });
           });
         }
 
+        // 2. Authoritative merge with openplay_registrations
         if (regsSnapResult.status === 'fulfilled') {
           regsSnapResult.value.forEach((dSnap) => {
             const regData = dSnap.data() as OpenPlayRegistration;
-            if (!regMap.has(dSnap.id)) {
+            if (regData.status === 'cancelled') {
+              regMap.delete(dSnap.id);
+              return;
+            }
+            const existing = regMap.get(dSnap.id);
+            if (existing) {
+              regMap.set(dSnap.id, {
+                ...existing,
+                ...regData,
+                guests: Array.isArray(regData.guests) ? regData.guests : existing.guests,
+                guestNames: Array.isArray(regData.guestNames) ? regData.guestNames : existing.guestNames,
+                guestEmails: Array.isArray(regData.guestEmails) ? regData.guestEmails : existing.guestEmails,
+                playerCount: regData.playerCount !== undefined ? regData.playerCount : existing.playerCount,
+                guestCount: regData.guestCount !== undefined ? regData.guestCount : existing.guestCount,
+                status: regData.status || existing.status,
+                paymentStatus: regData.paymentStatus || existing.paymentStatus,
+              });
+            } else {
               regMap.set(dSnap.id, { ...regData, id: dSnap.id });
             }
           });
         }
 
-        setRegistrations(Array.from(regMap.values()));
+        // Fallback to local cache only if both network calls failed entirely
+        if (bSnapResult.status === 'rejected' && regsSnapResult.status === 'rejected') {
+          localData.cachedRegs.forEach((r) => {
+            if (r.status !== 'cancelled') regMap.set(r.id, r);
+          });
+        }
+
+        const freshRegsList = Array.from(regMap.values());
+        setRegistrations(freshRegsList);
+        try {
+          localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(freshRegsList));
+        } catch (e) {}
       }
     } catch (err) {
       console.error('Failed to load Open Play event details:', err);
@@ -1971,7 +2100,17 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
               registrationId: reg.id,
             }));
             const overflowWaitlist = allAttendees.slice(maxParticipants);
-            const waitlist = [...explicitWaitlist, ...overflowWaitlist];
+
+            // Deduplicate waitlist entries by registration ID or name
+            const seenWaitlistIds = new Set<string>();
+            const waitlist: ParticipantCard[] = [];
+            [...explicitWaitlist, ...overflowWaitlist].forEach((item) => {
+              const dedupeKey = item.registrationId || item.id || item.name.toLowerCase().trim();
+              if (!seenWaitlistIds.has(dedupeKey)) {
+                seenWaitlistIds.add(dedupeKey);
+                waitlist.push(item);
+              }
+            });
 
             const filteredParticipants = participants.filter((p) =>
               p.name.toLowerCase().includes(rosterSearch.toLowerCase())
