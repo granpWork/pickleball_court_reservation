@@ -22,7 +22,6 @@ import {
   Lock,
   Calendar,
   Cpu,
-  Award,
   Grid3X3,
 } from 'lucide-react';
 import {
@@ -80,8 +79,8 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   setSettingsSubTab,
   settingsSubMenuOpen,
   setSettingsSubMenuOpen,
-  integrationsSubTab = 'dupr',
-  setIntegrationsSubTab = () => {},
+  integrationsSubTab: _integrationsSubTab = 'google_ai',
+  setIntegrationsSubTab: _setIntegrationsSubTab = () => {},
   mobileMenuOpen,
   setMobileMenuOpen,
   setView,
@@ -103,14 +102,12 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   const [supportSubMenuOpen, setSupportSubMenuOpen] = React.useState(false);
   const [courtsSubMenuOpen, setCourtsSubMenuOpen] = React.useState(activeTab === 'courts');
   const [bookingsSubMenuOpen, setBookingsSubMenuOpen] = React.useState(activeTab === 'bookings');
-  const [integrationsSubMenuOpen, setIntegrationsSubMenuOpen] = React.useState(activeTab === 'integrations');
 
   // Keep submenus open for whichever tab is active
   React.useEffect(() => {
     if (activeTab === 'bookings') setBookingsSubMenuOpen(true);
     if (activeTab === 'courts') setCourtsSubMenuOpen(true);
-    if (activeTab === 'integrations') setIntegrationsSubMenuOpen(true);
-    if (activeTab === 'settings') setSettingsSubMenuOpen(true);
+    if (activeTab === 'integrations' || activeTab === 'settings') setSettingsSubMenuOpen(true);
   }, [activeTab, setSettingsSubMenuOpen]);
   const isClientAdminRole = user?.role === 'client_admin';
   const isManagerRole = user?.role === 'manager';
@@ -573,60 +570,6 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
               </button>
             )}
 
-            {/* Integrations Main Button with Submenu (Super Admin Only) */}
-            {isSuperAdmin && (
-              <div className="space-y-1">
-                <button
-                  onClick={() => {
-                    setIntegrationsSubMenuOpen(!integrationsSubMenuOpen);
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all cursor-pointer text-left ${
-                    activeTab === 'integrations'
-                      ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Cpu className="w-4 h-4" />
-                    <span>Integrations</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
-                      Admin
-                    </span>
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${integrationsSubMenuOpen ? 'rotate-180' : ''}`} />
-                  </div>
-                </button>
-
-                {/* Submenu for Integrations */}
-                {integrationsSubMenuOpen && (
-                  <div className="pl-3 pr-1 py-1 space-y-0.5 border-l border-slate-800 ml-3 animate-fade-in">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveTab('integrations');
-                        setIntegrationsSubTab?.('dupr');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                        activeTab === 'integrations' && integrationsSubTab === 'dupr'
-                          ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Award className="w-3.5 h-3.5 text-amber-400" />
-                        <span>DUPR</span>
-                      </div>
-                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                        Live
-                      </span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Settings Main Button with Submenu */}
             <div className="space-y-1">
               <button
@@ -801,6 +744,26 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     >
                       <DollarSign className="w-3.5 h-3.5" />
                       <span>Service Fee</span>
+                    </button>
+                  )}
+
+                  {isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('settings'); setSettingsSubTab('integrations'); setMobileMenuOpen(false); }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
+                        activeTab === 'settings' && settingsSubTab === 'integrations'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Cpu className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Integrations</span>
+                      </div>
+                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                        AI / DUPR
+                      </span>
                     </button>
                   )}
                 </div>

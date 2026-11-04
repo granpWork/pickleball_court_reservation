@@ -510,7 +510,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return 'dashboard';
   });
 
-  const [integrationsSubTab, setIntegrationsSubTab] = useState<AdminIntegrationsSubTab>('dupr');
+  const [integrationsSubTab, setIntegrationsSubTab] = useState<AdminIntegrationsSubTab>('google_ai');
 
   useEffect(() => {
     if (activeTab === 'integrations' && !isSuperAdmin) {
@@ -6914,7 +6914,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
     if (tab === 'integrations') {
       if (!isSuperAdmin) return;
-      setIntegrationsSubTab('dupr');
+      setIntegrationsSubTab('google_ai');
     }
     setActiveTab(tab);
     if (tab === 'openplay') {
@@ -7504,6 +7504,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 setPolicyEquipment(newP.equipmentPolicy || '');
                 await handleSavePolicies();
               }}
+              integrationsSubTab={integrationsSubTab}
+              setIntegrationsSubTab={setIntegrationsSubTab}
               isSuperAdmin={isSuperAdmin}
             />
           )}

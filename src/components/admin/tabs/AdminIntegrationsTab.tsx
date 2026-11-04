@@ -27,6 +27,7 @@ import {
   type DuprEnvironmentConfig,
   type DuprIntegrationSettings,
 } from '../adminTypes';
+import { AdminGoogleAiSettings } from './AdminGoogleAiSettings';
 
 interface AdminIntegrationsTabProps {
   user?: { name?: string; email?: string; role?: string; isAdmin?: boolean } | null;
@@ -68,7 +69,7 @@ const DEFAULT_SETTINGS: DuprIntegrationSettings = {
 
 export const AdminIntegrationsTab: React.FC<AdminIntegrationsTabProps> = ({
   user,
-  subTab = 'dupr',
+  subTab = 'google_ai',
   setSubTab = () => {},
 }) => {
   const [currentEnv, setCurrentEnv] = useState<DuprEnvironment>('uat');
@@ -284,20 +285,26 @@ export const AdminIntegrationsTab: React.FC<AdminIntegrationsTabProps> = ({
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center p-16 bg-slate-900/60 border border-slate-800 rounded-3xl animate-pulse">
-        <RefreshCw className="w-8 h-8 text-brand-lime animate-spin mb-3" />
-        <span className="text-slate-400 font-semibold text-sm">Loading DUPR Integration Settings...</span>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 text-left">
       {/* Subtab Navigation Pill Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
         <div className="flex items-center gap-2">
+          {/* Google AI Studio Tab */}
+          <button
+            type="button"
+            onClick={() => setSubTab('google_ai')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+              subTab === 'google_ai'
+                ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+            }`}
+          >
+            <Sparkles className={`w-4 h-4 ${subTab === 'google_ai' ? 'text-dark-bg' : 'text-purple-400'}`} />
+            <span>Google AI Studio</span>
+          </button>
+
+          {/* DUPR Rating Engine Tab */}
           <button
             type="button"
             onClick={() => setSubTab('dupr')}
@@ -307,7 +314,7 @@ export const AdminIntegrationsTab: React.FC<AdminIntegrationsTabProps> = ({
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
             }`}
           >
-            <Award className="w-4 h-4 text-emerald-950" />
+            <Award className={`w-4 h-4 ${subTab === 'dupr' ? 'text-dark-bg' : 'text-amber-400'}`} />
             <span>DUPR Rating Engine</span>
           </button>
         </div>
@@ -319,8 +326,19 @@ export const AdminIntegrationsTab: React.FC<AdminIntegrationsTabProps> = ({
         </div>
       </div>
 
+      {/* Main Google AI Studio Content */}
+      {subTab === 'google_ai' && (
+        <AdminGoogleAiSettings user={user} />
+      )}
+
       {/* Main DUPR Content */}
       {subTab === 'dupr' && (
+        loading ? (
+          <div className="flex flex-col items-center justify-center p-16 bg-slate-900/60 border border-slate-800 rounded-3xl animate-pulse">
+            <RefreshCw className="w-8 h-8 text-brand-lime animate-spin mb-3" />
+            <span className="text-slate-400 font-semibold text-sm">Loading DUPR Integration Settings...</span>
+          </div>
+        ) : (
         <div className="space-y-6">
           {/* Header Banner */}
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 border border-slate-800 p-6 sm:p-8 shadow-xl">
@@ -848,6 +866,7 @@ export const AdminIntegrationsTab: React.FC<AdminIntegrationsTabProps> = ({
             </div>
           </div>
         </div>
+        )
       )}
     </div>
   );

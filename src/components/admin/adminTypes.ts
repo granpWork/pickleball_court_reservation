@@ -511,9 +511,19 @@ export interface SupportTicket {
 }
 
 export type AdminTab = 'dashboard' | 'bookings' | 'courts' | 'users' | 'companies' | 'checkouts' | 'settings' | 'openplay' | 'match_matrix' | 'policies' | 'vouchers' | 'service_fee' | 'shortener' | 'support' | 'image_converter' | 'integrations';
-export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee' | 'subscription';
-export type AdminIntegrationsSubTab = 'dupr' | 'webhooks';
+export type AdminSettingsSubTab = 'profile' | 'organization' | 'team' | 'policies' | 'reminders' | 'gcash' | 'lead_time' | 'service_fee' | 'subscription' | 'integrations';
+export type AdminIntegrationsSubTab = 'google_ai' | 'dupr' | 'webhooks';
 export type DuprEnvironment = 'prod' | 'uat' | 'staging';
+
+export interface GoogleAiIntegrationSettings {
+  apiKey: string;
+  defaultModel: string;
+  status: 'unconfigured' | 'connected' | 'error';
+  lastTestedAt?: string;
+  lastTestMessage?: string;
+  updatedAt?: string;
+  updatedByEmail?: string;
+}
 
 export interface DuprEnvironmentConfig {
   clientId: string;

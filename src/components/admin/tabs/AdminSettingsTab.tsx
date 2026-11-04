@@ -32,6 +32,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { AdminPoliciesTab } from './AdminPoliciesTab';
+import { AdminIntegrationsTab } from './AdminIntegrationsTab';
 import { GcashAmountQrModal } from '../modals/GcashAmountQrModal';
 import {
   type AdminUser,
@@ -39,6 +40,7 @@ import {
   type UserRole,
   type UserPermissions,
   type AdminSettingsSubTab,
+  type AdminIntegrationsSubTab,
   type Company,
   type DailyOperatingHoursMap,
   type CourtPolicies,
@@ -181,6 +183,10 @@ interface AdminSettingsTabProps {
   policies?: CourtPolicies;
   onSavePolicies?: (policies: CourtPolicies) => Promise<void>;
 
+  // Integrations Props
+  integrationsSubTab?: AdminIntegrationsSubTab;
+  setIntegrationsSubTab?: (subTab: AdminIntegrationsSubTab) => void;
+
   isSuperAdmin: boolean;
 }
 
@@ -188,6 +194,8 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   user,
   settingsSubTab,
   setSettingsSubTab: _setSettingsSubTab,
+  integrationsSubTab,
+  setIntegrationsSubTab,
   onOpenInviteManagerModal,
   teamMembers = [],
   onSaveManager,
@@ -2543,6 +2551,17 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
           </div>
         );
       })()}
+
+      {/* ========================================================================= */}
+      {/* INTEGRATIONS SUB-TAB (GOOGLE AI STUDIO & DUPR)                            */}
+      {/* ========================================================================= */}
+      {settingsSubTab === 'integrations' && isSuperAdmin && (
+        <AdminIntegrationsTab
+          user={user}
+          subTab={integrationsSubTab}
+          setSubTab={setIntegrationsSubTab}
+        />
+      )}
 
       {/* CLIENT ADMIN CANCEL SUBSCRIPTION MODAL */}
       {isCancelModalOpen && (
