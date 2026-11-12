@@ -14,6 +14,7 @@ import {
   UploadCloud,
   FileSpreadsheet,
   Sparkles,
+  X,
 } from 'lucide-react';
 import {
   collection,
@@ -161,6 +162,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'live' | 'scheduled' | 'completed' | 'active'>('all');
   const [selectedCourtFilter, setSelectedCourtFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [partnerQuery, setPartnerQuery] = useState<string>('');
+  const [activeSearchDropdown, setActiveSearchDropdown] = useState<'player' | 'partner' | null>(null);
 
   // Modals visibility & states
   const [isAutoGenModalOpen, setIsAutoGenModalOpen] = useState<boolean>(false);
@@ -2674,6 +2677,61 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     showToast(`Updated player info for ${updatedItem.name}.`);
   };
 
+  // Unique player names from roster + generated matches for search autocomplete
+  const availablePlayerNames = useMemo(() => {
+    const names = new Set<string>();
+    rosterPool.forEach((p) => {
+      if (p.name?.trim()) names.add(p.name.trim());
+    });
+    matches.forEach((m) => {
+      m.teamRed.players.forEach((p) => {
+        if (p.name?.trim()) names.add(p.name.trim());
+      });
+      m.teamBlue.players.forEach((p) => {
+        if (p.name?.trim()) names.add(p.name.trim());
+      });
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [rosterPool, matches]);
+
+  const playerSuggestions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const partnerLower = partnerQuery.trim().toLowerCase();
+    return availablePlayerNames
+      .filter((name) => {
+        const lower = name.toLowerCase();
+        if (partnerLower && lower === partnerLower) return false;
+        return !q || lower.includes(q);
+      })
+      .slice(0, 8);
+  }, [availablePlayerNames, searchQuery, partnerQuery]);
+
+  const partnerSuggestions = useMemo(() => {
+    const q = partnerQuery.trim().toLowerCase();
+    const playerLower = searchQuery.trim().toLowerCase();
+    return availablePlayerNames
+      .filter((name) => {
+        const lower = name.toLowerCase();
+        if (playerLower && lower === playerLower) return false;
+        return !q || lower.includes(q);
+      })
+      .slice(0, 8);
+  }, [availablePlayerNames, partnerQuery, searchQuery]);
+
+  const hasSameTeamPair = (players: { name: string }[], q1: string, q2: string): boolean => {
+    for (let i = 0; i < players.length; i++) {
+      if (!players[i].name.toLowerCase().includes(q1)) continue;
+      for (let j = 0; j < players.length; j++) {
+        if (i !== j && players[j].name.toLowerCase().includes(q2)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const isSearchFiltering = Boolean(searchQuery.trim() || partnerQuery.trim());
+
   // Filtered Matches
   const filteredMatches = matches.filter((m) => {
     if (selectedStatusFilter === 'live' && m.status !== 'in_progress') return false;
@@ -2681,13 +2739,27 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     if (selectedStatusFilter === 'completed' && m.status !== 'completed') return false;
     if (selectedStatusFilter === 'active' && m.status === 'completed') return false;
     if (selectedCourtFilter !== 'all' && m.courtName !== selectedCourtFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+
+    const q1 = searchQuery.trim().toLowerCase();
+    const q2 = partnerQuery.trim().toLowerCase();
+
+    if (q1 && q2) {
+      return hasSameTeamPair(m.teamRed.players, q1, q2) || hasSameTeamPair(m.teamBlue.players, q1, q2);
+    }
+
+    if (q1) {
       const matchCourt = m.courtName.toLowerCase();
       const redNames = m.teamRed.players.map((p) => p.name.toLowerCase()).join(' ');
       const blueNames = m.teamBlue.players.map((p) => p.name.toLowerCase()).join(' ');
-      return matchCourt.includes(q) || redNames.includes(q) || blueNames.includes(q);
+      return matchCourt.includes(q1) || redNames.includes(q1) || blueNames.includes(q1);
     }
+
+    if (q2) {
+      const redNames = m.teamRed.players.map((p) => p.name.toLowerCase()).join(' ');
+      const blueNames = m.teamBlue.players.map((p) => p.name.toLowerCase()).join(' ');
+      return redNames.includes(q2) || blueNames.includes(q2);
+    }
+
     return true;
   });
 
@@ -3080,15 +3152,94 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             </button>
           </div>
 
+          {/* Player / Court Search with Autocomplete */}
           <div className="relative w-full sm:w-48 shrink-0">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               placeholder="Search player or court..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+              onFocus={() => setActiveSearchDropdown('player')}
+              onBlur={() => setTimeout(() => setActiveSearchDropdown((prev) => (prev === 'player' ? null : prev)), 150)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setActiveSearchDropdown('player');
+              }}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white cursor-pointer"
+                title="Clear player search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {activeSearchDropdown === 'player' && playerSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl max-h-52 overflow-y-auto py-1">
+                {playerSuggestions.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setSearchQuery(name);
+                      setActiveSearchDropdown(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-200 hover:bg-brand-lime/15 hover:text-brand-lime transition-colors cursor-pointer truncate"
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Partner Search with Autocomplete */}
+          <div className="relative w-full sm:w-48 shrink-0">
+            <Users className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Partner (optional)..."
+              value={partnerQuery}
+              onFocus={() => setActiveSearchDropdown('partner')}
+              onBlur={() => setTimeout(() => setActiveSearchDropdown((prev) => (prev === 'partner' ? null : prev)), 150)}
+              onChange={(e) => {
+                setPartnerQuery(e.target.value);
+                setActiveSearchDropdown('partner');
+              }}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+            />
+            {partnerQuery && (
+              <button
+                type="button"
+                onClick={() => setPartnerQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white cursor-pointer"
+                title="Clear partner search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {activeSearchDropdown === 'partner' && partnerSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl max-h-52 overflow-y-auto py-1">
+                {partnerSuggestions.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setPartnerQuery(name);
+                      setActiveSearchDropdown(null);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-200 hover:bg-brand-lime/15 hover:text-brand-lime transition-colors cursor-pointer truncate"
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -3219,87 +3370,179 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               </div>
             )}
 
-            {allActiveRounds.map((roundNum) => {
-              const matchesInRound = filteredMatches.filter((m) => m.round === roundNum);
+            {isSearchFiltering ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-slate-900/90 border border-slate-800">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Search className="w-4 h-4 text-brand-lime shrink-0" />
+                    <span className="font-bold text-white">
+                      Showing {filteredMatches.length} matching {filteredMatches.length === 1 ? 'game' : 'games'}
+                    </span>
+                    {searchQuery.trim() && (
+                      <span className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 font-semibold">
+                        Player/Court: <span className="text-brand-lime">{searchQuery.trim()}</span>
+                      </span>
+                    )}
+                    {partnerQuery.trim() && (
+                      <span className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 font-semibold">
+                        Partner: <span className="text-brand-lime">{partnerQuery.trim()}</span>
+                      </span>
+                    )}
+                    {searchQuery.trim() && partnerQuery.trim() && (
+                      <span className="text-[11px] text-slate-400">(same team)</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setPartnerQuery('');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Clear Search
+                  </button>
+                </div>
 
-              // Hide round block when search/filter active and no match fits
-              if (matchesInRound.length === 0 && (selectedStatusFilter !== 'all' || selectedCourtFilter !== 'all' || searchQuery.trim())) {
-                return null;
-              }
-
-              // Compute players resting in this round
-              const roundPlayerIds = new Set<string>();
-              matchesInRound.forEach((m) => {
-                m.teamRed.players.forEach((p) => roundPlayerIds.add(p.id));
-                m.teamBlue.players.forEach((p) => roundPlayerIds.add(p.id));
-              });
-
-              let isStrictAttendance = false;
-              try {
-                isStrictAttendance = localStorage.getItem('picklepoint_openplay_only_checkedin') === 'true';
-              } catch (e) {}
-
-              const activeCandidates = rosterPool.filter((p) => p.status === 'active');
-              const eligibleForRoster = isStrictAttendance
-                ? activeCandidates.filter((p) => p.isPresent || p.attendanceStatus === 'present')
-                : activeCandidates;
-
-              const restingPlayersInRound = matchesInRound.length > 0
-                ? eligibleForRoster.filter((p) => !roundPlayerIds.has(p.id))
-                : [];
-
-              return (
-                <MatchMatrixRoundAccordion
-                  key={roundNum}
-                  roundNum={roundNum}
-                  roundTitle={getRoundTitle(roundNum)}
-                  matchesInRound={matchesInRound}
-                  restingPlayers={restingPlayersInRound}
-                  isCollapsed={collapsedRounds.has(roundNum)}
-                  isEditingTitle={editingRoundNum === roundNum}
-                  tempRoundTitle={tempRoundTitle}
-                  onToggleCollapse={toggleRoundCollapse}
-                  onStartEditTitle={startEditingRoundTitle}
-                  onSaveTitle={handleSaveRoundTitle}
-                  onCancelEditTitle={() => setEditingRoundNum(null)}
-                  onTempTitleChange={setTempRoundTitle}
-                  onOpenResultsModal={openGenerateResultsModal}
-                  onOpenJsonModal={openJsonUploadModal}
-                  onOpenManualMatchModal={openNewManualMatchModal}
-                  onAutoGenerateRound={handleAutoGenerateSingleRound}
-                  onAiGenerateRound={handleAiGenerateSingleRound}
-                  isAiConfigured={Boolean(aiConfig?.enabled && aiConfig?.apiKey)}
-                  isAiGenerating={isAiGenerating}
-                  onDeleteRound={(r) => openDeleteRoundsModal(r)}
-                >
+                {filteredMatches.length === 0 ? (
+                  <div className="glass-panel p-10 text-center rounded-3xl border border-slate-800 space-y-3">
+                    <Users className="w-10 h-10 text-slate-600 mx-auto" />
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-white">No Matching Games Found</h4>
+                      <p className="text-xs text-slate-400 max-w-md mx-auto">
+                        {searchQuery.trim() && partnerQuery.trim()
+                          ? `No games found where "${searchQuery.trim()}" and "${partnerQuery.trim()}" are partners on the same team.`
+                          : 'No games match your current search and filter criteria.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setPartnerQuery('');
+                        setSelectedStatusFilter('all');
+                        setSelectedCourtFilter('all');
+                      }}
+                      className="px-4 py-2 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime text-xs font-bold hover:bg-brand-lime/25 transition-colors cursor-pointer"
+                    >
+                      Reset Filters
+                    </button>
+                  </div>
+                ) : (
                   <div className={`grid gap-4 sm:gap-5 items-stretch ${
-                    matchesInRound.length === 1
+                    filteredMatches.length === 1
                       ? 'grid-cols-1 max-w-4xl'
-                      : matchesInRound.length === 2
+                      : filteredMatches.length === 2
                       ? 'grid-cols-1 md:grid-cols-2'
                       : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
                   }`}>
-                    {matchesInRound.map((m) => (
-                      <MatchMatrixCard
-                        key={m.id}
-                        match={m}
-                        assignedCourts={assignedCourts}
-                        roundTitle={getRoundTitle(roundNum)}
-                        onInlineCourtChange={handleInlineCourtChange}
-                        onStartMatch={handleStartMatch}
-                        onCompleteMatch={handleCompleteMatch}
-                        onReopenMatch={handleReopenMatch}
-                        onScoreDelta={updateMatchScore}
-                        onDirectScoreChange={handleDirectScoreChange}
-                        onDownloadSingleCsv={handleDownloadSingleMatchCsv}
-                        onEditMatch={openEditModal}
-                        onDeleteMatch={(match) => setDeletingMatch(match)}
-                      />
-                    ))}
+                    {[...filteredMatches]
+                      .sort((a, b) => a.round - b.round)
+                      .map((m) => (
+                        <MatchMatrixCard
+                          key={m.id}
+                          match={m}
+                          assignedCourts={assignedCourts}
+                          roundTitle={getRoundTitle(m.round)}
+                          onInlineCourtChange={handleInlineCourtChange}
+                          onStartMatch={handleStartMatch}
+                          onCompleteMatch={handleCompleteMatch}
+                          onReopenMatch={handleReopenMatch}
+                          onScoreDelta={updateMatchScore}
+                          onDirectScoreChange={handleDirectScoreChange}
+                          onDownloadSingleCsv={handleDownloadSingleMatchCsv}
+                          onEditMatch={openEditModal}
+                          onDeleteMatch={(match) => setDeletingMatch(match)}
+                          isDraggable={false}
+                        />
+                      ))}
                   </div>
-                </MatchMatrixRoundAccordion>
-              );
-            })}
+                )}
+              </div>
+            ) : (
+              allActiveRounds.map((roundNum) => {
+                const matchesInRound = filteredMatches.filter((m) => m.round === roundNum);
+
+                // Hide round block when search/filter active and no match fits
+                if (matchesInRound.length === 0 && (selectedStatusFilter !== 'all' || selectedCourtFilter !== 'all' || isSearchFiltering)) {
+                  return null;
+                }
+
+                // Compute players resting in this round
+                const roundPlayerIds = new Set<string>();
+                matchesInRound.forEach((m) => {
+                  m.teamRed.players.forEach((p) => roundPlayerIds.add(p.id));
+                  m.teamBlue.players.forEach((p) => roundPlayerIds.add(p.id));
+                });
+
+                let isStrictAttendance = false;
+                try {
+                  isStrictAttendance = localStorage.getItem('picklepoint_openplay_only_checkedin') === 'true';
+                } catch (e) {}
+
+                const activeCandidates = rosterPool.filter((p) => p.status === 'active');
+                const eligibleForRoster = isStrictAttendance
+                  ? activeCandidates.filter((p) => p.isPresent || p.attendanceStatus === 'present')
+                  : activeCandidates;
+
+                const restingPlayersInRound = matchesInRound.length > 0
+                  ? eligibleForRoster.filter((p) => !roundPlayerIds.has(p.id))
+                  : [];
+
+                return (
+                  <MatchMatrixRoundAccordion
+                    key={roundNum}
+                    roundNum={roundNum}
+                    roundTitle={getRoundTitle(roundNum)}
+                    matchesInRound={matchesInRound}
+                    restingPlayers={restingPlayersInRound}
+                    isCollapsed={collapsedRounds.has(roundNum)}
+                    isEditingTitle={editingRoundNum === roundNum}
+                    tempRoundTitle={tempRoundTitle}
+                    onToggleCollapse={toggleRoundCollapse}
+                    onStartEditTitle={startEditingRoundTitle}
+                    onSaveTitle={handleSaveRoundTitle}
+                    onCancelEditTitle={() => setEditingRoundNum(null)}
+                    onTempTitleChange={setTempRoundTitle}
+                    onOpenResultsModal={openGenerateResultsModal}
+                    onOpenJsonModal={openJsonUploadModal}
+                    onOpenManualMatchModal={openNewManualMatchModal}
+                    onAutoGenerateRound={handleAutoGenerateSingleRound}
+                    onAiGenerateRound={handleAiGenerateSingleRound}
+                    isAiConfigured={Boolean(aiConfig?.enabled && aiConfig?.apiKey)}
+                    isAiGenerating={isAiGenerating}
+                    onDeleteRound={(r) => openDeleteRoundsModal(r)}
+                  >
+                    <div className={`grid gap-4 sm:gap-5 items-stretch ${
+                      matchesInRound.length === 1
+                        ? 'grid-cols-1 max-w-4xl'
+                        : matchesInRound.length === 2
+                        ? 'grid-cols-1 md:grid-cols-2'
+                        : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                    }`}>
+                      {matchesInRound.map((m) => (
+                        <MatchMatrixCard
+                          key={m.id}
+                          match={m}
+                          assignedCourts={assignedCourts}
+                          roundTitle={getRoundTitle(roundNum)}
+                          onInlineCourtChange={handleInlineCourtChange}
+                          onStartMatch={handleStartMatch}
+                          onCompleteMatch={handleCompleteMatch}
+                          onReopenMatch={handleReopenMatch}
+                          onScoreDelta={updateMatchScore}
+                          onDirectScoreChange={handleDirectScoreChange}
+                          onDownloadSingleCsv={handleDownloadSingleMatchCsv}
+                          onEditMatch={openEditModal}
+                          onDeleteMatch={(match) => setDeletingMatch(match)}
+                        />
+                      ))}
+                    </div>
+                  </MatchMatrixRoundAccordion>
+                );
+              })
+            )}
           </div>
         )
       )}

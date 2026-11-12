@@ -522,6 +522,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [courtsResetKey, setCourtsResetKey] = useState<number>(0);
   const [companiesResetKey, setCompaniesResetKey] = useState<number>(0);
   const [openPlayResetKey, setOpenPlayResetKey] = useState<number>(0);
+  const [matchMatrixResetKey, setMatchMatrixResetKey] = useState<number>(0);
 
   useEffect(() => {
     try {
@@ -6977,6 +6978,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         window.history.pushState(null, '', url.toString());
       } catch (e) {}
     }
+    if (tab === 'match_matrix') {
+      setMatchMatrixResetKey((prev) => prev + 1);
+      try {
+        sessionStorage.removeItem('picklepoint_active_matrix_id');
+      } catch (e) {}
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('matrixId');
+        url.searchParams.delete('matrix');
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
+    }
   };
 
   return (
@@ -7332,6 +7345,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'match_matrix' && (
             <AdminMatchMatrixTab
+              key={matchMatrixResetKey}
               courts={isSuperAdmin ? courts : availableAdminCourts}
               openPlayEvents={openPlayEvents}
               openPlayRegistrations={openPlayRegistrations}
