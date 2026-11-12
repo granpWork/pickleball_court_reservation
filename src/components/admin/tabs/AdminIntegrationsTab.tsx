@@ -95,7 +95,7 @@ export const AdminIntegrationsTab: React.FC<AdminIntegrationsTabProps> = ({
       setLoading(true);
       try {
         if (isFirebaseConfigured && db) {
-          const docRef = doc(db, 'system_integrations', 'dupr');
+          const docRef = doc(db, 'settings', 'dupr');
           const docSnap = await getDoc(docRef);
           if (docSnap.exists() && isMounted) {
             const data = docSnap.data() as Partial<DuprIntegrationSettings>;
@@ -267,7 +267,7 @@ export const AdminIntegrationsTab: React.FC<AdminIntegrationsTabProps> = ({
 
       // 1. Save to Firestore
       if (isFirebaseConfigured && db) {
-        const docRef = doc(db, 'system_integrations', 'dupr');
+        const docRef = doc(db, 'settings', 'dupr');
         await setDoc(docRef, payload, { merge: true });
       }
 

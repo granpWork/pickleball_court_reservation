@@ -27,6 +27,9 @@ import {
   FileText,
   ShieldAlert,
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
 } from 'lucide-react';
 
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
@@ -67,6 +70,7 @@ export interface OpenPlayEvent {
   hostPhone?: string;
   description: string;
   posterImageUrl?: string;
+  rulesPosterUrls?: string[];
   maxParticipants: number;
   registrationFee: number;
   gcashAccountId?: string;
@@ -184,10 +188,41 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   const [receiptImage, setReceiptImage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [activePosterIdx, setActivePosterIdx] = useState<number>(0);
   const [companyInfo, setCompanyInfo] = useState<{ name: string; logoUrl: string }>({ name: '', logoUrl: '' });
   const [associatedCourt, setAssociatedCourt] = useState<AssignedCourtInfo | null>(null);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   void step; void setStep; void playerPhone; void gcashRef; void receiptImage; void submitting; void setSubmitting;
+
+  const allPosters = useMemo(() => {
+    const list: { url: string; label: string; shortLabel: string; isRule: boolean }[] = [];
+    if (event?.posterImageUrl) {
+      list.push({
+        url: event.posterImageUrl,
+        label: 'Event Poster',
+        shortLabel: 'Event',
+        isRule: false,
+      });
+    }
+    if (Array.isArray(event?.rulesPosterUrls)) {
+      event.rulesPosterUrls
+        .filter((u): u is string => typeof u === 'string' && u.trim().length > 0)
+        .slice(0, 3)
+        .forEach((url, idx) => {
+          list.push({
+            url,
+            label: `Rules & Guidelines ${idx + 1}`,
+            shortLabel: `Rule ${idx + 1}`,
+            isRule: true,
+          });
+        });
+    }
+    return list;
+  }, [event?.posterImageUrl, event?.rulesPosterUrls]);
+
+  useEffect(() => {
+    setActivePosterIdx(0);
+  }, [event?.id, allPosters.length]);
 
 
   // Bottom Roster Tabs, Matches & Chat States
@@ -1510,32 +1545,78 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
       <div className="absolute top-[5%] left-[15%] w-[45%] h-[45%] bg-brand-lime/10 blur-[150px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[5%] right-[15%] w-[45%] h-[45%] bg-brand-emerald/10 blur-[150px] rounded-full pointer-events-none"></div>
 
-      {/* Lightbox for poster, receipt or QR code */}
-      {lightboxImage && (
-        <div 
-          onClick={() => setLightboxImage(null)} 
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 cursor-zoom-out animate-fade-in"
-        >
-          <div 
-            onClick={(e) => e.stopPropagation()}
-            className="relative max-w-5xl max-h-[85dvh] w-full rounded-2xl sm:rounded-3xl overflow-y-auto custom-scrollbar bg-slate-950 border border-slate-800 shadow-2xl p-3 sm:p-5 flex flex-col items-center cursor-default mx-auto my-auto"
-          >
-            <button 
-              onClick={() => setLightboxImage(null)}
-              className="sticky top-2 right-2 self-end z-20 p-2.5 rounded-full bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors shadow-lg cursor-pointer touch-manipulation"
-              title="Close Fullscreen View"
-            >
-              <X className="w-5 h-5" />
-            </button>
+      {/* Lightbox for unified poster gallery, receipt or QR code */}
+      {lightboxImage && (() => {
+        const activeGalleryIdx = allPosters.findIndex((p) => p.url === lightboxImage);
+        const isViewingGallery = activeGalleryIdx !== -1 && allPosters.length > 1;
+        const activePosterMeta = activeGalleryIdx !== -1 ? allPosters[activeGalleryIdx] : null;
 
-            <img
-              src={lightboxImage}
-              alt="Enlarged poster preview"
-              className="max-w-full h-auto object-contain rounded-2xl select-none mx-auto shadow-2xl my-auto"
-            />
+        return (
+          <div
+            onClick={() => setLightboxImage(null)}
+            className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 cursor-zoom-out animate-fade-in"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-w-5xl max-h-[85dvh] w-full rounded-2xl sm:rounded-3xl overflow-y-auto custom-scrollbar bg-slate-950 border border-slate-800 shadow-2xl p-3 sm:p-5 flex flex-col items-center cursor-default mx-auto my-auto"
+            >
+              <div className="sticky top-0 z-20 w-full flex items-center justify-between gap-2 pb-2">
+                {activePosterMeta ? (
+                  <span
+                    className={`px-3 py-1 rounded-full border text-xs font-extrabold ${
+                      activePosterMeta.isRule
+                        ? 'bg-amber-500/15 border-amber-500/30 text-amber-300'
+                        : 'bg-brand-lime/15 border-brand-lime/30 text-brand-lime'
+                    }`}
+                  >
+                    {activePosterMeta.label}
+                    {isViewingGallery ? ` (${activeGalleryIdx + 1} of ${allPosters.length})` : ''}
+                  </span>
+                ) : <span />}
+
+                <button
+                  type="button"
+                  onClick={() => setLightboxImage(null)}
+                  className="p-2.5 rounded-full bg-slate-900/90 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700 transition-colors shadow-lg cursor-pointer touch-manipulation"
+                  title="Close Fullscreen View"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="relative w-full flex items-center justify-center">
+                {isViewingGallery && (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxImage(allPosters[(activeGalleryIdx - 1 + allPosters.length) % allPosters.length].url)}
+                    className="absolute left-2 z-20 p-2.5 rounded-full bg-slate-900/90 border border-slate-700 text-white hover:border-brand-lime cursor-pointer shadow-lg"
+                    title="Previous Poster"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                )}
+
+                <img
+                  src={lightboxImage}
+                  alt="Enlarged poster preview"
+                  className="max-w-full max-h-[72dvh] h-auto object-contain rounded-2xl select-none mx-auto shadow-2xl my-auto"
+                />
+
+                {isViewingGallery && (
+                  <button
+                    type="button"
+                    onClick={() => setLightboxImage(allPosters[(activeGalleryIdx + 1) % allPosters.length].url)}
+                    className="absolute right-2 z-20 p-2.5 rounded-full bg-slate-900/90 border border-slate-700 text-white hover:border-brand-lime cursor-pointer shadow-lg"
+                    title="Next Poster"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Event Rules & Guidelines Modal Alert */}
       {isRulesModalOpen && (
@@ -1569,6 +1650,37 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
 
             {/* Modal Content Scrollable Area */}
             <div className="overflow-y-auto custom-scrollbar space-y-4 sm:space-y-5 pr-1 text-xs text-slate-300 min-h-0 flex-1">
+              {/* Rules & Guidelines Posters (Up to 3) */}
+              {event.rulesPosterUrls && event.rulesPosterUrls.length > 0 && (
+                <div className="space-y-2.5 p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25">
+                  <h4 className="font-black text-xs uppercase tracking-wider flex items-center gap-2 text-amber-400">
+                    <ShieldAlert className="w-4 h-4" /> Rules &amp; Guidelines Posters ({event.rulesPosterUrls.length})
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {event.rulesPosterUrls.map((posterUrl, idx) => (
+                      <button
+                        key={`modal-rules-poster-${idx}`}
+                        type="button"
+                        onClick={() => setLightboxImage(posterUrl)}
+                        className="group relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-[3/4] flex items-center justify-center cursor-zoom-in hover:border-amber-400 transition-all"
+                      >
+                        <img
+                          src={posterUrl}
+                          alt={`Rules & Guidelines Poster ${idx + 1}`}
+                          className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                        />
+                        <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-slate-950/85 border border-slate-700 text-amber-300 text-[10px] font-black">
+                          Rule {idx + 1}
+                        </span>
+                        <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-slate-950/85 border border-slate-700 text-white text-[10px] font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                          <Maximize2 className="w-3 h-3 text-amber-400" /> Zoom
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Description Section */}
               <div className="space-y-2 p-3.5 sm:p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
                 <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-brand-lime">
@@ -1670,31 +1782,132 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
 
         {/* MAIN 2-COLUMN GRID (Full Left Poster & Right Stacked Info & Roster Hub) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left items-start">
-          {/* LEFT COLUMN: Event Poster Image Card Only */}
-          <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-6">
-            {/* Event Poster Card */}
-            <div
-              onClick={() => event.posterImageUrl && setLightboxImage(event.posterImageUrl)}
-              className={`w-full aspect-[3/4] rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden relative shadow-2xl group ${
-                event.posterImageUrl ? 'cursor-zoom-in' : ''
-              }`}
-            >
-              {event.posterImageUrl ? (
+          {/* LEFT COLUMN: Unified Event & Rules Posters Gallery */}
+          <div className="lg:col-span-4 space-y-3 lg:sticky lg:top-6">
+            {(() => {
+              const safeIdx = allPosters.length > 0 ? Math.min(activePosterIdx, allPosters.length - 1) : 0;
+              const currentPoster = allPosters[safeIdx] || null;
+              const hasMultiple = allPosters.length > 1;
+
+              return (
                 <>
-                  <img src={event.posterImageUrl} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                    <span className="px-3 py-1.5 rounded-xl bg-slate-950/90 border border-brand-lime/50 text-brand-lime text-xs font-bold shadow-lg flex items-center gap-1.5">
-                      <Eye className="w-3.5 h-3.5" /> Tap for Fullscreen
-                    </span>
+                  <div
+                    onClick={() => currentPoster && setLightboxImage(currentPoster.url)}
+                    className={`w-full aspect-[3/4] rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden relative shadow-2xl group ${
+                      currentPoster ? 'cursor-zoom-in' : ''
+                    }`}
+                  >
+                    {currentPoster ? (
+                      <>
+                        <img
+                          src={currentPoster.url}
+                          alt={`${event.title} - ${currentPoster.label}`}
+                          className={`w-full h-full transition-transform duration-500 group-hover:scale-105 ${
+                            currentPoster.isRule ? 'object-contain bg-slate-950' : 'object-cover'
+                          }`}
+                        />
+
+                        {/* Top label & slide counter */}
+                        {hasMultiple && (
+                          <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-2 pointer-events-none z-10">
+                            <span
+                              className={`px-2.5 py-1 rounded-full backdrop-blur-md border text-[10px] font-black uppercase tracking-wider shadow ${
+                                currentPoster.isRule
+                                  ? 'bg-slate-950/85 border-amber-500/40 text-amber-300'
+                                  : 'bg-slate-950/85 border-brand-lime/40 text-brand-lime'
+                              }`}
+                            >
+                              {currentPoster.label}
+                            </span>
+                            <span className="px-2.5 py-1 rounded-full bg-slate-950/85 backdrop-blur-md border border-slate-700 text-slate-200 text-[10px] font-mono font-bold shadow">
+                              {safeIdx + 1} / {allPosters.length}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Prev / Next Carousel Buttons */}
+                        {hasMultiple && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePosterIdx((prev) => (prev - 1 + allPosters.length) % allPosters.length);
+                              }}
+                              className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-slate-950/80 border border-slate-700 text-white hover:border-brand-lime hover:text-brand-lime transition-all cursor-pointer shadow-lg"
+                              title="Previous Poster"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePosterIdx((prev) => (prev + 1) % allPosters.length);
+                              }}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 z-10 p-2 rounded-full bg-slate-950/80 border border-slate-700 text-white hover:border-brand-lime hover:text-brand-lime transition-all cursor-pointer shadow-lg"
+                              title="Next Poster"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                          <span className="px-3 py-1.5 rounded-xl bg-slate-950/90 border border-brand-lime/50 text-brand-lime text-xs font-bold shadow-lg flex items-center gap-1.5">
+                            <Eye className="w-3.5 h-3.5" /> Tap for Fullscreen
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-br from-slate-900 via-slate-950 to-dark-bg">
+                        <Trophy className="w-16 h-16 text-brand-lime/40 mb-3" />
+                        <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Pickleball Open Play</span>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Unified Thumbnail Switcher Strip (shown when >= 2 posters) */}
+                  {hasMultiple && (
+                    <div className="grid grid-cols-4 gap-2">
+                      {allPosters.map((poster, idx) => {
+                        const isSelected = idx === safeIdx;
+                        return (
+                          <button
+                            key={`thumb-${idx}`}
+                            type="button"
+                            onClick={() => setActivePosterIdx(idx)}
+                            className={`relative aspect-[3/4] rounded-xl overflow-hidden border transition-all cursor-pointer bg-slate-950 ${
+                              isSelected
+                                ? poster.isRule
+                                  ? 'border-amber-400 ring-2 ring-amber-400/40 scale-[1.02]'
+                                  : 'border-brand-lime ring-2 ring-brand-lime/40 scale-[1.02]'
+                                : 'border-slate-800 opacity-65 hover:opacity-100 hover:border-slate-600'
+                            }`}
+                            title={poster.label}
+                          >
+                            <img
+                              src={poster.url}
+                              alt={poster.label}
+                              className={`w-full h-full ${poster.isRule ? 'object-contain' : 'object-cover'}`}
+                            />
+                            <span
+                              className={`absolute bottom-1 left-1 right-1 text-[9px] font-black uppercase text-center rounded py-0.5 truncate px-1 ${
+                                poster.isRule
+                                  ? 'bg-slate-950/90 text-amber-300'
+                                  : 'bg-slate-950/90 text-brand-lime'
+                              }`}
+                            >
+                              {poster.shortLabel}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </>
-              ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-br from-slate-900 via-slate-950 to-dark-bg">
-                  <Trophy className="w-16 h-16 text-brand-lime/40 mb-3" />
-                  <span className="text-xs font-extrabold text-slate-400 uppercase tracking-widest">Pickleball Open Play</span>
-                </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
 
           {/* RIGHT COLUMN: Stacked Event Info, House Rules, & Roster Hub */}

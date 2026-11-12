@@ -7,6 +7,7 @@ import {
   Edit2,
   Trash2,
   FileSpreadsheet,
+  GripVertical,
 } from 'lucide-react';
 import type { OpenPlayMatch } from '../../adminTypes';
 import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
@@ -24,6 +25,15 @@ interface MatchMatrixCardProps {
   onDownloadSingleCsv: (match: OpenPlayMatch) => void;
   onEditMatch: (match: OpenPlayMatch) => void;
   onDeleteMatch: (match: OpenPlayMatch) => void;
+  isDraggable?: boolean;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: (e: React.DragEvent, matchId: string) => void;
+  onDragOver?: (e: React.DragEvent, matchId: string) => void;
+  onDragEnter?: (e: React.DragEvent, matchId: string) => void;
+  onDragLeave?: (e: React.DragEvent, matchId: string) => void;
+  onDrop?: (e: React.DragEvent, matchId: string) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
 }
 
 export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
@@ -39,15 +49,35 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
   onDownloadSingleCsv,
   onEditMatch,
   onDeleteMatch,
+  isDraggable = false,
+  isDragging = false,
+  isDragOver = false,
+  onDragStart,
+  onDragOver,
+  onDragEnter,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }) => {
   return (
     <div
-      className={`@container min-w-0 overflow-hidden rounded-3xl border p-4 sm:p-5 transition-all shadow-lg flex flex-col justify-between gap-3.5 relative ${
-        m.status === 'completed'
-          ? 'bg-slate-900/40 border-slate-800/90'
+      draggable={isDraggable}
+      onDragStart={(e) => onDragStart?.(e, m.id)}
+      onDragOver={(e) => onDragOver?.(e, m.id)}
+      onDragEnter={(e) => onDragEnter?.(e, m.id)}
+      onDragLeave={(e) => onDragLeave?.(e, m.id)}
+      onDrop={(e) => onDrop?.(e, m.id)}
+      onDragEnd={(e) => onDragEnd?.(e)}
+      className={`@container min-w-0 overflow-hidden rounded-3xl border p-4 sm:p-5 transition-all duration-300 ease-out shadow-lg flex flex-col justify-between gap-3.5 relative ${
+        isDragging
+          ? 'opacity-40 scale-[0.98] border-dashed border-brand-lime shadow-2xl z-20 cursor-grabbing ring-2 ring-brand-lime/50'
+          : isDragOver
+          ? 'ring-2 ring-brand-lime shadow-2xl shadow-brand-lime/25 scale-[1.02] bg-slate-800/90 border-brand-lime z-10'
+          : m.status === 'completed'
+          ? 'bg-slate-900/40 border-slate-800/90 hover:border-slate-700'
           : m.status === 'in_progress'
           ? 'bg-gradient-to-b from-blue-950/45 via-slate-900 to-slate-950 border-blue-500/85 ring-2 ring-blue-500/50 shadow-2xl shadow-blue-500/20'
-          : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+          : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 hover:shadow-xl'
       }`}
     >
       {/* Live Ongoing Match Top Banner Strip */}
@@ -70,6 +100,15 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
       <div className="flex items-start justify-between gap-2 text-xs pb-3 border-b border-slate-800/80 min-w-0">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
+            {isDraggable && (
+              <div
+                className="p-1 -ml-1 text-slate-500 hover:text-brand-lime hover:bg-slate-800/90 rounded-lg cursor-grab active:cursor-grabbing transition-colors shrink-0"
+                title="Click and drag to reorder this game within the round"
+                aria-label="Drag handle"
+              >
+                <GripVertical className="w-4 h-4" />
+              </div>
+            )}
             <span className="font-black text-sm text-white flex items-center gap-1.5 shrink-0">
               🎮 {m.matchName || `Game ${m.round}`}
             </span>

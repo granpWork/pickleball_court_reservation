@@ -98,6 +98,7 @@ interface AdminOpenPlayTabProps {
   onExportRoster?: (event: OpenPlayEvent) => void;
   onViewReceipt?: (receiptUrl: string) => void;
   onOpenManualBookingModal?: (event: OpenPlayEvent) => void;
+  onUpdateEventRulesPosters?: (eventId: string, rulesPosterUrls: string[]) => Promise<void>;
   onRefreshEvents?: () => void;
   formatEventDateLong?: (dateStr: string) => string;
   formatTime12h?: (timeStr: string) => string;
@@ -118,6 +119,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
   onExportRoster,
   onViewReceipt,
   onOpenManualBookingModal,
+  onUpdateEventRulesPosters,
   onRefreshEvents,
   formatEventDateLong = (d) => d,
   formatTime12h = (t) => t,
@@ -444,6 +446,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           onExportRoster={onExportRoster}
           onViewReceipt={onViewReceipt}
           onOpenManualBookingModal={onOpenManualBookingModal}
+          onUpdateRulesPosters={onUpdateEventRulesPosters}
           onOpenQrModal={handleOpenQrForEvent}
           onOpenJsonModal={handleOpenJsonForEvent}
           onOpenMatchManagement={handleOpenMatchManagement}

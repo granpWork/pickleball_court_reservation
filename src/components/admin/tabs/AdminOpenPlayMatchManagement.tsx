@@ -33,6 +33,7 @@ import {
   type OpenPlayMatchPlayer,
   type OpenPlayMatchRosterItem,
   type PlayerMatchStats,
+  type GoogleAiIntegrationSettings,
 } from '../adminTypes';
 
 import { MatchMatrixCard } from './openplay/MatchMatrixCard';
@@ -46,6 +47,11 @@ import { OpenPlayJsonUploadModal } from './openplay/OpenPlayJsonUploadModal';
 import { OpenPlayResultsModal } from './openplay/OpenPlayResultsModal';
 import { OpenPlayDeleteRoundsModal } from './openplay/OpenPlayDeleteRoundsModal';
 import { generateUniquePartnerMatches, generateSmartDuprMatches } from '../../../utils/matchGeneratorUtils';
+import {
+  loadVenueGoogleAiConfig,
+  getCachedVenueGoogleAiConfig,
+  generateMatchesWithGeminiAi,
+} from '../../../services/aiMatchGeneratorService';
 import { isNonProductionEnvironment } from '../../../utils/envUtils';
 import { seedDummyOpenPlayRegistrations } from '../../../utils/dummyRosterUtils';
 
@@ -187,12 +193,116 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     return Array.from(setRounds).sort((a, b) => a - b);
   }, [matches, createdRounds, deletedRounds]);
 
+  const nextStartingRound = useMemo(() => {
+    const activeRoundNumbers = Array.from(new Set(matches.map((m) => Number(m.round)))).filter(
+      (r) => !deletedRounds.includes(r)
+    );
+    return activeRoundNumbers.length > 0 ? Math.max(...activeRoundNumbers) + 1 : 1;
+  }, [matches, deletedRounds]);
+
   const handleAddNewRound = () => {
     const maxRound = allActiveRounds.length ? Math.max(...allActiveRounds) : 0;
     const nextRound = maxRound + 1;
     setDeletedRounds((prev) => prev.filter((r) => r !== nextRound));
     setCreatedRounds((prev) => [...prev.filter((r) => r !== nextRound), nextRound]);
     showToast(`⚡ Round ${nextRound} created! Click "Auto-Generate Round ${nextRound}" or "+ Add Match" to schedule matches.`);
+  };
+
+  // Venue Google AI Studio Integration State
+  const [aiConfig, setAiConfig] = useState<GoogleAiIntegrationSettings | null>(() =>
+    getCachedVenueGoogleAiConfig(event.companyId)
+  );
+  const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    loadVenueGoogleAiConfig(event.companyId).then((cfg) => {
+      if (isMounted && cfg) {
+        setAiConfig(cfg);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [event.companyId]);
+
+  // AI Auto-generate matches for a specific empty round looking at previous match results, DUPR & gameplay type
+  const handleAiGenerateSingleRound = async (targetRoundNum: number) => {
+    let onlyCheckedIn = false;
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
+      if (saved !== null) {
+        onlyCheckedIn = saved === 'true';
+      }
+    } catch (e) {}
+
+    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
+    const presentPlayers = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
+    const candidatePlayers = onlyCheckedIn ? presentPlayers : activeFromPool;
+
+    const gameType: 'doubles' | 'singles' = 'doubles';
+    const playersPerMatch = gameType === 'doubles' ? 4 : 2;
+
+    if (candidatePlayers.length < playersPerMatch) {
+      if (onlyCheckedIn) {
+        showToast(`⚠️ Only ${candidatePlayers.length} checked-in player(s). Need at least ${playersPerMatch} for Round ${targetRoundNum}.`);
+      } else {
+        showToast(`⚠️ Need at least ${playersPerMatch} active players to generate Round ${targetRoundNum}.`);
+      }
+      return;
+    }
+
+    const courtsToUse = assignedCourts.length > 0 ? assignedCourts : ['Court 1'];
+    const priorMatches = matches.filter((m) => m.round < targetRoundNum);
+
+    let allowOverflow = false;
+    try {
+      const savedOverflow = localStorage.getItem('picklepoint_openplay_allow_overflow');
+      if (savedOverflow !== null) {
+        allowOverflow = savedOverflow === 'true';
+      }
+    } catch (e) {}
+
+    const isDupr = Boolean(event.isDupr);
+    const gameplayMode =
+      event.rotationRule === 'winners_stay' || event.rotationRule === 'split_winners'
+        ? 'winners_stay'
+        : 'unique_partner';
+
+    setIsAiGenerating(true);
+    try {
+      const aiResponse = await generateMatchesWithGeminiAi({
+        eventId: event.id,
+        companyId: event.companyId,
+        rosterPool: candidatePlayers,
+        assignedCourts: courtsToUse,
+        totalRounds: 1,
+        startingRound: targetRoundNum,
+        targetPoints: 11,
+        gameType,
+        algorithm: gameplayMode,
+        isSmartMatch: isDupr || true,
+        allowOverflowMatch: allowOverflow,
+        existingMatches: priorMatches,
+      });
+
+      if (aiResponse.matches.length === 0) {
+        showToast(`⚠️ Could not generate matches for Round ${targetRoundNum}.`);
+        return;
+      }
+
+      const cleanMatches = matches.filter((m) => m.round !== targetRoundNum);
+      const combined = [...cleanMatches, ...aiResponse.matches];
+      persistMatches(combined);
+
+      showToast(
+        aiResponse.usedFallback
+          ? `⚡ ${aiResponse.aiSummary}`
+          : `✨ Gemini AI generated Round ${targetRoundNum} (${aiResponse.matches.length} games): ${aiResponse.aiSummary}`
+      );
+    } finally {
+      setIsAiGenerating(false);
+    }
   };
 
   // Auto-generate matches for a specific empty round (e.g. Round 2 created via "+ Add New Round")
@@ -315,48 +425,143 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const handleConfirmDeleteRounds = async () => {
     if (selectedRoundsToDelete.size === 0) return;
 
-    const roundsArray = Array.from(selectedRoundsToDelete);
+    const roundsArray = Array.from(selectedRoundsToDelete).map((r) => Number(r));
     setIsDeletingRounds(true);
 
     try {
       const roundSet = new Set(roundsArray);
 
-      // 1. Filter out matches in the selected rounds
-      const matchesToDelete = matches.filter((m) => roundSet.has(m.round));
-      const remainingMatches = matches.filter((m) => !roundSet.has(m.round));
+      // 1. Separate matches to delete vs matches to keep
+      const matchesToDelete = matches.filter((m) => roundSet.has(Number(m.round)));
+      const survivingMatches = matches.filter((m) => !roundSet.has(Number(m.round)));
 
-      // 2. Update state and localStorage
-      setMatches(remainingMatches);
-      try {
-        localStorage.setItem(`picklepoint_openplay_matches_${event.id}`, JSON.stringify(remainingMatches));
-      } catch (e) {
-        console.warn('Failed to update matches in localStorage:', e);
+      // Surviving rounds that currently exist either in matches or createdRounds
+      const survivingMatchRounds = Array.from(new Set(survivingMatches.map((m) => Number(m.round))));
+      const survivingCreatedRounds = createdRounds.filter((r) => !roundSet.has(Number(r)));
+      const survivingDistinctRounds = Array.from(
+        new Set([...survivingMatchRounds, ...survivingCreatedRounds])
+      ).sort((a, b) => a - b);
+
+      // Check if ALL rounds are being deleted
+      const isDeletingAllRounds = survivingDistinctRounds.length === 0;
+
+      if (isDeletingAllRounds) {
+        // Complete Clean Slate: strictly reset everything back to initial empty state
+        setMatches([]);
+        setCreatedRounds([]);
+        setDeletedRounds([]);
+        setRoundTitles({});
+        setCollapsedRounds(new Set());
+
+        try {
+          localStorage.removeItem(`picklepoint_openplay_matches_${event.id}`);
+          localStorage.removeItem(`picklepoint_round_titles_${event.id}`);
+        } catch (e) {
+          console.warn('Failed to clear matches/titles in localStorage:', e);
+        }
+
+        // Delete from Firestore
+        if (isFirebaseConfigured && db && matchesToDelete.length > 0) {
+          try {
+            await Promise.all(
+              matchesToDelete.map((m) =>
+                deleteDoc(doc(db!, 'openplay_matches', m.id)).catch((err) =>
+                  console.warn(`Failed to delete match ${m.id} from Firestore:`, err)
+                )
+              )
+            );
+          } catch (err) {
+            console.error('Error deleting matches from Firestore:', err);
+          }
+        }
+
+        const countStr =
+          roundsArray.length === 1
+            ? `Round ${roundsArray[0]}`
+            : `${roundsArray.length} rounds`;
+        showToast(`🗑️ ${countStr} deleted. Round numbering reset to Round 1.`);
+        setIsDeleteRoundsModalOpen(false);
+        setSelectedRoundsToDelete(new Set());
+        return;
       }
 
-      // 3. Update deletedRounds and createdRounds
-      setDeletedRounds((prev) => Array.from(new Set([...prev, ...roundsArray])));
-      setCreatedRounds((prev) => prev.filter((r) => !roundSet.has(r)));
+      // Partial Deletion: Seamlessly re-sequence surviving rounds into contiguous [1..N]
+      // Build re-mapping dictionary: oldRound -> newRound (1, 2, 3...)
+      const roundMap = new Map<number, number>();
+      survivingDistinctRounds.forEach((oldRound, idx) => {
+        roundMap.set(oldRound, idx + 1);
+      });
 
-      // 4. Clean up round titles in localStorage
+      // Remap matches and update game names within each resequenced round
+      const remappedMatches: OpenPlayMatch[] = [];
+      const matchesByNewRound = new Map<number, OpenPlayMatch[]>();
+
+      for (const m of survivingMatches) {
+        const oldR = Number(m.round);
+        const newR = roundMap.get(oldR) ?? oldR;
+        if (!matchesByNewRound.has(newR)) {
+          matchesByNewRound.set(newR, []);
+        }
+        matchesByNewRound.get(newR)!.push({ ...m, round: newR });
+      }
+
+      // Re-sequence matches inside each round so game numbering stays tidy
+      Array.from(matchesByNewRound.keys())
+        .sort((a, b) => a - b)
+        .forEach((newRoundNum) => {
+          const listInRound = matchesByNewRound.get(newRoundNum)!;
+          listInRound.forEach((m, gIdx) => {
+            remappedMatches.push({
+              ...m,
+              round: newRoundNum,
+              matchName: `Game ${gIdx + 1}`,
+              updatedAt: new Date().toISOString(),
+            });
+          });
+        });
+
+      // Remap createdRounds
+      const remappedCreatedRounds = survivingCreatedRounds
+        .map((oldR) => roundMap.get(oldR) ?? oldR)
+        .sort((a, b) => a - b);
+
+      // Remap custom round titles
+      const updatedTitles: Record<number, string> = {};
       try {
         const savedTitles = localStorage.getItem(`picklepoint_round_titles_${event.id}`);
-        if (savedTitles) {
-          const parsedTitles: Record<number, string> = JSON.parse(savedTitles);
-          for (const r of roundsArray) {
-            delete parsedTitles[r];
+        const parsedTitles: Record<number, string> = savedTitles ? JSON.parse(savedTitles) : roundTitles;
+        for (const [oldRStr, title] of Object.entries(parsedTitles)) {
+          const oldR = Number(oldRStr);
+          const newR = roundMap.get(oldR);
+          if (newR !== undefined) {
+            updatedTitles[newR] = title === `Round ${oldR}` ? `Round ${newR}` : title;
           }
-          localStorage.setItem(`picklepoint_round_titles_${event.id}`, JSON.stringify(parsedTitles));
         }
       } catch (e) {}
 
-      // 5. Clean up collapsed rounds
-      setCollapsedRounds((prev) => {
-        const next = new Set(prev);
-        for (const r of roundsArray) next.delete(r);
-        return next;
-      });
+      // Clean collapsed rounds state with re-mapped round numbers
+      const nextCollapsed = new Set<number>();
+      for (const oldR of collapsedRounds) {
+        const newR = roundMap.get(oldR);
+        if (newR !== undefined) nextCollapsed.add(newR);
+      }
 
-      // 6. Delete from Firestore
+      // Update state
+      setMatches(remappedMatches);
+      setCreatedRounds(remappedCreatedRounds);
+      setDeletedRounds([]); // Clear deleted rounds since all surviving rounds are now contiguous 1..N
+      setRoundTitles(updatedTitles);
+      setCollapsedRounds(nextCollapsed);
+
+      // Persist to localStorage
+      try {
+        localStorage.setItem(`picklepoint_openplay_matches_${event.id}`, JSON.stringify(remappedMatches));
+        localStorage.setItem(`picklepoint_round_titles_${event.id}`, JSON.stringify(updatedTitles));
+      } catch (e) {
+        console.warn('Failed to update localStorage after resequencing:', e);
+      }
+
+      // Delete removed matches from Firestore
       if (isFirebaseConfigured && db && matchesToDelete.length > 0) {
         try {
           await Promise.all(
@@ -371,11 +576,24 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         }
       }
 
+      // Update re-mapped matches in Firestore
+      if (isFirebaseConfigured && db && remappedMatches.length > 0) {
+        try {
+          const updatePromises = remappedMatches.map((m) => {
+            const cleaned = cleanDocData(m);
+            return setDoc(doc(db!, 'openplay_matches', m.id), cleaned);
+          });
+          await Promise.all(updatePromises);
+        } catch (err) {
+          console.error('Error updating remapped matches in Firestore:', err);
+        }
+      }
+
       const countStr =
         roundsArray.length === 1
           ? `Round ${roundsArray[0]}`
           : `${roundsArray.length} rounds`;
-      showToast(`🗑️ ${countStr} (${matchesToDelete.length} matches) deleted successfully.`);
+      showToast(`🗑️ ${countStr} deleted. Surviving rounds re-sequenced cleanly.`);
       setIsDeleteRoundsModalOpen(false);
       setSelectedRoundsToDelete(new Set());
     } catch (err: any) {
@@ -1532,8 +1750,14 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const clearAllMatches = async () => {
     if (!window.confirm('Are you sure you want to clear all matches for this Open Play event?')) return;
     setMatches([]);
+    setCreatedRounds([]);
+    setDeletedRounds([]);
+    setRoundTitles({});
+    setCollapsedRounds(new Set());
+
     try {
       localStorage.removeItem(`picklepoint_openplay_matches_${event.id}`);
+      localStorage.removeItem(`picklepoint_round_titles_${event.id}`);
     } catch (e) {}
 
     if (isFirebaseConfigured && db) {
@@ -1544,7 +1768,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         }
       } catch (e) {}
     }
-    showToast('All matches cleared.');
+    showToast('All matches cleared. Round counter reset to Round 1.');
   };
 
   // Inline Court Reassignment
@@ -1694,8 +1918,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     showToast('Match reopened for editing.');
   };
 
-  // Auto Generation Algorithm (Smart DUPR vs Unique Partner vs Paddle Stacking vs Random Matrix)
-  const handleGenerateMatches = (
+  // Auto Generation Algorithm (Google AI Studio vs Smart DUPR vs Unique Partner vs Paddle Stacking vs Random Matrix)
+  const handleGenerateMatches = async (
     algorithm: AutoGenAlgorithmType,
     rounds: number,
     gameType: 'doubles' | 'singles',
@@ -1703,7 +1927,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     isSmartMatch: boolean = false,
     selectedCourts?: string[],
     onlyPresent: boolean = false,
-    allowOverflowMatch?: boolean
+    allowOverflowMatch?: boolean,
+    useAiEngine: boolean = false,
+    aiDirectorNotes?: string
   ) => {
     let effectiveAllowOverflow = allowOverflowMatch;
     if (effectiveAllowOverflow === undefined) {
@@ -1739,7 +1965,45 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
     const courtsToUse = selectedCourts && selectedCourts.length > 0 ? selectedCourts : assignedCourts;
     const courtCount = courtsToUse.length;
-    const startingRound = matches.length > 0 ? Math.max(...matches.map((m) => m.round)) + 1 : 1;
+    const activeRoundNumbers = Array.from(new Set(matches.map((m) => Number(m.round)))).filter(
+      (r) => !deletedRounds.includes(r)
+    );
+    const startingRound = activeRoundNumbers.length > 0 ? Math.max(...activeRoundNumbers) + 1 : 1;
+
+    // GOOGLE AI STUDIO (GEMINI) MATCHMAKER ENGINE
+    if (useAiEngine) {
+      setIsAiGenerating(true);
+      try {
+        const aiResult = await generateMatchesWithGeminiAi({
+          eventId: event.id,
+          companyId: event.companyId,
+          rosterPool: activePlayers,
+          assignedCourts: courtsToUse,
+          totalRounds: rounds,
+          startingRound,
+          targetPoints,
+          gameType,
+          algorithm,
+          isSmartMatch: isSmartMatch || Boolean(event.isDupr),
+          allowOverflowMatch: effectiveAllowOverflow,
+          existingMatches: matches,
+          aiDirectorNotes,
+        });
+
+        if (aiResult.matches.length === 0) {
+          alert('Could not generate AI matches. Please ensure you have enough active players and assigned courts.');
+          return;
+        }
+
+        const combined = [...matches, ...aiResult.matches];
+        persistMatches(combined);
+        setIsAutoGenModalOpen(false);
+        showToast(aiResult.aiSummary);
+      } finally {
+        setIsAiGenerating(false);
+      }
+      return;
+    }
 
     // SMART MATCH DUPR DIRECTOR ENGINE
     if (isSmartMatch) {
@@ -1771,8 +2035,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       return;
     }
 
-    // ALGORITHM 1: UNIQUE PARTNER ROTATION (Guaranteed Unique Partner Each Game)
-    if (algorithm === 'unique_partner') {
+    // ALGORITHM 1: UNIQUE PARTNER ROTATION (or local Winners Stay fallback)
+    if (algorithm === 'unique_partner' || algorithm === 'winners_stay') {
       const result = generateUniquePartnerMatches({
         eventId: event.id,
         rosterPool: activePlayers,
@@ -3003,6 +3267,9 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   onOpenJsonModal={openJsonUploadModal}
                   onOpenManualMatchModal={openNewManualMatchModal}
                   onAutoGenerateRound={handleAutoGenerateSingleRound}
+                  onAiGenerateRound={handleAiGenerateSingleRound}
+                  isAiConfigured={Boolean(aiConfig?.enabled && aiConfig?.apiKey)}
+                  isAiGenerating={isAiGenerating}
                   onDeleteRound={(r) => openDeleteRoundsModal(r)}
                 >
                   <div className={`grid gap-4 sm:gap-5 items-stretch ${
@@ -3047,6 +3314,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         initialSessionDurationMinutes={calculateSessionDurationMinutes(event.startTime, event.endTime)}
         isDuprEvent={Boolean(event.isDupr)}
         existingMatches={matches}
+        startingRound={nextStartingRound}
+        isAiConfigured={Boolean(aiConfig?.enabled && aiConfig?.apiKey)}
+        aiModelName={aiConfig?.defaultModel || 'gemini-2.0-flash'}
+        isAiGenerating={isAiGenerating}
         onGenerateMatches={handleGenerateMatches}
       />
 

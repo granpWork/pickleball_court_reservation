@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Calendar,
@@ -59,6 +59,7 @@ import {
   type ScheduledReminderJob
 } from '../../../utils/reminderScheduler';
 import { DuprRatingBadge } from '../../../utils/duprColorUtils';
+import { OpenPlayRulesPostersManager } from './openplay/OpenPlayRulesPostersManager';
 
 interface AdminOpenPlayEventDetailsProps {
   event: OpenPlayEvent;
@@ -73,6 +74,7 @@ interface AdminOpenPlayEventDetailsProps {
   onExportRoster?: (event: OpenPlayEvent) => void;
   onViewReceipt?: (receiptUrl: string) => void;
   onOpenManualBookingModal?: (event: OpenPlayEvent) => void;
+  onUpdateRulesPosters?: (eventId: string, rulesPosterUrls: string[]) => Promise<void>;
   onOpenQrModal: (event: OpenPlayEvent) => void;
   onOpenJsonModal: (event: OpenPlayEvent) => void;
   onOpenMatchManagement?: (event: OpenPlayEvent, initialView?: 'matrix' | 'leaderboard') => void;
@@ -115,6 +117,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   onExportRoster,
   onViewReceipt,
   onOpenManualBookingModal,
+  onUpdateRulesPosters,
   onOpenQrModal,
   onOpenJsonModal,
   onOpenMatchManagement,
@@ -130,6 +133,43 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   // Poster Lightbox Modal State
   const [isPosterModalOpen, setIsPosterModalOpen] = useState<boolean>(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState<boolean>(false);
+  const [rulesPosters, setRulesPosters] = useState<string[]>(() =>
+    Array.isArray(event.rulesPosterUrls) ? event.rulesPosterUrls.slice(0, 3) : []
+  );
+  const [isSavingRulesPosters, setIsSavingRulesPosters] = useState<boolean>(false);
+  const [activeLightboxPosterUrl, setActiveLightboxPosterUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRulesPosters(Array.isArray(event.rulesPosterUrls) ? event.rulesPosterUrls.slice(0, 3) : []);
+  }, [event.id, event.rulesPosterUrls]);
+
+  const handleRulesPostersChange = async (nextPosters: string[]) => {
+    const clean = nextPosters.slice(0, 3);
+    setRulesPosters(clean);
+    setIsSavingRulesPosters(true);
+    try {
+      if (onUpdateRulesPosters) {
+        await onUpdateRulesPosters(event.id, clean);
+      } else if (isFirebaseConfigured && db) {
+        await setDoc(doc(db, 'openplay_events', event.id), { rulesPosterUrls: clean }, { merge: true });
+      }
+      setDispatchStatusToast({
+        type: 'success',
+        message: clean.length > 0
+          ? `Saved ${clean.length} Rules & Guidelines poster${clean.length === 1 ? '' : 's'} for players.`
+          : 'Removed Rules & Guidelines posters.',
+      });
+      setTimeout(() => setDispatchStatusToast(null), 3000);
+    } catch (err) {
+      console.error('Failed to save rules posters:', err);
+      setDispatchStatusToast({
+        type: 'error',
+        message: 'Failed to save Rules & Guidelines posters. Please try again.',
+      });
+    } finally {
+      setIsSavingRulesPosters(false);
+    }
+  };
 
   // Flexible Game Start Reminder Modal & Dispatch State
   const [isReminderModalOpen, setIsReminderModalOpen] = useState<boolean>(false);
@@ -1767,6 +1807,18 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         </div>
       </div>
 
+      {/* Rules & Guidelines Posters Management Card (Up to 3 Posters) */}
+      <div className="glass-panel border border-slate-800 rounded-3xl p-5 md:p-6 shadow-xl bg-slate-950/60">
+        <OpenPlayRulesPostersManager
+          posters={rulesPosters}
+          onChange={handleRulesPostersChange}
+          maxPosters={3}
+          isSaving={isSavingRulesPosters}
+          onPreviewPoster={(url) => setActiveLightboxPosterUrl(url)}
+          compact
+        />
+      </div>
+
       {/* Event Cancellation Modal */}
       {isCancelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in overflow-y-auto">
@@ -2918,6 +2970,40 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         </div>
       )}
 
+      {/* Rules Poster Fullscreen Lightbox Modal */}
+      {activeLightboxPosterUrl && (
+        <div
+          onClick={() => setActiveLightboxPosterUrl(null)}
+          className="fixed inset-0 z-[70] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in cursor-zoom-out"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 max-w-4xl w-full shadow-2xl space-y-3 cursor-default flex flex-col max-h-[90vh]"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-xs font-black text-amber-400 uppercase tracking-wider">
+                <ShieldAlert className="w-4 h-4" />
+                <span>Rules &amp; Guidelines Poster Preview</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveLightboxPosterUrl(null)}
+                className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto flex items-center justify-center p-2 rounded-2xl bg-slate-950 border border-slate-800 max-h-[75vh]">
+              <img
+                src={activeLightboxPosterUrl}
+                alt="Rules & Guidelines Poster"
+                className="max-w-full h-auto object-contain rounded-xl shadow-2xl"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Flexible Game Start Reminder Modal */}
       {isReminderModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
@@ -3084,6 +3170,34 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
             {/* Modal Content Scrollable Area */}
             <div className="overflow-y-auto custom-scrollbar space-y-5 pr-1 text-xs text-slate-300">
+              {/* Rules & Guidelines Posters Gallery (if uploaded) */}
+              {rulesPosters.length > 0 && (
+                <div className="space-y-2.5 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25">
+                  <h4 className="font-black text-xs uppercase tracking-wider flex items-center gap-2 text-amber-400">
+                    <ShieldAlert className="w-4 h-4" /> Rules &amp; Guidelines Posters ({rulesPosters.length})
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {rulesPosters.map((posterUrl, idx) => (
+                      <button
+                        key={`admin-modal-rule-${idx}`}
+                        type="button"
+                        onClick={() => setActiveLightboxPosterUrl(posterUrl)}
+                        className="group relative rounded-xl overflow-hidden border border-slate-800 bg-slate-950 aspect-[3/4] flex items-center justify-center cursor-zoom-in hover:border-amber-400 transition-all"
+                      >
+                        <img
+                          src={posterUrl}
+                          alt={`Rule Poster ${idx + 1}`}
+                          className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                        />
+                        <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-slate-950/85 border border-slate-700 text-amber-300 text-[10px] font-black">
+                          Poster {idx + 1}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Description Section */}
               <div className="space-y-2 p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
                 <h4 className="font-black text-white text-xs uppercase tracking-wider flex items-center gap-2 text-brand-lime">

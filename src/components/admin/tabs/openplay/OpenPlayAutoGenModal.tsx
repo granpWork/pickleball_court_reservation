@@ -13,6 +13,8 @@ import {
   Plus,
   UserCheck,
   AlertCircle,
+  RefreshCw,
+  Cpu,
 } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 import {
@@ -23,7 +25,7 @@ import {
 } from '../../../../utils/matchGeneratorUtils';
 import { getDuprColorConfig } from '../../../../utils/duprColorUtils';
 
-export type AutoGenAlgorithmType = 'unique_partner' | 'paddle_stacking' | 'random_rotational';
+export type AutoGenAlgorithmType = 'unique_partner' | 'winners_stay' | 'paddle_stacking' | 'random_rotational';
 
 interface OpenPlayAutoGenModalProps {
   isOpen: boolean;
@@ -34,6 +36,10 @@ interface OpenPlayAutoGenModalProps {
   initialSessionDurationMinutes: number;
   isDuprEvent?: boolean;
   existingMatches?: OpenPlayMatch[];
+  startingRound?: number;
+  isAiConfigured?: boolean;
+  aiModelName?: string;
+  isAiGenerating?: boolean;
   onGenerateMatches: (
     algorithm: AutoGenAlgorithmType,
     rounds: number,
@@ -42,7 +48,9 @@ interface OpenPlayAutoGenModalProps {
     isSmartMatch?: boolean,
     selectedCourts?: string[],
     onlyPresent?: boolean,
-    allowOverflowMatch?: boolean
+    allowOverflowMatch?: boolean,
+    useAiEngine?: boolean,
+    aiDirectorNotes?: string
   ) => void;
 }
 
@@ -55,12 +63,22 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
   initialSessionDurationMinutes,
   isDuprEvent = false,
   existingMatches = [],
+  startingRound = 1,
+  isAiConfigured = false,
+  aiModelName = 'gemini-2.0-flash',
+  isAiGenerating = false,
   onGenerateMatches,
 }) => {
   const [autoGenAlgorithm, setAutoGenAlgorithm] = useState<AutoGenAlgorithmType>('unique_partner');
   const [autoGenGameType, setAutoGenGameType] = useState<'doubles' | 'singles'>('doubles');
   const [autoGenTargetPoints, setAutoGenTargetPoints] = useState<number>(11);
   const [isSmartMatch, setIsSmartMatch] = useState<boolean>(() => Boolean(isDuprEvent));
+  const [useAiEngine, setUseAiEngine] = useState<boolean>(() => Boolean(isAiConfigured));
+  const [aiDirectorNotes, setAiDirectorNotes] = useState<string>('');
+
+  useEffect(() => {
+    setUseAiEngine(Boolean(isAiConfigured));
+  }, [isAiConfigured, isOpen]);
 
   // Dynamic Court Selection state
   const [availableCourts, setAvailableCourts] = useState<string[]>(() => {
@@ -358,10 +376,108 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* LEFT COLUMN: Controls & Settings (7 cols on lg) */}
           <div className="lg:col-span-7 space-y-5 text-xs">
-            {/* Matchmaking Algorithm Selector */}
+            {/* Google AI (Gemini) Matchmaking Engine Card */}
+            <div
+              className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                useAiEngine && isAiConfigured
+                  ? 'bg-gradient-to-r from-purple-950/40 via-slate-950 to-indigo-950/30 border-purple-500/50 shadow-inner ring-1 ring-purple-500/20'
+                  : 'bg-slate-950 border-slate-800'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div
+                    className={`p-2 rounded-xl shrink-0 ${
+                      useAiEngine && isAiConfigured
+                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
+                        : 'bg-slate-900 text-slate-500 border border-slate-800'
+                    }`}
+                  >
+                    <Cpu className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-extrabold text-white text-xs uppercase tracking-wide">
+                        Google AI (Gemini) Matchmaker
+                      </span>
+                      {isAiConfigured ? (
+                        useAiEngine ? (
+                          <span className="text-[10px] px-2 py-0.2 rounded-md bg-purple-500/20 text-purple-300 font-black border border-purple-500/40 uppercase">
+                            AI ACTIVE • {aiModelName}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-2 py-0.2 rounded-md bg-slate-800 text-slate-400 font-bold border border-slate-700">
+                            OFF (Using System Engine)
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-amber-500/15 text-amber-300 font-bold border border-amber-500/30">
+                          Configure API Key in Settings &gt; Integrations
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {isAiConfigured
+                        ? 'AI inspects previous match scores/winners, past partners, sit-outs, DUPR ratings, and gameplay type.'
+                        : 'Add your Google AI Studio API key in Settings > Integrations to enable AI match generation.'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  role="switch"
+                  disabled={!isAiConfigured}
+                  aria-checked={useAiEngine && isAiConfigured}
+                  onClick={() => isAiConfigured && setUseAiEngine((prev) => !prev)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    !isAiConfigured
+                      ? 'bg-slate-800/50 cursor-not-allowed opacity-50'
+                      : useAiEngine
+                      ? 'bg-purple-500 cursor-pointer'
+                      : 'bg-slate-800 cursor-pointer'
+                  }`}
+                  title={isAiConfigured ? 'Toggle Google AI Matchmaker' : 'Configure API Key in Settings > Integrations'}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-slate-950 shadow-md ring-0 transition duration-200 ease-in-out ${
+                      useAiEngine && isAiConfigured ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {useAiEngine && isAiConfigured && (
+                <div className="pt-2.5 border-t border-purple-500/20 space-y-2 animate-fade-in">
+                  <div className="flex items-center justify-between text-[10px] text-purple-200/90 font-semibold flex-wrap gap-1.5">
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-purple-400" />
+                      Context: {existingMatches.length} prior game(s) • {duprStats.ratedCount} DUPR rated / {duprStats.nrCount} NR
+                    </span>
+                    <span className="font-mono bg-purple-950/60 px-2 py-0.5 rounded border border-purple-500/30 text-purple-200">
+                      Auto-Fallback Protected
+                    </span>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-purple-300 uppercase tracking-wider mb-1">
+                      AI Director Notes (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={aiDirectorNotes}
+                      onChange={(e) => setAiDirectorNotes(e.target.value)}
+                      placeholder="e.g. Put Round 1 winners on Court 1, keep beginners on Court 2..."
+                      className="w-full bg-slate-900/90 border border-purple-500/30 rounded-xl px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-purple-400"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Matchmaking Algorithm / Gameplay Type Selector */}
             <div>
               <label className="block text-slate-300 font-bold mb-1.5 flex items-center justify-between">
-                <span>Matchmaking Algorithm</span>
+                <span>Gameplay Type &amp; Rotation Rule</span>
                 <span className="text-[10px] text-brand-lime font-mono font-semibold">Recommended</span>
               </label>
               <select
@@ -372,11 +488,14 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                 <option value="unique_partner">
                   ✨ Unique Partner Every Game (Rotating Doubles Round Robin)
                 </option>
+                <option value="winners_stay">
+                  🏆 Winners Stay / Split Ladder (Based on Previous Match Winners &amp; Scores)
+                </option>
                 <option value="paddle_stacking">
-                  🏓 Paddle Stacking (Continuous Rack Queue - 1&4 vs 2&3 Split)
+                  🏓 Paddle Stacking (Continuous Rack Queue - 1&amp;4 vs 2&amp;3 Split)
                 </option>
                 <option value="random_rotational">
-                  🎲 Random Rotational Matrix
+                  🎲 Random Rotational Matrix (Social Mix)
                 </option>
               </select>
             </div>
@@ -696,8 +815,17 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                       Auto: {pacing.recommendedRounds} ({scheduleBreakdown.gamesPerRound} games/rnd)
                     </span>
                   </label>
-                  <span className="text-xs font-mono font-black text-brand-lime">
-                    {autoGenRounds} {autoGenRounds === 1 ? 'Round' : 'Rounds'}
+                  <span className="text-xs font-mono font-black text-brand-lime flex items-center gap-1.5">
+                    <span>{autoGenRounds} {autoGenRounds === 1 ? 'Round' : 'Rounds'}</span>
+                    <span className="text-[10px] text-slate-400 font-medium px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700">
+                      {startingRound === 1
+                        ? autoGenRounds === 1
+                          ? 'Round 1'
+                          : `Rounds 1–${autoGenRounds}`
+                        : autoGenRounds === 1
+                        ? `Round ${startingRound}`
+                        : `Rounds ${startingRound}–${startingRound + autoGenRounds - 1}`}
+                    </span>
                   </span>
                 </div>
 
@@ -1190,8 +1318,17 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
         {/* Modal Action Footer */}
         <div className="flex items-center justify-between pt-4 border-t border-slate-800">
           <div className="text-xs text-slate-400 flex items-center gap-2">
-            <span className="font-mono text-brand-lime font-bold">
-              {autoGenRounds} {autoGenRounds === 1 ? 'Round' : 'Rounds'}
+            <span className="font-mono text-brand-lime font-bold flex items-center gap-1.5">
+              <span>{autoGenRounds} {autoGenRounds === 1 ? 'Round' : 'Rounds'}</span>
+              <span className="text-[10px] text-slate-400 font-medium px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700">
+                {startingRound === 1
+                  ? autoGenRounds === 1
+                    ? 'Round 1'
+                    : `Rounds 1–${autoGenRounds}`
+                  : autoGenRounds === 1
+                  ? `Round ${startingRound}`
+                  : `Rounds ${startingRound}–${startingRound + autoGenRounds - 1}`}
+              </span>
             </span>
             <span>•</span>
             <span>{scheduleBreakdown.totalMatches} Matches</span>
@@ -1213,7 +1350,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             </button>
             <button
               type="button"
-              disabled={activeCount < (autoGenGameType === 'doubles' ? 4 : 2)}
+              disabled={isAiGenerating || activeCount < (autoGenGameType === 'doubles' ? 4 : 2)}
               onClick={() =>
                 onGenerateMatches(
                   autoGenAlgorithm,
@@ -1223,19 +1360,37 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   isSmartMatch,
                   selectedCourts,
                   onlyCheckedInPlayers,
-                  allowOverflowMatch
+                  allowOverflowMatch,
+                  useAiEngine && isAiConfigured,
+                  aiDirectorNotes
                 )
               }
               className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-all flex items-center gap-2 ${
-                activeCount < (autoGenGameType === 'doubles' ? 4 : 2)
-                  ? 'opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border border-slate-700'
+                isAiGenerating || activeCount < (autoGenGameType === 'doubles' ? 4 : 2)
+                  ? 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
+                  : useAiEngine && isAiConfigured
+                  ? 'bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg cursor-pointer hover:scale-[1.02] active:scale-[0.98]'
                   : isSmartMatch
                   ? 'bg-gradient-to-r from-amber-400 via-lime-400 to-emerald-400 hover:from-amber-300 hover:to-emerald-300 text-dark-bg cursor-pointer hover:scale-[1.02] active:scale-[0.98]'
                   : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-dark-bg cursor-pointer hover:scale-[1.02] active:scale-[0.98]'
               }`}
             >
-              {isSmartMatch ? <Trophy className="w-4 h-4 text-dark-bg" /> : <Zap className="w-4 h-4 text-dark-bg" />}
-              <span>{isSmartMatch ? `Smart DUPR Generate (${autoGenRounds} Rounds)` : `Generate ${autoGenRounds} Rounds Now`}</span>
+              {isAiGenerating ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-brand-lime" />
+                  <span>🤖 Gemini AI Generating...</span>
+                </>
+              ) : useAiEngine && isAiConfigured ? (
+                <>
+                  <Sparkles className="w-4 h-4 text-dark-bg" />
+                  <span>✨ AI Generate ({autoGenRounds} {autoGenRounds === 1 ? 'Round' : 'Rounds'})</span>
+                </>
+              ) : (
+                <>
+                  {isSmartMatch ? <Trophy className="w-4 h-4 text-dark-bg" /> : <Zap className="w-4 h-4 text-dark-bg" />}
+                  <span>{isSmartMatch ? `Smart DUPR Generate (${autoGenRounds} Rounds)` : `Generate ${autoGenRounds} Rounds Now`}</span>
+                </>
+              )}
             </button>
           </div>
         </div>

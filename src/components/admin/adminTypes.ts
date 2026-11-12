@@ -516,9 +516,11 @@ export type AdminIntegrationsSubTab = 'google_ai' | 'dupr' | 'webhooks';
 export type DuprEnvironment = 'prod' | 'uat' | 'staging';
 
 export interface GoogleAiIntegrationSettings {
+  enabled?: boolean;
   apiKey: string;
   defaultModel: string;
   status: 'unconfigured' | 'connected' | 'error';
+  companyId?: string;
   lastTestedAt?: string;
   lastTestMessage?: string;
   updatedAt?: string;

@@ -80,6 +80,7 @@ import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot } from 'firebase/firestore';
 import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendPaymentApprovalReceiptEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail, resolveVenueNotificationRecipients, sendBookingActionAdminAuditEmail } from '../services/emailService';
 import { isEventExpired, formatTime12h, formatEventDateLong, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
+import { OpenPlayRulesPostersManager } from './admin/tabs/openplay/OpenPlayRulesPostersManager';
 import { safeFetchPsgcJson } from '../services/psgcService';
 
 const SLOTS = [
@@ -1128,6 +1129,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [openPlayHostPhone, setOpenPlayHostPhone] = useState<string>('');
   const [openPlayDescription, setOpenPlayDescription] = useState('');
   const [openPlayPosterUrl, setOpenPlayPosterUrl] = useState<string | null>(null);
+  const [openPlayRulesPosters, setOpenPlayRulesPosters] = useState<string[]>([]);
   const [openPlayMaxParticipants, setOpenPlayMaxParticipants] = useState(16);
   const [openPlayFee, setOpenPlayFee] = useState(250);
   const [openPlayGcashAccountId, setOpenPlayGcashAccountId] = useState('');
@@ -1323,6 +1325,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayHostPhone(ownerHostPhone);
     setOpenPlayDescription('');
     setOpenPlayPosterUrl(null);
+    setOpenPlayRulesPosters([]);
     setOpenPlayMaxParticipants(16);
     setOpenPlayFee(250);
     setOpenPlayGcashAccountId(personalAccounts[0]?.id || 'global');
@@ -1359,6 +1362,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayStatusSetting(event.status === 'draft' ? 'draft' : 'active');
     setOpenPlayDescription(event.description);
     setOpenPlayPosterUrl(event.posterImageUrl || null);
+    setOpenPlayRulesPosters(Array.isArray(event.rulesPosterUrls) ? event.rulesPosterUrls.slice(0, 3) : []);
     setOpenPlayMaxParticipants(event.maxParticipants);
     setOpenPlayFee(event.registrationFee);
     
@@ -1429,6 +1433,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         hostPhone: openPlayHostPhone.trim() || undefined,
         description: openPlayDescription.trim(),
         posterImageUrl: openPlayPosterUrl || undefined,
+        rulesPosterUrls: openPlayRulesPosters.length > 0 ? openPlayRulesPosters.slice(0, 3) : [],
         maxParticipants: Number(openPlayMaxParticipants) || 16,
         registrationFee: Number(openPlayFee) || 0,
         gcashAccountId: openPlayGcashAccountId,
@@ -1542,6 +1547,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       rotationRule: openPlayRotationRule,
       description: openPlayDescription.trim(),
       posterImageUrl: openPlayPosterUrl || undefined,
+      rulesPosterUrls: openPlayRulesPosters.slice(0, 3),
       maxParticipants: Number(openPlayMaxParticipants) || 16,
       registrationFee: Number(openPlayFee) || 0,
       gcashAccountId: openPlayGcashAccountId,
@@ -1644,6 +1650,42 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
+  const handleUpdateOpenPlayRulesPosters = async (eventId: string, rulesPosterUrls: string[]) => {
+    const cleanPosters = rulesPosterUrls.slice(0, 3);
+    const targetEvent = openPlayEvents.find((e) => e.id === eventId) || selectedEventForRegs;
+    if (!targetEvent) return;
+
+    const updatedPayload: OpenPlayEvent = {
+      ...targetEvent,
+      rulesPosterUrls: cleanPosters,
+    };
+
+    try {
+      if (isFirebaseConfigured && db) {
+        await setDoc(doc(db, 'openplay_events', eventId), { rulesPosterUrls: cleanPosters }, { merge: true });
+      }
+      const localStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+      const localEvs = localStr ? (JSON.parse(localStr) as OpenPlayEvent[]) : [];
+      const existingIdx = localEvs.findIndex((e) => e.id === eventId);
+      if (existingIdx >= 0) {
+        localEvs[existingIdx] = updatedPayload;
+      } else {
+        localEvs.push(updatedPayload);
+      }
+      try { localStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
+      try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvs)); } catch (e) {}
+      try { window.dispatchEvent(new Event('openplay_updated')); } catch (e) {}
+
+      setOpenPlayEvents((prev) => prev.map((e) => (e.id === eventId ? updatedPayload : e)));
+      if (selectedEventForRegs && selectedEventForRegs.id === eventId) {
+        setSelectedEventForRegs(updatedPayload);
+      }
+    } catch (err) {
+      console.error('Failed to update Open Play rules posters:', err);
+      throw err;
+    }
+  };
+
   const handleDuplicateOpenPlayEvent = (event: OpenPlayEvent) => {
     setEditingOpenPlay(null);
     setOpenPlayTitle(`${event.title} (Copy)`);
@@ -1653,6 +1695,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setOpenPlayRotationRule(event.rotationRule || 'winners_stay');
     setOpenPlayDescription(event.description || '');
     setOpenPlayPosterUrl(event.posterImageUrl || null);
+    setOpenPlayRulesPosters(Array.isArray(event.rulesPosterUrls) ? event.rulesPosterUrls.slice(0, 3) : []);
     setOpenPlayMaxParticipants(event.maxParticipants || 16);
     setOpenPlayFee(event.registrationFee || 0);
     setOpenPlayGcashAccountId(event.gcashAccountId || 'global');
@@ -7279,6 +7322,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onExportRoster={handleExportOpenPlayRoster}
               onViewReceipt={(receiptUrl) => setReceiptLightboxImage(receiptUrl)}
               onOpenManualBookingModal={(ev) => setManualOpenPlayModalState({ isOpen: true, event: ev })}
+              onUpdateEventRulesPosters={handleUpdateOpenPlayRulesPosters}
               onRefreshEvents={fetchData}
               formatEventDateLong={formatEventDateLong}
               formatTime12h={formatTime12h}
@@ -7525,7 +7569,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'image_converter' && (
             <AdminImageConverterTab />
           )}
-          {activeTab === 'integrations' && isSuperAdmin && (
+          {activeTab === 'integrations' && (
             <AdminIntegrationsTab
               user={user}
               subTab={integrationsSubTab}
@@ -11889,6 +11933,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* Rules & Guidelines Posters (Up to 3) */}
+                <div className="md:col-span-2">
+                  <OpenPlayRulesPostersManager
+                    posters={openPlayRulesPosters}
+                    onChange={setOpenPlayRulesPosters}
+                    maxPosters={3}
+                  />
                 </div>
 
                 {/* Description & Venue Rules */}

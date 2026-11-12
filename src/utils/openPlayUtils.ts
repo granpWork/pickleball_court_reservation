@@ -252,6 +252,9 @@ export const normalizeOpenPlayEvent = (id: string, data: any): OpenPlayEvent => 
     category: data.category || data.skillLevel || 'Open to All',
     description: data.description || '',
     posterImageUrl: data.posterImageUrl || data.imageUrl || data.posterUrl || undefined,
+    rulesPosterUrls: Array.isArray(data.rulesPosterUrls)
+      ? data.rulesPosterUrls.filter((u: unknown): u is string => typeof u === 'string' && u.trim().length > 0).slice(0, 3)
+      : undefined,
     maxParticipants: finalMax,
     registrationFee: Number(data.registrationFee || data.fee || data.price) || 0,
     gcashAccountId: data.gcashAccountId || 'global',

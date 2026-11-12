@@ -32,7 +32,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { AdminPoliciesTab } from './AdminPoliciesTab';
-import { AdminIntegrationsTab } from './AdminIntegrationsTab';
+import { AdminGoogleAiSettings } from './AdminGoogleAiSettings';
 import { GcashAmountQrModal } from '../modals/GcashAmountQrModal';
 import {
   type AdminUser,
@@ -194,8 +194,8 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   user,
   settingsSubTab,
   setSettingsSubTab: _setSettingsSubTab,
-  integrationsSubTab,
-  setIntegrationsSubTab,
+  integrationsSubTab: _integrationsSubTab,
+  setIntegrationsSubTab: _setIntegrationsSubTab,
   onOpenInviteManagerModal,
   teamMembers = [],
   onSaveManager,
@@ -2553,13 +2553,12 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
       })()}
 
       {/* ========================================================================= */}
-      {/* INTEGRATIONS SUB-TAB (GOOGLE AI STUDIO & DUPR)                            */}
+      {/* INTEGRATIONS SUB-TAB (GOOGLE AI STUDIO - CLIENT ADMIN & MANAGER)          */}
       {/* ========================================================================= */}
-      {settingsSubTab === 'integrations' && isSuperAdmin && (
-        <AdminIntegrationsTab
+      {settingsSubTab === 'integrations' && (
+        <AdminGoogleAiSettings
           user={user}
-          subTab={integrationsSubTab}
-          setSubTab={setIntegrationsSubTab}
+          companyProfile={companyProfile}
         />
       )}
 

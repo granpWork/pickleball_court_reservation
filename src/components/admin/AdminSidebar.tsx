@@ -747,23 +747,30 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     </button>
                   )}
 
-                  {isSuperAdmin && (
+                  {(isClientAdminRole || isManagerRole) && (
                     <button
                       type="button"
-                      onClick={() => { setActiveTab('settings'); setSettingsSubTab('integrations'); setMobileMenuOpen(false); }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all cursor-pointer text-left ${
-                        activeTab === 'settings' && settingsSubTab === 'integrations'
-                          ? 'text-brand-lime bg-brand-lime/10 font-bold'
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                      disabled={isTrialOrSubExpired}
+                      onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('integrations'); setMobileMenuOpen(false); } }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                        isTrialOrSubExpired
+                          ? 'opacity-40 cursor-not-allowed text-slate-600'
+                          : activeTab === 'settings' && settingsSubTab === 'integrations'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <Cpu className="w-3.5 h-3.5 text-purple-400" />
                         <span>Integrations</span>
                       </div>
-                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                        AI / DUPR
-                      </span>
+                      {isTrialOrSubExpired ? (
+                        <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />
+                      ) : (
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          AI
+                        </span>
+                      )}
                     </button>
                   )}
                 </div>

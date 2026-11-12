@@ -11,6 +11,8 @@ import {
   Plus,
   Trash2,
   Zap,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 
@@ -31,6 +33,9 @@ interface MatchMatrixRoundAccordionProps {
   onOpenJsonModal: (roundNum: number) => void;
   onOpenManualMatchModal: (roundNum: number) => void;
   onAutoGenerateRound?: (roundNum: number) => void;
+  onAiGenerateRound?: (roundNum: number) => void;
+  isAiConfigured?: boolean;
+  isAiGenerating?: boolean;
   onDeleteRound?: (roundNum: number) => void;
   children: React.ReactNode;
 }
@@ -52,6 +57,9 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
   onOpenJsonModal,
   onOpenManualMatchModal,
   onAutoGenerateRound,
+  onAiGenerateRound,
+  isAiConfigured = false,
+  isAiGenerating = false,
   onDeleteRound,
   children,
 }) => {
@@ -205,11 +213,29 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             <span>Upload JSON</span>
           </button>
 
+          {matchesInRound.length === 0 && isAiConfigured && onAiGenerateRound && (
+            <button
+              type="button"
+              disabled={isAiGenerating}
+              onClick={() => onAiGenerateRound(roundNum)}
+              className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+              title={`Use Google Gemini AI to generate ${roundTitle} based on previous match results, DUPR ratings, and gameplay rules`}
+            >
+              {isAiGenerating ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-dark-bg" />
+              )}
+              <span>{isAiGenerating ? 'AI Generating...' : '✨ AI Auto-Gen'}</span>
+            </button>
+          )}
+
           {matchesInRound.length === 0 && onAutoGenerateRound && (
             <button
               type="button"
+              disabled={isAiGenerating}
               onClick={() => onAutoGenerateRound(roundNum)}
-              className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
               title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
             >
               <Zap className="w-3.5 h-3.5 text-brand-lime" />
@@ -247,11 +273,32 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             <div className="p-8 text-center border border-dashed border-slate-800 rounded-3xl bg-slate-900/20 space-y-3">
               <p className="text-sm font-semibold text-slate-400">No matches created for {roundTitle} yet.</p>
               <div className="flex items-center justify-center gap-2.5 flex-wrap">
+                {isAiConfigured && onAiGenerateRound && (
+                  <button
+                    type="button"
+                    disabled={isAiGenerating}
+                    onClick={() => onAiGenerateRound(roundNum)}
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
+                    title={`Use Google Gemini AI to generate ${roundTitle} based on previous match results, DUPR ratings, and gameplay rules`}
+                  >
+                    {isAiGenerating ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 text-dark-bg" />
+                    )}
+                    <span>
+                      {isAiGenerating
+                        ? `🤖 Gemini AI Generating ${roundTitle}...`
+                        : `✨ AI Auto-Generate ${roundTitle} (Prev Match + DUPR)`}
+                    </span>
+                  </button>
+                )}
                 {onAutoGenerateRound && (
                   <button
                     type="button"
+                    disabled={isAiGenerating}
                     onClick={() => onAutoGenerateRound(roundNum)}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02]"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
                     title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
                   >
                     <Zap className="w-3.5 h-3.5 text-brand-lime" /> Auto-Generate {roundTitle} (No Duplicates)
