@@ -84,6 +84,7 @@ interface AdminOpenPlayMatchManagementProps {
   event: OpenPlayEvent;
   registrations: OpenPlayRegistrationItem[];
   initialView?: 'matrix' | 'leaderboard';
+  backLabel?: string;
   onBack: () => void;
 }
 
@@ -91,6 +92,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   event,
   registrations,
   initialView = 'matrix',
+  backLabel = 'Back to Session Details',
   onBack,
 }) => {
   // Assigned courts fallback
@@ -2793,7 +2795,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           }}
           className="inline-flex items-center gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01]"
         >
-          <ArrowLeft className="w-4 h-4 text-brand-lime" /> Back to Session Details
+          <ArrowLeft className="w-4 h-4 text-brand-lime" /> {backLabel}
         </button>
 
         {/* View Switcher Segmented Tabs - Front & Center on Mobile & Desktop */}
