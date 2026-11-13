@@ -110,6 +110,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   const [calendarDayViewMode, setCalendarDayViewMode] = useState<'list' | 'timeline'>('list');
   const [timeGridCourtId, setTimeGridCourtId] = useState<string>('');
   const [timeGridFilter, setTimeGridFilter] = useState<'all' | 'reserved' | 'pending' | 'blocked' | 'available'>('all');
+  const [activeSlotModal, setActiveSlotModal] = useState<any | null>(null);
   const agendaRef = useRef<HTMLDivElement | null>(null);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
@@ -1157,14 +1158,18 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
         // Compute hourly timeline slot breakdown for selected court on selected date
         interface HourlyTimelineSlot {
           slotTime: string;
+          shortTime: string;
           startHour: number;
           status: 'reserved' | 'pending' | 'blocked' | 'available';
           statusLabel: string;
+          primaryText: string;
           booking?: Booking;
           openPlayEvent?: OpenPlayEvent;
         }
 
         const timelineSlots: HourlyTimelineSlot[] = SLOTS.map((s) => {
+          const shortTime = s.time.split(' - ')[0];
+
           const matchingBooking = bookings.find((b) => {
             if (b.status === 'cancelled') return false;
             if (normalizeDateStr(b.date) !== normalizeDateStr(selectedCalendarDate)) return false;
@@ -1176,28 +1181,35 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
             const bCat = matchingBooking.bookingCategory || (matchingBooking as any).category;
             const isBlockCategory = bCat === 'maintenance' || bCat === 'company_block';
             if (isBlockCategory) {
+              const label = bCat === 'maintenance' ? 'Maintenance' : 'Company Block';
               return {
                 slotTime: s.time,
+                shortTime,
                 startHour: s.startHour,
                 status: 'blocked',
-                statusLabel: bCat === 'maintenance' ? 'Maintenance' : 'Company Block',
+                statusLabel: label,
+                primaryText: label,
                 booking: matchingBooking,
               };
             }
             if (matchingBooking.status === 'approved') {
               return {
                 slotTime: s.time,
+                shortTime,
                 startHour: s.startHour,
                 status: 'reserved',
                 statusLabel: 'Reserved',
+                primaryText: matchingBooking.userName || matchingBooking.user?.name || 'Customer',
                 booking: matchingBooking,
               };
             }
             return {
               slotTime: s.time,
+              shortTime,
               startHour: s.startHour,
               status: 'pending',
               statusLabel: 'Pending',
+              primaryText: matchingBooking.userName || matchingBooking.user?.name || 'Pending Review',
               booking: matchingBooking,
             };
           }
@@ -1217,18 +1229,22 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           if (matchingOpenPlay) {
             return {
               slotTime: s.time,
+              shortTime,
               startHour: s.startHour,
               status: 'blocked',
               statusLabel: 'Open Play',
+              primaryText: matchingOpenPlay.title || 'Open Play',
               openPlayEvent: matchingOpenPlay,
             };
           }
 
           return {
             slotTime: s.time,
+            shortTime,
             startHour: s.startHour,
             status: 'available',
             statusLabel: 'Available',
+            primaryText: '+ Free',
           };
         });
 
@@ -1806,13 +1822,13 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     </div>
                   )
                   ) : (
-                    /* NEW: Hourly Time Grid View for Selected Date */
-                    <div className="space-y-3">
-                      {/* Court Tabs (if all courts view and multiple courts) */}
-                      {selectedCalendarCourtId === 'all' && courts.length > 0 ? (
-                        <div className="space-y-1.5">
-                          <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Select Court:</div>
-                          <div className="flex flex-wrap items-center gap-1.5">
+                    /* NEW: Minimalist One-View Time Grid for Selected Date */
+                    <div className="space-y-2.5">
+                      {/* Ultra-compact Single Line Toolbar: Courts (if all) & Minimal Dot Filters */}
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-slate-800/80">
+                        {/* Left: Court Selector or Court Name */}
+                        {selectedCalendarCourtId === 'all' && courts.length > 0 ? (
+                          <div className="flex items-center gap-1 flex-wrap">
                             {courts.map((c) => {
                               const isCourtActive = effectiveTimelineCourtId === c.id;
                               return (
@@ -1820,239 +1836,174 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                   key={c.id}
                                   type="button"
                                   onClick={() => setTimeGridCourtId(c.id)}
-                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer ${
                                     isCourtActive
-                                      ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
-                                      : 'bg-slate-950/80 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900'
+                                      ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                                      : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white'
                                   }`}
                                 >
-                                  🏟️ {c.name}
+                                  {c.name}
                                 </button>
                               );
                             })}
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 text-xs text-slate-300 font-bold bg-slate-950/60 border border-slate-800/80 px-3 py-1.5 rounded-xl">
-                          <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                          <span>Schedule for: <strong className="text-white">{effectiveTimelineCourt?.name || 'Pickleball Court'}</strong></span>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                            <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                            <span className="truncate max-w-[130px] sm:max-w-[180px] font-extrabold text-white">
+                              {effectiveTimelineCourt?.name || 'Pickleball Court'}
+                            </span>
+                          </div>
+                        )}
 
-                      {/* Status Filter Chips - Responsive on Mobile, Tablet & Desktop */}
-                      <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-[11px]">
-                        <button
-                          type="button"
-                          onClick={() => setTimeGridFilter('all')}
-                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                            timeGridFilter === 'all'
-                              ? 'bg-slate-200 text-slate-950 font-black shadow-sm'
-                              : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                          }`}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                          <span>All ({timelineSlots.length})</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTimeGridFilter('reserved')}
-                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                            timeGridFilter === 'reserved'
-                              ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
-                              : 'bg-slate-950/80 border border-slate-800 text-emerald-400 hover:text-emerald-300 hover:border-emerald-500/40'
-                          }`}
-                        >
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-                          <span>Reserved ({timelineReservedCount})</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTimeGridFilter('pending')}
-                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                            timeGridFilter === 'pending'
-                              ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
-                              : 'bg-slate-950/80 border border-slate-800 text-amber-400 hover:text-amber-300 hover:border-amber-500/40'
-                          }`}
-                        >
-                          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
-                          <span>Pending ({timelinePendingCount})</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTimeGridFilter('blocked')}
-                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                            timeGridFilter === 'blocked'
-                              ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
-                              : 'bg-slate-950/80 border border-slate-800 text-cyan-400 hover:text-cyan-300 hover:border-cyan-500/40'
-                          }`}
-                        >
-                          <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0"></span>
-                          <span>Blocked ({timelineBlockedCount})</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTimeGridFilter('available')}
-                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                            timeGridFilter === 'available'
-                              ? 'bg-slate-700 text-white font-black shadow-sm'
-                              : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-slate-300 hover:border-slate-700'
-                          }`}
-                        >
-                          <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
-                          <span>Available ({timelineAvailableCount})</span>
-                        </button>
+                        {/* Right: Minimal Dot Filters */}
+                        <div className="flex items-center gap-1 text-[11px] font-bold flex-wrap ml-auto">
+                          <button
+                            type="button"
+                            onClick={() => setTimeGridFilter('all')}
+                            className={`px-2 py-0.5 rounded-md text-[10px] transition-all cursor-pointer ${
+                              timeGridFilter === 'all'
+                                ? 'bg-slate-200 text-slate-950 font-black'
+                                : 'text-slate-400 hover:text-white'
+                            }`}
+                            title="Show all slots"
+                          >
+                            All ({timelineSlots.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTimeGridFilter('reserved')}
+                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                              timeGridFilter === 'reserved'
+                                ? 'bg-emerald-500 text-slate-950 font-black'
+                                : 'text-emerald-400 hover:bg-emerald-950/40'
+                            }`}
+                            title="Filter reserved slots"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            <span>{timelineReservedCount}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTimeGridFilter('pending')}
+                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                              timeGridFilter === 'pending'
+                                ? 'bg-amber-500 text-slate-950 font-black'
+                                : 'text-amber-400 hover:bg-amber-950/40'
+                            }`}
+                            title="Filter pending slots"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                            <span>{timelinePendingCount}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTimeGridFilter('blocked')}
+                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                              timeGridFilter === 'blocked'
+                                ? 'bg-cyan-500 text-slate-950 font-black'
+                                : 'text-cyan-400 hover:bg-cyan-950/40'
+                            }`}
+                            title="Filter blocked / open play slots"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                            <span>{timelineBlockedCount}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTimeGridFilter('available')}
+                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
+                              timeGridFilter === 'available'
+                                ? 'bg-slate-700 text-white font-black'
+                                : 'text-slate-400 hover:bg-slate-900'
+                            }`}
+                            title="Filter free available slots"
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-500 shrink-0" />
+                            <span>{timelineAvailableCount}</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Hourly Slot Cards List */}
-                      <div className="space-y-2.5 lg:max-h-[500px] lg:overflow-y-auto pr-1 custom-scrollbar">
-                        {filteredTimelineSlots.length === 0 ? (
-                          <div className="py-8 text-center space-y-2 text-slate-500 bg-slate-950/40 rounded-2xl border border-slate-800/40 p-4">
-                            <Clock className="w-7 h-7 text-slate-700 mx-auto" />
-                            <p className="text-xs font-bold text-slate-400">No slots match '{timeGridFilter}' filter.</p>
-                            <button
-                              type="button"
-                              onClick={() => setTimeGridFilter('all')}
-                              className="text-xs text-brand-lime font-bold hover:underline cursor-pointer"
-                            >
-                              Reset Filter
-                            </button>
-                          </div>
-                        ) : (
-                          filteredTimelineSlots.map((slotItem, sIdx) => {
+                      {/* Minimalist 3-to-4 Column Grid: All hours at a single glance with zero scroll */}
+                      {filteredTimelineSlots.length === 0 ? (
+                        <div className="py-6 text-center space-y-2 text-slate-500 bg-slate-950/40 rounded-2xl border border-slate-800/40 p-4">
+                          <Clock className="w-6 h-6 text-slate-600 mx-auto" />
+                          <p className="text-xs font-bold text-slate-300">No slots match '{timeGridFilter}' filter.</p>
+                          <button
+                            type="button"
+                            onClick={() => setTimeGridFilter('all')}
+                            className="inline-block px-3 py-1 rounded-lg bg-brand-lime/10 hover:bg-brand-lime/20 text-brand-lime font-bold text-xs border border-brand-lime/30 transition-all cursor-pointer"
+                          >
+                            Reset Filter
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-1.5">
+                          {filteredTimelineSlots.map((slotItem, sIdx) => {
                             const isAvail = slotItem.status === 'available';
                             const isRes = slotItem.status === 'reserved';
                             const isPend = slotItem.status === 'pending';
                             const isBlk = slotItem.status === 'blocked';
-                            const b = slotItem.booking;
-                            const op = slotItem.openPlayEvent;
+
+                            const dotColor = isRes
+                              ? 'bg-emerald-400 ring-2 ring-emerald-500/20'
+                              : isPend
+                              ? 'bg-amber-400 ring-2 ring-amber-500/20'
+                              : isBlk
+                              ? 'bg-cyan-400 ring-2 ring-cyan-500/20'
+                              : 'bg-slate-600';
 
                             return (
-                              <div
+                              <button
                                 key={`${slotItem.slotTime}-${sIdx}`}
-                                className={`p-3 rounded-2xl transition-all space-y-2 ${
+                                type="button"
+                                onClick={() => {
+                                  if (isAvail) {
+                                    if (onOpenManualBookingModal) {
+                                      onOpenManualBookingModal({
+                                        courtId: effectiveTimelineCourtId,
+                                        date: selectedCalendarDate,
+                                        slot: slotItem.slotTime,
+                                      });
+                                    }
+                                  } else {
+                                    setActiveSlotModal(slotItem);
+                                  }
+                                }}
+                                className={`p-2 rounded-xl text-left transition-all cursor-pointer flex flex-col justify-between h-[52px] group hover:scale-[1.02] active:scale-[0.98] ${
                                   isRes
-                                    ? 'bg-slate-950/90 border border-emerald-500/30 border-l-4 border-l-emerald-500 shadow-sm'
+                                    ? 'bg-emerald-950/25 border border-emerald-500/30 hover:border-emerald-400/60 shadow-sm'
                                     : isPend
-                                    ? 'bg-slate-950/90 border border-amber-500/30 border-l-4 border-l-amber-500 shadow-sm'
+                                    ? 'bg-amber-950/25 border border-amber-500/30 hover:border-amber-400/60 shadow-sm'
                                     : isBlk
-                                    ? 'bg-slate-950/90 border border-cyan-500/30 border-l-4 border-l-cyan-400 shadow-sm'
-                                    : 'bg-slate-950/40 border border-dashed border-slate-800/90 hover:border-slate-700'
+                                    ? 'bg-cyan-950/25 border border-cyan-500/30 hover:border-cyan-400/60 shadow-sm'
+                                    : 'bg-slate-950/40 border border-dashed border-slate-800/90 hover:border-brand-lime/50 hover:bg-slate-900/40'
                                 }`}
                               >
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-2">
-                                    <Clock className={`w-3.5 h-3.5 ${
-                                      isRes ? 'text-emerald-400' : isPend ? 'text-amber-400' : isBlk ? 'text-cyan-400' : 'text-slate-500'
-                                    }`} />
-                                    <span className="font-mono text-xs font-bold text-white">
-                                      {slotItem.slotTime}
-                                    </span>
-                                  </div>
-
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
-                                      isRes
-                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                        : isPend
-                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                                        : isBlk
-                                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
-                                        : 'bg-slate-900 text-slate-400 border-slate-800'
-                                    }`}
-                                  >
-                                    {slotItem.statusLabel}
+                                <div className="flex items-center justify-between gap-1 w-full">
+                                  <span className="font-mono text-[11px] font-black text-white tracking-tight">
+                                    {slotItem.shortTime}
                                   </span>
+                                  <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
                                 </div>
 
-                                {/* Content Details */}
-                                {b && (
-                                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-900/80 flex-wrap text-xs">
-                                    <div className="min-w-0">
-                                      <div className="font-extrabold text-slate-200 truncate flex items-center gap-1.5">
-                                        <User className="w-3 h-3 text-slate-400 shrink-0" />
-                                        <span className="truncate">{b.userName || b.user?.name || 'Customer'}</span>
-                                      </div>
-                                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                                        Ref: {b.bookingReference || b.id?.substring(0, 8)} • ₱{b.totalCost?.toLocaleString() || 0}
-                                      </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                                      {isPend && onApproveBooking && (
-                                        <button
-                                          type="button"
-                                          onClick={() => onApproveBooking(b.id)}
-                                          className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-[10px] font-black transition-colors cursor-pointer active:scale-95 flex items-center gap-1"
-                                        >
-                                          <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                          <span>Approve</span>
-                                        </button>
-                                      )}
-                                      {b.receiptImageUrl && (
-                                        <button
-                                          type="button"
-                                          onClick={() => onViewReceipt(b)}
-                                          className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold transition-colors cursor-pointer active:scale-95 flex items-center gap-1"
-                                        >
-                                          <Eye className="w-2.5 h-2.5 text-brand-lime" />
-                                          <span>Proof</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                {op && (
-                                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-900/80 flex-wrap text-xs">
-                                    <div className="min-w-0">
-                                      <div className="font-extrabold text-cyan-200 truncate flex items-center gap-1.5">
-                                        <Trophy className="w-3 h-3 text-cyan-400 shrink-0" />
-                                        <span className="truncate">{op.title}</span>
-                                      </div>
-                                      <div className="text-[11px] text-slate-400 mt-0.5">
-                                        {op.category || 'Open Play'} • {op.startTime} - {op.endTime}
-                                      </div>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        window.location.href = `/?eventId=${op.id}`;
-                                      }}
-                                      className="px-2 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/60 text-[10px] font-bold transition-colors cursor-pointer shrink-0"
-                                    >
-                                      View Roster
-                                    </button>
-                                  </div>
-                                )}
-
-                                {isAvail && (
-                                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-900/60 flex-wrap">
-                                    <span className="text-[11px] text-slate-500 font-medium">
-                                      Free slot ready for reservation
-                                    </span>
-                                    {onOpenManualBookingModal && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          onOpenManualBookingModal({
-                                            courtId: effectiveTimelineCourtId,
-                                            date: selectedCalendarDate,
-                                            slot: slotItem.slotTime,
-                                          })
-                                        }
-                                        className="px-2.5 py-1 rounded-lg bg-brand-lime/15 hover:bg-brand-lime/25 text-brand-lime border border-brand-lime/30 text-[10px] font-black flex items-center gap-1 transition-colors cursor-pointer shrink-0"
-                                      >
-                                        <Plus className="w-3 h-3 stroke-[3]" />
-                                        <span>Book Slot</span>
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
+                                <div className={`text-[10px] font-bold truncate w-full ${
+                                  isRes
+                                    ? 'text-emerald-300'
+                                    : isPend
+                                    ? 'text-amber-300'
+                                    : isBlk
+                                    ? 'text-cyan-300'
+                                    : 'text-slate-500 group-hover:text-brand-lime'
+                                }`}>
+                                  {slotItem.primaryText}
+                                </div>
+                              </button>
                             );
-                          })
-                        )}
-                      </div>
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2061,6 +2012,252 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           </div>
         );
       })()}
+
+      {/* QUICK ACTION SLOT DETAIL MODAL */}
+      {activeSlotModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in"
+          onClick={() => setActiveSlotModal(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700/90 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl relative text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header: Slot Time & Status */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                    activeSlotModal.status === 'reserved'
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : activeSlotModal.status === 'pending'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      : activeSlotModal.status === 'blocked'
+                      ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                      : 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}
+                >
+                  {activeSlotModal.openPlayEvent ? (
+                    <Trophy className="w-4 h-4" />
+                  ) : (
+                    <Clock className="w-4 h-4" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-mono text-xs font-black text-white truncate">
+                    {activeSlotModal.slotTime}
+                  </div>
+                  <div className="text-[10px] text-slate-400 flex items-center gap-1 font-semibold truncate">
+                    <span>{formatNiceDate(selectedCalendarDate)}</span>
+                    <span>•</span>
+                    <span className="text-slate-300 truncate">
+                      {activeSlotModal.booking?.courtName ||
+                        (activeSlotModal.booking?.courtId
+                          ? courts.find((c: any) => c.id === activeSlotModal.booking?.courtId)?.name
+                          : '') ||
+                        activeSlotModal.openPlayEvent?.courtNames?.join(', ') ||
+                        'Pickleball Court'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSlotModal(null)}
+                className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Content for Booking */}
+            {activeSlotModal.booking && (() => {
+              const b: Booking = activeSlotModal.booking;
+              const isApproved = b.status === 'approved';
+              const isPending = b.status === 'pending';
+              const custName = b.userName || b.user?.name || 'Customer';
+              const custEmail = b.userEmail || b.user?.email || '';
+              const custPhone = b.userPhone || b.user?.phone || '';
+              const bCat = b.bookingCategory || (b as any).category;
+              const isBlockCategory = bCat === 'maintenance' || bCat === 'company_block';
+
+              return (
+                <div className="space-y-3.5 text-xs">
+                  {/* Status Banner */}
+                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-slate-400 font-semibold text-[11px]">Booking Status</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                        isApproved
+                          ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                          : isPending
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                          : isBlockCategory
+                          ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                          : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                      }`}
+                    >
+                      {isBlockCategory ? (bCat === 'maintenance' ? 'Maintenance' : 'Company Block') : (b.status || 'Reserved')}
+                    </span>
+                  </div>
+
+                  {/* Customer Information */}
+                  <div className="space-y-2 p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-400 font-semibold text-[11px]">Player / Customer</span>
+                      <span className="font-extrabold text-white text-[12px] truncate max-w-[170px] text-right">
+                        {custName}
+                      </span>
+                    </div>
+
+                    {custEmail && (
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-[11px]">
+                        <span className="text-slate-400 flex items-center gap-1">
+                          <Mail className="w-3 h-3 text-slate-500" />
+                          <span>Email</span>
+                        </span>
+                        <a
+                          href={`mailto:${custEmail}`}
+                          className="text-slate-300 hover:text-brand-lime font-medium truncate max-w-[170px] text-right"
+                        >
+                          {custEmail}
+                        </a>
+                      </div>
+                    )}
+
+                    {custPhone && (
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-[11px]">
+                        <span className="text-slate-400 flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-slate-500" />
+                          <span>Phone</span>
+                        </span>
+                        <a
+                          href={`tel:${custPhone}`}
+                          className="text-brand-lime hover:underline font-mono font-bold"
+                        >
+                          {custPhone}
+                        </a>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-[11px]">
+                      <span className="text-slate-400">Reference No.</span>
+                      <span className="font-mono text-slate-200 font-bold">
+                        {b.bookingReference || b.id || 'N/A'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-900 text-[11px]">
+                      <span className="text-slate-400">Total Amount</span>
+                      <span className="font-mono text-white font-black text-sm">
+                        ₱{b.totalCost?.toLocaleString() || 0}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="space-y-2 pt-1">
+                    {isPending && onApproveBooking && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onApproveBooking(b.id);
+                          setActiveSlotModal(null);
+                        }}
+                        className="w-full py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-98 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4 stroke-[3]" />
+                        <span>Approve Reservation</span>
+                      </button>
+                    )}
+
+                    {b.receiptImageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onViewReceipt(b);
+                          setActiveSlotModal(null);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-700 transition-all cursor-pointer active:scale-98"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-brand-lime" />
+                        <span>View Proof of Payment</span>
+                      </button>
+                    )}
+
+                    {_userPermissions?.canManageBookings && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleOpenEditManualModal(b);
+                          setActiveSlotModal(null);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-slate-950 hover:bg-slate-800 text-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 border border-amber-500/30 transition-all cursor-pointer active:scale-98"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit Reservation</span>
+                      </button>
+                    )}
+
+                    {_onOpenCancelModal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          _onOpenCancelModal(b);
+                          setActiveSlotModal(null);
+                        }}
+                        className="w-full py-1 text-rose-400 hover:text-rose-300 text-[11px] font-semibold text-center transition-colors cursor-pointer"
+                      >
+                        Cancel / Reject Booking
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Content for Open Play Event */}
+            {activeSlotModal.openPlayEvent && (() => {
+              const op: OpenPlayEvent = activeSlotModal.openPlayEvent;
+              return (
+                <div className="space-y-3.5 text-xs">
+                  <div className="p-3 rounded-2xl bg-cyan-950/30 border border-cyan-500/30 space-y-2">
+                    <div className="font-extrabold text-cyan-200 text-sm">
+                      {op.title}
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      Category: <strong className="text-white">{op.category || 'Open Play'}</strong>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-cyan-900/60">
+                      <span className="text-slate-400">Scheduled Time</span>
+                      <span className="font-mono text-cyan-300 font-bold">
+                        {op.startTime} - {op.endTime}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-cyan-900/60">
+                      <span className="text-slate-400">Registration Fee</span>
+                      <span className="font-mono text-brand-lime font-black">
+                        ₱{op.registrationFee || 0} / player
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = `/?eventId=${op.id}`;
+                    }}
+                    className="w-full py-2.5 px-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-98 cursor-pointer"
+                  >
+                    <Trophy className="w-4 h-4 text-slate-950" />
+                    <span>View Open Play Roster</span>
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* FILTER & TIMELINE SETTINGS MODAL */}
       {isFilterModalOpen && (
