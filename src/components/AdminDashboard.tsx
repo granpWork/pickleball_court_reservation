@@ -618,7 +618,25 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   });
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isManualBookingModalOpen, setIsManualBookingModalOpen] = useState(false);
+  const [manualBookingInitialParams, setManualBookingInitialParams] = useState<{
+    courtId?: string;
+    date?: string;
+    slots?: string[];
+  } | null>(null);
   const [isSubmittingManualBooking, setIsSubmittingManualBooking] = useState(false);
+
+  const handleOpenManualBookingWithParams = (params?: { courtId?: string; date?: string; slot?: string; slots?: string[] }) => {
+    if (params) {
+      setManualBookingInitialParams({
+        courtId: params.courtId,
+        date: params.date,
+        slots: params.slots || (params.slot ? [params.slot] : undefined),
+      });
+    } else {
+      setManualBookingInitialParams(null);
+    }
+    setIsManualBookingModalOpen(true);
+  };
   
   // Checkout Settings states
   interface GcashAccount {
@@ -7206,7 +7224,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               userPermissions={getUserEffectivePermissions(user as any)}
               currentAdminEmail={user?.email || currentUserEmail}
               currentAdminName={user?.name || adminDisplayName || 'Admin'}
-              onOpenManualBookingModal={() => setIsManualBookingModalOpen(true)}
+              onOpenManualBookingModal={handleOpenManualBookingWithParams}
               onUpdateManualBooking={handleUpdateManualBookingDetails}
               onRefundBooking={(booking) => {
                 setRefundModalBooking(booking);
@@ -13597,12 +13615,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       {/* Manual Booking Modal for Client Admin & Manager */}
       <AdminManualBookingModal
         isOpen={isManualBookingModalOpen}
-        onClose={() => setIsManualBookingModalOpen(false)}
+        onClose={() => {
+          setIsManualBookingModalOpen(false);
+          setManualBookingInitialParams(null);
+        }}
         courts={isSuperAdmin ? courts : availableAdminCourts}
         existingBookings={bookings}
         openPlayEvents={openPlayEvents}
         onSaveBooking={handleCreateManualBooking}
         isSubmitting={isSubmittingManualBooking}
+        initialCourtId={manualBookingInitialParams?.courtId}
+        initialDate={manualBookingInitialParams?.date}
+        initialSlots={manualBookingInitialParams?.slots}
       />
 
       {/* Manual Open Play Booking Modal */}

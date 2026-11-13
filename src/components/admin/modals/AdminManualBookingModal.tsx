@@ -13,6 +13,9 @@ interface AdminManualBookingModalProps {
   onSaveBooking: (booking: Partial<Booking>) => Promise<void> | void;
   isSubmitting?: boolean;
   isEmbedded?: boolean;
+  initialCourtId?: string;
+  initialDate?: string;
+  initialSlots?: string[];
 }
 
 export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = ({
@@ -24,6 +27,9 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
   onSaveBooking,
   isSubmitting = false,
   isEmbedded = false,
+  initialCourtId,
+  initialDate,
+  initialSlots,
 }) => {
   const getTodayLocalStr = () => {
     const d = new Date();
@@ -117,11 +123,20 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
 
   React.useEffect(() => {
     if ((isOpen || isEmbedded) && courts.length > 0) {
-      if (!selectedCourtId || !courts.some((c) => c.id === selectedCourtId)) {
+      if (initialCourtId && courts.some((c) => c.id === initialCourtId)) {
+        setSelectedCourtId(initialCourtId);
+      } else if (!selectedCourtId || !courts.some((c) => c.id === selectedCourtId)) {
         setSelectedCourtId(courts[0].id);
       }
+      if (initialDate) {
+        setSelectedDate(initialDate);
+      }
+      if (initialSlots && initialSlots.length > 0) {
+        setSelectedSlots(initialSlots);
+        setCurrentStep(2);
+      }
     }
-  }, [isOpen, isEmbedded, courts, selectedCourtId]);
+  }, [isOpen, isEmbedded, courts, initialCourtId, initialDate, initialSlots]);
 
   const selectedCourt = useMemo(() => {
     return courts.find((c) => c.id === selectedCourtId) || courts[0];

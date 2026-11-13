@@ -24,10 +24,12 @@ import {
   Phone,
   Copy,
   Check,
+  Tag,
+  LayoutDashboard,
 } from 'lucide-react';
-import { type Booking, type UserPermissions, type BookingCategory, type AdminBookingsSubTab, BOOKING_CATEGORIES, getBookingScheduleState } from '../adminTypes';
+import { type Booking, type UserPermissions, type BookingCategory, type AdminBookingsSubTab, BOOKING_CATEGORIES, getBookingScheduleState, SLOTS } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
-import { Tag } from 'lucide-react';
+import { getOpenPlayTimeSlots } from '../../../utils/timeSlotUtils';
 
 interface AdminBookingsTabProps {
   bookingsSubTab?: AdminBookingsSubTab;
@@ -46,7 +48,7 @@ interface AdminBookingsTabProps {
   onViewReceipt: (booking: Booking) => void;
   onDeleteBooking?: (bookingId: string) => void;
   onRefundBooking?: (booking: Booking) => void;
-  onOpenManualBookingModal?: () => void;
+  onOpenManualBookingModal?: (params?: { courtId?: string; date?: string; slot?: string; slots?: string[] }) => void;
   onUpdateManualBooking?: (
     bookingOrId: Booking | string,
     updatedData: { userName: string; userEmail: string; userPhone: string; paymentMethod: string; totalCost?: number }
@@ -105,6 +107,9 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [selectedCalendarCourtId, setSelectedCalendarCourtId] = useState<string>('all');
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(getTodayString());
+  const [calendarDayViewMode, setCalendarDayViewMode] = useState<'list' | 'timeline'>('list');
+  const [timeGridCourtId, setTimeGridCourtId] = useState<string>('');
+  const [timeGridFilter, setTimeGridFilter] = useState<'all' | 'reserved' | 'pending' | 'blocked' | 'available'>('all');
   const agendaRef = useRef<HTMLDivElement | null>(null);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
@@ -524,7 +529,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           {onOpenManualBookingModal && (
             <button
               type="button"
-              onClick={onOpenManualBookingModal}
+              onClick={() => onOpenManualBookingModal()}
               className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-brand-lime/10 shrink-0 active:scale-95"
               title="Create a manual / walk-in reservation"
             >
@@ -1137,6 +1142,106 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
         );
         const selectedCourtObj = courts.find((c) => c.id === selectedCalendarCourtId);
 
+        // Effective court for the hourly time grid
+        const effectiveTimelineCourt = (() => {
+          if (selectedCalendarCourtId !== 'all') {
+            return courts.find((c) => c.id === selectedCalendarCourtId) || courts[0];
+          }
+          if (timeGridCourtId && courts.some((c) => c.id === timeGridCourtId)) {
+            return courts.find((c) => c.id === timeGridCourtId) || courts[0];
+          }
+          return courts[0] || null;
+        })();
+        const effectiveTimelineCourtId = effectiveTimelineCourt?.id || '';
+
+        // Compute hourly timeline slot breakdown for selected court on selected date
+        interface HourlyTimelineSlot {
+          slotTime: string;
+          startHour: number;
+          status: 'reserved' | 'pending' | 'blocked' | 'available';
+          statusLabel: string;
+          booking?: Booking;
+          openPlayEvent?: OpenPlayEvent;
+        }
+
+        const timelineSlots: HourlyTimelineSlot[] = SLOTS.map((s) => {
+          const matchingBooking = bookings.find((b) => {
+            if (b.status === 'cancelled') return false;
+            if (normalizeDateStr(b.date) !== normalizeDateStr(selectedCalendarDate)) return false;
+            if (effectiveTimelineCourtId && b.courtId !== effectiveTimelineCourtId) return false;
+            return b.slots && b.slots.includes(s.time);
+          });
+
+          if (matchingBooking) {
+            const bCat = matchingBooking.bookingCategory || (matchingBooking as any).category;
+            const isBlockCategory = bCat === 'maintenance' || bCat === 'company_block';
+            if (isBlockCategory) {
+              return {
+                slotTime: s.time,
+                startHour: s.startHour,
+                status: 'blocked',
+                statusLabel: bCat === 'maintenance' ? 'Maintenance' : 'Company Block',
+                booking: matchingBooking,
+              };
+            }
+            if (matchingBooking.status === 'approved') {
+              return {
+                slotTime: s.time,
+                startHour: s.startHour,
+                status: 'reserved',
+                statusLabel: 'Reserved',
+                booking: matchingBooking,
+              };
+            }
+            return {
+              slotTime: s.time,
+              startHour: s.startHour,
+              status: 'pending',
+              statusLabel: 'Pending',
+              booking: matchingBooking,
+            };
+          }
+
+          const matchingOpenPlay = (openPlayEvents || []).find((ev) => {
+            if (ev.status === 'cancelled') return false;
+            const evDate = ev.eventDate || (ev as any).date;
+            if (normalizeDateStr(evDate) !== normalizeDateStr(selectedCalendarDate)) return false;
+            if (effectiveTimelineCourtId) {
+              const courtMatches = !ev.courtIds || ev.courtIds.length === 0 || ev.courtIds.includes(effectiveTimelineCourtId) || (ev as any).courtId === effectiveTimelineCourtId;
+              if (!courtMatches) return false;
+            }
+            const opSlots = getOpenPlayTimeSlots(ev.startTime, ev.endTime);
+            return opSlots.includes(s.time);
+          });
+
+          if (matchingOpenPlay) {
+            return {
+              slotTime: s.time,
+              startHour: s.startHour,
+              status: 'blocked',
+              statusLabel: 'Open Play',
+              openPlayEvent: matchingOpenPlay,
+            };
+          }
+
+          return {
+            slotTime: s.time,
+            startHour: s.startHour,
+            status: 'available',
+            statusLabel: 'Available',
+          };
+        });
+
+        const timelineReservedCount = timelineSlots.filter((s) => s.status === 'reserved').length;
+        const timelinePendingCount = timelineSlots.filter((s) => s.status === 'pending').length;
+        const timelineBlockedCount = timelineSlots.filter((s) => s.status === 'blocked').length;
+        const timelineAvailableCount = timelineSlots.filter((s) => s.status === 'available').length;
+
+        const filteredTimelineSlots = timelineSlots.filter((s) => {
+          if (timeGridFilter === 'all') return true;
+          return s.status === timeGridFilter;
+        });
+
         return (
           /* 2-Column Calendar & Scheduled Reservations View */
           <div className="glass-panel border border-slate-800/90 rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl bg-slate-950/80 backdrop-blur-xl transition-all animate-fade-in">
@@ -1183,7 +1288,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                 {onOpenManualBookingModal && (
                   <button
                     type="button"
-                    onClick={onOpenManualBookingModal}
+                    onClick={() => onOpenManualBookingModal()}
                     className="hidden sm:flex px-4 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-black text-xs hover:bg-[#a6e224] hover:shadow-lg hover:shadow-brand-lime/20 transition-all cursor-pointer items-center justify-center gap-2 shrink-0 shadow-md active:scale-95"
                   >
                     <Plus className="w-4 h-4 text-dark-bg stroke-[3]" />
@@ -1391,11 +1496,40 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                         <ChevronRight className="w-3 h-3" />
                       </button>
                     </div>
+
+                    {/* Sub-view Switcher: List Cards vs Hourly Time Grid */}
+                    <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setCalendarDayViewMode('list')}
+                        className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          calendarDayViewMode === 'list'
+                            ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <LayoutDashboard className="w-3.5 h-3.5" />
+                        <span>Cards ({selectedDayBookings.length + selectedDayOpenPlay.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCalendarDayViewMode('timeline')}
+                        className={`flex-1 py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          calendarDayViewMode === 'timeline'
+                            ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Time Grid ({timelineReservedCount + timelinePendingCount + timelineBlockedCount})</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Bookings & Open Play List for Selected Date */}
-                  {selectedDayBookings.length > 0 || selectedDayOpenPlay.length > 0 ? (
-                    <div className="space-y-3.5 lg:max-h-[520px] lg:overflow-y-auto pr-1">
+                  {calendarDayViewMode === 'list' ? (
+                    /* Bookings & Open Play List for Selected Date */
+                    selectedDayBookings.length > 0 || selectedDayOpenPlay.length > 0 ? (
+                      <div className="space-y-3.5 lg:max-h-[520px] lg:overflow-y-auto pr-1">
                       {/* 1. Open Play Events Scheduled for Selected Date */}
                       {selectedDayOpenPlay.map((ev, index) => (
                         <div
@@ -1662,13 +1796,263 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                       {onOpenManualBookingModal && (
                         <button
                           type="button"
-                          onClick={onOpenManualBookingModal}
+                          onClick={() => onOpenManualBookingModal()}
                           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 border border-slate-700 text-brand-lime font-extrabold text-xs hover:bg-slate-700 transition-all cursor-pointer shadow-sm active:scale-95"
                         >
                           <Plus className="w-3.5 h-3.5 stroke-[3]" />
                           <span>Create Reservation</span>
                         </button>
                       )}
+                    </div>
+                  )
+                  ) : (
+                    /* NEW: Hourly Time Grid View for Selected Date */
+                    <div className="space-y-3">
+                      {/* Court Tabs (if all courts view and multiple courts) */}
+                      {selectedCalendarCourtId === 'all' && courts.length > 0 ? (
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Select Court:</div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {courts.map((c) => {
+                              const isCourtActive = effectiveTimelineCourtId === c.id;
+                              return (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  onClick={() => setTimeGridCourtId(c.id)}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                                    isCourtActive
+                                      ? 'bg-brand-lime text-dark-bg font-extrabold shadow-sm'
+                                      : 'bg-slate-950/80 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900'
+                                  }`}
+                                >
+                                  🏟️ {c.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-xs text-slate-300 font-bold bg-slate-950/60 border border-slate-800/80 px-3 py-1.5 rounded-xl">
+                          <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                          <span>Schedule for: <strong className="text-white">{effectiveTimelineCourt?.name || 'Pickleball Court'}</strong></span>
+                        </div>
+                      )}
+
+                      {/* Status Filter Chips - Responsive on Mobile, Tablet & Desktop */}
+                      <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setTimeGridFilter('all')}
+                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            timeGridFilter === 'all'
+                              ? 'bg-slate-200 text-slate-950 font-black shadow-sm'
+                              : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                          }`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                          <span>All ({timelineSlots.length})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTimeGridFilter('reserved')}
+                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            timeGridFilter === 'reserved'
+                              ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                              : 'bg-slate-950/80 border border-slate-800 text-emerald-400 hover:text-emerald-300 hover:border-emerald-500/40'
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                          <span>Reserved ({timelineReservedCount})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTimeGridFilter('pending')}
+                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            timeGridFilter === 'pending'
+                              ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                              : 'bg-slate-950/80 border border-slate-800 text-amber-400 hover:text-amber-300 hover:border-amber-500/40'
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                          <span>Pending ({timelinePendingCount})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTimeGridFilter('blocked')}
+                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            timeGridFilter === 'blocked'
+                              ? 'bg-cyan-500 text-slate-950 font-black shadow-sm'
+                              : 'bg-slate-950/80 border border-slate-800 text-cyan-400 hover:text-cyan-300 hover:border-cyan-500/40'
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0"></span>
+                          <span>Blocked ({timelineBlockedCount})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTimeGridFilter('available')}
+                          className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                            timeGridFilter === 'available'
+                              ? 'bg-slate-700 text-white font-black shadow-sm'
+                              : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-slate-300 hover:border-slate-700'
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
+                          <span>Available ({timelineAvailableCount})</span>
+                        </button>
+                      </div>
+
+                      {/* Hourly Slot Cards List */}
+                      <div className="space-y-2.5 lg:max-h-[500px] lg:overflow-y-auto pr-1 custom-scrollbar">
+                        {filteredTimelineSlots.length === 0 ? (
+                          <div className="py-8 text-center space-y-2 text-slate-500 bg-slate-950/40 rounded-2xl border border-slate-800/40 p-4">
+                            <Clock className="w-7 h-7 text-slate-700 mx-auto" />
+                            <p className="text-xs font-bold text-slate-400">No slots match '{timeGridFilter}' filter.</p>
+                            <button
+                              type="button"
+                              onClick={() => setTimeGridFilter('all')}
+                              className="text-xs text-brand-lime font-bold hover:underline cursor-pointer"
+                            >
+                              Reset Filter
+                            </button>
+                          </div>
+                        ) : (
+                          filteredTimelineSlots.map((slotItem, sIdx) => {
+                            const isAvail = slotItem.status === 'available';
+                            const isRes = slotItem.status === 'reserved';
+                            const isPend = slotItem.status === 'pending';
+                            const isBlk = slotItem.status === 'blocked';
+                            const b = slotItem.booking;
+                            const op = slotItem.openPlayEvent;
+
+                            return (
+                              <div
+                                key={`${slotItem.slotTime}-${sIdx}`}
+                                className={`p-3 rounded-2xl transition-all space-y-2 ${
+                                  isRes
+                                    ? 'bg-slate-950/90 border border-emerald-500/30 border-l-4 border-l-emerald-500 shadow-sm'
+                                    : isPend
+                                    ? 'bg-slate-950/90 border border-amber-500/30 border-l-4 border-l-amber-500 shadow-sm'
+                                    : isBlk
+                                    ? 'bg-slate-950/90 border border-cyan-500/30 border-l-4 border-l-cyan-400 shadow-sm'
+                                    : 'bg-slate-950/40 border border-dashed border-slate-800/90 hover:border-slate-700'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <Clock className={`w-3.5 h-3.5 ${
+                                      isRes ? 'text-emerald-400' : isPend ? 'text-amber-400' : isBlk ? 'text-cyan-400' : 'text-slate-500'
+                                    }`} />
+                                    <span className="font-mono text-xs font-bold text-white">
+                                      {slotItem.slotTime}
+                                    </span>
+                                  </div>
+
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
+                                      isRes
+                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                        : isPend
+                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                        : isBlk
+                                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30'
+                                        : 'bg-slate-900 text-slate-400 border-slate-800'
+                                    }`}
+                                  >
+                                    {slotItem.statusLabel}
+                                  </span>
+                                </div>
+
+                                {/* Content Details */}
+                                {b && (
+                                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-900/80 flex-wrap text-xs">
+                                    <div className="min-w-0">
+                                      <div className="font-extrabold text-slate-200 truncate flex items-center gap-1.5">
+                                        <User className="w-3 h-3 text-slate-400 shrink-0" />
+                                        <span className="truncate">{b.userName || b.user?.name || 'Customer'}</span>
+                                      </div>
+                                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                                        Ref: {b.bookingReference || b.id?.substring(0, 8)} • ₱{b.totalCost?.toLocaleString() || 0}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                                      {isPend && onApproveBooking && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onApproveBooking(b.id)}
+                                          className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-[10px] font-black transition-colors cursor-pointer active:scale-95 flex items-center gap-1"
+                                        >
+                                          <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                          <span>Approve</span>
+                                        </button>
+                                      )}
+                                      {b.receiptImageUrl && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onViewReceipt(b)}
+                                          className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-bold transition-colors cursor-pointer active:scale-95 flex items-center gap-1"
+                                        >
+                                          <Eye className="w-2.5 h-2.5 text-brand-lime" />
+                                          <span>Proof</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {op && (
+                                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-900/80 flex-wrap text-xs">
+                                    <div className="min-w-0">
+                                      <div className="font-extrabold text-cyan-200 truncate flex items-center gap-1.5">
+                                        <Trophy className="w-3 h-3 text-cyan-400 shrink-0" />
+                                        <span className="truncate">{op.title}</span>
+                                      </div>
+                                      <div className="text-[11px] text-slate-400 mt-0.5">
+                                        {op.category || 'Open Play'} • {op.startTime} - {op.endTime}
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        window.location.href = `/?eventId=${op.id}`;
+                                      }}
+                                      className="px-2 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-700/60 text-[10px] font-bold transition-colors cursor-pointer shrink-0"
+                                    >
+                                      View Roster
+                                    </button>
+                                  </div>
+                                )}
+
+                                {isAvail && (
+                                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-900/60 flex-wrap">
+                                    <span className="text-[11px] text-slate-500 font-medium">
+                                      Free slot ready for reservation
+                                    </span>
+                                    {onOpenManualBookingModal && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onOpenManualBookingModal({
+                                            courtId: effectiveTimelineCourtId,
+                                            date: selectedCalendarDate,
+                                            slot: slotItem.slotTime,
+                                          })
+                                        }
+                                        className="px-2.5 py-1 rounded-lg bg-brand-lime/15 hover:bg-brand-lime/25 text-brand-lime border border-brand-lime/30 text-[10px] font-black flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                                      >
+                                        <Plus className="w-3 h-3 stroke-[3]" />
+                                        <span>Book Slot</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
