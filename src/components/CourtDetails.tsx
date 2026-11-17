@@ -80,6 +80,16 @@ interface Court {
   operatingHours?: DailyOperatingHoursMap;
 }
 
+// In-memory availability cache (keyed by `${courtId}_${selectedDate}`) for instant 0ms date switching
+interface CachedAvailability {
+  approved: string[];
+  pending: string[];
+  conflicts: Record<string, { courtName: string }>;
+  openPlayBlocks: Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }>;
+  timestamp: number;
+}
+const courtAvailabilityCache = new Map<string, CachedAvailability>();
+
 interface CourtDetailsProps {
   courtId: string;
   initialSelectedDate?: string;
@@ -484,6 +494,8 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
       setApprovedSlotsForDate([]);
       setPendingSlotsForDate([]);
       setPlayerConflictsForDate({});
+      setOpenPlayBlockedSlots({});
+      setLoadingAvailability(false);
       return;
     }
 
@@ -537,183 +549,268 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
       return parseInt(trimmed, 10) || 0;
     };
 
-    const fetchBookingsForDate = async () => {
-      setLoadingAvailability(true);
-      const approved: string[] = [];
-      const pending: string[] = [];
-      const conflicts: Record<string, { courtName: string }> = {};
-      const openPlayBlocks: Record<string, { eventId: string; title: string; category: string; startTime: string; endTime: string }> = {};
-      const currentUserEmail = user?.email?.toLowerCase();
-      const currentUserUid = user?.uid;
+    const currentUserEmail = user?.email?.toLowerCase();
+    const currentUserUid = user?.uid;
+    const targetCourtId = String(court.id || '').trim();
+    const targetCourtName = String(court.name || '').trim().toLowerCase();
 
-      // Helper to process an Open Play event for slot blocking
-      const processOpenPlayEvent = (ev: any, docId: string) => {
-        if (!ev || ev.status === 'cancelled') return;
-        const evDate = ev.eventDate || ev.date;
-        if (!isSameDateStr(evDate, selectedDate)) return;
+    // Helper to process an Open Play event for slot blocking
+    const processOpenPlayEvent = (ev: any, docId: string, blocksObj: Record<string, any>) => {
+      if (!ev || ev.status === 'cancelled') return;
+      const evDate = ev.eventDate || ev.date;
+      if (!isSameDateStr(evDate, selectedDate)) return;
 
-        const isCourtMatch =
-          !ev.courtIds ||
-          !Array.isArray(ev.courtIds) ||
-          ev.courtIds.length === 0 ||
-          ev.courtIds.some((cid: any) => String(cid) === String(court.id)) ||
-          String(ev.courtId) === String(court.id) ||
-          (Array.isArray(ev.courtNames) && court.name && ev.courtNames.includes(court.name)) ||
-          (ev.companyId && court.companyId && String(ev.companyId) === String(court.companyId));
+      const isCourtMatch =
+        !ev.courtIds ||
+        !Array.isArray(ev.courtIds) ||
+        ev.courtIds.length === 0 ||
+        ev.courtIds.some((cid: any) => String(cid) === targetCourtId) ||
+        String(ev.courtId) === targetCourtId ||
+        (Array.isArray(ev.courtNames) && court.name && ev.courtNames.includes(court.name)) ||
+        (ev.companyId && court.companyId && String(ev.companyId) === String(court.companyId));
 
-        if (isCourtMatch) {
-          const startH = parseTimeHour(ev.startTime);
-          let endH = parseTimeHour(ev.endTime);
-          if (endH <= startH && (endH === 0 || endH <= 5)) {
-            endH = 24;
+      if (isCourtMatch) {
+        const startH = parseTimeHour(ev.startTime);
+        let endH = parseTimeHour(ev.endTime);
+        if (endH <= startH && (endH === 0 || endH <= 5)) {
+          endH = 24;
+        }
+
+        MASTER_SLOTS.forEach((s) => {
+          if (s.startHour >= startH && s.startHour < endH) {
+            blocksObj[s.time] = {
+              eventId: docId || ev.id,
+              title: ev.title || 'Open Play Session',
+              category: ev.category || 'Open Play',
+              startTime: ev.startTime || '13:00',
+              endTime: ev.endTime || '19:00',
+            };
           }
+        });
+      }
+    };
 
-          MASTER_SLOTS.forEach((s) => {
-            if (s.startHour >= startH && s.startHour < endH) {
-              openPlayBlocks[s.time] = {
-                eventId: docId || ev.id,
-                title: ev.title || 'Open Play Session',
-                category: ev.category || 'Open Play',
-                startTime: ev.startTime || '13:00',
-                endTime: ev.endTime || '19:00',
-              };
-            }
-          });
-        }
-      };
-
-      const processBookingItem = (data: any) => {
-        if (!data || data.status === 'cancelled' || data.status === 'rejected' || data.paymentStatus === 'cancelled' || data.paymentStatus === 'failed') {
-          return;
-        }
-
-        const bDate = data.date || data.eventDate || data.bookingDate;
-        if (!isSameDateStr(bDate, selectedDate)) {
-          return;
-        }
-
-        const slots = data.slots || data.timeSlots || (data.slot ? [data.slot] : []);
-        if (!Array.isArray(slots) || slots.length === 0) {
-          return;
-        }
-
-        const targetCourtId = String(court.id || '').trim();
-        const targetCourtName = String(court.name || '').trim().toLowerCase();
-
-        const dataCourtId = String(data.courtId || data.court_id || '').trim();
-        const dataCourtName = String(data.courtName || data.court_name || '').trim().toLowerCase();
-
-        const isTargetCourt =
-          (dataCourtId && targetCourtId && dataCourtId === targetCourtId) ||
-          (dataCourtName && targetCourtName && dataCourtName === targetCourtName) ||
-          (!dataCourtId && !dataCourtName && venueCourts.length <= 1);
-
-        if (isTargetCourt) {
-          const isApproved =
-            data.status === 'approved' ||
-            data.status === 'confirmed' ||
-            data.status === 'completed' ||
-            data.status === 'active' ||
-            data.paymentStatus === 'paid' ||
-            data.paymentStatus === 'approved';
-
-          if (isApproved) {
-            approved.push(...slots);
-          } else {
-            pending.push(...slots);
-          }
-        } else if (currentUserEmail || currentUserUid) {
-          const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
-          const bUid = data.userId || data.user?.uid;
-          const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
-          if (isSamePlayer) {
-            const conflictCourtName = data.courtName || data.ownerCompanyName || 'Another Venue';
-            slots.forEach((st: string) => {
-              conflicts[st] = { courtName: conflictCourtName };
-            });
-          }
-        }
-      };
-
-      if (isFirebaseConfigured && db) {
-        try {
-          const bookingsRef = collection(db, 'bookings');
-          const allSnap = await getDocs(bookingsRef);
-          allSnap.forEach((docSnap) => {
-            processBookingItem(docSnap.data());
-          });
-        } catch (err) {
-          console.error('Error fetching bookings:', err);
-        }
-
-        // Fetch Open Play from Firestore
-        try {
-          const opSnap = await getDocs(collection(db, 'openplay_events'));
-          opSnap.forEach((docSnap) => {
-            processOpenPlayEvent(docSnap.data(), docSnap.id);
-          });
-        } catch (e) {
-          console.warn('Error fetching Open Play events for court availability:', e);
-        }
+    const processBookingItem = (
+      data: any,
+      approvedList: string[],
+      pendingList: string[],
+      conflictsObj: Record<string, { courtName: string }>
+    ) => {
+      if (!data || data.status === 'cancelled' || data.status === 'rejected' || data.paymentStatus === 'cancelled' || data.paymentStatus === 'failed') {
+        return;
       }
 
-      // Merge LocalStorage bookings for instant offline and multi-tab sync
+      const bDate = data.date || data.eventDate || data.bookingDate;
+      if (!isSameDateStr(bDate, selectedDate)) {
+        return;
+      }
+
+      const slots = data.slots || data.timeSlots || (data.slot ? [data.slot] : []);
+      if (!Array.isArray(slots) || slots.length === 0) {
+        return;
+      }
+
+      const dataCourtId = String(data.courtId || data.court_id || '').trim();
+      const dataCourtName = String(data.courtName || data.court_name || '').trim().toLowerCase();
+
+      const isTargetCourt =
+        (dataCourtId && targetCourtId && dataCourtId === targetCourtId) ||
+        (dataCourtName && targetCourtName && dataCourtName === targetCourtName) ||
+        (!dataCourtId && !dataCourtName && venueCourts.length <= 1);
+
+      if (isTargetCourt) {
+        const isApproved =
+          data.status === 'approved' ||
+          data.status === 'confirmed' ||
+          data.status === 'completed' ||
+          data.status === 'active' ||
+          data.paymentStatus === 'paid' ||
+          data.paymentStatus === 'approved';
+
+        if (isApproved) {
+          approvedList.push(...slots);
+        } else {
+          pendingList.push(...slots);
+        }
+      } else if (currentUserEmail || currentUserUid) {
+        const bEmail = data.userEmail?.toLowerCase() || data.user?.email?.toLowerCase();
+        const bUid = data.userId || data.user?.uid;
+        const isSamePlayer = (currentUserEmail && bEmail === currentUserEmail) || (currentUserUid && bUid === currentUserUid);
+        if (isSamePlayer) {
+          const conflictCourtName = data.courtName || data.ownerCompanyName || 'Another Venue';
+          slots.forEach((st: string) => {
+            conflictsObj[st] = { courtName: conflictCourtName };
+          });
+        }
+      }
+    };
+
+    const cacheKey = `${court.id}_${selectedDate}`;
+    const cached = courtAvailabilityCache.get(cacheKey);
+
+    // 1. Instant Cache Hydration (0ms - zero delay!)
+    let hasImmediateData = false;
+    if (cached && Date.now() - cached.timestamp < 180000) {
+      setApprovedSlotsForDate(cached.approved);
+      setPendingSlotsForDate(cached.pending);
+      setPlayerConflictsForDate(cached.conflicts);
+      setOpenPlayBlockedSlots(cached.openPlayBlocks);
+      setLoadingAvailability(false);
+      hasImmediateData = true;
+    } else {
+      // Check localStorage for offline/cached bookings
+      const localApproved: string[] = [];
+      const localPending: string[] = [];
+      const localConflicts: Record<string, { courtName: string }> = {};
+      const localBlocks: Record<string, any> = {};
+
       try {
         const bookingsStr = localStorage.getItem('picklepoint_bookings');
         const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
         if (Array.isArray(localBookings)) {
-          localBookings.forEach((b: any) => {
-            processBookingItem(b);
-          });
-        }
-      } catch (err) {
-        console.error('Error loading local bookings fallback:', err);
-      }
-
-      // Merge LocalStorage / SessionStorage Open Play events
-      try {
-        const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-        if (opStr) {
-          const localEvents = JSON.parse(opStr);
-          if (Array.isArray(localEvents)) {
-            localEvents.forEach((ev: any) => {
-              processOpenPlayEvent(ev, ev.id);
-            });
-          }
+          localBookings.forEach((b: any) => processBookingItem(b, localApproved, localPending, localConflicts));
         }
       } catch (e) {}
-      
-      // Ensure unique lists
-      const uniqueApproved = [...new Set(approved)];
-      const uniquePending = [...new Set(pending)].filter((st) => !uniqueApproved.includes(st));
+
+      try {
+        const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+        const localEvents = opStr ? JSON.parse(opStr) : [];
+        if (Array.isArray(localEvents)) {
+          localEvents.forEach((ev: any) => processOpenPlayEvent(ev, ev.id, localBlocks));
+        }
+      } catch (e) {}
+
+      const uniqueApproved = [...new Set(localApproved)];
+      const uniquePending = [...new Set(localPending)].filter((st) => !uniqueApproved.includes(st));
+
+      if (uniqueApproved.length > 0 || uniquePending.length > 0 || Object.keys(localBlocks).length > 0) {
+        setApprovedSlotsForDate(uniqueApproved);
+        setPendingSlotsForDate(uniquePending);
+        setPlayerConflictsForDate(localConflicts);
+        setOpenPlayBlockedSlots(localBlocks);
+        setLoadingAvailability(false);
+        hasImmediateData = true;
+      }
+    }
+
+    if (!hasImmediateData) {
+      setLoadingAvailability(true);
+    }
+
+    // 2. Fast Targeted Parallel Query to Firestore (~100ms instead of 3000ms+)
+    const fetchFreshAvailability = async () => {
+      const freshApproved: string[] = [];
+      const freshPending: string[] = [];
+      const freshConflicts: Record<string, { courtName: string }> = {};
+      const freshBlocks: Record<string, any> = {};
+
+      if (isFirebaseConfigured && db) {
+        try {
+          // Parallel targeted query: only fetch bookings for the specific date!
+          const qBookings = query(collection(db, 'bookings'), where('date', '==', selectedDate));
+          const qOpenPlay = collection(db, 'openplay_events');
+
+          const [bookingsSnapResult, openPlaySnapResult] = await Promise.allSettled([
+            getDocs(qBookings),
+            getDocs(qOpenPlay),
+          ]);
+
+          if (bookingsSnapResult.status === 'fulfilled' && bookingsSnapResult.value) {
+            bookingsSnapResult.value.forEach((docSnap) => {
+              processBookingItem(docSnap.data(), freshApproved, freshPending, freshConflicts);
+            });
+          }
+
+          if (openPlaySnapResult.status === 'fulfilled' && openPlaySnapResult.value) {
+            openPlaySnapResult.value.forEach((docSnap) => {
+              processOpenPlayEvent(docSnap.data(), docSnap.id, freshBlocks);
+            });
+          }
+        } catch (err) {
+          console.warn('Error fetching fresh bookings for date:', err);
+        }
+      }
+
+      // Also merge any local storage bookings
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings');
+        const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
+        if (Array.isArray(localBookings)) {
+          localBookings.forEach((b: any) => processBookingItem(b, freshApproved, freshPending, freshConflicts));
+        }
+      } catch (e) {}
+
+      try {
+        const opStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+        const localEvents = opStr ? JSON.parse(opStr) : [];
+        if (Array.isArray(localEvents)) {
+          localEvents.forEach((ev: any) => processOpenPlayEvent(ev, ev.id, freshBlocks));
+        }
+      } catch (e) {}
+
+      const uniqueApproved = [...new Set(freshApproved)];
+      const uniquePending = [...new Set(freshPending)].filter((st) => !uniqueApproved.includes(st));
+
+      // Save to in-memory cache
+      courtAvailabilityCache.set(cacheKey, {
+        approved: uniqueApproved,
+        pending: uniquePending,
+        conflicts: freshConflicts,
+        openPlayBlocks: freshBlocks,
+        timestamp: Date.now(),
+      });
+
       setApprovedSlotsForDate(uniqueApproved);
       setPendingSlotsForDate(uniquePending);
-      setPlayerConflictsForDate(conflicts);
-      setOpenPlayBlockedSlots(openPlayBlocks);
+      setPlayerConflictsForDate(freshConflicts);
+      setOpenPlayBlockedSlots(freshBlocks);
       setLoadingAvailability(false);
     };
 
-    fetchBookingsForDate();
+    fetchFreshAvailability();
 
-    // Listen to local window events for instant UI updates
-    const handleLocalBookingUpdate = () => {
-      fetchBookingsForDate();
-    };
-    window.addEventListener('storage', handleLocalBookingUpdate);
-    window.addEventListener('picklepoint_booking_added', handleLocalBookingUpdate);
-
-    // Set up real-time Firestore listener for live bookings updates
+    // 3. Real-time Firestore snapshot for selectedDate only (no re-fetching loop)
     let unsubscribeFirebase: (() => void) | undefined;
     if (isFirebaseConfigured && db) {
       try {
-        const bookingsRef = collection(db, 'bookings');
-        unsubscribeFirebase = onSnapshot(bookingsRef, () => {
-          fetchBookingsForDate();
+        const bookingsDateQ = query(collection(db, 'bookings'), where('date', '==', selectedDate));
+        unsubscribeFirebase = onSnapshot(bookingsDateQ, (snapshot) => {
+          const liveApproved: string[] = [];
+          const livePending: string[] = [];
+          const liveConflicts: Record<string, { courtName: string }> = {};
+
+          snapshot.forEach((docSnap) => {
+            processBookingItem(docSnap.data(), liveApproved, livePending, liveConflicts);
+          });
+
+          // Merge local bookings
+          try {
+            const bookingsStr = localStorage.getItem('picklepoint_bookings');
+            const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
+            if (Array.isArray(localBookings)) {
+              localBookings.forEach((b: any) => processBookingItem(b, liveApproved, livePending, liveConflicts));
+            }
+          } catch (e) {}
+
+          const uniqueApproved = [...new Set(liveApproved)];
+          const uniquePending = [...new Set(livePending)].filter((st) => !uniqueApproved.includes(st));
+
+          setApprovedSlotsForDate(uniqueApproved);
+          setPendingSlotsForDate(uniquePending);
+          setPlayerConflictsForDate(liveConflicts);
+        }, (err) => {
+          console.warn('Real-time bookings snapshot error:', err);
         });
       } catch (err) {
-        console.warn('Real-time bookings snapshot subscription error:', err);
+        console.warn('Real-time subscription error:', err);
       }
     }
+
+    const handleLocalBookingUpdate = () => {
+      fetchFreshAvailability();
+    };
+    window.addEventListener('storage', handleLocalBookingUpdate);
+    window.addEventListener('picklepoint_booking_added', handleLocalBookingUpdate);
 
     return () => {
       window.removeEventListener('storage', handleLocalBookingUpdate);
