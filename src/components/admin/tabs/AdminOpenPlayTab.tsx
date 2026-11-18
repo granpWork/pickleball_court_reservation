@@ -436,6 +436,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
       ) : selectedEventForRegs ? (
         <AdminOpenPlayEventDetails
           event={selectedEventForRegs}
+          allEvents={events}
           registrations={openPlayRegistrations}
           onBack={() => handleSelectEvent(null)}
           onOpenEditModal={onOpenEditModal}
@@ -450,6 +451,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           onOpenQrModal={handleOpenQrForEvent}
           onOpenJsonModal={handleOpenJsonForEvent}
           onOpenMatchManagement={handleOpenMatchManagement}
+          onRefreshEvents={onRefreshEvents}
           formatEventDateLong={formatEventDateLong}
           formatTime12h={formatTime12h}
         />

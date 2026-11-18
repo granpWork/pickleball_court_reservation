@@ -1824,104 +1824,147 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   ) : (
                     /* NEW: Minimalist One-View Time Grid for Selected Date */
                     <div className="space-y-2.5">
-                      {/* Ultra-compact Single Line Toolbar: Courts (if all) & Minimal Dot Filters */}
-                      <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-slate-800/80">
-                        {/* Left: Court Selector or Court Name */}
-                        {selectedCalendarCourtId === 'all' && courts.length > 0 ? (
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {courts.map((c) => {
-                              const isCourtActive = effectiveTimelineCourtId === c.id;
-                              return (
-                                <button
-                                  key={c.id}
-                                  type="button"
-                                  onClick={() => setTimeGridCourtId(c.id)}
-                                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer ${
-                                    isCourtActive
-                                      ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
-                                      : 'bg-slate-950/80 border border-slate-800 text-slate-400 hover:text-white'
-                                  }`}
-                                >
-                                  {c.name}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
-                            <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                            <span className="truncate max-w-[130px] sm:max-w-[180px] font-extrabold text-white">
-                              {effectiveTimelineCourt?.name || 'Pickleball Court'}
-                            </span>
-                          </div>
-                        )}
+                      {/* Responsive Filter & Court Toolbar (Mobile, Tablet, Desktop) */}
+                      <div className="space-y-2 pb-2.5 border-b border-slate-800/80">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          {/* Court Selector or Court Name */}
+                          {selectedCalendarCourtId === 'all' && courts.length > 0 ? (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider shrink-0 flex items-center gap-1">
+                                <Building2 className="w-3 h-3 text-brand-lime" />
+                                <span>Court:</span>
+                              </span>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {courts.map((c) => {
+                                  const isCourtActive = effectiveTimelineCourtId === c.id;
+                                  return (
+                                    <button
+                                      key={c.id}
+                                      type="button"
+                                      onClick={() => setTimeGridCourtId(c.id)}
+                                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all shrink-0 cursor-pointer ${
+                                        isCourtActive
+                                          ? 'bg-brand-lime text-dark-bg font-black shadow-sm ring-1 ring-brand-lime/50'
+                                          : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+                                      }`}
+                                    >
+                                      {c.name}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                              <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                              <span className="text-slate-400 font-medium text-[11px]">Court:</span>
+                              <span className="truncate max-w-[200px] font-black text-white">
+                                {effectiveTimelineCourt?.name || 'Pickleball Court'}
+                              </span>
+                            </div>
+                          )}
 
-                        {/* Right: Minimal Dot Filters */}
-                        <div className="flex items-center gap-1 text-[11px] font-bold flex-wrap ml-auto">
-                          <button
-                            type="button"
-                            onClick={() => setTimeGridFilter('all')}
-                            className={`px-2 py-0.5 rounded-md text-[10px] transition-all cursor-pointer ${
-                              timeGridFilter === 'all'
-                                ? 'bg-slate-200 text-slate-950 font-black'
-                                : 'text-slate-400 hover:text-white'
-                            }`}
-                            title="Show all slots"
-                          >
-                            All ({timelineSlots.length})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTimeGridFilter('reserved')}
-                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
-                              timeGridFilter === 'reserved'
-                                ? 'bg-emerald-500 text-slate-950 font-black'
-                                : 'text-emerald-400 hover:bg-emerald-950/40'
-                            }`}
-                            title="Filter reserved slots"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                            <span>{timelineReservedCount}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTimeGridFilter('pending')}
-                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
-                              timeGridFilter === 'pending'
-                                ? 'bg-amber-500 text-slate-950 font-black'
-                                : 'text-amber-400 hover:bg-amber-950/40'
-                            }`}
-                            title="Filter pending slots"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                            <span>{timelinePendingCount}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTimeGridFilter('blocked')}
-                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
-                              timeGridFilter === 'blocked'
-                                ? 'bg-cyan-500 text-slate-950 font-black'
-                                : 'text-cyan-400 hover:bg-cyan-950/40'
-                            }`}
-                            title="Filter blocked / open play slots"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
-                            <span>{timelineBlockedCount}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTimeGridFilter('available')}
-                            className={`px-1.5 py-0.5 rounded-md text-[10px] flex items-center gap-1 transition-all cursor-pointer ${
-                              timeGridFilter === 'available'
-                                ? 'bg-slate-700 text-white font-black'
-                                : 'text-slate-400 hover:bg-slate-900'
-                            }`}
-                            title="Filter free available slots"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-500 shrink-0" />
-                            <span>{timelineAvailableCount}</span>
-                          </button>
+                          {/* Filter Status Pills - Responsive Wrapping, Touch-Friendly, Zero Ugly OS Scrollbar */}
+                          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-[11px] font-bold">
+                            {/* All Filter */}
+                            <button
+                              type="button"
+                              onClick={() => setTimeGridFilter('all')}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-black transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                                timeGridFilter === 'all'
+                                  ? 'bg-slate-200 text-slate-950 font-black shadow-sm ring-1 ring-white/20'
+                                  : 'bg-slate-900/90 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                              }`}
+                              title="Show all hourly slots"
+                            >
+                              <span>All</span>
+                              <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                                timeGridFilter === 'all' ? 'bg-slate-300 text-slate-950 font-black' : 'bg-slate-800 text-slate-400'
+                              }`}>
+                                {timelineSlots.length}
+                              </span>
+                            </button>
+
+                            {/* Reserved Filter */}
+                            <button
+                              type="button"
+                              onClick={() => setTimeGridFilter('reserved')}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                                timeGridFilter === 'reserved'
+                                  ? 'bg-emerald-500 text-slate-950 font-black shadow-sm ring-1 ring-emerald-400/50'
+                                  : 'bg-slate-900/90 border border-slate-800 text-emerald-400 hover:bg-emerald-950/30 hover:border-emerald-500/40'
+                              }`}
+                              title="Filter reserved slots"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 shadow-sm" />
+                              <span>Reserved</span>
+                              <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                                timeGridFilter === 'reserved' ? 'bg-emerald-600 text-white font-black' : 'bg-emerald-950/60 text-emerald-300'
+                              }`}>
+                                {timelineReservedCount}
+                              </span>
+                            </button>
+
+                            {/* Pending Filter */}
+                            <button
+                              type="button"
+                              onClick={() => setTimeGridFilter('pending')}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                                timeGridFilter === 'pending'
+                                  ? 'bg-amber-500 text-slate-950 font-black shadow-sm ring-1 ring-amber-400/50'
+                                  : 'bg-slate-900/90 border border-slate-800 text-amber-400 hover:bg-amber-950/30 hover:border-amber-500/40'
+                              }`}
+                              title="Filter pending review slots"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 shadow-sm" />
+                              <span>Pending</span>
+                              <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                                timeGridFilter === 'pending' ? 'bg-amber-600 text-white font-black' : 'bg-amber-950/60 text-amber-300'
+                              }`}>
+                                {timelinePendingCount}
+                              </span>
+                            </button>
+
+                            {/* Blocked Filter */}
+                            <button
+                              type="button"
+                              onClick={() => setTimeGridFilter('blocked')}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                                timeGridFilter === 'blocked'
+                                  ? 'bg-cyan-500 text-slate-950 font-black shadow-sm ring-1 ring-cyan-400/50'
+                                  : 'bg-slate-900/90 border border-slate-800 text-cyan-400 hover:bg-cyan-950/30 hover:border-cyan-500/40'
+                              }`}
+                              title="Filter blocked or open play slots"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0 shadow-sm" />
+                              <span>Blocked</span>
+                              <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                                timeGridFilter === 'blocked' ? 'bg-cyan-600 text-white font-black' : 'bg-cyan-950/60 text-cyan-300'
+                              }`}>
+                                {timelineBlockedCount}
+                              </span>
+                            </button>
+
+                            {/* Available Filter */}
+                            <button
+                              type="button"
+                              onClick={() => setTimeGridFilter('available')}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                                timeGridFilter === 'available'
+                                  ? 'bg-slate-700 text-white font-black shadow-sm ring-1 ring-slate-600'
+                                  : 'bg-slate-900/90 border border-slate-800 text-slate-400 hover:bg-slate-850 hover:text-white'
+                              }`}
+                              title="Filter free available slots"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0 shadow-sm" />
+                              <span>Available</span>
+                              <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                                timeGridFilter === 'available' ? 'bg-slate-800 text-white font-black' : 'bg-slate-850 text-slate-400'
+                              }`}>
+                                {timelineAvailableCount}
+                              </span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 

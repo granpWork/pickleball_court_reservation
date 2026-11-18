@@ -42,11 +42,13 @@ import {
   Hourglass,
   BookOpen,
   ShieldAlert,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../../../firebase';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { type OpenPlayRegistrationItem } from './AdminOpenPlayTab';
+import { AdminMoveOpenPlayPlayerModal } from '../modals/AdminMoveOpenPlayPlayerModal';
 import {
   sendOpenPlayEventCancellationEmail,
   sendOpenPlayGameReminderEmail
@@ -78,6 +80,8 @@ interface AdminOpenPlayEventDetailsProps {
   onOpenQrModal: (event: OpenPlayEvent) => void;
   onOpenJsonModal: (event: OpenPlayEvent) => void;
   onOpenMatchManagement?: (event: OpenPlayEvent, initialView?: 'matrix' | 'leaderboard') => void;
+  allEvents?: OpenPlayEvent[];
+  onRefreshEvents?: () => void;
   formatEventDateLong?: (dateStr: string) => string;
   formatTime12h?: (time24h: string) => string;
 }
@@ -121,6 +125,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   onOpenQrModal,
   onOpenJsonModal,
   onOpenMatchManagement,
+  allEvents = [],
+  onRefreshEvents,
   formatEventDateLong = (d) => d,
   formatTime12h = (t) => t,
 }) => {
@@ -762,6 +768,153 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
   const [isMovingToWaitlist, setIsMovingToWaitlist] = useState<string | null>(null);
   const [isRemovingFromRoster, setIsRemovingFromRoster] = useState<string | null>(null);
+  const [movingAttendee, setMovingAttendee] = useState<RosterAttendee | null>(null);
+
+  const handleConfirmMovePlayer = async ({
+    attendee: att,
+    sourceEvent: srcEv,
+    targetEvent: tgtEv,
+    adminNotes: note,
+  }: {
+    attendee: RosterAttendee;
+    sourceEvent: OpenPlayEvent;
+    targetEvent: OpenPlayEvent;
+    adminNotes: string;
+  }) => {
+    try {
+      if (att.type === 'primary') {
+        const updatePayload: Record<string, any> = {
+          eventId: tgtEv.id,
+          openPlayEventId: tgtEv.id,
+          eventTitle: tgtEv.title,
+          openPlayTitle: tgtEv.title,
+          openPlayCategory: tgtEv.category || 'Open Play',
+          adminNotes: note,
+          transferredAt: new Date().toISOString(),
+          transferredFromEventId: srcEv.id,
+          courtIds: tgtEv.courtIds || [],
+          courtNames: tgtEv.courtNames || [],
+        };
+        if (tgtEv.eventDate) {
+          updatePayload.date = tgtEv.eventDate;
+        }
+
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', att.registrationId), updatePayload, { merge: true });
+          } catch (e) {
+            console.warn('Firestore move player openplay_registrations error:', e);
+          }
+          try {
+            await setDoc(doc(db, 'bookings', att.registrationId), updatePayload, { merge: true });
+          } catch (e) {
+            console.warn('Firestore move player bookings error:', e);
+          }
+        }
+
+        updateLocalBookingRecord(att.registrationId, updatePayload);
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [att.registrationId]: {
+            ...(prev[att.registrationId] || {}),
+            ...updatePayload,
+          },
+        }));
+      } else {
+        // Guest move: detach from source host registration, create new standalone registration in target event
+        const rawReg = registrations.find((r) => r.id === att.registrationId);
+        const targetReg = localRegOverrides[att.registrationId]
+          ? { ...rawReg, ...localRegOverrides[att.registrationId] }
+          : rawReg;
+
+        const gIndex = (att.guestIndex || 1) - 1;
+        let existingGuests = Array.isArray(targetReg?.guests) ? [...targetReg.guests] : [];
+        if (existingGuests.length === 0 && Array.isArray(targetReg?.guestNames)) {
+          existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
+            name,
+            email: targetReg.guestEmails?.[i] || '',
+          }));
+        }
+        if (gIndex >= 0 && gIndex < existingGuests.length) {
+          existingGuests.splice(gIndex, 1);
+        } else {
+          existingGuests = existingGuests.filter((g) => (g?.name || '').trim().toLowerCase() !== att.name.trim().toLowerCase());
+        }
+
+        const newPlayerCount = Math.max(1, (targetReg?.playerCount || 1) - 1);
+        const newGuestCount = Math.max(0, (targetReg?.guestCount || (existingGuests.length + 1)) - 1);
+
+        const updateHostPayload = {
+          guests: existingGuests,
+          guestNames: existingGuests.map((g: any) => g.name).filter(Boolean),
+          guestEmails: existingGuests.map((g: any) => g.email).filter(Boolean),
+          playerCount: newPlayerCount,
+          guestCount: newGuestCount,
+        };
+
+        const newTargetRegId = `reg_transferred_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+        const newTargetReg: any = {
+          id: newTargetRegId,
+          eventId: tgtEv.id,
+          eventTitle: tgtEv.title,
+          playerName: att.name,
+          playerEmail: att.email || '',
+          playerPhone: att.phone || '',
+          playerCount: 1,
+          guestCount: 0,
+          status: 'approved',
+          paymentStatus: (att.paymentStatus as any) || 'paid',
+          createdAt: new Date().toISOString(),
+          duprId: att.duprId || '',
+          adminDuprId: att.adminDuprId || '',
+          duprRating: att.duprRating || '',
+          adminDuprRating: att.adminDuprRating || '',
+          adminNotes: note,
+        };
+
+        if (isFirebaseConfigured && db) {
+          try {
+            await setDoc(doc(db, 'openplay_registrations', att.registrationId), updateHostPayload, { merge: true });
+          } catch (e) {}
+          try {
+            await setDoc(doc(db, 'bookings', att.registrationId), updateHostPayload, { merge: true });
+          } catch (e) {}
+          try {
+            await setDoc(doc(db, 'openplay_registrations', newTargetRegId), newTargetReg);
+          } catch (e) {}
+        }
+
+        updateLocalBookingRecord(att.registrationId, updateHostPayload);
+        ['picklepoint_openplay_registrations'].forEach((key) => {
+          ['localStorage', 'sessionStorage'].forEach((st) => {
+            try {
+              const storage = st === 'localStorage' ? localStorage : sessionStorage;
+              const str = storage.getItem(key);
+              const list = str ? JSON.parse(str) : [];
+              list.push(newTargetReg);
+              storage.setItem(key, JSON.stringify(list));
+            } catch (e) {}
+          });
+        });
+
+        setLocalRegOverrides((prev) => ({
+          ...prev,
+          [att.registrationId]: {
+            ...(prev[att.registrationId] || {}),
+            ...updateHostPayload,
+          },
+          [newTargetRegId]: newTargetReg,
+        }));
+      }
+
+      setAttendeeAttendanceStatus(att.id, 'unmarked');
+      onRefreshEvents?.();
+      alert(`✅ Successfully moved ${att.name} to "${tgtEv.title}"!`);
+    } catch (err: any) {
+      console.error('Failed to move player between events:', err);
+      throw err;
+    }
+  };
 
   const handleMoveToWaitlist = async (att: RosterAttendee) => {
     if (!window.confirm(`Move ${att.name} to the waiting list? This will free up 1 roster spot.`)) return;
@@ -2429,6 +2582,15 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
                           <button
                             type="button"
+                            onClick={() => setMovingAttendee(att)}
+                            className="py-1.5 px-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer shrink-0"
+                            title="Move player to another published Open Play session"
+                          >
+                            <ArrowRightLeft className="w-3 h-3 text-purple-400" />
+                            <span>Move</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleMoveToWaitlist(att)}
                             disabled={isMovingToWaitlist === att.id}
                             className="flex-1 py-1.5 px-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer"
@@ -2625,6 +2787,15 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
                     {!isWaitlisted && (
                       <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setMovingAttendee(att)}
+                          className="px-2.5 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                          title="Move player to another published Open Play session"
+                        >
+                          <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400" />
+                          <span className="hidden md:inline">Move</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleMoveToWaitlist(att)}
@@ -2860,6 +3031,15 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                               )}
                               {!isWaitlisted && (
                                 <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setMovingAttendee(att)}
+                                    className="px-2 py-1 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
+                                    title="Move player to another published Open Play session"
+                                  >
+                                    <ArrowRightLeft className="w-3 h-3 text-purple-400" />
+                                    <span className="hidden lg:inline">Move</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => handleMoveToWaitlist(att)}
@@ -3338,6 +3518,19 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             </div>
           </div>
         </div>
+      )}
+      {movingAttendee && (
+        <AdminMoveOpenPlayPlayerModal
+          isOpen={movingAttendee !== null}
+          onClose={() => setMovingAttendee(null)}
+          attendee={movingAttendee}
+          sourceEvent={event}
+          allEvents={allEvents}
+          allRegistrations={registrations as any}
+          onConfirmMove={handleConfirmMovePlayer}
+          formatEventDateLong={formatEventDateLong}
+          formatTime12h={formatTime12h}
+        />
       )}
     </div>
   );
