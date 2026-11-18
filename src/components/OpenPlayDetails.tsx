@@ -30,6 +30,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
+  Phone,
+  LogIn,
 } from 'lucide-react';
 
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
@@ -1233,6 +1235,14 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   };
 
   const [isSubmittingWaitlist, setIsSubmittingWaitlist] = useState(false);
+  const waitlistSectionRef = useRef<HTMLDivElement | null>(null);
+  const waitlistPhoneInputRef = useRef<HTMLInputElement | null>(null);
+  const [waitlistPhone, setWaitlistPhone] = useState<string>(
+    () => (user as any)?.phone || (user as any)?.mobileNumber || ''
+  );
+  const [waitlistPhoneError, setWaitlistPhoneError] = useState<string | null>(null);
+  const [isUpdatingWaitlistPhone, setIsUpdatingWaitlistPhone] = useState<boolean>(false);
+  const [waitlistPhoneSavedToast, setWaitlistPhoneSavedToast] = useState<boolean>(false);
 
   const isAlreadyWaitlisted = Boolean(
     user &&
@@ -1269,6 +1279,43 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
         .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()),
     [registrations]
   );
+
+  const userWaitlistReg = useMemo(() => {
+    if (!user) return null;
+    return (
+      waitlistedRegistrations.find(
+        (r) =>
+          (r.playerEmail || '').toLowerCase() === user.email.toLowerCase() ||
+          (user.uid && r.playerUid === user.uid)
+      ) || null
+    );
+  }, [user, waitlistedRegistrations]);
+
+  useEffect(() => {
+    const regPhone = userWaitlistReg?.playerPhone || userWaitlistReg?.userPhone || '';
+    const profilePhone = (user as any)?.phone || (user as any)?.mobileNumber || '';
+    const candidate = regPhone || profilePhone;
+    if (candidate) {
+      setWaitlistPhone((prev) => prev || candidate);
+      return;
+    }
+    if (user?.uid && isFirebaseConfigured && db) {
+      let active = true;
+      getDoc(doc(db, 'users', user.uid))
+        .then((snap) => {
+          if (!active || !snap.exists()) return;
+          const uData = snap.data() as any;
+          const fetchedPhone = uData?.phone || uData?.mobileNumber || '';
+          if (fetchedPhone) {
+            setWaitlistPhone((prev) => prev || fetchedPhone);
+          }
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }
+  }, [user, userWaitlistReg]);
 
   const userWaitlistPosition = useMemo(() => {
     if (!user || !isAlreadyWaitlisted) return -1;
@@ -1308,12 +1355,45 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   const isExpired = event ? isEventExpired(event.eventDate, event.endTime) : false;
   const fillPercentage = event ? Math.min(100, Math.round((activeRegistrationsCount / event.maxParticipants) * 100)) : 0;
 
-  const handleJoinWaitlist = async () => {
+  const navigateToAuthForWaitlist = (mode: 'login' | 'register') => {
+    if (event?.id) {
+      try {
+        localStorage.setItem('picklepoint_pending_openplay_id', event.id);
+        localStorage.setItem('picklepoint_pending_openplay_tab', 'waitlist');
+      } catch {}
+    }
+    onNavigateToAuth(mode);
+  };
+
+  const scrollToWaitlistSection = () => {
+    setRosterTab('waitlist');
+    setTimeout(() => {
+      waitlistSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => {
+        waitlistPhoneInputRef.current?.focus();
+      }, 250);
+    }, 80);
+  };
+
+  const handleJoinWaitlist = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     if (!event) return;
     if (!user) {
-      onNavigateToAuth('login');
+      scrollToWaitlistSection();
       return;
     }
+
+    const cleanedPhone = waitlistPhone.trim();
+    const digitsOnly = cleanedPhone.replace(/\D/g, '');
+    if (!cleanedPhone || digitsOnly.length < 10) {
+      scrollToWaitlistSection();
+      setWaitlistPhoneError('Please enter a valid contact number (at least 10 digits, e.g. 0917 123 4567) to join the waiting list.');
+      return;
+    }
+
+    setWaitlistPhoneError(null);
     setIsSubmittingWaitlist(true);
     try {
       const regId = `waitlist_${event.id}_${user.uid || Date.now()}`;
@@ -1326,7 +1406,8 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
         playerUid: user.uid || '',
         playerName: user.name || 'Player',
         playerEmail: user.email || '',
-        playerPhone: (user as any).phone || '',
+        playerPhone: cleanedPhone,
+        userPhone: cleanedPhone,
         playerCount: 1,
         paymentStatus: 'waitlisted',
         status: 'waitlisted',
@@ -1336,27 +1417,99 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
       if (isFirebaseConfigured && db) {
         try {
           await setDoc(doc(db, 'openplay_registrations', regId), payload);
-        } catch (e) {
-          console.warn('Firestore setDoc waitlist error:', e);
+        } catch (err) {
+          console.warn('Firestore setDoc waitlist error:', err);
+        }
+        if (user.uid) {
+          try {
+            await setDoc(doc(db, 'users', user.uid), { phone: cleanedPhone }, { merge: true });
+          } catch {}
         }
       }
+
+      try {
+        const sessionStr = localStorage.getItem('picklepoint_session');
+        if (sessionStr) {
+          const parsedSession = JSON.parse(sessionStr);
+          if (parsedSession && !parsedSession.phone) {
+            parsedSession.phone = cleanedPhone;
+            localStorage.setItem('picklepoint_session', JSON.stringify(parsedSession));
+          }
+        }
+      } catch {}
 
       const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || '[]';
       let localRegs: OpenPlayRegistration[] = [];
       try {
         localRegs = JSON.parse(localRegsStr);
-      } catch (e) {}
+      } catch {}
       const filtered = localRegs.filter((r) => r.id !== regId);
       filtered.push(payload);
       localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(filtered));
 
       setRegistrations((prev) => [...prev.filter((r) => r.id !== regId), payload]);
+      setRosterTab('waitlist');
       alert('🎉 You have successfully joined the waiting list for this Open Play session!');
     } catch (err) {
       console.error('Failed to join waitlist:', err);
       alert('Failed to join waitlist. Please try again.');
     } finally {
       setIsSubmittingWaitlist(false);
+    }
+  };
+
+  const handleUpdateWaitlistPhone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!event || !user || !userWaitlistReg) return;
+
+    const cleanedPhone = waitlistPhone.trim();
+    const digitsOnly = cleanedPhone.replace(/\D/g, '');
+    if (!cleanedPhone || digitsOnly.length < 10) {
+      setWaitlistPhoneError('Please enter a valid contact number (at least 10 digits, e.g. 0917 123 4567).');
+      return;
+    }
+
+    setWaitlistPhoneError(null);
+    setIsUpdatingWaitlistPhone(true);
+    try {
+      if (isFirebaseConfigured && db) {
+        try {
+          await setDoc(
+            doc(db, 'openplay_registrations', userWaitlistReg.id),
+            { playerPhone: cleanedPhone, userPhone: cleanedPhone },
+            { merge: true }
+          );
+        } catch (err) {
+          console.warn('Firestore update waitlist phone error:', err);
+        }
+        if (user.uid) {
+          try {
+            await setDoc(doc(db, 'users', user.uid), { phone: cleanedPhone }, { merge: true });
+          } catch {}
+        }
+      }
+
+      const localRegsStr = localStorage.getItem('picklepoint_openplay_registrations') || '[]';
+      try {
+        const localRegs = JSON.parse(localRegsStr) as OpenPlayRegistration[];
+        const updated = localRegs.map((r) =>
+          r.id === userWaitlistReg.id ? { ...r, playerPhone: cleanedPhone, userPhone: cleanedPhone } : r
+        );
+        localStorage.setItem('picklepoint_openplay_registrations', JSON.stringify(updated));
+      } catch {}
+
+      setRegistrations((prev) =>
+        prev.map((r) =>
+          r.id === userWaitlistReg.id ? { ...r, playerPhone: cleanedPhone, userPhone: cleanedPhone } : r
+        )
+      );
+      setWaitlistPhoneSavedToast(true);
+      setTimeout(() => setWaitlistPhoneSavedToast(false), 3000);
+    } catch (err) {
+      console.error('Failed to update waitlist contact number:', err);
+      setWaitlistPhoneError('Failed to save contact number. Please try again.');
+    } finally {
+      setIsUpdatingWaitlistPhone(false);
     }
   };
 
@@ -1982,7 +2135,7 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                   {!isAlreadyRegistered && (
                     <button
                       type="button"
-                      onClick={isFull ? handleJoinWaitlist : () => handleProceedToCheckout(false)}
+                      onClick={isFull ? scrollToWaitlistSection : () => handleProceedToCheckout(false)}
                       disabled={isExpired || (isFull && isAlreadyWaitlisted)}
                       className={`px-7 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center gap-2.5 shadow-xl hover:scale-[1.02] cursor-pointer shrink-0 ${
                         isExpired
@@ -2249,6 +2402,9 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
               isApproved: boolean;
               dateStr: string;
               registrationId: string;
+              phone?: string;
+              playerEmail?: string;
+              playerUid?: string;
             }
 
             const allAttendees: ParticipantCard[] = [];
@@ -2311,6 +2467,9 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
               isApproved: false,
               dateStr: reg.createdAt ? reg.createdAt.split('T')[0] : 'Waitlisted',
               registrationId: reg.id,
+              phone: reg.playerPhone || reg.userPhone || '',
+              playerEmail: reg.playerEmail || reg.userEmail || '',
+              playerUid: reg.playerUid || reg.userId || '',
             }));
             const overflowWaitlist = allAttendees.slice(maxParticipants);
 
@@ -2659,52 +2818,301 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                 )}
 
                 {/* TAB 2: WAITING LIST */}
-                {rosterTab === 'waitlist' && (
-                  <div className="space-y-4">
-                    {filteredWaitlist.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                        {filteredWaitlist.map((p, idx) => (
-                          <div
-                            key={p.id}
-                            className="p-3 rounded-xl border bg-slate-900/60 border-amber-500/30 flex items-center justify-between gap-3 text-xs shadow-sm"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-7 h-7 rounded-full bg-amber-400 text-dark-bg font-extrabold text-xs flex items-center justify-center shrink-0 shadow">
-                                #{idx + 1}
+                {rosterTab === 'waitlist' && (() => {
+                  const isViewerAdminOrHost = Boolean(
+                    user &&
+                      (user.isAdmin ||
+                        user.role === 'super_admin' ||
+                        user.role === 'client_admin' ||
+                        user.role === 'manager' ||
+                        user.role === 'editor' ||
+                        (event &&
+                          (event.createdByUid === user.uid ||
+                            (event.createdByEmail || '').toLowerCase() === (user.email || '').toLowerCase())))
+                  );
+
+                  return (
+                    <div ref={waitlistSectionRef} className="space-y-5">
+                      {/* Action Panel: Auth Gate + Contact Number Field */}
+                      {!isExpired && event && event.status === 'active' && !isAlreadyRegistered && (
+                        <>
+                          {!user ? (
+                            <div className="p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-amber-500/30 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4 text-left animate-fade-in">
+                              <div className="flex items-start gap-3.5">
+                                <div className="w-11 h-11 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0 shadow">
+                                  <Lock className="w-5 h-5" />
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                                      Account Required to Join Waiting List
+                                    </h4>
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-extrabold uppercase tracking-wider">
+                                      Login / Register
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                                    You must be signed in to a registered player account and provide your contact number before joining the waiting list so the organizer can notify you immediately if a slot opens up.
+                                  </p>
+                                </div>
                               </div>
-                              <div className="w-10 h-10 rounded-full border border-slate-700 bg-slate-900 overflow-hidden flex-shrink-0">
-                                <img
-                                  src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
-                                  alt={p.name}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=f59e0b&color=0f172a&bold=true`;
-                                  }}
-                                />
-                              </div>
-                              <div className="truncate min-w-0">
-                                <div className="font-bold text-white truncate">{p.name}</div>
-                                <div className="text-[10px] text-amber-400 font-semibold uppercase">Waiting Queue</div>
+
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => navigateToAuthForWaitlist('login')}
+                                  className="min-h-[44px] px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-dark-bg font-black text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-400/15 active:scale-[0.98]"
+                                >
+                                  <LogIn className="w-4 h-4" />
+                                  <span>Log In</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => navigateToAuthForWaitlist('register')}
+                                  className="min-h-[44px] px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-[0.98]"
+                                >
+                                  <UserPlus className="w-4 h-4 text-brand-lime" />
+                                  <span>Register Account</span>
+                                </button>
                               </div>
                             </div>
+                          ) : !isAlreadyWaitlisted ? (
+                            <form
+                              onSubmit={handleJoinWaitlist}
+                              className="p-5 sm:p-6 rounded-2xl bg-slate-900/90 border border-amber-500/30 shadow-xl space-y-4 text-left animate-fade-in"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                                    <Hourglass className="w-5 h-5" />
+                                  </div>
+                                  <div>
+                                    <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                                      Join Waiting List
+                                    </h4>
+                                    <p className="text-xs text-slate-400">
+                                      Signed in as <strong className="text-white">{user.name || 'Player'}</strong> ({user.email})
+                                    </p>
+                                  </div>
+                                </div>
 
-                            <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                              Waitlisted
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="p-10 rounded-2xl bg-slate-900/40 border border-slate-800 text-center space-y-2">
-                        <Users className="w-8 h-8 text-slate-500 mx-auto" />
-                        <h4 className="text-sm font-bold text-white">No Players on Waiting List</h4>
-                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                          There are currently no waitlisted players for this session. Available slots can be booked directly!
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                                {!isFull && (
+                                  <span className="px-2.5 py-1 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime text-[10px] font-extrabold uppercase tracking-wider self-start sm:self-auto">
+                                    {availableSlots} {availableSlots === 1 ? 'Slot' : 'Slots'} Currently Open
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                                <div className="md:col-span-8 space-y-1.5">
+                                  <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                                    Contact Number <span className="text-red-400">*</span>
+                                  </label>
+                                  <div className="relative">
+                                    <Phone className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                      ref={waitlistPhoneInputRef}
+                                      type="tel"
+                                      required
+                                      value={waitlistPhone}
+                                      onChange={(e) => {
+                                        setWaitlistPhone(e.target.value);
+                                        if (waitlistPhoneError) setWaitlistPhoneError(null);
+                                      }}
+                                      placeholder="e.g. 0917 123 4567"
+                                      className="w-full min-h-[44px] pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-700/80 rounded-xl text-xs sm:text-sm font-mono font-semibold text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 transition-colors"
+                                    />
+                                  </div>
+                                  <p className="text-[11px] text-slate-400">
+                                    Required so the event host can SMS or call you when a spot opens.
+                                  </p>
+                                </div>
+
+                                <div className="md:col-span-4">
+                                  <button
+                                    type="submit"
+                                    disabled={isSubmittingWaitlist}
+                                    className="w-full min-h-[44px] px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-dark-bg font-black text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-400/20 active:scale-[0.98]"
+                                  >
+                                    {isSubmittingWaitlist ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 animate-spin text-dark-bg" />
+                                        <span>Joining...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Hourglass className="w-4 h-4 text-dark-bg" />
+                                        <span>Join Waiting List</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {waitlistPhoneError && (
+                                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs font-medium flex items-center gap-2">
+                                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                                  <span>{waitlistPhoneError}</span>
+                                </div>
+                              )}
+                            </form>
+                          ) : (
+                            <form
+                              onSubmit={handleUpdateWaitlistPhone}
+                              className="p-5 sm:p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 shadow-xl space-y-4 text-left animate-fade-in"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                                    <Clock className="w-5 h-5" />
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <h4 className="text-sm font-black text-amber-300 uppercase tracking-wider">
+                                        Your Waiting List Status
+                                      </h4>
+                                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-400 text-dark-bg">
+                                        Position #{userWaitlistPosition}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-slate-300 mt-0.5">
+                                      You are #{userWaitlistPosition} in queue. Keep your contact number up to date so we can reach you if a spot opens.
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={handleLeaveWaitlist}
+                                  disabled={isSubmittingWaitlist}
+                                  className="min-h-[40px] px-4 py-2 rounded-xl bg-slate-900 border border-amber-500/40 text-amber-300 hover:text-white hover:bg-amber-500/20 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                                >
+                                  {isSubmittingWaitlist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                                  <span>Leave Waitlist</span>
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end pt-3 border-t border-amber-500/20">
+                                <div className="sm:col-span-8 space-y-1">
+                                  <label className="block text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                                    Contact Number for Waitlist Notifications *
+                                  </label>
+                                  <div className="relative">
+                                    <Phone className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                      type="tel"
+                                      required
+                                      value={waitlistPhone}
+                                      onChange={(e) => {
+                                        setWaitlistPhone(e.target.value);
+                                        if (waitlistPhoneError) setWaitlistPhoneError(null);
+                                      }}
+                                      placeholder="e.g. 0917 123 4567"
+                                      className="w-full min-h-[42px] pl-10 pr-4 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-xs sm:text-sm font-mono font-semibold text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="sm:col-span-4">
+                                  <button
+                                    type="submit"
+                                    disabled={isUpdatingWaitlistPhone}
+                                    className="w-full min-h-[42px] px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-amber-400/50 text-amber-300 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                  >
+                                    {isUpdatingWaitlistPhone ? (
+                                      <>
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Saving...</span>
+                                      </>
+                                    ) : waitlistPhoneSavedToast ? (
+                                      <>
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                        <span className="text-emerald-400">Saved!</span>
+                                      </>
+                                    ) : (
+                                      <span>Update Contact</span>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {waitlistPhoneError && (
+                                <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center gap-2">
+                                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                                  <span>{waitlistPhoneError}</span>
+                                </div>
+                              )}
+                            </form>
+                          )}
+                        </>
+                      )}
+
+                      {/* Waiting Queue List */}
+                      {filteredWaitlist.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                          {filteredWaitlist.map((p, idx) => {
+                            const isOwnCard = Boolean(
+                              user &&
+                                ((user.uid && p.playerUid && p.playerUid === user.uid) ||
+                                  (user.email && p.playerEmail && p.playerEmail.toLowerCase() === user.email.toLowerCase()))
+                            );
+
+                            return (
+                              <div
+                                key={p.id}
+                                className="p-3 rounded-xl border bg-slate-900/60 border-amber-500/30 flex items-center justify-between gap-3 text-xs shadow-sm"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <div className="w-7 h-7 rounded-full bg-amber-400 text-dark-bg font-extrabold text-xs flex items-center justify-center shrink-0 shadow">
+                                    #{idx + 1}
+                                  </div>
+                                  <div className="w-10 h-10 rounded-full border border-slate-700 bg-slate-900 overflow-hidden flex-shrink-0">
+                                    <img
+                                      src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                                      alt={p.name}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=f59e0b&color=0f172a&bold=true`;
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="truncate min-w-0">
+                                    <div className="font-bold text-white truncate">{p.name}</div>
+                                    <div className="text-[10px] text-amber-400 font-semibold uppercase flex items-center gap-1 truncate">
+                                      {p.phone ? (
+                                        isOwnCard || isViewerAdminOrHost ? (
+                                          <>
+                                            <Phone className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                            <span className="font-mono text-slate-200 normal-case">{p.phone}</span>
+                                          </>
+                                        ) : (
+                                          <span>Waiting Queue • Contact On File</span>
+                                        )
+                                      ) : (
+                                        <span>Waiting Queue</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
+                                  Waitlisted
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-10 rounded-2xl bg-slate-900/40 border border-slate-800 text-center space-y-2">
+                          <Users className="w-8 h-8 text-slate-500 mx-auto" />
+                          <h4 className="text-sm font-bold text-white">No Players on Waiting List</h4>
+                          <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                            There are currently no waitlisted players for this session.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* TAB 3: SESSION CHAT */}
                 {rosterTab === 'chat' && (() => {

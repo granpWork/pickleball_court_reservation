@@ -896,6 +896,8 @@ function App() {
     localStorage.setItem('picklepoint_session', JSON.stringify(updatedUser));
 
     const pendingCourtId = localStorage.getItem('picklepoint_pending_court_id');
+    const pendingOpenPlayId = localStorage.getItem('picklepoint_pending_openplay_id');
+    const pendingOpenPlayTab = localStorage.getItem('picklepoint_pending_openplay_tab');
     const isClientAdminNeedsOnboarding =
       finalRole === 'client_admin' &&
       ((loggedInUser as any).needsOnboarding || !(loggedInUser as any).companyId);
@@ -908,6 +910,11 @@ function App() {
       sessionStorage.removeItem('picklepoint_checkout_details');
       setCheckoutDetails(null);
       setView('client_onboarding');
+    } else if (pendingOpenPlayId) {
+      localStorage.removeItem('picklepoint_pending_openplay_id');
+      localStorage.removeItem('picklepoint_pending_openplay_tab');
+      handleSelectOpenPlayEvent(pendingOpenPlayId, pendingOpenPlayTab || 'waitlist');
+      setView('openplay');
     } else if (updatedUser.isAdmin || updatedUser.email.toLowerCase() === 'admin@picklepoint.com') {
       sessionStorage.removeItem('picklepoint_checkout_details');
       setCheckoutDetails(null);
