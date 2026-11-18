@@ -36,7 +36,7 @@ function App() {
     if (params.get('view') === 'login' || params.get('invite') === 'true' || window.location.pathname === '/login') {
       return 'login';
     }
-    if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+    if (params.has('upload_receipt') || params.get('view') === 'upload_receipt') {
       return 'upload_receipt';
     }
     if (params.get('view') === 'lookup' || params.get('ref')) {
@@ -301,7 +301,7 @@ function App() {
       return;
     }
 
-    if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+    if (params.has('upload_receipt') || params.get('view') === 'upload_receipt') {
       setView('upload_receipt');
       return;
     }
@@ -380,7 +380,7 @@ function App() {
       }
     }
 
-    if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+    if (params.has('upload_receipt') || params.get('view') === 'upload_receipt') {
       setView('upload_receipt');
       return;
     }
@@ -416,6 +416,15 @@ function App() {
   // Check URL parameters for invitation links, tracking links & Open Play shareable links
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.has('upload_receipt') || params.get('view') === 'upload_receipt') {
+      setView('upload_receipt');
+      return;
+    }
+    if (params.get('view') === 'lookup' || params.get('ref')) {
+      setView('lookup');
+      return;
+    }
+
     const openPlayParam = params.get('eventId') || params.get('openplay');
     if (openPlayParam) {
       setOpenPlayEventId(openPlayParam);
@@ -439,7 +448,7 @@ function App() {
         setInvitationNotice({ email: invitedEmail, company: invitedCompany });
       }
       setView('login');
-    } else if (params.get('upload_receipt') || params.get('view') === 'upload_receipt') {
+    } else if (params.has('upload_receipt') || params.get('view') === 'upload_receipt') {
       setView('upload_receipt');
     } else if (params.get('view') === 'lookup' || params.get('ref')) {
       setView('lookup');
@@ -767,6 +776,16 @@ function App() {
       const openPlayParam = searchParams.get('eventId') || searchParams.get('openplay');
       const savedCheckoutStr = sessionStorage.getItem('picklepoint_checkout_details');
 
+      if (searchParams.has('upload_receipt') || searchParams.get('view') === 'upload_receipt') {
+        setView('upload_receipt');
+        return;
+      }
+
+      if (searchParams.get('view') === 'lookup' || searchParams.get('ref')) {
+        setView('lookup');
+        return;
+      }
+
       if (openPlayParam) {
         setOpenPlayEventId(openPlayParam);
         setView('openplay');
@@ -981,7 +1000,7 @@ function App() {
     );
   }
 
-  if (openPlayEventId && currentView !== 'login' && currentView !== 'register' && currentView !== 'checkout') {
+  if (openPlayEventId && currentView !== 'login' && currentView !== 'register' && currentView !== 'checkout' && currentView !== 'upload_receipt' && currentView !== 'lookup') {
     return (
       <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col selection:bg-brand-lime selection:text-dark-bg">
         <Header user={user} onLogout={handleLogout} setView={handleSetView} currentView={currentView} />

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  ArrowLeft, Calendar, Clock, MapPin, 
-  User, ShieldCheck, CheckCircle, 
-  AlertTriangle, Phone, Upload, Loader2
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  ArrowLeft, Calendar, Clock, MapPin,
+  User, ShieldCheck, CheckCircle,
+  AlertTriangle, Phone, Upload, Loader2, Search
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -14,6 +14,7 @@ interface UploadReceiptPageProps {
 
 interface BookingDetails {
   id?: string;
+  sourceCollection?: 'bookings' | 'openplay_registrations';
   courtId: string;
   courtName: string;
   companyId?: string;
@@ -35,93 +36,254 @@ interface BookingDetails {
   receiptImageUrl?: string;
 }
 
+const normalizeLoadedBooking = (
+  docId: string,
+  data: any,
+  sourceCollection: 'bookings' | 'openplay_registrations' = 'bookings'
+): BookingDetails => {
+  const resolvedRef = data.bookingReference || data.bookingId || docId;
+  const resolvedCourtName =
+    data.courtName ||
+    data.openPlayTitle ||
+    data.eventTitle ||
+    'Pickleball Court';
+  const resolvedUserName =
+    data.userName ||
+    data.playerName ||
+    data.user?.name ||
+    'Player';
+  const resolvedUserEmail =
+    data.userEmail ||
+    data.playerEmail ||
+    data.user?.email ||
+    '';
+  const resolvedUserPhone =
+    data.userPhone ||
+    data.playerPhone ||
+    data.user?.phone ||
+    '';
+  const resolvedTotalCost =
+    typeof data.totalCost === 'number'
+      ? data.totalCost
+      : Number(data.totalAmountPaid ?? data.registrationFee ?? data.totalCost ?? 0) || 0;
+  const resolvedDate = data.date || data.eventDate || '';
+  const resolvedSlots = Array.isArray(data.slots) && data.slots.length > 0 ? data.slots : [];
+
+  return {
+    ...data,
+    id: docId,
+    sourceCollection,
+    courtId: data.courtId || data.openPlayEventId || data.eventId || '',
+    courtName: resolvedCourtName,
+    date: resolvedDate,
+    slots: resolvedSlots,
+    rentals: Array.isArray(data.rentals) ? data.rentals : [],
+    totalCost: resolvedTotalCost,
+    userName: resolvedUserName,
+    userEmail: resolvedUserEmail,
+    userPhone: resolvedUserPhone,
+    paymentMethod: data.paymentMethod || 'gcash',
+    paymentStatus: data.paymentStatus || 'pending_verification',
+    bookingReference: resolvedRef,
+    status: data.status || 'pending',
+    gcashReferenceNumber: data.gcashReferenceNumber || '',
+    receiptImageUrl: data.receiptImageUrl || data.receiptUrl || data.paymentReceiptUrl || '',
+  };
+};
+
 export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
   const [loading, setLoading] = useState<boolean>(true);
   const [booking, setBooking] = useState<BookingDetails | null>(null);
   const [loadError, setLoadError] = useState<string>('');
+  const [manualSearchRef, setManualSearchRef] = useState<string>('');
 
   const [receiptImagePreview, setReceiptImagePreview] = useState<string>('');
   const [gcashRefInput, setGcashRefInput] = useState<string>('');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadSuccessMsg, setUploadSuccessMsg] = useState<string>('');
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlRef = params.get('upload_receipt') || params.get('ref') || params.get('lookup');
+  const applyMatchedBooking = useCallback((normalized: BookingDetails) => {
+    setBooking(normalized);
+    setLoadError('');
+    setGcashRefInput(normalized.gcashReferenceNumber || '');
+    setReceiptImagePreview(normalized.receiptImageUrl || '');
+  }, []);
 
-    if (!urlRef) {
-      setLoadError('No reservation reference provided in the URL link.');
+  const fetchBookingByRef = useCallback(async (inputRef: string) => {
+    const rawRef = (inputRef || '').trim().replace(/^<+|>+$/g, '').trim();
+
+    if (!rawRef || rawRef.toLowerCase() === 'booking ref') {
+      setBooking(null);
+      setLoadError('Please enter your reservation reference code (e.g. WALKIN-123456 or PKL-123456) below to upload your payment proof.');
       setLoading(false);
       return;
     }
 
-    const fetchBooking = async () => {
-      setLoading(true);
-      setLoadError('');
-      const ref = urlRef.trim().toUpperCase();
+    setLoading(true);
+    setLoadError('');
+    setUploadSuccessMsg('');
 
-      if (isFirebaseConfigured && db) {
-        try {
-          // 1. Fetch document directly by ID
-          const docRef = doc(db, 'bookings', ref);
-          const docSnap = await getDoc(docRef);
+    const upperRef = rawRef.toUpperCase();
+    let matched: BookingDetails | null = null;
 
-          if (docSnap.exists()) {
-            const data = docSnap.data() as BookingDetails;
-            setBooking({ ...data, id: docSnap.id });
-            if (data.gcashReferenceNumber) setGcashRefInput(data.gcashReferenceNumber);
-            if (data.receiptImageUrl) setReceiptImagePreview(data.receiptImageUrl);
-          } else {
-            // 2. Query collection fallback
-            const bookingsRef = collection(db, 'bookings');
-            const q = query(bookingsRef, where('bookingReference', '==', ref));
-            const querySnapshot = await getDocs(q);
-
-            if (!querySnapshot.empty) {
-              const docSnap = querySnapshot.docs[0];
-              const data = docSnap.data() as BookingDetails;
-              setBooking({ ...data, id: docSnap.id });
-              if (data.gcashReferenceNumber) setGcashRefInput(data.gcashReferenceNumber);
-              if (data.receiptImageUrl) setReceiptImagePreview(data.receiptImageUrl);
-            } else {
-              setLoadError(`No reservation found matching reference "${ref}".`);
+    if (isFirebaseConfigured && db) {
+      try {
+        // Strategy A: Direct Document ID lookup on `bookings` (guard against '/')
+        if (!rawRef.includes('/')) {
+          const directCandidates = upperRef !== rawRef ? [rawRef, upperRef] : [rawRef];
+          for (const docKey of directCandidates) {
+            try {
+              const docSnap = await getDoc(doc(db, 'bookings', docKey));
+              if (docSnap.exists()) {
+                matched = normalizeLoadedBooking(docSnap.id, docSnap.data(), 'bookings');
+                break;
+              }
+            } catch {
+              // Continue to next lookup strategy
             }
           }
-        } catch (err: any) {
-          console.error('Error fetching reservation:', err);
-          setLoadError('Unable to load reservation details. Please try again.');
-        } finally {
-          setLoading(false);
         }
-      } else {
-        // LocalStorage fallback
-        try {
-          const bookingsStr = localStorage.getItem('picklepoint_bookings');
-          const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
-          const found = localBookings.find(
-            (b: any) =>
-              (b.bookingReference && b.bookingReference.toUpperCase() === ref) ||
-              (b.bookingId && b.bookingId.toUpperCase() === ref) ||
-              (b.id && b.id.toUpperCase() === ref)
-          );
 
-          if (found) {
-            setBooking(found as BookingDetails);
-            if (found.gcashReferenceNumber) setGcashRefInput(found.gcashReferenceNumber);
-            if (found.receiptImageUrl) setReceiptImagePreview(found.receiptImageUrl);
-          } else {
-            setLoadError(`No reservation found matching reference "${ref}".`);
+        // Strategy B: Indexed field queries on `bookings`
+        if (!matched) {
+          const bookingsRef = collection(db, 'bookings');
+          const querySpecs: Array<[string, string]> = [
+            ['bookingReference', rawRef],
+            ...(upperRef !== rawRef ? [['bookingReference', upperRef] as [string, string]] : []),
+            ['bookingId', rawRef],
+            ...(upperRef !== rawRef ? [['bookingId', upperRef] as [string, string]] : []),
+            ['id', rawRef],
+          ];
+
+          for (const [field, val] of querySpecs) {
+            try {
+              const q = query(bookingsRef, where(field, '==', val));
+              const querySnapshot = await getDocs(q);
+              if (!querySnapshot.empty) {
+                const dSnap = querySnapshot.docs[0];
+                matched = normalizeLoadedBooking(dSnap.id, dSnap.data(), 'bookings');
+                break;
+              }
+            } catch {
+              // Continue to next query
+            }
           }
-        } catch (e) {
-          setLoadError('Failed to parse local reservation data.');
-        } finally {
-          setLoading(false);
+        }
+
+        // Strategy C: Direct Document ID check on `openplay_registrations`
+        if (!matched && !rawRef.includes('/')) {
+          try {
+            const regSnap = await getDoc(doc(db, 'openplay_registrations', rawRef));
+            if (regSnap.exists()) {
+              matched = normalizeLoadedBooking(regSnap.id, regSnap.data(), 'openplay_registrations');
+            }
+          } catch {
+            // Continue to collection scan fallback
+          }
+        }
+
+        // Strategy D: Case-insensitive scan fallback across `bookings` and `openplay_registrations`
+        if (!matched) {
+          try {
+            const allBookingsSnap = await getDocs(collection(db, 'bookings'));
+            for (const dSnap of allBookingsSnap.docs) {
+              const data = dSnap.data();
+              const candidates = [dSnap.id, data.id, data.bookingReference, data.bookingId]
+                .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+                .map((v) => v.trim().toUpperCase());
+              if (candidates.includes(upperRef)) {
+                matched = normalizeLoadedBooking(dSnap.id, data, 'bookings');
+                break;
+              }
+            }
+          } catch {
+            // Continue to openplay_registrations scan
+          }
+        }
+
+        if (!matched) {
+          try {
+            const allRegsSnap = await getDocs(collection(db, 'openplay_registrations'));
+            for (const dSnap of allRegsSnap.docs) {
+              const data = dSnap.data();
+              const candidates = [dSnap.id, data.id, data.bookingReference, data.bookingId]
+                .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+                .map((v) => v.trim().toUpperCase());
+              if (candidates.includes(upperRef)) {
+                matched = normalizeLoadedBooking(dSnap.id, data, 'openplay_registrations');
+                break;
+              }
+            }
+          } catch {
+            // Proceed to localStorage fallback
+          }
+        }
+      } catch (err) {
+        console.warn('Firestore reservation lookup warning, checking local cache:', err);
+      }
+    }
+
+    // Strategy E: LocalStorage fallback (runs both offline and if Firestore yielded no match)
+    if (!matched) {
+      const storageChecks: Array<{ key: string; source: 'bookings' | 'openplay_registrations' }> = [
+        { key: 'picklepoint_bookings', source: 'bookings' },
+        { key: 'picklepoint_openplay_registrations', source: 'openplay_registrations' },
+      ];
+
+      for (const { key, source } of storageChecks) {
+        try {
+          const rawStr = localStorage.getItem(key) || sessionStorage.getItem(key);
+          if (!rawStr) continue;
+          const items = JSON.parse(rawStr);
+          if (!Array.isArray(items)) continue;
+          const found = items.find((item: any) => {
+            const candidates = [item?.bookingReference, item?.bookingId, item?.id]
+              .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+              .map((v) => v.trim().toUpperCase());
+            return candidates.includes(upperRef);
+          });
+          if (found) {
+            matched = normalizeLoadedBooking(found.id || found.bookingReference || upperRef, found, source);
+            break;
+          }
+        } catch {
+          // Ignore malformed local storage
         }
       }
-    };
+    }
 
-    fetchBooking();
-  }, []);
+    if (matched) {
+      applyMatchedBooking(matched);
+    } else {
+      setBooking(null);
+      setLoadError(`No reservation found matching reference "${rawRef}".`);
+    }
+    setLoading(false);
+  }, [applyMatchedBooking]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlRef = params.get('upload_receipt') || params.get('ref') || params.get('lookup') || '';
+    const cleaned = urlRef.trim().replace(/^<+|>+$/g, '').trim();
+    if (cleaned && cleaned.toLowerCase() !== 'booking ref') {
+      setManualSearchRef(cleaned);
+    }
+    fetchBookingByRef(urlRef);
+  }, [fetchBookingByRef]);
+
+  const handleManualLookupSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = manualSearchRef.trim().replace(/^<+|>+$/g, '').trim();
+    if (!cleaned) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('upload_receipt', cleaned);
+      window.history.replaceState(null, '', url.toString());
+    } catch {
+      // Ignore URL update errors
+    }
+    fetchBookingByRef(cleaned);
+  };
 
   const formatGcashReference = (val: string) => {
     const clean = val.replace(/\D/g, '').slice(0, 13);
@@ -161,6 +323,7 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
 
     try {
       const bookingDocId = booking.id || booking.bookingReference;
+      const targetCollection = booking.sourceCollection || 'bookings';
       const updateData: any = {
         receiptImageUrl: receiptImagePreview,
         paymentStatus: 'pending_verification',
@@ -171,17 +334,21 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
       }
 
       if (isFirebaseConfigured && db && bookingDocId) {
-        const docRef = doc(db, 'bookings', bookingDocId);
+        const docRef = doc(db, targetCollection, bookingDocId);
         await updateDoc(docRef, updateData);
       }
 
-      // LocalStorage update
+      // LocalStorage update for matched collection
+      const storageKey =
+        targetCollection === 'openplay_registrations'
+          ? 'picklepoint_openplay_registrations'
+          : 'picklepoint_bookings';
       try {
-        const bookingsStr = localStorage.getItem('picklepoint_bookings');
-        if (bookingsStr) {
-          const localBookings = JSON.parse(bookingsStr);
-          if (Array.isArray(localBookings)) {
-            const updated = localBookings.map((b: any) => {
+        const storedStr = localStorage.getItem(storageKey);
+        if (storedStr) {
+          const items = JSON.parse(storedStr);
+          if (Array.isArray(items)) {
+            const updated = items.map((b: any) => {
               if (
                 b.id === bookingDocId ||
                 b.bookingReference === booking.bookingReference ||
@@ -191,7 +358,7 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
               }
               return b;
             });
-            localStorage.setItem('picklepoint_bookings', JSON.stringify(updated));
+            localStorage.setItem(storageKey, JSON.stringify(updated));
           }
         }
       } catch (e) {}
@@ -213,7 +380,7 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
               adminEmail: recipient.email,
               adminName: recipient.name,
               recipientRole: recipient.roleLabel,
-              bookingType: 'court',
+              bookingType: targetCollection === 'openplay_registrations' ? 'open_play' : 'court',
               itemTitle: booking.courtName,
               bookingReference: booking.bookingReference || bookingDocId,
               customerName: booking.userName,
@@ -241,9 +408,10 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
   };
 
   const formatDate = (dateStr: string) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', {
+    if (!dateStr) return 'N/A';
+    const parsed = dateStr.includes('T') ? new Date(dateStr) : new Date(`${dateStr}T00:00:00`);
+    if (isNaN(parsed.getTime())) return dateStr;
+    return parsed.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
@@ -283,23 +451,54 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
         )}
 
         {!loading && loadError && (
-          <div className="glass-panel rounded-3xl p-8 border border-red-500/20 text-center max-w-lg mx-auto space-y-4">
-            <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mx-auto">
+          <div className="glass-panel rounded-3xl p-6 sm:p-8 border border-amber-500/20 text-center max-w-lg mx-auto space-y-5 shadow-2xl">
+            <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mx-auto">
               <AlertTriangle className="w-6 h-6" />
             </div>
-            <h3 className="text-lg font-bold text-white uppercase tracking-wider">Reservation Not Found</h3>
-            <p className="text-xs text-slate-400 leading-relaxed">{loadError}</p>
-            <button
-              onClick={() => setView('landing')}
-              className="mt-4 px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
-            >
-              Return Home
-            </button>
+            <div className="space-y-2">
+              <h3 className="text-lg font-bold text-white uppercase tracking-wider">Reservation Lookup</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">{loadError}</p>
+            </div>
+
+            {/* Interactive Reference Search Fallback */}
+            <form onSubmit={handleManualLookupSubmit} className="space-y-3 text-left pt-2">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                Enter Booking Reference Code
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={manualSearchRef}
+                    onChange={(e) => setManualSearchRef(e.target.value)}
+                    placeholder="e.g. WALKIN-123456 or PKL-123456"
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono font-bold text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-black text-xs uppercase tracking-wider transition-all cursor-pointer shrink-0 shadow-lg shadow-brand-lime/10"
+                >
+                  Find Reservation
+                </button>
+              </div>
+            </form>
+
+            <div className="pt-2 border-t border-slate-800/60">
+              <button
+                onClick={() => setView('landing')}
+                className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+              >
+                Return Home
+              </button>
+            </div>
           </div>
         )}
 
         {!loading && booking && (() => {
           const isApproved = booking.status === 'approved' || booking.status === 'confirmed' || booking.paymentStatus === 'paid';
+          const displaySlots = booking.slots && booking.slots.length > 0 ? booking.slots : ['Assigned Session Slot'];
 
           return (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -309,8 +508,8 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
                     Booking Reference
                   </span>
-                  <h3 className="text-xl font-black text-brand-lime font-mono tracking-wider mt-0.5">
-                    {booking.bookingReference}
+                  <h3 className="text-xl font-black text-brand-lime font-mono tracking-wider mt-0.5 break-all">
+                    {booking.bookingReference || booking.id}
                   </h3>
                 </div>
 
@@ -363,7 +562,7 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
                         Reserved Time Slots
                       </span>
                       <div className="mt-1 flex flex-wrap gap-1.5">
-                        {booking.slots.map((s, idx) => (
+                        {displaySlots.map((s, idx) => (
                           <span
                             key={idx}
                             className="text-xs font-bold bg-slate-900 text-slate-300 border border-slate-800 px-2.5 py-1 rounded-lg"
@@ -387,7 +586,9 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
                       <span className="text-sm font-semibold text-slate-200 block mt-0.5">
                         {booking.userName}
                       </span>
-                      <span className="text-xs text-slate-400 block">{booking.userEmail}</span>
+                      {booking.userEmail && (
+                        <span className="text-xs text-slate-400 block">{booking.userEmail}</span>
+                      )}
                     </div>
                   </div>
 
@@ -412,7 +613,7 @@ export default function UploadReceiptPage({ setView }: UploadReceiptPageProps) {
                     Total Amount Due
                   </span>
                   <span className="text-2xl font-black text-brand-lime font-sans">
-                    ₱{booking.totalCost}
+                    ₱{Number(booking.totalCost || 0).toLocaleString()}
                   </span>
                 </div>
               </div>

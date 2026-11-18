@@ -48,7 +48,8 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
   const [uploadSuccessMsg, setUploadSuccessMsg] = useState<string>('');
 
   const performLookup = async (inputRef: string) => {
-    if (!inputRef.trim()) return;
+    const rawRef = (inputRef || '').trim().replace(/^<+|>+$/g, '').trim();
+    if (!rawRef) return;
 
     setLoading(true);
     setSearchError('');
@@ -56,41 +57,90 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
     setHasSearched(true);
     setUploadSuccessMsg('');
 
-    const ref = inputRef.trim().toUpperCase();
+    const upperRef = rawRef.toUpperCase();
+    let matchedBooking: BookingDetails | null = null;
+
+    const normalizeFound = (docId: string, data: any): BookingDetails => ({
+      ...data,
+      id: docId,
+      courtId: data.courtId || data.openPlayEventId || '',
+      courtName: data.courtName || data.openPlayTitle || data.eventTitle || 'Pickleball Court',
+      date: data.date || data.eventDate || '',
+      slots: Array.isArray(data.slots) ? data.slots : [],
+      rentals: Array.isArray(data.rentals) ? data.rentals : [],
+      totalCost: typeof data.totalCost === 'number' ? data.totalCost : Number(data.totalCost || 0),
+      userName: data.userName || data.playerName || data.user?.name || 'Player',
+      userEmail: data.userEmail || data.playerEmail || data.user?.email || '',
+      userPhone: data.userPhone || data.playerPhone || data.user?.phone || '',
+      paymentMethod: data.paymentMethod || 'gcash',
+      paymentStatus: data.paymentStatus || 'pending_verification',
+      bookingReference: data.bookingReference || data.bookingId || docId,
+      status: data.status || 'pending',
+      gcashReferenceNumber: data.gcashReferenceNumber || '',
+      receiptImageUrl: data.receiptImageUrl || data.receiptUrl || data.paymentReceiptUrl || '',
+    });
 
     if (isFirebaseConfigured && db) {
       try {
-        // 1. Try to fetch the document directly by ID (booking reference) first.
-        const docRef = doc(db, 'bookings', ref);
-        const docSnap = await getDoc(docRef);
+        // 1. Try direct document ID fetch (guard against '/')
+        if (!rawRef.includes('/')) {
+          const directCandidates = upperRef !== rawRef ? [rawRef, upperRef] : [rawRef];
+          for (const docKey of directCandidates) {
+            try {
+              const docSnap = await getDoc(doc(db, 'bookings', docKey));
+              if (docSnap.exists()) {
+                matchedBooking = normalizeFound(docSnap.id, docSnap.data());
+                break;
+              }
+            } catch {
+              // Continue to query fallbacks
+            }
+          }
+        }
 
-        if (docSnap.exists()) {
-          const data = docSnap.data() as BookingDetails;
-          setBooking({ ...data, id: docSnap.id });
-          if (data.gcashReferenceNumber) setGcashRefInput(data.gcashReferenceNumber);
-          if (data.receiptImageUrl) setReceiptImagePreview(data.receiptImageUrl);
-        } else {
-          // 2. Fall back to querying collection
+        // 2. Indexed field queries on `bookings`
+        if (!matchedBooking) {
+          const bookingsRef = collection(db, 'bookings');
+          const querySpecs: Array<[string, string]> = [
+            ['bookingReference', rawRef],
+            ...(upperRef !== rawRef ? [['bookingReference', upperRef] as [string, string]] : []),
+            ['bookingId', rawRef],
+            ...(upperRef !== rawRef ? [['bookingId', upperRef] as [string, string]] : []),
+            ['id', rawRef],
+          ];
+
+          for (const [field, val] of querySpecs) {
+            try {
+              const q = query(bookingsRef, where(field, '==', val));
+              const querySnapshot = await getDocs(q);
+              if (!querySnapshot.empty) {
+                const dSnap = querySnapshot.docs[0];
+                matchedBooking = normalizeFound(dSnap.id, dSnap.data());
+                break;
+              }
+            } catch {
+              // Continue to next query
+            }
+          }
+        }
+
+        // 3. Case-insensitive scan fallback on `bookings`
+        if (!matchedBooking) {
           try {
-            const bookingsRef = collection(db, 'bookings');
-            const q = query(bookingsRef, where('bookingReference', '==', ref));
-            const querySnapshot = await getDocs(q);
-
-            if (!querySnapshot.empty) {
-              const docSnap = querySnapshot.docs[0];
-              const data = docSnap.data() as BookingDetails;
-              setBooking({ ...data, id: docSnap.id });
-              if (data.gcashReferenceNumber) setGcashRefInput(data.gcashReferenceNumber);
-              if (data.receiptImageUrl) setReceiptImagePreview(data.receiptImageUrl);
-            } else {
-              setSearchError(`No reservation found matching Reference Number "${ref}".`);
+            const allSnap = await getDocs(collection(db, 'bookings'));
+            for (const dSnap of allSnap.docs) {
+              const data = dSnap.data();
+              const candidates = [dSnap.id, data.id, data.bookingReference, data.bookingId]
+                .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+                .map((v) => v.trim().toUpperCase());
+              if (candidates.includes(upperRef)) {
+                matchedBooking = normalizeFound(dSnap.id, data);
+                break;
+              }
             }
           } catch (queryErr: any) {
-            console.error('Error running fallback query lookup:', queryErr);
-            if (queryErr.code === 'permission-denied') {
-              setSearchError(`Access restricted: Please log in to view this booking, or contact support.`);
-            } else {
-              throw queryErr;
+            if (queryErr?.code === 'permission-denied') {
+              setSearchError('Access restricted: Please log in to view this booking, or contact support.');
             }
           }
         }
@@ -98,40 +148,39 @@ export default function BookingStatus({ setView }: BookingStatusProps) {
         console.error('Error looking up booking:', err);
         if (err.code === 'permission-denied') {
           setSearchError('Access denied: Please log in first to track your booking.');
-        } else {
-          setSearchError('An error occurred while connecting to the database. Please try again.');
         }
-      } finally {
-        setLoading(false);
       }
-    } else {
-      // LocalStorage simulated mode
-      setTimeout(() => {
-        try {
-          const bookingsStr = localStorage.getItem('picklepoint_bookings');
-          const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
-          
-          const found = localBookings.find(
-            (b: any) => 
-              (b.bookingReference && b.bookingReference.toUpperCase() === ref) ||
-              (b.bookingId && b.bookingId.toUpperCase() === ref) ||
-              (b.id && b.id.toUpperCase() === ref)
-          );
-
-          if (found) {
-            setBooking(found as BookingDetails);
-            if (found.gcashReferenceNumber) setGcashRefInput(found.gcashReferenceNumber);
-            if (found.receiptImageUrl) setReceiptImagePreview(found.receiptImageUrl);
-          } else {
-            setSearchError(`No reservation found matching Reference Number "${ref}".`);
-          }
-        } catch (err) {
-          setSearchError('Failed to parse local reservations.');
-        } finally {
-          setLoading(false);
-        }
-      }, 500);
     }
+
+    // 4. LocalStorage fallback
+    if (!matchedBooking) {
+      try {
+        const bookingsStr = localStorage.getItem('picklepoint_bookings') || sessionStorage.getItem('picklepoint_bookings');
+        const localBookings = bookingsStr ? JSON.parse(bookingsStr) : [];
+        if (Array.isArray(localBookings)) {
+          const found = localBookings.find((b: any) => {
+            const candidates = [b?.bookingReference, b?.bookingId, b?.id]
+              .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+              .map((v) => v.trim().toUpperCase());
+            return candidates.includes(upperRef);
+          });
+          if (found) {
+            matchedBooking = normalizeFound(found.id || found.bookingReference || upperRef, found);
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    if (matchedBooking) {
+      setBooking(matchedBooking);
+      if (matchedBooking.gcashReferenceNumber) setGcashRefInput(matchedBooking.gcashReferenceNumber);
+      if (matchedBooking.receiptImageUrl) setReceiptImagePreview(matchedBooking.receiptImageUrl);
+    } else {
+      setSearchError((prev) => prev || `No reservation found matching Reference Number "${rawRef}".`);
+    }
+    setLoading(false);
   };
 
   const handleSearch = async (e: React.FormEvent) => {

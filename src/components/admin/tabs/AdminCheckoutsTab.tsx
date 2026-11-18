@@ -283,13 +283,25 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
     }));
   };
 
+  const getValidReceiptUploadRef = (booking: Booking): string => {
+    const refCandidate = (booking.bookingReference || '').trim();
+    if (refCandidate && !/[\s/<>]/.test(refCandidate) && refCandidate.length <= 40) {
+      return refCandidate;
+    }
+    const bkIdCandidate = (booking.bookingId || '').trim();
+    if (bkIdCandidate && !/[\s/<>]/.test(bkIdCandidate) && bkIdCandidate.length <= 40) {
+      return bkIdCandidate;
+    }
+    return (booking.id || refCandidate || bkIdCandidate).trim();
+  };
+
   const generateCheckoutMessage = (booking: Booking): string => {
     const bName = booking.user?.name || booking.userName || 'Player';
     const courtName = booking.courtName || 'Pickleball Court';
     const dateStr = formatEventDateLong(booking.date) || formatDateLabel(booking.date);
     const slotsStr = booking.slots && booking.slots.length > 0 ? booking.slots.join(', ') : '1 Hour';
     const totalCost = booking.totalCost || 0;
-    const refCode = booking.bookingReference || booking.bookingId || booking.id;
+    const refCode = getValidReceiptUploadRef(booking);
     const shareUrl = `${window.location.origin}/?upload_receipt=${encodeURIComponent(refCode)}`;
 
     return `Hi ${bName}! 🎾
@@ -1555,7 +1567,7 @@ Thank you!`;
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          const refCode = booking.bookingReference || booking.bookingId || booking.id;
+                                          const refCode = getValidReceiptUploadRef(booking);
                                           const shareUrl = `${window.location.origin}/?upload_receipt=${encodeURIComponent(refCode)}`;
                                           navigator.clipboard.writeText(shareUrl);
                                           setCopiedShareId(booking.id);

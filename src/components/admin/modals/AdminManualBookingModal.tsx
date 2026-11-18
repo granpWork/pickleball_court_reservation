@@ -93,6 +93,12 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
     setCurrentStep(targetStep);
   };
 
+  const PRESET_CATEGORY_NOTES = [
+    'Blocked for facility maintenance, cleaning, & court surface repairs',
+    'Court reserved for internal company matters & staff activities',
+    'Official tournament / league court block',
+  ];
+
   const handleSelectCategory = (cat: BookingCategory) => {
     setBookingCategory(cat);
     if (!customerName.trim()) {
@@ -105,19 +111,26 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
       setCustomTotalCost('0');
       setPaymentMethod('complimentary');
       setPaymentStatus('approved');
-      setInternalNotes('Blocked for facility maintenance, cleaning, & court surface repairs');
+      setInternalNotes(PRESET_CATEGORY_NOTES[0]);
     } else if (cat === 'company_block') {
       setCustomTotalCost('0');
       setPaymentMethod('complimentary');
       setPaymentStatus('approved');
-      setInternalNotes('Court reserved for internal company matters & staff activities');
+      setInternalNotes(PRESET_CATEGORY_NOTES[1]);
     } else if (cat === 'tournament') {
       setPaymentMethod('cash');
       setPaymentStatus('approved');
-      setInternalNotes('Official tournament / league court block');
+      setInternalNotes(PRESET_CATEGORY_NOTES[2]);
     } else if (cat === 'vip') {
       setPaymentMethod('complimentary');
       setPaymentStatus('approved');
+      if (PRESET_CATEGORY_NOTES.includes(internalNotes.trim())) {
+        setInternalNotes('');
+      }
+    } else {
+      if (PRESET_CATEGORY_NOTES.includes(internalNotes.trim())) {
+        setInternalNotes('');
+      }
     }
   };
 
@@ -323,9 +336,18 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
       return;
     }
 
+    const generatedRefCode = `WALKIN-${Math.floor(100000 + Math.random() * 900000)}`;
+    // Only use internalNotes as bookingReference if it looks like a clean alphanumeric code (no spaces or slashes, <= 24 chars)
+    const customRefCandidate = internalNotes.trim();
+    const isCleanCustomRef =
+      customRefCandidate.length > 0 &&
+      customRefCandidate.length <= 24 &&
+      /^[A-Za-z0-9_-]+$/.test(customRefCandidate);
+    const finalBookingRef = isCleanCustomRef ? customRefCandidate.toUpperCase() : generatedRefCode;
+
     const payload: Partial<Booking> = {
       id: `bk_manual_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      bookingId: `BK-WALKIN-${Math.floor(100000 + Math.random() * 900000)}`,
+      bookingId: finalBookingRef,
       type: 'court',
       bookingCategory: bookingCategory,
       isManual: true,
@@ -349,7 +371,8 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
       userEmail: finalEmail,
       userPhone: customerPhone.trim() || undefined,
       createdAt: new Date().toISOString(),
-      bookingReference: internalNotes.trim() || `WALKIN-${Date.now().toString().slice(-6)}`,
+      bookingReference: finalBookingRef,
+      ...(customRefCandidate ? { adminNotes: customRefCandidate, notes: customRefCandidate } as any : {}),
     };
 
     try {

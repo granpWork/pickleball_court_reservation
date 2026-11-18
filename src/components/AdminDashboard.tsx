@@ -2464,17 +2464,70 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setIsSubmittingManualBooking(true);
     try {
       const docId = bookingData.id || `bk_manual_${Date.now()}`;
+      const matchedCourt = courts.find((c) => c.id === bookingData.courtId);
+      const rawRef = (bookingData.bookingReference || '').trim();
+      const isRawRefUrlSafe = Boolean(rawRef && /^[A-Za-z0-9_-]{3,40}$/.test(rawRef));
+      const cleanBookingRef = isRawRefUrlSafe
+        ? rawRef.toUpperCase()
+        : `WALKIN-${Math.floor(100000 + Math.random() * 900000)}`;
+      const preservedAdminNotes =
+        (bookingData as any).adminNotes ||
+        (bookingData as any).notes ||
+        (!isRawRefUrlSafe && rawRef ? rawRef : '');
+
+      const resolvedOwnerCompanyName =
+        bookingData.ownerCompanyName ||
+        matchedCourt?.ownerCompanyName ||
+        (matchedCourt as any)?.companyName ||
+        currentCompany?.name ||
+        effectiveOrgName ||
+        '';
+      const resolvedOwnerAddress =
+        (bookingData as any).ownerCompanyAddress ||
+        bookingData.companyAddress ||
+        (matchedCourt as any)?.ownerCompanyAddress ||
+        matchedCourt?.location ||
+        (currentCompany ? [currentCompany.addressLine1, currentCompany.municipality, currentCompany.province].filter(Boolean).join(', ') : '');
+      const resolvedOwnerEmail =
+        bookingData.ownerEmail ||
+        matchedCourt?.ownerEmail ||
+        matchedCourt?.createdByEmail ||
+        currentCompany?.clientAdminEmail ||
+        currentUserEmail ||
+        '';
+      const resolvedOwnerPhone =
+        bookingData.ownerPhone ||
+        (matchedCourt as any)?.ownerPhone ||
+        currentCompany?.phone ||
+        '';
+      const resolvedCourtOwnerId =
+        bookingData.courtOwnerId ||
+        matchedCourt?.ownerId ||
+        currentUserUid ||
+        '';
+      const resolvedGcashAccountId =
+        (bookingData as any).gcashAccountId ||
+        (matchedCourt as any)?.gcashAccountId ||
+        '';
+
       const fullBooking: Booking = {
         id: docId,
         ...( { firestoreDocId: docId, originalId: docId } as any ),
-        bookingId: bookingData.bookingId || `BK-WALKIN-${Math.floor(100000 + Math.random() * 900000)}`,
+        bookingId: cleanBookingRef,
         type: 'court',
         isManual: true,
         bookingSource: 'manual',
-        companyId: bookingData.companyId || currentCompany?.id || '',
+        ...(bookingData.bookingCategory ? { bookingCategory: bookingData.bookingCategory } : {}),
+        companyId: bookingData.companyId || matchedCourt?.companyId || currentCompany?.id || '',
         courtId: bookingData.courtId!,
-        courtName: bookingData.courtName || 'Court',
-        courtType: bookingData.courtType || 'Standard Court',
+        courtName: bookingData.courtName || matchedCourt?.name || 'Court',
+        courtType: bookingData.courtType || matchedCourt?.type || 'Standard Court',
+        ownerCompanyName: resolvedOwnerCompanyName,
+        ...(resolvedOwnerAddress ? { companyAddress: resolvedOwnerAddress, ownerCompanyAddress: resolvedOwnerAddress } as any : {}),
+        ownerEmail: resolvedOwnerEmail,
+        ownerPhone: resolvedOwnerPhone,
+        courtOwnerId: resolvedCourtOwnerId,
+        ...(resolvedGcashAccountId ? { gcashAccountId: resolvedGcashAccountId } as any : {}),
         date: bookingData.date!,
         slots: bookingData.slots || [],
         totalCost: bookingData.totalCost || 0,
@@ -2486,7 +2539,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         userEmail: bookingData.userEmail || bookingData.user?.email || 'walkin@bookpicklecourt.com',
         userPhone: bookingData.userPhone || bookingData.user?.phone || '',
         createdAt: bookingData.createdAt || new Date().toISOString(),
-        bookingReference: bookingData.bookingReference || `WALKIN-${Date.now().toString().slice(-6)}`,
+        bookingReference: cleanBookingRef,
+        ...(preservedAdminNotes ? { adminNotes: preservedAdminNotes, notes: preservedAdminNotes } as any : {}),
         createdByAdminName: bookingData.createdByAdminName || user?.name || userObj?.companyName || adminDisplayName || currentUserEmail || 'Admin',
         createdByAdminEmail: bookingData.createdByAdminEmail || currentUserEmail || (user as any)?.email || '',
       };
