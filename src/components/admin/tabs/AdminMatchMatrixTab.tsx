@@ -20,10 +20,10 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { type Court, type UserPermissions, type OpenPlayMatchRosterItem } from '../adminTypes';
-import { type OpenPlayEvent } from '../../OpenPlayDetails';
+import { type OpenPlayEvent, normalizeOpenPlayEvent } from '../../OpenPlayDetails';
 import { AdminOpenPlayMatchManagement } from './AdminOpenPlayMatchManagement';
 import { db, isFirebaseConfigured } from '../../../firebase';
-import { doc, setDoc, deleteDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, collection, query, where, getDocs, getDoc } from 'firebase/firestore';
 import { DuprRatingBadge } from '../../../utils/duprColorUtils';
 
 export interface AdminMatchMatrixTabProps {
@@ -67,6 +67,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'draft' | 'completed'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'matrices' | 'openplay'>('all');
 
   // Create Matrix Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -105,13 +106,24 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
     }
   });
 
-  // Filter existing events that are match matrices
+  // Filter existing events that are match matrices or open play events
   const allMatrices = useMemo(() => {
-    const fromEvents = openPlayEvents.filter((ev) => ev.isMatchMatrix === true);
-    const existingIds = new Set(fromEvents.map((e) => e.id));
+    const fromDedicated = openPlayEvents.filter((ev) => ev.isMatchMatrix === true);
+    const fromOpenPlay = openPlayEvents.filter((ev) => !ev.isMatchMatrix);
+    const existingIds = new Set(openPlayEvents.map((e) => e.id));
     const uniqueLocal = localMatrices.filter((m) => !existingIds.has(m.id));
-    return [...fromEvents, ...uniqueLocal].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-  }, [openPlayEvents, localMatrices]);
+
+    let combined: OpenPlayEvent[] = [];
+    if (sourceFilter === 'matrices') {
+      combined = [...fromDedicated, ...uniqueLocal];
+    } else if (sourceFilter === 'openplay') {
+      combined = [...fromOpenPlay];
+    } else {
+      combined = [...fromDedicated, ...fromOpenPlay, ...uniqueLocal];
+    }
+
+    return combined.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  }, [openPlayEvents, localMatrices, sourceFilter]);
 
   const filteredMatrices = useMemo(() => {
     return allMatrices.filter((m) => {
@@ -149,7 +161,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
     } catch (e) {}
   }, [activeMatrix]);
 
-  // Auto-sync activeMatrix when allMatrices finishes loading from Firestore
+  // Auto-sync activeMatrix when allMatrices finishes loading from Firestore or local storage
   useEffect(() => {
     if (!activeMatrix && typeof window !== 'undefined') {
       try {
@@ -157,31 +169,32 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
         const urlMatrixId = params.get('matrixId') || params.get('matrix');
         const savedId = urlMatrixId || sessionStorage.getItem('picklepoint_active_matrix_id');
         if (savedId) {
-          const found = allMatrices.find((m) => m.id === savedId);
+          const found =
+            allMatrices.find((m) => m.id === savedId) ||
+            openPlayEvents.find((m) => m.id === savedId) ||
+            localMatrices.find((m) => m.id === savedId);
           if (found) {
             setActiveMatrix(found);
+            return;
+          }
+
+          // Direct Firestore fallback fetch if event is not yet loaded into state
+          if (isFirebaseConfigured && db) {
+            getDoc(doc(db, 'openplay_events', savedId))
+              .then((snap) => {
+                if (snap.exists()) {
+                  const cloudEvent = normalizeOpenPlayEvent(snap.id, snap.data());
+                  setActiveMatrix(cloudEvent);
+                }
+              })
+              .catch((err) => {
+                console.warn('Failed to restore active matrix from Firestore:', err);
+              });
           }
         }
       } catch (e) {}
     }
-  }, [allMatrices, activeMatrix]);
-
-  // If activeMatrix is not yet restored but exists in allMatrices
-  useEffect(() => {
-    if (!activeMatrix && allMatrices.length > 0) {
-      try {
-        const savedId =
-          (typeof window !== 'undefined'
-            ? new URLSearchParams(window.location.search).get('matrixId') ||
-              new URLSearchParams(window.location.search).get('matrix')
-            : null) || sessionStorage.getItem('picklepoint_active_matrix_id');
-        if (savedId) {
-          const found = allMatrices.find((m) => m.id === savedId);
-          if (found) setActiveMatrix(found);
-        }
-      } catch (e) {}
-    }
-  }, [allMatrices, activeMatrix]);
+  }, [allMatrices, activeMatrix, openPlayEvents, localMatrices]);
 
   // Handle source Open Play event selection for Roster Pullout
   useEffect(() => {
@@ -483,7 +496,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
         {/* Live Match Engine */}
         <AdminOpenPlayMatchManagement
           event={activeMatrix}
-          registrations={[]}
+          registrations={openPlayRegistrations}
           backLabel="Back to Match Matrices"
           onBack={() => setActiveMatrix(null)}
         />
@@ -498,7 +511,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5">
         <div className="p-3 sm:p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-            <Layers className="w-3.5 h-3.5 text-brand-lime" /> Total Matrices
+            <Layers className="w-3.5 h-3.5 text-brand-lime" /> Total Boards
           </div>
           <div className="text-xl sm:text-2xl font-black text-white mt-1">{allMatrices.length}</div>
         </div>
@@ -523,21 +536,56 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
             <Users className="w-3.5 h-3.5 text-cyan-400" /> Open Play Sessions
           </div>
-          <div className="text-xl sm:text-2xl font-black text-cyan-300 mt-1">{openPlayEvents.length}</div>
+          <div className="text-xl sm:text-2xl font-black text-cyan-300 mt-1">
+            {openPlayEvents.filter((e) => !e.isMatchMatrix).length}
+          </div>
         </div>
       </div>
 
       {/* FILTER, SEARCH & CREATE ACTION BAR */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-900/40 p-3 rounded-2xl border border-slate-800">
-        <div className="relative w-full lg:w-80">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by title or court..."
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
-          />
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full lg:w-auto flex-1">
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by title or court..."
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+            />
+          </div>
+
+          {/* Source Type Filter */}
+          <div className="flex items-center gap-1 p-1 bg-slate-950 border border-slate-800 rounded-xl shrink-0 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setSourceFilter('all')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                sourceFilter === 'all' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              All Sessions
+            </button>
+            <button
+              type="button"
+              onClick={() => setSourceFilter('matrices')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                sourceFilter === 'matrices' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Tournament Matrices
+            </button>
+            <button
+              type="button"
+              onClick={() => setSourceFilter('openplay')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                sourceFilter === 'openplay' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Open Play
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between lg:justify-end gap-2.5 w-full lg:w-auto">
@@ -601,9 +649,18 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                 <div className="space-y-3">
                   {/* Top Badges */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-extrabold uppercase tracking-wide">
-                      {matrix.rotationRule === 'winners_stay' ? 'Winners Stay' : matrix.rotationRule === 'all_4_rotate' ? 'Round Robin' : 'Random Doubles'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${
+                        matrix.isMatchMatrix
+                          ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                          : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                      }`}>
+                        {matrix.isMatchMatrix ? 'Tournament Matrix' : 'Open Play Session'}
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-extrabold uppercase tracking-wide">
+                        {matrix.rotationRule === 'winners_stay' ? 'Winners Stay' : matrix.rotationRule === 'all_4_rotate' ? 'Round Robin' : 'Random Doubles'}
+                      </span>
+                    </div>
 
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide ${
                       matrix.status === 'active'

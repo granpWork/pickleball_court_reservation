@@ -3723,6 +3723,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   useEffect(() => {
     let unsubscribeBookings: (() => void) | null = null;
     let unsubscribeCompanies: (() => void) | null = null;
+    let unsubscribeOpenPlayEvents: (() => void) | null = null;
 
     if (isFirebaseConfigured && db) {
       try {
@@ -3788,6 +3789,27 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       } catch (err) {
         console.warn('Failed to initialize real-time companies listener:', err);
       }
+
+      try {
+        unsubscribeOpenPlayEvents = onSnapshot(collection(db!, 'openplay_events'), (snapshot) => {
+          if (document.hidden) return;
+          const cloudEvents: OpenPlayEvent[] = [];
+          snapshot.forEach((docSnap) => {
+            cloudEvents.push(normalizeOpenPlayEvent(docSnap.id, docSnap.data()));
+          });
+          if (cloudEvents.length > 0) {
+            setOpenPlayEvents(cloudEvents);
+            try {
+              localStorage.setItem('picklepoint_openplay_events', JSON.stringify(cloudEvents));
+              sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(cloudEvents));
+            } catch (e) {}
+          }
+        }, (err) => {
+          console.warn('Real-time openplay_events listener error:', err);
+        });
+      } catch (err) {
+        console.warn('Failed to initialize real-time openplay_events listener:', err);
+      }
     }
 
     // Cross-tab & Custom event listeners
@@ -3796,6 +3818,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       if (
         e.key === 'picklepoint_bookings' ||
         e.key === 'picklepoint_openplay_registrations' ||
+        e.key === 'picklepoint_openplay_events' ||
         e.key === 'picklepoint_companies' ||
         e.key === 'picklepoint_venue_leads'
       ) {
@@ -3814,6 +3837,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return () => {
       if (unsubscribeBookings) unsubscribeBookings();
       if (unsubscribeCompanies) unsubscribeCompanies();
+      if (unsubscribeOpenPlayEvents) unsubscribeOpenPlayEvents();
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('picklepoint_company_updated', handleCompanyUpdate);
     };

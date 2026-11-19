@@ -1732,6 +1732,50 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     }
   };
 
+  // Synchronize authoritative event document (rosterPool, roundTitles, roundCreatedAt) from Firestore
+  useEffect(() => {
+    if (!isFirebaseConfigured || !db || !event.id) return;
+    let isMounted = true;
+
+    try {
+      const unsubEvent = onSnapshot(
+        doc(db, 'openplay_events', event.id),
+        (snap) => {
+          if (!isMounted || !snap.exists()) return;
+          const data = snap.data();
+          if (Array.isArray(data.rosterPool) && data.rosterPool.length > 0) {
+            setRosterPool((prev) => {
+              if (prev.length === 0 || data.rosterPool.length !== prev.length) {
+                setPaddleRackQueue(data.rosterPool.filter((p: any) => p.status === 'active'));
+                try {
+                  localStorage.setItem(`picklepoint_openplay_roster_${event.id}`, JSON.stringify(data.rosterPool));
+                } catch (e) {}
+                return data.rosterPool;
+              }
+              return prev;
+            });
+          }
+          if (data.roundTitles && typeof data.roundTitles === 'object') {
+            setRoundTitles((prev) => ({ ...data.roundTitles, ...prev }));
+          }
+          if (data.roundCreatedAt && typeof data.roundCreatedAt === 'object') {
+            setRoundCreatedAt((prev) => ({ ...data.roundCreatedAt, ...prev }));
+          }
+        },
+        (err) => {
+          console.warn('Firestore onSnapshot error for event doc:', err);
+        }
+      );
+
+      return () => {
+        isMounted = false;
+        unsubEvent();
+      };
+    } catch (e) {
+      console.warn('Failed to listen to event document:', e);
+    }
+  }, [event.id]);
+
   // Real-time Matches Listener from Firestore & LocalStorage fallback
   useEffect(() => {
     let isMounted = true;
@@ -1742,7 +1786,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const localData = localStorage.getItem(`picklepoint_openplay_matches_${event.id}`);
       if (localData) {
         const parsed = JSON.parse(localData) as OpenPlayMatch[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           setMatches(parsed);
           setIsLoading(false);
         }
