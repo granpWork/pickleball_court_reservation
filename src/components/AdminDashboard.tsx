@@ -77,7 +77,7 @@ import {
   CheckCheck,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot, limit, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot } from 'firebase/firestore';
 import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendPaymentApprovalReceiptEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail, resolveVenueNotificationRecipients, sendBookingActionAdminAuditEmail } from '../services/emailService';
 import { isEventExpired, formatTime12h, formatEventDateLong, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 import { OpenPlayRulesPostersManager } from './admin/tabs/openplay/OpenPlayRulesPostersManager';
@@ -3170,84 +3170,15 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     try {
       if (isFirebaseConfigured && db) {
-        // Fast helper: sanitize events for local cache so Base64 posters never exceed 5MB quota on mobile
-        const processAndSetEvents = (dDocs: any[]) => {
-          const eventsMap = new Map<string, OpenPlayEvent>();
-          const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
-          if (localEventsStr) {
-            try {
-              const localEventsRaw = JSON.parse(localEventsStr);
-              localEventsRaw.forEach((e: any) => {
-                const normalized = normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e);
-                if (normalized.id) eventsMap.set(normalized.id, normalized);
-              });
-            } catch (e) {}
-          }
-          dDocs.forEach((dSnap) => {
-            const cloudEvent = normalizeOpenPlayEvent(dSnap.id, dSnap.data());
-            eventsMap.set(cloudEvent.id, cloudEvent);
-          });
-          const mergedEvents = Array.from(eventsMap.values());
-          try {
-            const sanitized = mergedEvents.map(e => {
-              const hasBigPoster = e.posterImageUrl && e.posterImageUrl.length > 50000;
-              const hasBigRules = Array.isArray(e.rulesPosterUrls) && e.rulesPosterUrls.some(u => u && u.length > 50000);
-              if (hasBigPoster || hasBigRules) {
-                return {
-                  ...e,
-                  posterImageUrl: hasBigPoster ? undefined : e.posterImageUrl,
-                  rulesPosterUrls: hasBigRules ? undefined : e.rulesPosterUrls,
-                };
-              }
-              return e;
-            });
-            localStorage.setItem('picklepoint_openplay_events', JSON.stringify(sanitized));
-            sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(sanitized));
-          } catch (e) {}
-          setOpenPlayEvents(mergedEvents);
-        };
-
-        // Parallel queries with progressive hydration to eliminate mobile load freezes
+        // Parallel queries via Promise.allSettled to drastically reduce network round trips on mobile
         const compPromise = isSuperAdmin
           ? getDocs(collection(db, 'companies'))
           : (currentUserEmail ? getDocs(query(collection(db, 'companies'), where('clientAdminEmail', '==', currentUserEmail))) : Promise.resolve(null));
-
-        const courtsPromise = getDocs(collection(db, 'courts')).then((snap) => {
-          if (snap && !snap.empty) {
-            let loadedCourts: Court[] = [];
-            snap.forEach((docSnap) => {
-              if (docSnap.id !== 'court-championship') {
-                loadedCourts.push({ id: docSnap.id, ...docSnap.data() } as Court);
-              }
-            });
-            if (loadedCourts.length > 0) {
-              setCourts(loadedCourts);
-              try { localStorage.setItem('picklepoint_courts', JSON.stringify(loadedCourts)); } catch (e) {}
-            }
-          }
-          return snap;
-        });
-
-        // Cap bookings query to latest 120 so mobile devices don't download dozens of MBs of base64 images
-        const bookingsPromise = (async () => {
-          try {
-            return await getDocs(query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(120)));
-          } catch {
-            return await getDocs(query(collection(db, 'bookings'), limit(120)));
-          }
-        })();
-
+        const courtsPromise = getDocs(collection(db, 'courts'));
+        const bookingsPromise = getDocs(collection(db, 'bookings'));
         const usersPromise = getDocs(collection(db, 'users'));
         const invitationsPromise = getDocs(collection(db, 'invitations'));
-
-        // Progressively hydrate Open Play Events & Match Matrices immediately upon resolution (~200ms)
-        const eventsPromise = getDocs(collection(db, 'openplay_events')).then((snap) => {
-          if (snap && !snap.empty) {
-            processAndSetEvents(snap.docs);
-          }
-          return snap;
-        });
-
+        const eventsPromise = getDocs(collection(db, 'openplay_events'));
         const regsPromise = getDocs(collection(db, 'openplay_registrations'));
         const vouchersPromise = getDocs(collection(db, 'vouchers'));
         const shortLinksPromise = getDocs(collection(db, 'short_links'));
@@ -3384,20 +3315,31 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
         loadedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setBookings(loadedBookings);
-        try {
-          const sanitizedBookings = loadedBookings.slice(0, 50).map(b => {
-            if (b.receiptImageUrl && b.receiptImageUrl.length > 20000) {
-              return { ...b, receiptImageUrl: undefined };
-            }
-            return b;
-          });
-          localStorage.setItem('picklepoint_bookings', JSON.stringify(sanitizedBookings));
-        } catch (e) {}
 
         // 4. Process OpenPlay Events
-        if (eventsRes.status === 'fulfilled' && eventsRes.value) {
-          processAndSetEvents(eventsRes.value.docs);
+        const eventsMap = new Map<string, OpenPlayEvent>();
+        const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
+        if (localEventsStr) {
+          try {
+            const localEventsRaw = JSON.parse(localEventsStr);
+            localEventsRaw.forEach((e: any) => {
+              const normalized = normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e);
+              if (normalized.id) eventsMap.set(normalized.id, normalized);
+            });
+          } catch (e) {}
         }
+        if (eventsRes.status === 'fulfilled' && eventsRes.value) {
+          eventsRes.value.forEach((dSnap) => {
+            const cloudEvent = normalizeOpenPlayEvent(dSnap.id, dSnap.data());
+            eventsMap.set(cloudEvent.id, cloudEvent);
+          });
+        }
+        const mergedEvents = Array.from(eventsMap.values());
+        try {
+          localStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
+          sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(mergedEvents));
+        } catch (e) {}
+        setOpenPlayEvents(mergedEvents);
 
         // 5. Process OpenPlay Registrations
         const regMap = new Map<string, OpenPlayRegistration>();
@@ -3784,8 +3726,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     if (isFirebaseConfigured && db) {
       try {
-        const bookingsStreamQuery = query(collection(db!, 'bookings'), limit(120));
-        unsubscribeBookings = onSnapshot(bookingsStreamQuery, (snapshot) => {
+        unsubscribeBookings = onSnapshot(collection(db!, 'bookings'), (snapshot) => {
           if (document.hidden) return; // Skip heavy state updates when tab is hidden
 
           let localBookingsList: Booking[] = [];
@@ -3824,15 +3765,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             loadedBookings = loadedBookings.slice(0, 300);
           }
           setBookings(loadedBookings);
-          try {
-            const sanitizedBookings = loadedBookings.slice(0, 50).map(b => {
-              if (b.receiptImageUrl && b.receiptImageUrl.length > 20000) {
-                return { ...b, receiptImageUrl: undefined };
-              }
-              return b;
-            });
-            localStorage.setItem('picklepoint_bookings', JSON.stringify(sanitizedBookings));
-          } catch (e) {}
         }, (err) => {
           console.warn('Real-time bookings subscription error:', err);
         });

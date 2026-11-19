@@ -17,7 +17,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, getDocs, query, limit } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { isEventExpired, calculateEventDuration, formatTime12h, formatEventDateLong, splitAddressComponents, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 import { isSubscriptionExpired } from './admin/adminTypes';
 
@@ -78,7 +78,7 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
           getDocs(collection(db, 'companies')),
           getDocs(collection(db, 'openplay_events')),
           getDocs(collection(db, 'openplay_registrations')),
-          getDocs(query(collection(db, 'bookings'), limit(100))),
+          getDocs(collection(db, 'bookings')),
         ]);
 
         if (cRes.status === 'fulfilled' && cRes.value) {
