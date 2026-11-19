@@ -102,22 +102,24 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="glass-panel border border-slate-800 rounded-3xl max-w-3xl md:max-w-4xl w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 className="text-lg font-black text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-3xl md:max-w-4xl w-full shadow-2xl text-left bg-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Sticky Header */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 shrink-0">
+          <h3 className="text-base sm:text-lg font-black text-white">
             {editingMatch ? 'Edit Match' : 'Create Manual Match'}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="space-y-4 text-xs">
+        {/* Scrollable Body */}
+        <div className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto flex-1">
           <div>
             <label className="block text-slate-400 font-bold mb-1">Game Name / Match Title</label>
             <input
@@ -129,7 +131,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-slate-400 font-bold mb-1">Round #</label>
               <input
@@ -363,18 +365,19 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+        {/* Sticky Footer */}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+            className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 sm:bg-transparent text-slate-400 hover:text-white text-xs font-bold cursor-pointer text-center"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSubmit}
-            className="px-5 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all text-center"
           >
             {editingMatch ? 'Update Match' : 'Create Match Now'}
           </button>

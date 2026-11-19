@@ -137,11 +137,11 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
       {/* Accordion Header Bar */}
       <div
         onClick={() => onToggleCollapse(roundNum)}
-        className={`flex items-center justify-between p-4 sm:p-5 bg-slate-900/80 hover:bg-slate-900/95 transition-all cursor-pointer select-none flex-wrap gap-3 ${
+        className={`flex flex-col lg:flex-row lg:items-center justify-between p-3.5 sm:p-5 bg-slate-900/80 hover:bg-slate-900/95 transition-all cursor-pointer select-none gap-3 ${
           isCollapsed ? '' : 'border-b border-slate-800/80'
         }`}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0">
           {/* Chevron Expand/Collapse Toggle */}
           <button
             type="button"
@@ -149,7 +149,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
               e.stopPropagation();
               onToggleCollapse(roundNum);
             }}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer shrink-0 mt-0.5 sm:mt-0"
             title={isCollapsed ? 'Expand Round' : 'Collapse Round'}
           >
             {isCollapsed ? (
@@ -161,7 +161,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
 
           {/* Round Title / Inline Renaming Input */}
           {isEditingTitle ? (
-            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto min-w-0" onClick={(e) => e.stopPropagation()}>
               <input
                 type="text"
                 value={tempRoundTitle}
@@ -170,7 +170,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
                   if (e.key === 'Enter') onSaveTitle(roundNum);
                   if (e.key === 'Escape') onCancelEditTitle();
                 }}
-                className="bg-slate-950 border border-brand-lime/80 rounded-xl px-3 py-1 text-sm font-bold text-white focus:outline-none focus:ring-1 focus:ring-brand-lime shadow-inner"
+                className="min-w-0 flex-1 sm:w-56 bg-slate-950 border border-brand-lime/80 rounded-xl px-3 py-1 text-sm font-bold text-white focus:outline-none focus:ring-1 focus:ring-brand-lime shadow-inner"
                 placeholder={`Round ${roundNum}`}
                 autoFocus
               />
@@ -251,25 +251,25 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
         </div>
 
         {/* Header Action Buttons */}
-        <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-1.5 sm:gap-2 flex-wrap w-full lg:w-auto" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => onOpenResultsModal(roundNum)}
-            className="py-1.5 px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            className="py-2 sm:py-1.5 px-2.5 sm:px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
             title={`Generate Match Results CSV for ${roundTitle}`}
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Generate Results</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span className="truncate">Generate Results</span>
           </button>
 
           <button
             type="button"
             onClick={() => onOpenJsonModal(roundNum)}
-            className="py-1.5 px-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            className="py-2 sm:py-1.5 px-2.5 sm:px-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
             title={`Upload JSON match data to ${roundTitle}`}
           >
-            <UploadCloud className="w-3.5 h-3.5" />
-            <span>Upload JSON</span>
+            <UploadCloud className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Upload JSON</span>
           </button>
 
           {matchesInRound.length === 0 && isAiConfigured && onAiGenerateRound && (
@@ -277,15 +277,15 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
               type="button"
               disabled={isAiGenerating}
               onClick={() => onAiGenerateRound(roundNum)}
-              className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+              className="py-2 sm:py-1.5 px-2.5 sm:px-3 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
               title={`Use Google Gemini AI to generate ${roundTitle} based on previous match results, DUPR ratings, and gameplay rules`}
             >
               {isAiGenerating ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg" />
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg shrink-0" />
               ) : (
-                <Sparkles className="w-3.5 h-3.5 text-dark-bg" />
+                <Sparkles className="w-3.5 h-3.5 text-dark-bg shrink-0" />
               )}
-              <span>{isAiGenerating ? 'AI Generating...' : '✨ AI Auto-Gen'}</span>
+              <span className="truncate">{isAiGenerating ? 'AI Generating...' : '✨ AI Auto-Gen'}</span>
             </button>
           )}
 
@@ -294,32 +294,32 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
               type="button"
               disabled={isAiGenerating}
               onClick={() => onAutoGenerateRound(roundNum)}
-              className="py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
+              className="py-2 sm:py-1.5 px-2.5 sm:px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer disabled:opacity-50"
               title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
             >
-              <Zap className="w-3.5 h-3.5 text-brand-lime" />
-              <span>Auto-Gen Round</span>
+              <Zap className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+              <span className="truncate">Auto-Gen Round</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={() => onOpenManualMatchModal(roundNum)}
-            className="py-1.5 px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            className="py-2 sm:py-1.5 px-2.5 sm:px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Match</span>
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Add Match</span>
           </button>
 
           {onDeleteRound && (
             <button
               type="button"
               onClick={() => onDeleteRound(roundNum)}
-              className="py-1.5 px-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              className="py-2 sm:py-1.5 px-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500 hover:text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
               title={`Delete ${roundTitle}`}
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Round</span>
+              <Trash2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Delete Round</span>
             </button>
           )}
         </div>
@@ -327,23 +327,23 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
 
       {/* Accordion Body Content */}
       {!isCollapsed && (
-        <div className="p-4 sm:p-5 animate-fade-in">
+        <div className="p-3.5 sm:p-5 animate-fade-in">
           {matchesInRound.length === 0 ? (
-            <div className="p-8 text-center border border-dashed border-slate-800 rounded-3xl bg-slate-900/20 space-y-3">
-              <p className="text-sm font-semibold text-slate-400">No matches created for {roundTitle} yet.</p>
-              <div className="flex items-center justify-center gap-2.5 flex-wrap">
+            <div className="p-5 sm:p-8 text-center border border-dashed border-slate-800 rounded-2xl sm:rounded-3xl bg-slate-900/20 space-y-3">
+              <p className="text-xs sm:text-sm font-semibold text-slate-400">No matches created for {roundTitle} yet.</p>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 sm:gap-2.5 flex-wrap">
                 {isAiConfigured && onAiGenerateRound && (
                   <button
                     type="button"
                     disabled={isAiGenerating}
                     onClick={() => onAiGenerateRound(roundNum)}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
+                    className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
                     title={`Use Google Gemini AI to generate ${roundTitle} based on previous match results, DUPR ratings, and gameplay rules`}
                   >
                     {isAiGenerating ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg shrink-0" />
                     ) : (
-                      <Sparkles className="w-3.5 h-3.5 text-dark-bg" />
+                      <Sparkles className="w-3.5 h-3.5 text-dark-bg shrink-0" />
                     )}
                     <span>
                       {isAiGenerating
@@ -357,25 +357,25 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
                     type="button"
                     disabled={isAiGenerating}
                     onClick={() => onAutoGenerateRound(roundNum)}
-                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
+                    className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
                     title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
                   >
-                    <Zap className="w-3.5 h-3.5 text-brand-lime" /> Auto-Generate {roundTitle} (No Duplicates)
+                    <Zap className="w-3.5 h-3.5 text-brand-lime shrink-0" /> Auto-Generate {roundTitle} (No Duplicates)
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => onOpenManualMatchModal(roundNum)}
-                  className="px-4 py-2 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
+                  className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Create Match in {roundTitle}
+                  <Plus className="w-3.5 h-3.5 shrink-0" /> Create Match in {roundTitle}
                 </button>
                 <button
                   type="button"
                   onClick={() => onOpenJsonModal(roundNum)}
-                  className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
+                  className="w-full sm:w-auto justify-center px-3.5 py-2.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
                 >
-                  <UploadCloud className="w-3.5 h-3.5 text-amber-400" /> Upload JSON
+                  <UploadCloud className="w-3.5 h-3.5 text-amber-400 shrink-0" /> Upload JSON
                 </button>
               </div>
             </div>
@@ -429,13 +429,13 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
                       return (
                         <div
                           key={rp.id}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-white shadow-sm flex-wrap ${
+                          className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold text-white shadow-sm flex-wrap max-w-full min-w-0 ${
                             arrivedAfterRound
                               ? 'bg-rose-950/40 border-rose-500/50'
                               : 'bg-slate-900 border-amber-500/40'
                           }`}
                         >
-                          <span className={arrivedAfterRound ? 'text-rose-200 font-black' : 'text-amber-400 font-black'}>
+                          <span className={`truncate max-w-[180px] sm:max-w-none ${arrivedAfterRound ? 'text-rose-200 font-black' : 'text-amber-400 font-black'}`}>
                             {rp.name}
                           </span>
 

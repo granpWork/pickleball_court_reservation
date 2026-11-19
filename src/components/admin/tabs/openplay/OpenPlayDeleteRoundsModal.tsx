@@ -58,17 +58,17 @@ export const OpenPlayDeleteRoundsModal: React.FC<OpenPlayDeleteRoundsModalProps>
   }, [matches, selectedRounds]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
-      <div className="glass-panel border border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 bg-slate-900 my-8 max-h-[90vh] flex flex-col justify-between overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-xl w-full shadow-2xl bg-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Sticky Header */}
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 flex-shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-400 shrink-0">
               <Trash2 className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-base font-black text-white">Delete Multiple Rounds</h3>
-              <p className="text-[11px] text-slate-400 font-medium">
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-black text-white truncate">Delete Multiple Rounds</h3>
+              <p className="text-[11px] text-slate-400 font-medium line-clamp-2 sm:line-clamp-none">
                 Select one or more rounds to delete them and all associated matches.
               </p>
             </div>
@@ -77,14 +77,16 @@ export const OpenPlayDeleteRoundsModal: React.FC<OpenPlayDeleteRoundsModalProps>
             type="button"
             disabled={isDeleting}
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+            className="p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer disabled:opacity-50 shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
+        {/* Scrollable Body */}
+        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
         {/* Quick Selection Bar */}
-        <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs flex-shrink-0">
+        <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs flex-wrap">
           <button
             type="button"
             onClick={isAllSelected ? onDeselectAll : onSelectAll}
@@ -103,8 +105,8 @@ export const OpenPlayDeleteRoundsModal: React.FC<OpenPlayDeleteRoundsModalProps>
           </span>
         </div>
 
-        {/* Scrollable Round Items */}
-        <div className="space-y-2.5 overflow-y-auto max-h-[42vh] pr-1 flex-1">
+        {/* Round Items */}
+        <div className="space-y-2.5">
           {rounds.map((roundNum) => {
             const isSelected = selectedRounds.has(roundNum);
             const matchesInThisRound = matches.filter((m) => m.round === roundNum);
@@ -188,14 +190,15 @@ export const OpenPlayDeleteRoundsModal: React.FC<OpenPlayDeleteRoundsModalProps>
             </p>
           </div>
         )}
+        </div>
 
-        {/* Actions Footer */}
-        <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800 flex-shrink-0">
+        {/* Sticky Actions Footer */}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 flex-shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
           <button
             type="button"
             disabled={isDeleting}
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer transition-colors"
+            className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 sm:bg-transparent text-slate-400 hover:text-white text-xs font-bold cursor-pointer transition-colors text-center"
           >
             Cancel
           </button>
@@ -204,7 +207,7 @@ export const OpenPlayDeleteRoundsModal: React.FC<OpenPlayDeleteRoundsModalProps>
             type="button"
             disabled={selectedRounds.size === 0 || isDeleting}
             onClick={onConfirmDelete}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 disabled:opacity-40 text-white font-black text-xs cursor-pointer shadow-lg shadow-rose-600/20 flex items-center gap-2 transition-all"
+            className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 disabled:opacity-40 text-white font-black text-xs cursor-pointer shadow-lg shadow-rose-600/20 flex items-center gap-2 transition-all"
           >
             {isDeleting ? (
               <>

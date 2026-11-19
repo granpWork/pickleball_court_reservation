@@ -342,22 +342,22 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="glass-panel border border-slate-800 rounded-3xl max-w-4xl w-full p-5 sm:p-7 shadow-2xl space-y-6 text-left bg-slate-900 max-h-[92vh] overflow-y-auto">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-4xl w-full shadow-2xl text-left bg-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Sticky Modal Header */}
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-7 py-3.5 sm:py-5 border-b border-slate-800 bg-slate-950/90 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime shrink-0">
               <Zap className="w-5 h-5 animate-pulse" />
             </div>
-            <div>
-              <h3 className="text-lg font-black text-white flex items-center gap-2">
-                Auto-Generate Match Matrix
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2 flex-wrap">
+                <span>Auto-Generate Match Matrix</span>
                 <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-brand-lime/10 border border-brand-lime/30 text-brand-lime font-bold">
                   Smart Pacing Engine
                 </span>
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate sm:whitespace-normal">
                 Paced match generator with guaranteed unique partnerships & fair bench rotation.
               </p>
             </div>
@@ -365,15 +365,17 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800/60 transition-all cursor-pointer"
+            className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800/60 transition-all cursor-pointer shrink-0"
             aria-label="Close dialog"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Scrollable Modal Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-7 space-y-5 sm:space-y-6">
         {/* 2-Column Responsive Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
           {/* LEFT COLUMN: Controls & Settings (7 cols on lg) */}
           <div className="lg:col-span-7 space-y-5 text-xs">
             {/* Google AI (Gemini) Matchmaking Engine Card */}
@@ -751,7 +753,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                 <label className="block text-slate-400 font-bold mb-1.5">
                   1. Total Session Duration
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[120, 180, 240, 300].map((mins) => (
                     <button
                       key={mins}
@@ -782,7 +784,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                   {[11, 12, 13, 15, 20].map((mins) => (
                     <button
                       key={mins}
@@ -836,7 +838,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                     max={Math.min(30, Math.max(20, pacing.recommendedRounds + 10))}
                     value={autoGenRounds}
                     onChange={(e) => setAutoGenRounds(parseInt(e.target.value, 10))}
-                    className="w-full accent-brand-lime cursor-pointer"
+                    className="min-w-0 flex-1 accent-brand-lime cursor-pointer"
                   />
                   <select
                     value={autoGenRounds}
@@ -890,7 +892,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             </div>
 
             {/* Assigned Courts & Game Type */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-slate-400 font-bold mb-1">Game Mode</label>
                 <select
@@ -1212,7 +1214,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                       return (
                         <div
                           key={idx}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[11px] flex items-center justify-between text-slate-300"
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-950/80 border border-slate-800/80 text-[11px] flex items-center justify-between flex-wrap gap-1.5 text-slate-300"
                         >
                           <div className="flex items-center gap-1.5 truncate min-w-0">
                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${tierConfig.dotClass}`}></span>
@@ -1314,10 +1316,11 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             </div>
           </div>
         </div>
+        </div>
 
-        {/* Modal Action Footer */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-          <div className="text-xs text-slate-400 flex items-center gap-2">
+        {/* Sticky Modal Action Footer */}
+        <div className="px-4 sm:px-7 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="text-xs text-slate-400 flex items-center gap-2 flex-wrap">
             <span className="font-mono text-brand-lime font-bold flex items-center gap-1.5">
               <span>{autoGenRounds} {autoGenRounds === 1 ? 'Round' : 'Rounds'}</span>
               <span className="text-[10px] text-slate-400 font-medium px-2 py-0.5 rounded-md bg-slate-900 border border-slate-700">
@@ -1340,11 +1343,11 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer transition-colors"
+              className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 sm:bg-transparent text-slate-400 hover:text-white text-xs font-bold cursor-pointer transition-colors text-center"
             >
               Cancel
             </button>
@@ -1365,7 +1368,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
                   aiDirectorNotes
                 )
               }
-              className={`px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-all flex items-center gap-2 ${
+              className={`w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl font-black text-xs shadow-lg transition-all flex items-center gap-2 ${
                 isAiGenerating || activeCount < (autoGenGameType === 'doubles' ? 4 : 2)
                   ? 'opacity-50 cursor-not-allowed bg-slate-800 text-slate-400 border border-slate-700'
                   : useAiEngine && isAiConfigured

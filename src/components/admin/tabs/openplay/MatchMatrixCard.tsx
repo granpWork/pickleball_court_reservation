@@ -97,7 +97,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
       )}
 
       {/* Card Header: Match Name, Round, Court Selector & Status */}
-      <div className="flex items-start justify-between gap-2 text-xs pb-3 border-b border-slate-800/80 min-w-0">
+      <div className="flex items-start justify-between flex-wrap gap-2 text-xs pb-3 border-b border-slate-800/80 min-w-0">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
             {isDraggable && (
@@ -176,7 +176,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 type="button"
                 disabled={m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'red', -1)}
-                className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
                   m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
@@ -193,7 +193,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 disabled={m.status === 'completed'}
                 value={m.teamRed.score}
                 onChange={(e) => onDirectScoreChange(m.id, 'red', e.target.value)}
-                className={`w-9 text-center font-mono font-black text-base bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                className={`w-10 sm:w-9 text-center font-mono font-black text-base bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                   m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-red-400'
                 }`}
               />
@@ -201,7 +201,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 type="button"
                 disabled={m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'red', 1)}
-                className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
                   m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-red-600 hover:bg-red-500 text-white cursor-pointer shadow-sm'
@@ -323,7 +323,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 type="button"
                 disabled={m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'blue', -1)}
-                className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
                   m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
@@ -340,7 +340,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 disabled={m.status === 'completed'}
                 value={m.teamBlue.score}
                 onChange={(e) => onDirectScoreChange(m.id, 'blue', e.target.value)}
-                className={`w-9 text-center font-mono font-black text-base bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                className={`w-10 sm:w-9 text-center font-mono font-black text-base bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                   m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-blue-400'
                 }`}
               />
@@ -348,7 +348,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 type="button"
                 disabled={m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'blue', 1)}
-                className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center transition-all ${
+                className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
                   m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shadow-sm'
@@ -421,7 +421,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
       {/* Card Footer Actions */}
       <div className="pt-3 border-t border-slate-800/80 text-xs space-y-2.5 min-w-0">
         {/* Top Footer Row: Status Badge + Secondary Utility Buttons (CSV, Edit, Delete) */}
-        <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex items-center justify-between flex-wrap gap-2 min-w-0">
           <div className="min-w-0 flex items-center">
             {m.status === 'completed' ? (
               <span className="text-brand-lime font-black text-[11px] flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/60 border border-emerald-500/40 truncate shadow-inner">
@@ -495,12 +495,12 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
         </div>
 
         {/* Bottom Footer Row: Primary Match Progression Buttons */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           {m.status === 'scheduled' && (
             <button
               type="button"
               onClick={() => onStartMatch(m.id)}
-              className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+              className="flex-1 py-2.5 sm:py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
               title="Mark match as active/ongoing on court"
             >
               ▶ Start Match
@@ -511,7 +511,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
             <button
               type="button"
               onClick={() => onCompleteMatch(m.id)}
-              className={`flex-1 py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer ${
+              className={`flex-1 py-2.5 sm:py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer ${
                 m.status === 'in_progress'
                   ? 'bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-slate-950 shadow-md shadow-emerald-500/20'
                   : 'bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white'
@@ -524,7 +524,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
             <button
               type="button"
               onClick={() => onReopenMatch(m.id)}
-              className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-700"
+              className="w-full py-2.5 sm:py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-700"
               title="Reopen match to edit score or resume play"
             >
               <RotateCcw className="w-3.5 h-3.5 text-slate-400 shrink-0" /> Reopen Match

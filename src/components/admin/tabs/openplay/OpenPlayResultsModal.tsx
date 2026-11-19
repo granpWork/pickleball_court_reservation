@@ -76,27 +76,30 @@ export const OpenPlayResultsModal: React.FC<OpenPlayResultsModalProps> = ({
   const rowCount = Math.max(0, rawCsvContent.split('\n').length - 1);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="glass-panel border border-slate-800 rounded-3xl max-w-3xl w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
-            <div>
-              <h3 className="text-lg font-black text-white">Generate Match Results CSV</h3>
-              <p className="text-xs text-slate-400">Export match scores & player DUPR IDs formatted for result uploads</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-3xl w-full shadow-2xl text-left bg-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Sticky Header */}
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <FileSpreadsheet className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-black text-white truncate">Generate Match Results CSV</h3>
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate sm:whitespace-normal">Export match scores & player DUPR IDs formatted for result uploads</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Scrollable Body */}
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
         {/* Filter & Form Parameters */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
           <div>
             <label className="block text-slate-400 font-bold mb-1">Export Target</label>
             <select
@@ -163,7 +166,7 @@ export const OpenPlayResultsModal: React.FC<OpenPlayResultsModalProps> = ({
             </select>
           </div>
 
-          <div className="flex items-center pt-5">
+          <div className="flex items-center pt-1 sm:pt-5">
             <label className="flex items-center gap-2 cursor-pointer select-none text-emerald-300 font-bold">
               <input
                 type="checkbox"
@@ -227,20 +230,21 @@ export const OpenPlayResultsModal: React.FC<OpenPlayResultsModalProps> = ({
             matchType, event, date, playerA1, playerA1DuprId, playerA1ExternalId, playerA2, playerA2DuprId, playerA2ExternalId, playerB1, playerB1DuprId, playerB1ExternalId, playerB2, playerB2DuprId, playerB2ExternalId, teamAGame1, teamBGame1, teamAGame2, teamBGame2, teamAGame3, teamBGame3, teamAGame4, teamBGame4, teamAGame5, teamBGame5, location, scoreType
           </p>
         </div>
+        </div>
 
-        {/* Modal Actions */}
-        <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-800">
+        {/* Sticky Modal Actions Footer */}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+            className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 sm:bg-transparent text-slate-400 hover:text-white text-xs font-bold cursor-pointer text-center"
           >
             Close
           </button>
           <button
             type="button"
             onClick={onCopyCsvToClipboard}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-xs cursor-pointer flex items-center gap-1.5 transition-all"
+            className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-extrabold text-xs cursor-pointer flex items-center gap-1.5 transition-all"
           >
             <Copy className="w-4 h-4 text-emerald-400" />
             <span>Copy to Clipboard</span>
@@ -248,7 +252,7 @@ export const OpenPlayResultsModal: React.FC<OpenPlayResultsModalProps> = ({
           <button
             type="button"
             onClick={onDownloadCsv}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-dark-bg font-extrabold text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all flex items-center gap-1.5"
+            className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-dark-bg font-extrabold text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all flex items-center gap-1.5"
           >
             <Download className="w-4 h-4 text-dark-bg" />
             <span>Download CSV File</span>

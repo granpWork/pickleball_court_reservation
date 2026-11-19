@@ -2982,16 +2982,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       )}
 
       {/* Top Navigation & Header */}
-      <div className="flex items-center justify-between gap-3 pb-4 border-b border-slate-800 flex-wrap">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             if (onBack) onBack();
           }}
-          className="inline-flex items-center gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01]"
+          className="inline-flex items-center justify-center sm:justify-start gap-2 text-slate-300 hover:text-white transition-all text-xs font-black uppercase tracking-wider cursor-pointer bg-slate-900 border border-slate-700 hover:border-brand-lime px-4 py-2.5 rounded-2xl shadow-md hover:scale-[1.01] w-full sm:w-auto"
         >
-          <ArrowLeft className="w-4 h-4 text-brand-lime" /> {backLabel}
+          <ArrowLeft className="w-4 h-4 text-brand-lime shrink-0" /> <span className="truncate">{backLabel}</span>
         </button>
 
         {/* View Switcher Segmented Tabs - Front & Center on Mobile & Desktop */}
@@ -2999,7 +2999,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           <button
             type="button"
             onClick={() => setActiveView('matrix')}
-            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 sm:flex-initial px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeView === 'matrix'
                 ? 'bg-purple-600 text-white shadow-md'
                 : 'text-slate-400 hover:text-white'
@@ -3013,7 +3013,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           <button
             type="button"
             onClick={() => setActiveView('leaderboard')}
-            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+            className={`flex-1 sm:flex-initial px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeView === 'leaderboard'
                 ? 'bg-amber-400 text-dark-bg shadow-md'
                 : 'text-slate-400 hover:text-white'
@@ -3030,22 +3030,22 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       {/* Hero Header & Assigned Courts Info - Shown in Match Matrix View */}
       {activeView === 'matrix' && (
-      <div className="glass-panel border border-slate-800 rounded-3xl p-5 md:p-6 shadow-2xl space-y-4 bg-slate-900/60">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-5 md:p-6 shadow-2xl space-y-4 bg-slate-900/60">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-            <div className="text-xs text-brand-lime font-mono uppercase tracking-wider font-bold">
+          <div className="min-w-0">
+            <div className="text-[11px] sm:text-xs text-brand-lime font-mono uppercase tracking-wider font-bold">
               {event.category || 'Open Play'} • Match Management
             </div>
-            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tight mt-0.5">
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight mt-0.5 break-words">
               {event.title}
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-[11px] sm:text-xs text-slate-400 mt-1">
               📅 {event.eventDate} ({event.startTime} - {event.endTime}) • {event.location || 'Venue Location'}
             </p>
           </div>
 
           {/* Assigned Courts Badges */}
-          <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 text-left md:text-right shrink-0 space-y-1">
+          <div className="w-full md:w-auto bg-slate-950/80 border border-slate-800 rounded-2xl p-3 sm:p-3.5 text-left md:text-right shrink-0 space-y-1">
             <span className="text-[11px] text-slate-400 font-extrabold uppercase tracking-wider block">
               Assigned Courts ({assignedCourts.length})
             </span>
@@ -3114,65 +3114,65 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       {/* Main Action Bar - Shown in Match Matrix View */}
       {activeView === 'matrix' && (
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-4 rounded-3xl shadow-lg">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5 sm:gap-3 bg-slate-900/80 border border-slate-800 p-3 sm:p-4 rounded-2xl sm:rounded-3xl shadow-lg">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-2 w-full xl:w-auto">
           {activeView === 'matrix' && (
             <>
               <button
                 type="button"
                 onClick={handleAddNewRound}
-            className="py-2.5 px-4 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02]"
-          >
-            <Plus className="w-4 h-4 text-white" />
-            <span>+ Add New Round</span>
-          </button>
+                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
+              >
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
+                <span className="leading-tight">+ Add New Round</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => openDeleteRoundsModal()}
-            className="py-2.5 px-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500 hover:text-white text-rose-300 font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
-            title="Select and delete multiple rounds"
-          >
-            <Trash2 className="w-4 h-4 text-rose-400" />
-            <span>Delete Rounds</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => openDeleteRoundsModal()}
+                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500 hover:text-white text-rose-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
+                title="Select and delete multiple rounds"
+              >
+                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-400 shrink-0" />
+                <span className="leading-tight">Delete Rounds</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => setIsAutoGenModalOpen(true)}
-            className="py-2.5 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02]"
-          >
-            <Zap className="w-4 h-4 text-brand-lime animate-pulse" />
-            <span>Auto-Generate Round Robin</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setIsAutoGenModalOpen(true)}
+                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02] text-center"
+              >
+                <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-lime animate-pulse shrink-0" />
+                <span className="leading-tight">Auto-Generate Round Robin</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => openNewManualMatchModal()}
-            className="py-2.5 px-4 rounded-2xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02]"
-          >
-            <Plus className="w-4 h-4 text-dark-bg" />
-            <span>+ Create Manual Match</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => openNewManualMatchModal()}
+                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
+              >
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-dark-bg shrink-0" />
+                <span className="leading-tight">+ Create Manual Match</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => openJsonUploadModal()}
-            className="py-2.5 px-4 rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
-            title="Import matches into Round N from JSON data or file upload"
-          >
-            <UploadCloud className="w-4 h-4 text-amber-400" />
-            <span>📥 Upload Matches JSON</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => openJsonUploadModal()}
+                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
+                title="Import matches into Round N from JSON data or file upload"
+              >
+                <UploadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+                <span className="leading-tight">📥 Upload Matches JSON</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => openGenerateResultsModal('all')}
-            className="py-2.5 px-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500 hover:text-dark-bg text-emerald-300 font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
-            title="Export match results CSV formatted for DUPR & Match Result uploads (All Rounds)"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-            <span>📊 Export All Results CSV</span>
+              <button
+                type="button"
+                onClick={() => openGenerateResultsModal('all')}
+                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500 hover:text-dark-bg text-emerald-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
+                title="Export match results CSV formatted for DUPR & Match Result uploads (All Rounds)"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 shrink-0" />
+                <span className="leading-tight">📊 Export All Results CSV</span>
               </button>
             </>
           )}
@@ -3180,22 +3180,22 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           <button
             type="button"
             onClick={() => setActiveView('leaderboard')}
-            className="py-2.5 px-4 rounded-2xl font-black text-xs flex items-center gap-2 cursor-pointer transition-all shadow-lg hover:scale-[1.02] bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-dark-bg"
+            className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl font-black text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all shadow-lg hover:scale-[1.02] bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-dark-bg text-center"
             title="Switch to Individual Player Leaderboard"
           >
-            <Trophy className="w-4 h-4 text-dark-bg" />
-            <span>🏆 Leaderboard Standings</span>
+            <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-dark-bg shrink-0" />
+            <span className="leading-tight">🏆 Leaderboard Standings</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsRosterModalOpen(true)}
-            className="py-2.5 px-4 rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-slate-200 font-extrabold text-xs flex items-center gap-2 cursor-pointer transition-all"
+            className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-slate-200 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all text-center flex-wrap"
           >
-            <Users className="w-4 h-4 text-purple-400" />
-            <span>Roster Pool ({activeCount} Active / {restingCount} Bench)</span>
+            <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-400 shrink-0" />
+            <span className="leading-tight">Roster ({activeCount}A / {restingCount}B)</span>
             {absentCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-extrabold text-[10px] flex items-center gap-1 shadow-sm">
+              <span className="px-1.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/40 text-red-300 font-extrabold text-[10px] flex items-center gap-1 shadow-sm">
                 ⚠️ {absentCount} Absent
               </span>
             )}
@@ -3204,11 +3204,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           <button
             type="button"
             onClick={() => setIsReportModalOpen(true)}
-            className="py-2.5 px-4 rounded-2xl bg-brand-emerald/15 border border-brand-emerald/40 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg font-extrabold text-xs flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+            className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-brand-emerald/15 border border-brand-emerald/40 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all shadow-sm text-center"
             title="View per-player match counts, win records, and export CSV report"
           >
-            <BarChart2 className="w-4 h-4 text-brand-emerald" />
-            <span>Player Stats Report</span>
+            <BarChart2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-emerald shrink-0" />
+            <span className="leading-tight">Player Stats Report</span>
           </button>
 
           {isNonProductionEnvironment() && (
@@ -3216,11 +3216,11 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               type="button"
               disabled={isSeedingQuickDummy}
               onClick={() => handleQuickSeedDummyPlayers(12)}
-              className="py-2.5 px-3.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-all hover:scale-[1.02]"
+              className="py-2.5 px-2.5 sm:px-3.5 rounded-xl sm:rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
               title="[Localhost / Staging Only] Quickly seed 12 mock players into this session for match matrix testing"
             >
-              <Sparkles className="w-4 h-4 text-amber-400" />
-              <span>{isSeedingQuickDummy ? 'Seeding...' : '🧪 Seed 12 Dummy'}</span>
+              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+              <span className="leading-tight">{isSeedingQuickDummy ? 'Seeding...' : '🧪 Seed 12 Dummy'}</span>
             </button>
           )}
         </div>
@@ -3229,7 +3229,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           <button
             type="button"
             onClick={clearAllMatches}
-            className="py-2 px-3 rounded-2xl bg-red-950/30 border border-red-800/40 text-red-300 hover:bg-red-900/50 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+            className="w-full xl:w-auto justify-center py-2 px-3 rounded-xl sm:rounded-2xl bg-red-950/30 border border-red-800/40 text-red-300 hover:bg-red-900/50 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5 text-red-400" /> Clear Matches
           </button>
@@ -3239,10 +3239,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       {/* Filters & Search Row - Only shown in Match Matrix View */}
       {activeView === 'matrix' && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-3 overflow-x-auto w-full sm:w-auto">
+        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 text-xs bg-slate-900/50 border border-slate-800/80 p-3 sm:p-3.5 rounded-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 min-w-0">
           {/* Status Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto shrink-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 shrink-0">
             <span className="text-slate-400 font-bold text-[11px] uppercase shrink-0 mr-1">Status:</span>
             <button
               type="button"
@@ -3299,7 +3299,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
 
           {/* Court Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto shrink-0 border-l border-slate-800/80 pl-3">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 min-w-0 border-t sm:border-t-0 sm:border-l border-slate-800/80 pt-2 sm:pt-0 sm:pl-3">
             <span className="text-slate-400 font-bold text-[11px] uppercase shrink-0 mr-1">Courts:</span>
             <button
               type="button"
@@ -3330,12 +3330,12 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         </div>
 
         {/* Search & Accordion Mass Controls */}
-        <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 flex-wrap">
-          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
+        <div className="grid grid-cols-1 sm:grid-cols-3 xl:flex items-center gap-2 w-full xl:w-auto shrink-0">
+          <div className="flex items-center justify-center sm:justify-start gap-1 bg-slate-900 border border-slate-800 p-1 rounded-xl">
             <button
               type="button"
               onClick={handleExpandAllRounds}
-              className="px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer text-center"
               title="Expand all round accordions"
             >
               Expand All
@@ -3343,7 +3343,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             <button
               type="button"
               onClick={handleCollapseAllRounds}
-              className="px-2.5 py-1 text-[11px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial px-2.5 py-1 text-[11px] font-bold text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer text-center"
               title="Collapse all round accordions"
             >
               Collapse All
@@ -3351,7 +3351,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
 
           {/* Player / Court Search with Autocomplete */}
-          <div className="relative w-full sm:w-48 shrink-0">
+          <div className="relative w-full xl:w-48 shrink-0">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
@@ -3396,7 +3396,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
 
           {/* Partner Search with Autocomplete */}
-          <div className="relative w-full sm:w-48 shrink-0">
+          <div className="relative w-full xl:w-48 shrink-0">
             <Users className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
@@ -3479,18 +3479,18 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 No matches have been generated yet for this session. Click '+ Add New Round', 'Auto-Generate Round Robin' or '+ Create Manual Match' to get started.
               </p>
             </div>
-            <div className="flex items-center justify-center gap-3 flex-wrap">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 flex-wrap">
               <button
                 type="button"
                 onClick={() => setIsAutoGenModalOpen(true)}
-                className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
+                className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
               >
                 <Zap className="w-4 h-4 text-brand-lime" /> Auto-Generate Match Matrix
               </button>
               <button
                 type="button"
                 onClick={() => openJsonUploadModal()}
-                className="px-5 py-2.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-md hover:scale-[1.02] transition-all"
+                className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-md hover:scale-[1.02] transition-all"
               >
                 <UploadCloud className="w-4 h-4 text-amber-400" /> Upload Matches JSON
               </button>
@@ -3544,8 +3544,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   liveMatches.length === 1
                     ? 'grid-cols-1 max-w-3xl'
                     : liveMatches.length === 2
-                    ? 'grid-cols-1 md:grid-cols-2'
-                    : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                    ? 'grid-cols-1 lg:grid-cols-2'
+                    : 'grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3'
                 }`}>
                   {liveMatches.map((m) => (
                     <MatchMatrixCard
@@ -3632,8 +3632,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     filteredMatches.length === 1
                       ? 'grid-cols-1 max-w-4xl'
                       : filteredMatches.length === 2
-                      ? 'grid-cols-1 md:grid-cols-2'
-                      : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                      ? 'grid-cols-1 lg:grid-cols-2'
+                      : 'grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3'
                   }`}>
                     {[...filteredMatches]
                       .sort((a, b) => a.round - b.round)
@@ -3717,8 +3717,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                       matchesInRound.length === 1
                         ? 'grid-cols-1 max-w-4xl'
                         : matchesInRound.length === 2
-                        ? 'grid-cols-1 md:grid-cols-2'
-                        : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                        ? 'grid-cols-1 lg:grid-cols-2'
+                        : 'grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3'
                     }`}>
                       {matchesInRound.map((m) => (
                         <MatchMatrixCard
@@ -3817,32 +3817,32 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       {/* MODAL 5: DELETE MATCH CONFIRMATION ALERT */}
       {deletingMatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-          <div className="glass-panel border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-md w-full p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center gap-3 text-red-400">
-              <div className="p-2.5 rounded-2xl bg-red-950/60 border border-red-800/60">
+              <div className="p-2.5 rounded-2xl bg-red-950/60 border border-red-800/60 shrink-0">
                 <Trash2 className="w-6 h-6 text-red-400" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-base font-black text-white">Delete Match Confirmation</h3>
                 <p className="text-[11px] text-slate-400">This action cannot be undone.</p>
               </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-950 border border-slate-800 text-xs space-y-2">
               <div className="text-slate-300 font-medium leading-relaxed">
                 Are you sure you want to delete <strong>Match (Round {deletingMatch.round} • {deletingMatch.courtName})</strong>?
               </div>
-              <div className="text-[11px] text-slate-500 font-mono">
+              <div className="text-[11px] text-slate-500 font-mono break-words">
                 Teams: {deletingMatch.teamRed.players.map((p) => p.name).join(' & ')} vs {deletingMatch.teamBlue.players.map((p) => p.name).join(' & ')}
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 sm:gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setDeletingMatch(null)}
-                className="px-4 py-2 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer"
+                className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 sm:bg-transparent text-slate-400 hover:text-white text-xs font-bold cursor-pointer text-center"
               >
                 Cancel
               </button>
@@ -3854,7 +3854,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     setDeletingMatch(null);
                   }
                 }}
-                className="px-4.5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
+                className="w-full sm:w-auto px-4.5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-black text-xs cursor-pointer shadow-lg hover:scale-[1.02] transition-all text-center"
               >
                 Delete Match Now
               </button>

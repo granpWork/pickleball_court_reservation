@@ -50,15 +50,15 @@ export const OpenPlayReportModal: React.FC<OpenPlayReportModalProps> = ({
   const topScorer = [...playerStatsList].sort((a, b) => b.wins - a.wins)[0];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="glass-panel border border-slate-800 rounded-3xl max-w-4xl w-full p-6 shadow-2xl space-y-5 text-left bg-slate-900 max-h-[90vh] overflow-y-auto">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4 flex-wrap gap-2">
-          <div className="flex items-center gap-2.5">
-            <BarChart2 className="w-6 h-6 text-brand-emerald" />
-            <div>
-              <h3 className="text-lg font-black text-white">Player Match Activity & Statistics Report</h3>
-              <p className="text-xs text-slate-400">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-4xl w-full shadow-2xl text-left bg-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Sticky Modal Header */}
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BarChart2 className="w-5 h-5 sm:w-6 sm:h-6 text-brand-emerald shrink-0" />
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-lg font-black text-white truncate">Player Match Activity & Statistics Report</h3>
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                 Session: <strong className="text-slate-200">{event.title}</strong> ({event.eventDate})
               </p>
             </div>
@@ -66,33 +66,35 @@ export const OpenPlayReportModal: React.FC<OpenPlayReportModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Scrollable Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-5">
         {/* KPI Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
           <div className="bg-slate-950/60 border border-slate-800 p-3 rounded-2xl">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
               Total Roster Players
             </span>
-            <span className="text-xl font-black text-white font-mono">{rosterPool.length}</span>
+            <span className="text-lg sm:text-xl font-black text-white font-mono">{rosterPool.length}</span>
           </div>
           <div className="bg-slate-950/60 border border-slate-800 p-3 rounded-2xl">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
               Total Session Games
             </span>
-            <span className="text-xl font-black text-purple-300 font-mono">
-              {totalSessionMatches} ({totalCompletedGames} done)
+            <span className="text-lg sm:text-xl font-black text-purple-300 font-mono">
+              {totalSessionMatches} <span className="text-xs font-bold">({totalCompletedGames} done)</span>
             </span>
           </div>
           <div className="bg-slate-950/60 border border-slate-800 p-3 rounded-2xl">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
               Avg Games / Player
             </span>
-            <span className="text-xl font-black text-brand-lime font-mono">{avgMatchesPerPlayer}</span>
+            <span className="text-lg sm:text-xl font-black text-brand-lime font-mono">{avgMatchesPerPlayer}</span>
           </div>
           <div className="bg-slate-950/60 border border-slate-800 p-3 rounded-2xl">
             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
@@ -105,13 +107,13 @@ export const OpenPlayReportModal: React.FC<OpenPlayReportModalProps> = ({
         </div>
 
         {/* Toolbar Actions & Sort controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-slate-950/60 p-3 rounded-2xl border border-slate-800">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 text-xs bg-slate-950/60 p-3 rounded-2xl border border-slate-800">
           <div className="flex items-center gap-2">
-            <span className="text-slate-400 font-bold">Sort By:</span>
+            <span className="text-slate-400 font-bold shrink-0">Sort By:</span>
             <select
               value={reportSortField}
               onChange={(e) => setReportSortField(e.target.value as 'matches' | 'winRate' | 'pointDiff' | 'name')}
-              className="bg-slate-900 border border-slate-800 text-white rounded-xl px-2.5 py-1 font-bold focus:outline-none focus:border-brand-emerald"
+              className="flex-1 sm:flex-initial bg-slate-900 border border-slate-800 text-white rounded-xl px-2.5 py-1.5 sm:py-1 font-bold focus:outline-none focus:border-brand-emerald"
             >
               <option value="matches">Total Matches</option>
               <option value="winRate">Win Rate (%)</option>
@@ -120,28 +122,93 @@ export const OpenPlayReportModal: React.FC<OpenPlayReportModalProps> = ({
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={onCopyReportText}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+              className="flex-1 sm:flex-initial justify-center px-3 py-2 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <Copy className="w-3.5 h-3.5 text-brand-lime" /> Copy Text Summary
+              <Copy className="w-3.5 h-3.5 text-brand-lime shrink-0" /> <span>Copy Text</span>
             </button>
 
             <button
               type="button"
               onClick={onExportReportCSV}
-              className="px-3.5 py-1.5 rounded-xl bg-brand-emerald text-dark-bg font-extrabold text-xs flex items-center gap-1.5 hover:bg-[#20f5b4] transition-all cursor-pointer shadow-md"
+              className="flex-1 sm:flex-initial justify-center px-3.5 py-2 sm:py-1.5 rounded-xl bg-brand-emerald text-dark-bg font-extrabold text-xs flex items-center gap-1.5 hover:bg-[#20f5b4] transition-all cursor-pointer shadow-md"
             >
-              <Download className="w-3.5 h-3.5" /> Download CSV Report
+              <Download className="w-3.5 h-3.5 shrink-0" /> <span>Download CSV</span>
             </button>
           </div>
         </div>
 
-        {/* Player Report Table */}
-        <div className="border border-slate-800 rounded-2xl overflow-hidden max-h-80 overflow-y-auto text-xs">
-          <table className="w-full text-left border-collapse">
+        {/* Mobile Player Summary Cards (< sm) */}
+        <div className="sm:hidden space-y-2.5">
+          {sortedStats.map((stat, idx) => (
+            <div
+              key={`mob-${stat.playerId}`}
+              className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2.5 text-xs"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-bold text-white flex items-center gap-2 min-w-0">
+                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[10px] shrink-0">
+                    #{idx + 1}
+                  </span>
+                  <span className="truncate">{stat.playerName}</span>
+                </div>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-800 text-slate-400 border border-slate-700 shrink-0">
+                  {stat.playerType}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-4 gap-1.5 text-center bg-slate-900/70 p-2 rounded-xl border border-slate-800/80">
+                <div>
+                  <span className="text-[9px] text-slate-500 uppercase block font-bold">Assigned</span>
+                  <span className="font-mono font-bold text-purple-300">{stat.totalMatches}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-500 uppercase block font-bold">Done</span>
+                  <span className="font-mono text-slate-300">{stat.completedMatches}</span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-500 uppercase block font-bold">W-L</span>
+                  <span className="font-mono font-bold">
+                    <span className="text-brand-lime">{stat.wins}</span>-<span className="text-red-400">{stat.losses}</span>
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-500 uppercase block font-bold">Diff</span>
+                  <span
+                    className={`font-mono font-bold ${
+                      stat.pointDiff > 0 ? 'text-brand-lime' : stat.pointDiff < 0 ? 'text-red-400' : 'text-slate-400'
+                    }`}
+                  >
+                    {stat.pointDiff >= 0 ? `+${stat.pointDiff}` : stat.pointDiff}
+                  </span>
+                </div>
+              </div>
+
+              {Object.keys(stat.courtsBreakdown).length > 0 && (
+                <div className="flex items-center gap-1 flex-wrap text-[10px]">
+                  {Object.entries(stat.courtsBreakdown).map(([court, count], cIdx) => (
+                    <span
+                      key={cIdx}
+                      className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-mono"
+                    >
+                      {court}: <strong>{count}x</strong>
+                    </span>
+                  ))}
+                  <span className="ml-auto font-mono font-bold text-slate-400">
+                    Win Rate: <span className={stat.winRate >= 50 ? 'text-brand-lime' : 'text-slate-300'}>{stat.winRate}%</span>
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Tablet/Desktop Player Report Table (sm+) */}
+        <div className="hidden sm:block border border-slate-800 rounded-2xl overflow-auto max-h-80 text-xs">
+          <table className="w-full min-w-[640px] text-left border-collapse">
             <thead className="bg-slate-950 text-slate-400 font-extrabold uppercase text-[10px] tracking-wider sticky top-0 z-10 border-b border-slate-800">
               <tr>
                 <th className="p-3">Player</th>
@@ -214,13 +281,14 @@ export const OpenPlayReportModal: React.FC<OpenPlayReportModalProps> = ({
             </tbody>
           </table>
         </div>
+        </div>
 
-        {/* Modal Footer */}
-        <div className="flex justify-end pt-2 border-t border-slate-800">
+        {/* Sticky Modal Footer */}
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 shrink-0 flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-slate-800 text-white font-bold text-xs hover:bg-slate-700 cursor-pointer"
+            className="w-full sm:w-auto px-5 py-2.5 sm:py-2 rounded-xl bg-slate-800 text-white font-bold text-xs hover:bg-slate-700 cursor-pointer text-center"
           >
             Close Report
           </button>

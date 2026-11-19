@@ -157,19 +157,19 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
-      <div className="glass-panel border border-slate-800 rounded-3xl max-w-3xl w-full p-6 shadow-2xl space-y-5 bg-slate-900 my-8 max-h-[90vh] flex flex-col justify-between overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
-              <Users className="w-5 h-5" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-3xl w-full shadow-2xl bg-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+        {/* Sticky Header */}
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 flex-shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base sm:text-lg font-black text-white">Match Roster Pool Management</h3>
+                <h3 className="text-sm sm:text-lg font-black text-white">Match Roster Pool Management</h3>
                 <span
-                  className={`text-[11px] font-mono px-2 py-0.5 rounded-lg border font-bold ${
+                  className={`text-[10px] sm:text-[11px] font-mono px-2 py-0.5 rounded-lg border font-bold ${
                     isMaxCapacityReached
                       ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                       : 'bg-purple-500/20 text-purple-300 border-purple-500/40'
@@ -179,7 +179,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                   {isMaxCapacityReached && ' • MAX CAPACITY'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium mt-0.5">
+              <p className="text-[11px] sm:text-xs text-slate-400 font-medium mt-0.5 line-clamp-2 sm:line-clamp-none">
                 Manage player pool, bench resting players, mark absentees, and add walk-in replacements.
               </p>
             </div>
@@ -194,6 +194,9 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {/* Scrollable Body */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4">
 
         {/* Absent Alert Banner if players are absent */}
         {absentCount > 0 && (
@@ -399,8 +402,8 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
           </div>
         </div>
 
-        {/* Scrollable Roster Pool Cards */}
-        <div className="space-y-2 overflow-y-auto max-h-[46vh] pr-1 flex-1">
+        {/* Roster Pool Cards */}
+        <div className="space-y-2.5">
           {filteredRoster.length === 0 ? (
             <div className="p-8 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-950/40 text-xs text-slate-500">
               No players match the current search or status filter.
@@ -414,7 +417,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
               return (
                 <div
                   key={p.id}
-                  className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 text-xs ${
+                  className={`p-3.5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 text-xs ${
                     isAbsent
                       ? 'bg-rose-950/20 border-rose-900/40 opacity-75'
                       : isResting
@@ -541,13 +544,13 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                   </div>
 
                   {/* Status Toggle & Delete Buttons */}
-                  <div className="shrink-0 flex items-center gap-1.5 sm:gap-2">
+                  <div className="w-full sm:w-auto shrink-0 flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/60 flex-wrap">
                     {/* 1-Click Attendance Check-In Button */}
                     {onToggleAttendanceStatus && (
                       <button
                         type="button"
                         onClick={() => onToggleAttendanceStatus(p.id)}
-                        className={`px-2.5 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border shrink-0 ${
+                        className={`flex-1 sm:flex-initial justify-center px-2.5 py-2 sm:py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border shrink-0 ${
                           p.isPresent || p.attendanceStatus === 'present'
                             ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-xs'
                             : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/30'
@@ -565,7 +568,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                               : 'text-slate-500'
                           }`}
                         />
-                        <span className="hidden sm:inline">
+                        <span>
                           {p.isPresent || p.attendanceStatus === 'present' ? 'Present' : 'Check In'}
                         </span>
                       </button>
@@ -574,7 +577,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onTogglePlayerStatus(p.id)}
-                      className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border ${
+                      className={`flex-1 sm:flex-initial justify-center px-3 py-2 sm:py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border ${
                         isActive
                           ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950'
                           : isResting
@@ -598,11 +601,12 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                       </span>
                     </button>
 
+                    <div className="flex items-center gap-1.5 shrink-0">
                     {onUpdatePlayer && (
                       <button
                         type="button"
                         onClick={() => handleOpenEdit(p)}
-                        className="p-1.5 sm:p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/40 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all cursor-pointer shrink-0"
+                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/40 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all cursor-pointer shrink-0"
                         title={`Edit ${p.name}'s info & DUPR`}
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -613,7 +617,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                       <button
                         type="button"
                         onClick={() => onMoveToWaitlist(p.id)}
-                        className="p-1.5 sm:p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all cursor-pointer shrink-0"
+                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all cursor-pointer shrink-0"
                         title={`Move ${p.name} to waitlist (frees up 1 roster slot)`}
                       >
                         <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -624,22 +628,24 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setPlayerToDelete(p)}
-                        className="p-1.5 sm:p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer shrink-0"
+                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer shrink-0"
                         title={`Delete ${p.name} from roster`}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
+                    </div>
                   </div>
                 </div>
               );
             })
           )}
         </div>
+        </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-3 border-t border-slate-800 flex-shrink-0">
-          <div className="text-[11px] text-slate-400 font-semibold flex items-center gap-3 flex-wrap">
+        {/* Sticky Footer */}
+        <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-800 bg-slate-950/90 flex-shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3">
+          <div className="text-[11px] text-slate-400 font-semibold flex items-center gap-2.5 sm:gap-3 flex-wrap justify-center sm:justify-start">
             <span className="flex items-center gap-1 text-emerald-400 font-bold">
               <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
               {presentCount} Present
@@ -661,7 +667,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer"
+            className="w-full sm:w-auto px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors cursor-pointer text-center"
           >
             Done
           </button>
@@ -669,8 +675,8 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
 
         {/* Delete Confirmation Alert Modal */}
         {playerToDelete && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
-            <div className="glass-panel border border-rose-500/30 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 bg-slate-900 animate-scale-in">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
+            <div className="glass-panel border border-rose-500/30 rounded-2xl sm:rounded-3xl max-w-md w-full p-4 sm:p-6 shadow-2xl space-y-4 bg-slate-900 animate-scale-in max-h-[90vh] overflow-y-auto">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
                   <Trash2 className="w-5 h-5" />
@@ -691,11 +697,11 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                 </p>
               </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-2">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setPlayerToDelete(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer text-center"
                 >
                   Cancel
                 </button>
@@ -707,7 +713,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                       setPlayerToDelete(null);
                     }
                   }}
-                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors cursor-pointer shadow-lg shadow-rose-900/30 flex items-center gap-1.5"
+                  className="w-full sm:w-auto justify-center px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors cursor-pointer shadow-lg shadow-rose-900/30 flex items-center gap-1.5"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>Yes, Delete Player</span>
@@ -718,9 +724,9 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
         )}
         {/* Edit Player Details Modal Alert */}
         {editingPlayer && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
-            <div className="glass-panel border border-purple-500/30 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4 bg-slate-900 animate-scale-in">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in text-left">
+            <div className="glass-panel border border-purple-500/30 rounded-2xl sm:rounded-3xl max-w-lg w-full shadow-2xl bg-slate-900 animate-scale-in max-h-[92vh] flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
                     <Edit2 className="w-5 h-5" />
@@ -739,7 +745,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                 </button>
               </div>
 
-              <div className="space-y-3.5 pt-1">
+              <div className="overflow-y-auto flex-1 p-4 sm:p-6 space-y-3.5">
                 {/* Full Name */}
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
@@ -892,11 +898,11 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-2.5 px-4 sm:px-6 py-3.5 border-t border-slate-800 bg-slate-950/90 shrink-0">
                 <button
                   type="button"
                   onClick={() => setEditingPlayer(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer text-center"
                 >
                   Cancel
                 </button>
@@ -904,7 +910,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={!editName.trim()}
-                  className="px-4 py-2 rounded-xl bg-brand-lime hover:bg-lime-400 disabled:opacity-40 text-slate-950 font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                  className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-brand-lime hover:bg-lime-400 disabled:opacity-40 text-slate-950 font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
                 >
                   <Check className="w-3.5 h-3.5 stroke-[3]" />
                   <span>Save Changes</span>
