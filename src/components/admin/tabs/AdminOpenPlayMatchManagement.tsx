@@ -1737,16 +1737,24 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     let isMounted = true;
     setIsLoading(true);
 
-    // Initial LocalStorage fallback cache
+    // Initial LocalStorage fallback cache - instantly hydrate UI without waiting for network
     try {
       const localData = localStorage.getItem(`picklepoint_openplay_matches_${event.id}`);
       if (localData) {
         const parsed = JSON.parse(localData) as OpenPlayMatch[];
-        setMatches(parsed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMatches(parsed);
+          setIsLoading(false);
+        }
       }
     } catch (e) {
       console.warn('Failed to read matches from localStorage:', e);
     }
+
+    // Safety fallback: if Firestore onSnapshot is delayed by mobile connection, dismiss spinner after 2.5s
+    const safetyTimer = setTimeout(() => {
+      if (isMounted) setIsLoading(false);
+    }, 2500);
 
     // Real-time Firestore Listener
     if (isFirebaseConfigured && db) {
@@ -1779,6 +1787,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
         return () => {
           isMounted = false;
+          clearTimeout(safetyTimer);
           unsubscribe();
         };
       } catch (err) {
@@ -1791,6 +1800,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimer);
     };
   }, [event.id]);
 

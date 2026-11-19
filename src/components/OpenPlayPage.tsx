@@ -17,7 +17,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, limit } from 'firebase/firestore';
 import { isEventExpired, calculateEventDuration, formatTime12h, formatEventDateLong, splitAddressComponents, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 import { isSubscriptionExpired } from './admin/adminTypes';
 
@@ -73,33 +73,42 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
 
     if (isFirebaseConfigured && db) {
       try {
-        const cSnap = await getDocs(collection(db, 'companies'));
-        cSnap.forEach((dSnap) => {
-          const cData = dSnap.data();
-          companiesList.push({ id: dSnap.id, ...cData });
-          if (cData.logoUrl) {
-            logosRecord[dSnap.id] = cData.logoUrl;
-            if (cData.name) {
-              logosRecord[cData.name.toLowerCase()] = cData.logoUrl;
+        // Parallel queries to drastically speed up page load on mobile
+        const [cRes, eRes, rRes, bRes] = await Promise.allSettled([
+          getDocs(collection(db, 'companies')),
+          getDocs(collection(db, 'openplay_events')),
+          getDocs(collection(db, 'openplay_registrations')),
+          getDocs(query(collection(db, 'bookings'), limit(100))),
+        ]);
+
+        if (cRes.status === 'fulfilled' && cRes.value) {
+          cRes.value.forEach((dSnap) => {
+            const cData = dSnap.data();
+            companiesList.push({ id: dSnap.id, ...cData });
+            if (cData.logoUrl) {
+              logosRecord[dSnap.id] = cData.logoUrl;
+              if (cData.name) {
+                logosRecord[cData.name.toLowerCase()] = cData.logoUrl;
+              }
             }
-          }
-        });
+          });
+        }
 
-        const eSnap = await getDocs(collection(db, 'openplay_events'));
-        eSnap.forEach((dSnap) => {
-          eventsList.push(normalizeOpenPlayEvent(dSnap.id, dSnap.data()));
-        });
-        console.log('🌐 [Public OpenPlay Page] Loaded OP IDs from Cloud:', eventsList.map(e => e.id));
+        if (eRes.status === 'fulfilled' && eRes.value) {
+          eRes.value.forEach((dSnap) => {
+            eventsList.push(normalizeOpenPlayEvent(dSnap.id, dSnap.data()));
+          });
+        }
 
-        const rSnap = await getDocs(collection(db, 'openplay_registrations'));
-        rSnap.forEach((dSnap) => {
-          regsList.push({ id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
-        });
+        if (rRes.status === 'fulfilled' && rRes.value) {
+          rRes.value.forEach((dSnap) => {
+            regsList.push({ id: dSnap.id, ...dSnap.data() } as OpenPlayRegistration);
+          });
+        }
 
         // Merge unified bookings collection
-        try {
-          const bSnap = await getDocs(collection(db, 'bookings'));
-          bSnap.forEach((dSnap) => {
+        if (bRes.status === 'fulfilled' && bRes.value) {
+          bRes.value.forEach((dSnap) => {
             const b = dSnap.data();
             if ((b.type === 'open_play' || b.type === 'openplay' || b.openPlayEventId) && b.status !== 'cancelled') {
               const regId = dSnap.id;
@@ -125,7 +134,7 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
               }
             }
           });
-        } catch (e) {}
+        }
       } catch (err) {
         console.warn('Error fetching Open Play data from Firestore:', err);
       }
