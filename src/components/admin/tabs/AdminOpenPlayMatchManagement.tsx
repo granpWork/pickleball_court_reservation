@@ -293,7 +293,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setDeletedRounds((prev) => prev.filter((r) => r !== nextRound));
     setCreatedRounds((prev) => [...prev.filter((r) => r !== nextRound), nextRound]);
     stampRoundsCreatedAt([nextRound], true);
-    showToast(`⚡ Round ${nextRound} created! Click "Auto-Generate Round ${nextRound}" or "+ Add Match" to schedule matches.`);
+    showToast(`⚡ Round ${nextRound} created! Click "Auto-Generate Round ${nextRound}" or "Add Match" to schedule matches.`);
   };
 
   // Venue Google AI Studio Integration State
@@ -3178,7 +3178,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
               >
                 <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
-                <span className="leading-tight">+ Add New Round</span>
+                <span className="leading-tight">Add New Round</span>
               </button>
 
               <button
@@ -3206,7 +3206,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
               >
                 <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-dark-bg shrink-0" />
-                <span className="leading-tight">+ Create Manual Match</span>
+                <span className="leading-tight">Create Manual Match</span>
               </button>
 
               <button
@@ -3530,7 +3530,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             <div className="space-y-1">
               <h3 className="text-base font-bold text-white">No Matches Found</h3>
               <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                No matches have been generated yet for this session. Click '+ Add New Round', 'Auto-Generate Round Robin' or '+ Create Manual Match' to get started.
+                No matches have been generated yet for this session. Click 'Add New Round', 'Auto-Generate Round Robin' or 'Create Manual Match' to get started.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 flex-wrap">
