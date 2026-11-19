@@ -142,8 +142,19 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
         sessionStorage.setItem('picklepoint_active_matrix_id', activeMatrix.id);
         if (typeof window !== 'undefined') {
           const url = new URL(window.location.href);
+          let changed = false;
           if (url.searchParams.get('matrixId') !== activeMatrix.id) {
             url.searchParams.set('matrixId', activeMatrix.id);
+            changed = true;
+          }
+          const foreignKeys = ['subtab', 'settingsSubTab', 'openplay_event', 'eventId', 'event', 'matrixEventId'];
+          foreignKeys.forEach((key) => {
+            if (url.searchParams.has(key)) {
+              url.searchParams.delete(key);
+              changed = true;
+            }
+          });
+          if (changed) {
             window.history.replaceState(null, '', url.toString());
           }
         }
@@ -151,9 +162,20 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
         sessionStorage.removeItem('picklepoint_active_matrix_id');
         if (typeof window !== 'undefined') {
           const url = new URL(window.location.href);
+          let changed = false;
           if (url.searchParams.has('matrixId') || url.searchParams.has('matrix')) {
             url.searchParams.delete('matrixId');
             url.searchParams.delete('matrix');
+            changed = true;
+          }
+          const foreignKeys = ['subtab', 'settingsSubTab', 'openplay_event', 'eventId', 'event', 'matrixEventId'];
+          foreignKeys.forEach((key) => {
+            if (url.searchParams.has(key)) {
+              url.searchParams.delete(key);
+              changed = true;
+            }
+          });
+          if (changed) {
             window.history.replaceState(null, '', url.toString());
           }
         }

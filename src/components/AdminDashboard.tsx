@@ -529,8 +529,65 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       sessionStorage.setItem('picklepoint_admin_active_tab', activeTab);
       if (typeof window !== 'undefined') {
         const url = new URL(window.location.href);
+        let changed = false;
         if (url.searchParams.get('tab') !== activeTab) {
           url.searchParams.set('tab', activeTab);
+          changed = true;
+        }
+
+        // Clean up parameters belonging to other tabs
+        if (activeTab !== 'settings') {
+          if (url.searchParams.has('subtab') || url.searchParams.has('settingsSubTab')) {
+            url.searchParams.delete('subtab');
+            url.searchParams.delete('settingsSubTab');
+            changed = true;
+          }
+        }
+        if (activeTab !== 'openplay') {
+          const opKeys = ['openplay_event', 'eventId', 'event', 'matrixEventId'];
+          opKeys.forEach((k) => {
+            if (url.searchParams.has(k)) {
+              url.searchParams.delete(k);
+              changed = true;
+            }
+          });
+          try {
+            sessionStorage.removeItem('picklepoint_selected_openplay_event_id');
+            sessionStorage.removeItem('picklepoint_matrix_event_id');
+          } catch (e) {}
+        }
+        if (activeTab !== 'match_matrix') {
+          if (url.searchParams.has('matrixId')) {
+            url.searchParams.delete('matrixId');
+            changed = true;
+          }
+        }
+        if (activeTab !== 'courts') {
+          ['court_id', 'courtId'].forEach((k) => {
+            if (url.searchParams.has(k)) {
+              url.searchParams.delete(k);
+              changed = true;
+            }
+          });
+        }
+        if (activeTab !== 'companies') {
+          ['company_id', 'companyId'].forEach((k) => {
+            if (url.searchParams.has(k)) {
+              url.searchParams.delete(k);
+              changed = true;
+            }
+          });
+        }
+        if (activeTab !== 'bookings') {
+          ['booking_id', 'bookingId'].forEach((k) => {
+            if (url.searchParams.has(k)) {
+              url.searchParams.delete(k);
+              changed = true;
+            }
+          });
+        }
+
+        if (changed) {
           window.history.replaceState(null, '', url.toString());
         }
       }
@@ -560,11 +617,21 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       localStorage.setItem('picklepoint_admin_settings_subtab', settingsSubTab);
       if (typeof window !== 'undefined') {
         const url = new URL(window.location.href);
-        url.searchParams.set('subtab', settingsSubTab);
-        window.history.replaceState({}, '', url.toString());
+        if (activeTab === 'settings') {
+          if (url.searchParams.get('subtab') !== settingsSubTab) {
+            url.searchParams.set('subtab', settingsSubTab);
+            window.history.replaceState({}, '', url.toString());
+          }
+        } else {
+          if (url.searchParams.has('subtab') || url.searchParams.has('settingsSubTab')) {
+            url.searchParams.delete('subtab');
+            url.searchParams.delete('settingsSubTab');
+            window.history.replaceState({}, '', url.toString());
+          }
+        }
       }
     } catch (e) {}
-  }, [settingsSubTab]);
+  }, [settingsSubTab, activeTab]);
 
   const [settingsSubMenuOpen, setSettingsSubMenuOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1041,12 +1108,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const handleSetSelectedEventForRegs = (event: OpenPlayEvent | null) => {
     setSelectedEventForRegs(event);
     if (event) {
-      try { sessionStorage.setItem('picklepoint_selected_openplay_event_id', event.id); } catch (e) {}
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.set('openplay_event', event.id);
-        window.history.replaceState(null, '', url.toString());
-      } catch (e) {}
+      if (activeTab === 'openplay') {
+        try { sessionStorage.setItem('picklepoint_selected_openplay_event_id', event.id); } catch (e) {}
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('openplay_event', event.id);
+          window.history.replaceState(null, '', url.toString());
+        } catch (e) {}
+      }
     } else {
       try { sessionStorage.removeItem('picklepoint_selected_openplay_event_id'); } catch (e) {}
       try {
@@ -1057,8 +1126,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  // Auto-restore selected Open Play event details view on page refresh
+  // Auto-restore selected Open Play event details view on page refresh (only on openplay tab)
   useEffect(() => {
+    if (activeTab !== 'openplay') return;
     if (openPlayEvents.length > 0 && !selectedEventForRegs) {
       try {
         const urlParams = new URLSearchParams(window.location.search);
@@ -1073,7 +1143,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
       } catch (e) {}
     }
-  }, [openPlayEvents]);
+  }, [openPlayEvents, activeTab, selectedEventForRegs]);
 
   const [manualOpenPlayModalState, setManualOpenPlayModalState] = useState<{
     isOpen: boolean;
@@ -7073,6 +7143,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         url.searchParams.delete('matrixEventId');
         window.history.pushState(null, '', url.toString());
       } catch (e) {}
+    } else {
+      setSelectedEventForRegs(null);
+      try {
+        sessionStorage.removeItem('picklepoint_matrix_event_id');
+        sessionStorage.removeItem('picklepoint_selected_openplay_event_id');
+      } catch (e) {}
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('eventId');
+        url.searchParams.delete('openplay');
+        url.searchParams.delete('openplay_event');
+        url.searchParams.delete('matrixEventId');
+        window.history.pushState(null, '', url.toString());
+      } catch (e) {}
     }
     if (tab === 'match_matrix') {
       setMatchMatrixResetKey((prev) => prev + 1);
@@ -7083,6 +7167,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         const url = new URL(window.location.href);
         url.searchParams.delete('matrixId');
         url.searchParams.delete('matrix');
+        url.searchParams.delete('subtab');
+        url.searchParams.delete('settingsSubTab');
+        url.searchParams.delete('eventId');
+        url.searchParams.delete('openplay');
+        url.searchParams.delete('openplay_event');
+        url.searchParams.delete('matrixEventId');
         window.history.pushState(null, '', url.toString());
       } catch (e) {}
     }
