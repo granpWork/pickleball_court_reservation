@@ -3216,7 +3216,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 title="Import matches into Round N from JSON data or file upload"
               >
                 <UploadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
-                <span className="leading-tight">📥 Upload Matches JSON</span>
+                <span className="leading-tight">Upload Matches JSON</span>
               </button>
 
               <button
@@ -3226,7 +3226,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 title="Export match results CSV formatted for DUPR & Match Result uploads (All Rounds)"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 shrink-0" />
-                <span className="leading-tight">📊 Export All Results CSV</span>
+                <span className="leading-tight">Export All Results CSV</span>
               </button>
             </>
           )}
