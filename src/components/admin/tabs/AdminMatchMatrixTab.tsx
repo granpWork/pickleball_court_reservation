@@ -493,31 +493,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
   return (
     <>
-      <div className="space-y-6 animate-fade-in text-left">
-      {/* HEADER SECTION */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-300">
-              <Grid3X3 className="w-6 h-6 text-brand-lime" />
-            </div>
-            <span>Match Matrix Orchestrator</span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-            Configure multi-court tournament boards, pull rosters from past Open Play sessions, and run automated rotations with live scoring.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleOpenCreateModal}
-          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-brand-lime hover:bg-lime-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-brand-lime/20 cursor-pointer hover:scale-[1.02] shrink-0"
-        >
-          <Plus className="w-4 h-4 stroke-[3]" />
-          <span>Create Match Matrix</span>
-        </button>
-      </div>
-
+      <div className="space-y-5 sm:space-y-6 animate-fade-in text-left">
       {/* QUICK STATS CARDS */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5">
         <div className="p-3 sm:p-4 rounded-2xl bg-slate-900/60 border border-slate-800">
@@ -551,9 +527,9 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
         </div>
       </div>
 
-      {/* FILTER & SEARCH BAR */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900/40 p-3 rounded-2xl border border-slate-800">
-        <div className="relative w-full sm:w-80">
+      {/* FILTER, SEARCH & CREATE ACTION BAR */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-900/40 p-3 rounded-2xl border border-slate-800">
+        <div className="relative w-full lg:w-80">
           <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -564,21 +540,32 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
-          {(['all', 'active', 'draft', 'completed'] as const).map((st) => (
-            <button
-              key={st}
-              type="button"
-              onClick={() => setStatusFilter(st)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer ${
-                statusFilter === st
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
-                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-              }`}
-            >
-              {st}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between lg:justify-end gap-2.5 w-full lg:w-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto overflow-x-auto pb-0.5 sm:pb-0">
+            {(['all', 'active', 'draft', 'completed'] as const).map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setStatusFilter(st)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition-all cursor-pointer shrink-0 ${
+                  statusFilter === st
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                    : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                }`}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-lime hover:bg-lime-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-brand-lime/20 cursor-pointer hover:scale-[1.02] shrink-0"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>Create Match Matrix</span>
+          </button>
         </div>
       </div>
 
@@ -740,8 +727,8 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                   <Sparkles className="w-4 h-4 text-brand-lime shrink-0" /> 1. Matrix Configuration
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 min-w-0">
-                  <div className="space-y-1.5 col-span-2 sm:col-span-3 min-w-0">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5 sm:gap-4 min-w-0">
+                  <div className="space-y-1.5 lg:col-span-3 min-w-0">
                     <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block">
                       Match Matrix Title <span className="text-rose-400">*</span>
                     </label>
@@ -756,7 +743,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                   </div>
 
                   <div className="space-y-1.5 min-w-0">
-                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block truncate">
+                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block">
                       Event Date <span className="text-rose-400">*</span>
                     </label>
                     <input
@@ -764,14 +751,14 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       required
                       value={matrixDate}
                       onChange={(e) => setMatrixDate(e.target.value)}
-                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-2.5 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
+                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
                       style={{ colorScheme: 'dark' }}
                     />
                   </div>
 
                   <div className="space-y-1.5 min-w-0">
-                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block truncate">
-                      Max Players <span className="text-rose-400">*</span>
+                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block">
+                      Max Players Capacity <span className="text-rose-400">*</span>
                     </label>
                     <input
                       type="number"
@@ -779,11 +766,11 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       max={64}
                       value={maxPlayers}
                       onChange={(e) => setMaxPlayers(parseInt(e.target.value, 10) || 16)}
-                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
+                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3.5 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
                     />
                   </div>
 
-                  <div className="space-y-1.5 col-span-2 sm:col-span-1 min-w-0">
+                  <div className="space-y-1.5 min-w-0">
                     <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block">
                       DUPR Rated Session?
                     </label>
@@ -948,9 +935,9 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 min-w-0">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 min-w-0">
                       {/* Name Field */}
-                      <div className="space-y-1 col-span-2 lg:col-span-2 min-w-0">
+                      <div className="space-y-1 sm:col-span-2 lg:col-span-2 min-w-0">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                           <User className="w-3 h-3 text-brand-lime shrink-0" /> Full Name <span className="text-rose-400">*</span>
                         </label>
@@ -971,9 +958,9 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       </div>
 
                       {/* DUPR ID Field */}
-                      <div className="space-y-1 col-span-1 min-w-0">
+                      <div className="space-y-1 min-w-0">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 truncate">
-                          <Trophy className="w-3 h-3 text-amber-400 shrink-0" /> <span className="truncate">DUPR ID</span>
+                          <Trophy className="w-3 h-3 text-amber-400 shrink-0" /> <span className="truncate">DUPR ID (Optional)</span>
                         </label>
                         <input
                           type="text"
@@ -992,9 +979,9 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       </div>
 
                       {/* Rating Field */}
-                      <div className="space-y-1 col-span-1 min-w-0">
+                      <div className="space-y-1 min-w-0">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 truncate">
-                          <Star className="w-3 h-3 text-yellow-400 shrink-0" /> <span className="truncate">Rating</span>
+                          <Star className="w-3 h-3 text-yellow-400 shrink-0" /> <span className="truncate">Rating (Optional)</span>
                         </label>
                         <input
                           type="text"
