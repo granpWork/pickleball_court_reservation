@@ -205,6 +205,67 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     }
   });
 
+  // Companion map of attendeeId -> ISO timestamp when marked Present
+  const [attendanceTimeMap, setAttendanceTimeMap] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_attendance_times');
+      return saved ? JSON.parse(saved) : {};
+    } catch (err) {
+      console.warn('Failed to load openplay attendance timestamps from localStorage:', err);
+      return {};
+    }
+  });
+
+  const formatCheckInTime = (isoStr?: string): string | null => {
+    if (!isoStr) return null;
+    const d = new Date(isoStr);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  };
+
+  const syncCachedRosterAttendance = (
+    updates: Record<string, { status: 'present' | 'absent' | 'unmarked'; checkedInAt?: string }>
+  ) => {
+    try {
+      const rosterKey = `picklepoint_openplay_roster_${event.id}`;
+      const savedRosterStr = localStorage.getItem(rosterKey);
+      if (!savedRosterStr) return;
+      const parsed = JSON.parse(savedRosterStr);
+      if (!Array.isArray(parsed)) return;
+
+      let changed = false;
+      const updatedRoster = parsed.map((item: any) => {
+        const directMatch = updates[item.id];
+        const strippedId = typeof item.id === 'string' ? item.id.replace(/-primary$/, '') : item.id;
+        const altMatch = updates[strippedId] || updates[`${strippedId}-primary`];
+        const update = directMatch || altMatch;
+        if (!update) return item;
+        changed = true;
+        const resolvedStatus =
+          update.status === 'absent' ? 'absent' : item.status === 'absent' ? 'active' : item.status || 'active';
+        return {
+          ...item,
+          attendanceStatus: update.status,
+          isPresent: update.status === 'present',
+          checkedInAt: update.status === 'present' ? update.checkedInAt || item.checkedInAt : undefined,
+          status: resolvedStatus,
+        };
+      });
+
+      if (changed) {
+        localStorage.setItem(rosterKey, JSON.stringify(updatedRoster));
+        if (isFirebaseConfigured && db && event.id && (event.isMatchMatrix || (event.rosterPool && event.rosterPool.length > 0))) {
+          const cleaned = JSON.parse(JSON.stringify(updatedRoster, (_, v) => (v === undefined ? null : v)));
+          setDoc(doc(db, 'openplay_events', event.id), { rosterPool: cleaned }, { merge: true }).catch((err) =>
+            console.warn('Failed to sync attendance timestamps to Firestore rosterPool:', err)
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to sync attendance timestamps to cached rosterPool:', err);
+    }
+  };
+
   const getAttendanceStatus = (attendeeId: string): 'present' | 'absent' | 'unmarked' => {
     const val = attendanceMap[attendeeId];
     if (val === true || val === 'present') return 'present';
@@ -213,6 +274,24 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   };
 
   const setAttendeeAttendanceStatus = (attendeeId: string, status: 'present' | 'absent' | 'unmarked') => {
+    let stampedIso: string | undefined;
+    setAttendanceTimeMap((prevTimes) => {
+      const nextTimes = { ...prevTimes };
+      if (status === 'present') {
+        stampedIso = prevTimes[attendeeId] || new Date().toISOString();
+        nextTimes[attendeeId] = stampedIso;
+      } else {
+        delete nextTimes[attendeeId];
+      }
+      try {
+        localStorage.setItem('picklepoint_openplay_attendance_times', JSON.stringify(nextTimes));
+      } catch (err) {
+        console.warn('Failed to save attendance timestamps to localStorage:', err);
+      }
+      syncCachedRosterAttendance({ [attendeeId]: { status, checkedInAt: stampedIso } });
+      return nextTimes;
+    });
+
     setAttendanceMap((prev) => {
       const updated = { ...prev, [attendeeId]: status };
       try {
@@ -234,6 +313,24 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   };
 
   const markAllAttendeesPresent = (attendeeIds: string[]) => {
+    const nowIso = new Date().toISOString();
+    setAttendanceTimeMap((prevTimes) => {
+      const nextTimes = { ...prevTimes };
+      const rosterUpdates: Record<string, { status: 'present'; checkedInAt: string }> = {};
+      attendeeIds.forEach((id) => {
+        const ts = prevTimes[id] || nowIso;
+        nextTimes[id] = ts;
+        rosterUpdates[id] = { status: 'present', checkedInAt: ts };
+      });
+      try {
+        localStorage.setItem('picklepoint_openplay_attendance_times', JSON.stringify(nextTimes));
+      } catch (err) {
+        console.warn('Failed to save attendance timestamps to localStorage:', err);
+      }
+      syncCachedRosterAttendance(rosterUpdates);
+      return nextTimes;
+    });
+
     setAttendanceMap((prev) => {
       const updated = { ...prev };
       attendeeIds.forEach((id) => {
@@ -249,6 +346,22 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   };
 
   const clearAttendeesAttendance = (attendeeIds: string[]) => {
+    setAttendanceTimeMap((prevTimes) => {
+      const nextTimes = { ...prevTimes };
+      const rosterUpdates: Record<string, { status: 'unmarked'; checkedInAt?: string }> = {};
+      attendeeIds.forEach((id) => {
+        delete nextTimes[id];
+        rosterUpdates[id] = { status: 'unmarked', checkedInAt: undefined };
+      });
+      try {
+        localStorage.setItem('picklepoint_openplay_attendance_times', JSON.stringify(nextTimes));
+      } catch (err) {
+        console.warn('Failed to clear attendance timestamps in localStorage:', err);
+      }
+      syncCachedRosterAttendance(rosterUpdates);
+      return nextTimes;
+    });
+
     setAttendanceMap((prev) => {
       const updated = { ...prev };
       attendeeIds.forEach((id) => {
@@ -2543,6 +2656,11 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                               <>
                                 <CheckCircle2 className="w-4 h-4 text-dark-bg" />
                                 <span>🟢 PRESENT</span>
+                                {formatCheckInTime(attendanceTimeMap[att.id]) && (
+                                  <span className="ml-1 px-1.5 py-0.5 rounded-md bg-dark-bg/20 text-dark-bg font-mono text-[10px] font-black">
+                                    {formatCheckInTime(attendanceTimeMap[att.id])}
+                                  </span>
+                                )}
                               </>
                             ) : getAttendanceStatus(att.id) === 'absent' ? (
                               <>
@@ -2742,6 +2860,11 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         <>
                           <CheckCircle2 className="w-4 h-4 text-dark-bg" />
                           <span>🟢 PRESENT</span>
+                          {formatCheckInTime(attendanceTimeMap[att.id]) && (
+                            <span className="ml-0.5 px-1.5 py-0.5 rounded-md bg-dark-bg/20 text-dark-bg font-mono text-[10px] font-black">
+                              {formatCheckInTime(attendanceTimeMap[att.id])}
+                            </span>
+                          )}
                         </>
                       ) : getAttendanceStatus(att.id) === 'absent' ? (
                         <>
@@ -2997,6 +3120,11 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                   <>
                                     <CheckCircle2 className="w-4 h-4 text-dark-bg" />
                                     <span>🟢 PRESENT</span>
+                                    {formatCheckInTime(attendanceTimeMap[att.id]) && (
+                                      <span className="ml-0.5 px-1.5 py-0.5 rounded-md bg-dark-bg/20 text-dark-bg font-mono text-[10px] font-black">
+                                        {formatCheckInTime(attendanceTimeMap[att.id])}
+                                      </span>
+                                    )}
                                   </>
                                 ) : getAttendanceStatus(att.id) === 'absent' ? (
                                   <>

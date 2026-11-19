@@ -13,12 +13,21 @@ import {
   Zap,
   Sparkles,
   RefreshCw,
+  Clock,
 } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
+
+const formatTimestamp12h = (isoStr?: string): string | null => {
+  if (!isoStr) return null;
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+};
 
 interface MatchMatrixRoundAccordionProps {
   roundNum: number;
   roundTitle: string;
+  roundCreatedAt?: string;
   matchesInRound: OpenPlayMatch[];
   restingPlayers?: OpenPlayMatchRosterItem[];
   isCollapsed: boolean;
@@ -43,6 +52,7 @@ interface MatchMatrixRoundAccordionProps {
 export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps> = ({
   roundNum,
   roundTitle,
+  roundCreatedAt,
   matchesInRound,
   restingPlayers,
   isCollapsed,
@@ -76,6 +86,45 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
     }
     return { uniquePlayerCount: playerIds.size, completedCount: completed, liveCount: live };
   }, [matchesInRound]);
+
+  const formattedRoundCreatedAt = React.useMemo(() => formatTimestamp12h(roundCreatedAt), [roundCreatedAt]);
+
+  // Sort resting players by check-in arrival time (earliest arrival first, unchecked-in last)
+  const { sortedRestingPlayers, lateArrivalCount } = React.useMemo(() => {
+    if (!restingPlayers || restingPlayers.length === 0) {
+      return { sortedRestingPlayers: [] as OpenPlayMatchRosterItem[], lateArrivalCount: 0 };
+    }
+    const roundCreatedTs = roundCreatedAt ? new Date(roundCreatedAt).getTime() : NaN;
+    let lateCount = 0;
+
+    const copy = [...restingPlayers].sort((a, b) => {
+      const aPresent = Boolean(a.isPresent || a.attendanceStatus === 'present');
+      const bPresent = Boolean(b.isPresent || b.attendanceStatus === 'present');
+      const aTs = aPresent && a.checkedInAt ? new Date(a.checkedInAt).getTime() : NaN;
+      const bTs = bPresent && b.checkedInAt ? new Date(b.checkedInAt).getTime() : NaN;
+      const aHasTime = !Number.isNaN(aTs);
+      const bHasTime = !Number.isNaN(bTs);
+
+      if (aHasTime && bHasTime && aTs !== bTs) return aTs - bTs;
+      if (aHasTime !== bHasTime) return aHasTime ? -1 : 1;
+      if (aPresent !== bPresent) return aPresent ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    if (!Number.isNaN(roundCreatedTs)) {
+      for (const rp of copy) {
+        const isPresent = Boolean(rp.isPresent || rp.attendanceStatus === 'present');
+        if (isPresent && rp.checkedInAt) {
+          const checkedTs = new Date(rp.checkedInAt).getTime();
+          if (!Number.isNaN(checkedTs) && checkedTs > roundCreatedTs) {
+            lateCount++;
+          }
+        }
+      }
+    }
+
+    return { sortedRestingPlayers: copy, lateArrivalCount: lateCount };
+  }, [restingPlayers, roundCreatedAt]);
 
   return (
     <div
@@ -165,6 +214,16 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
                 {uniquePlayerCount > 0 ? ` • ${uniquePlayerCount} players` : ''}
                 {restingPlayers && restingPlayers.length > 0 ? ` • ${restingPlayers.length} resting` : ''})
               </span>
+
+              {formattedRoundCreatedAt && (
+                <span
+                  className="px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono text-[10px] sm:text-[11px] font-bold flex items-center gap-1"
+                  title={`Time when ${roundTitle} was created`}
+                >
+                  <Clock className="w-3 h-3 text-cyan-400" />
+                  <span>{roundTitle} Created {formattedRoundCreatedAt}</span>
+                </span>
+              )}
 
               {matchesInRound.length > 0 && (
                 <span
@@ -322,41 +381,106 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             </div>
           ) : (
             <>
-              {restingPlayers && restingPlayers.length > 0 && (
-                <div className="mb-4 p-3 sm:p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex items-center justify-between gap-3 flex-wrap animate-fade-in shadow-inner">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 text-base">
-                      🪑
-                    </div>
-                    <div>
-                      <div className="text-xs font-black text-amber-300 uppercase tracking-wide flex items-center gap-2">
-                        <span>Resting This Round</span>
-                        <span className="text-[10px] px-2 py-0.2 rounded-md bg-emerald-500/20 text-emerald-300 font-black border border-emerald-500/40 uppercase">
-                          ⚡ Priority Next Up
-                        </span>
+              {sortedRestingPlayers.length > 0 && (
+                <div className="mb-4 p-3 sm:p-4 rounded-2xl bg-amber-950/30 border border-amber-500/30 flex flex-col gap-3 animate-fade-in shadow-inner">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0 text-base">
+                        🪑
                       </div>
-                      <div className="text-[11px] text-amber-200/80 mt-0.5">
-                        {restingPlayers.length === 1
-                          ? 'This player is sitting out this round and is guaranteed first priority to play in the next round.'
-                          : 'These players are sitting out this round and are guaranteed first priority to play in the next round.'}
+                      <div>
+                        <div className="text-xs font-black text-amber-300 uppercase tracking-wide flex items-center gap-2 flex-wrap">
+                          <span>Resting This Round ({sortedRestingPlayers.length})</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-black border border-emerald-500/40 uppercase">
+                            ⚡ Priority Next Up
+                          </span>
+                          {formattedRoundCreatedAt && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 font-mono font-bold border border-cyan-500/30 flex items-center gap-1 normal-case">
+                              <Clock className="w-3 h-3 text-cyan-400" />
+                              <span>{roundTitle} Created {formattedRoundCreatedAt}</span>
+                            </span>
+                          )}
+                          {lateArrivalCount > 0 && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-black border border-rose-500/40 uppercase">
+                              ⏰ {lateArrivalCount} Arrived After {roundTitle}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-amber-200/80 mt-0.5">
+                          {sortedRestingPlayers.length === 1
+                            ? 'Ordered by arrival time. This player is sitting out this round and is guaranteed first priority in the next round.'
+                            : 'Ordered by arrival time (earliest check-in first). These players are sitting out this round and prioritized for the next round.'}
+                        </div>
                       </div>
                     </div>
                   </div>
+
                   <div className="flex items-center gap-2 flex-wrap">
-                    {restingPlayers.map((rp) => {
+                    {sortedRestingPlayers.map((rp) => {
                       const rating = rp.adminDuprRating || rp.duprRating;
+                      const isCheckedIn = Boolean(rp.isPresent || rp.attendanceStatus === 'present');
+                      const checkInTimeLabel = isCheckedIn ? formatTimestamp12h(rp.checkedInAt) : null;
+                      const roundTs = roundCreatedAt ? new Date(roundCreatedAt).getTime() : NaN;
+                      const playerTs = isCheckedIn && rp.checkedInAt ? new Date(rp.checkedInAt).getTime() : NaN;
+                      const arrivedAfterRound = Boolean(
+                        !Number.isNaN(roundTs) && !Number.isNaN(playerTs) && playerTs > roundTs
+                      );
+
                       return (
-                        <span
+                        <div
                           key={rp.id}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-900 border border-amber-500/40 text-xs font-bold text-white shadow-sm"
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold text-white shadow-sm flex-wrap ${
+                            arrivedAfterRound
+                              ? 'bg-rose-950/40 border-rose-500/50'
+                              : 'bg-slate-900 border-amber-500/40'
+                          }`}
                         >
-                          <span className="text-amber-400 font-black">{rp.name}</span>
+                          <span className={arrivedAfterRound ? 'text-rose-200 font-black' : 'text-amber-400 font-black'}>
+                            {rp.name}
+                          </span>
+
                           {rating && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">
                               {rating}
                             </span>
                           )}
-                        </span>
+
+                          {isCheckedIn ? (
+                            checkInTimeLabel ? (
+                              <span
+                                className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md font-mono font-bold border ${
+                                  arrivedAfterRound
+                                    ? 'bg-rose-500/20 text-rose-200 border-rose-500/40'
+                                    : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35'
+                                }`}
+                                title={
+                                  arrivedAfterRound
+                                    ? `Checked in at ${checkInTimeLabel}, after ${roundTitle} was created (${formattedRoundCreatedAt})`
+                                    : `Checked in at ${checkInTimeLabel}`
+                                }
+                              >
+                                <Clock className="w-2.5 h-2.5 shrink-0" />
+                                <span>
+                                  {arrivedAfterRound ? `Arrived ${checkInTimeLabel}` : `Checked in ${checkInTimeLabel}`}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/35 font-bold">
+                                ✓ Checked In
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-400 border border-slate-700 font-semibold">
+                              Not Checked In
+                            </span>
+                          )}
+
+                          {arrivedAfterRound && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-orange-500/20 text-orange-300 border border-orange-500/40 font-black uppercase tracking-wider">
+                              Late Arrival • After R{roundNum}
+                            </span>
+                          )}
+                        </div>
                       );
                     })}
                   </div>

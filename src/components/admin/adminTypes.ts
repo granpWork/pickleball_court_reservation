@@ -774,6 +774,7 @@ export interface OpenPlayMatchRosterItem {
   status: 'active' | 'resting' | 'absent';
   attendanceStatus?: 'present' | 'absent' | 'unmarked';
   isPresent?: boolean;
+  checkedInAt?: string;
   skillLevel?: string;
   duprId?: string;
   adminDuprId?: string;

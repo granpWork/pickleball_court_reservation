@@ -34,11 +34,27 @@ export interface OpenPlayRosterModalProps {
   rosterPool: OpenPlayMatchRosterItem[];
   onTogglePlayerStatus: (id: string) => void;
   onToggleAttendanceStatus?: (id: string) => void;
+  onUpdateCheckInTime?: (id: string, timeHHMM: string) => void;
   onMarkAllActivePresent?: () => void;
   onDeletePlayer?: (id: string) => void;
   onMoveToWaitlist?: (id: string) => void;
   onUpdatePlayer?: (updated: OpenPlayMatchRosterItem) => void;
 }
+
+const formatCheckInTime12h = (isoStr?: string): string | null => {
+  if (!isoStr) return null;
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+};
+
+const isoToHHMM = (isoStr?: string): string => {
+  const d = isoStr ? new Date(isoStr) : new Date();
+  const valid = Number.isNaN(d.getTime()) ? new Date() : d;
+  const hh = String(valid.getHours()).padStart(2, '0');
+  const mm = String(valid.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+};
 
 export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   isOpen,
@@ -55,6 +71,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   rosterPool,
   onTogglePlayerStatus,
   onToggleAttendanceStatus,
+  onUpdateCheckInTime,
   onMarkAllActivePresent,
   onDeletePlayer,
   onMoveToWaitlist,
@@ -63,6 +80,8 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'present' | 'active' | 'resting' | 'absent'>('all');
   const [playerToDelete, setPlayerToDelete] = useState<OpenPlayMatchRosterItem | null>(null);
+  const [editingTimePlayerId, setEditingTimePlayerId] = useState<string | null>(null);
+  const [tempCheckInTime, setTempCheckInTime] = useState<string>('');
 
   // Edit player states
   const [editingPlayer, setEditingPlayer] = useState<OpenPlayMatchRosterItem | null>(null);
@@ -449,6 +468,74 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                           player={p}
                           showDot
                         />
+
+                        {(p.isPresent || p.attendanceStatus === 'present') && (
+                          editingTimePlayerId === p.id && onUpdateCheckInTime ? (
+                            <div className="inline-flex items-center gap-1 bg-slate-900 border border-emerald-500/50 rounded-lg px-1.5 py-0.5">
+                              <Clock className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                              <input
+                                type="time"
+                                value={tempCheckInTime}
+                                onChange={(e) => setTempCheckInTime(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    onUpdateCheckInTime(p.id, tempCheckInTime);
+                                    setEditingTimePlayerId(null);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingTimePlayerId(null);
+                                  }
+                                }}
+                                className="bg-slate-950 text-emerald-300 font-mono text-[10px] rounded px-1 py-0.5 border border-slate-700 focus:outline-none focus:border-emerald-400"
+                                autoFocus
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onUpdateCheckInTime(p.id, tempCheckInTime);
+                                  setEditingTimePlayerId(null);
+                                }}
+                                className="p-0.5 rounded bg-emerald-500 text-slate-950 hover:bg-emerald-400 cursor-pointer"
+                                title="Save check-in time"
+                              >
+                                <Check className="w-2.5 h-2.5 stroke-[3]" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingTimePlayerId(null)}
+                                className="p-0.5 rounded bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                                title="Cancel"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!onUpdateCheckInTime) return;
+                                setEditingTimePlayerId(p.id);
+                                setTempCheckInTime(isoToHHMM(p.checkedInAt));
+                              }}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 font-mono text-[10px] font-bold transition-all ${
+                                onUpdateCheckInTime ? 'hover:bg-emerald-500/25 cursor-pointer' : ''
+                              }`}
+                              title={
+                                onUpdateCheckInTime
+                                  ? 'Click to manually adjust player check-in / arrival time'
+                                  : 'Player check-in time'
+                              }
+                            >
+                              <Clock className="w-2.5 h-2.5 text-emerald-400" />
+                              <span>
+                                {formatCheckInTime12h(p.checkedInAt)
+                                  ? `Checked in ${formatCheckInTime12h(p.checkedInAt)}`
+                                  : 'Checked in'}
+                              </span>
+                              {onUpdateCheckInTime && <Edit2 className="w-2.5 h-2.5 text-emerald-400/75 ml-0.5" />}
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
                   </div>

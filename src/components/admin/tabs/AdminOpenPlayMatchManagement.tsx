@@ -80,6 +80,23 @@ const calculateSessionDurationMinutes = (startTime?: string, endTime?: string): 
   return diff > 0 ? diff : 240;
 };
 
+const getStoredAttendanceTimes = (): Record<string, string> => {
+  try {
+    const saved = localStorage.getItem('picklepoint_openplay_attendance_times');
+    return saved ? JSON.parse(saved) : {};
+  } catch (e) {
+    return {};
+  }
+};
+
+const saveStoredAttendanceTimes = (map: Record<string, string>) => {
+  try {
+    localStorage.setItem('picklepoint_openplay_attendance_times', JSON.stringify(map));
+  } catch (e) {
+    console.warn('Failed to save attendance timestamps to localStorage:', e);
+  }
+};
+
 interface AdminOpenPlayMatchManagementProps {
   event: OpenPlayEvent;
   registrations: OpenPlayRegistrationItem[];
@@ -175,9 +192,74 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [editingMatch, setEditingMatch] = useState<OpenPlayMatch | null>(null);
   const [targetManualRound, setTargetManualRound] = useState<number>(1);
 
-  // Created rounds state
+  // Created rounds state & creation timestamps per round
   const [createdRounds, setCreatedRounds] = useState<number[]>([]);
   const [deletedRounds, setDeletedRounds] = useState<number[]>([]);
+  const [roundCreatedAt, setRoundCreatedAt] = useState<Record<number, string>>(() => {
+    try {
+      const saved = localStorage.getItem(`picklepoint_round_created_at_${event.id}`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return (event as any).roundCreatedAt || {};
+  });
+
+  const persistRoundCreatedAt = (updatedMap: Record<number, string>) => {
+    setRoundCreatedAt(updatedMap);
+    try {
+      localStorage.setItem(`picklepoint_round_created_at_${event.id}`, JSON.stringify(updatedMap));
+    } catch (e) {
+      console.warn('Failed to save roundCreatedAt to localStorage:', e);
+    }
+    if (isFirebaseConfigured && db && event.id) {
+      try {
+        setDoc(doc(db, 'openplay_events', event.id), { roundCreatedAt: updatedMap }, { merge: true }).catch((err) =>
+          console.warn('Failed to save roundCreatedAt to Firestore:', err)
+        );
+      } catch (e) {
+        console.warn('Failed to save roundCreatedAt to Firestore:', e);
+      }
+    }
+  };
+
+  const stampRoundsCreatedAt = (roundNumbers: number[], overwrite: boolean = true) => {
+    if (!roundNumbers || roundNumbers.length === 0) return;
+    const nowIso = new Date().toISOString();
+    setRoundCreatedAt((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      roundNumbers.forEach((r) => {
+        if (overwrite || !next[r]) {
+          next[r] = nowIso;
+          changed = true;
+        }
+      });
+      if (!changed) return prev;
+      try {
+        localStorage.setItem(`picklepoint_round_created_at_${event.id}`, JSON.stringify(next));
+      } catch (e) {}
+      if (isFirebaseConfigured && db && event.id) {
+        try {
+          setDoc(doc(db, 'openplay_events', event.id), { roundCreatedAt: next }, { merge: true }).catch(() => {});
+        } catch (e) {}
+      }
+      return next;
+    });
+  };
+
+  const getRoundCreatedAt = (roundNum: number, matchesInRound: OpenPlayMatch[]): string | undefined => {
+    if (roundCreatedAt[roundNum]) return roundCreatedAt[roundNum];
+    let earliest: string | undefined;
+    let earliestTs = Infinity;
+    for (const m of matchesInRound) {
+      if (!m.createdAt) continue;
+      const ts = new Date(m.createdAt).getTime();
+      if (!Number.isNaN(ts) && ts < earliestTs) {
+        earliestTs = ts;
+        earliest = m.createdAt;
+      }
+    }
+    return earliest;
+  };
 
   // Delete Multiple Rounds Modal State
   const [isDeleteRoundsModalOpen, setIsDeleteRoundsModalOpen] = useState<boolean>(false);
@@ -210,6 +292,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const nextRound = maxRound + 1;
     setDeletedRounds((prev) => prev.filter((r) => r !== nextRound));
     setCreatedRounds((prev) => [...prev.filter((r) => r !== nextRound), nextRound]);
+    stampRoundsCreatedAt([nextRound], true);
     showToast(`⚡ Round ${nextRound} created! Click "Auto-Generate Round ${nextRound}" or "+ Add Match" to schedule matches.`);
   };
 
@@ -299,6 +382,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const cleanMatches = matches.filter((m) => m.round !== targetRoundNum);
       const combined = [...cleanMatches, ...aiResponse.matches];
       persistMatches(combined);
+      stampRoundsCreatedAt([targetRoundNum], true);
 
       showToast(
         aiResponse.usedFallback
@@ -392,6 +476,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const cleanMatches = matches.filter((m) => m.round !== targetRoundNum);
     const combined = [...cleanMatches, ...resultMatches];
     persistMatches(combined);
+    stampRoundsCreatedAt([targetRoundNum], true);
 
     showToast(
       `⚡ Generated ${resultMatches.length} games for Round ${targetRoundNum} with 0 duplicate games against prior rounds!`
@@ -456,13 +541,20 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         setCreatedRounds([]);
         setDeletedRounds([]);
         setRoundTitles({});
+        setRoundCreatedAt({});
         setCollapsedRounds(new Set());
 
         try {
           localStorage.removeItem(`picklepoint_openplay_matches_${event.id}`);
           localStorage.removeItem(`picklepoint_round_titles_${event.id}`);
+          localStorage.removeItem(`picklepoint_round_created_at_${event.id}`);
         } catch (e) {
           console.warn('Failed to clear matches/titles in localStorage:', e);
+        }
+        if (isFirebaseConfigured && db && event.id) {
+          try {
+            setDoc(doc(db, 'openplay_events', event.id), { roundCreatedAt: {} }, { merge: true }).catch(() => {});
+          } catch (e) {}
         }
 
         // Delete from Firestore
@@ -544,6 +636,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         }
       } catch (e) {}
 
+      // Remap round creation timestamps
+      const updatedRoundCreatedAt: Record<number, string> = {};
+      for (const [oldRStr, ts] of Object.entries(roundCreatedAt)) {
+        const oldR = Number(oldRStr);
+        const newR = roundMap.get(oldR);
+        if (newR !== undefined && ts) {
+          updatedRoundCreatedAt[newR] = ts;
+        }
+      }
+
       // Clean collapsed rounds state with re-mapped round numbers
       const nextCollapsed = new Set<number>();
       for (const oldR of collapsedRounds) {
@@ -556,6 +658,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       setCreatedRounds(remappedCreatedRounds);
       setDeletedRounds([]); // Clear deleted rounds since all surviving rounds are now contiguous 1..N
       setRoundTitles(updatedTitles);
+      persistRoundCreatedAt(updatedRoundCreatedAt);
       setCollapsedRounds(nextCollapsed);
 
       // Persist to localStorage
@@ -1177,6 +1280,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       const importedRounds = Array.from(new Set(createdMatches.map((m) => m.round)));
       setCreatedRounds((prev) => Array.from(new Set([...prev, ...importedRounds])));
+      stampRoundsCreatedAt(importedRounds, false);
 
       setIsJsonModalOpen(false);
       showToast(`⚡ Successfully imported ${createdMatches.length} ${createdMatches.length === 1 ? 'match' : 'matches'} via JSON!`);
@@ -1399,6 +1503,24 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       }
     } catch (e) {}
 
+    let attendanceMap: Record<string, any> = {};
+    try {
+      const savedAtt = localStorage.getItem('picklepoint_openplay_attendance');
+      if (savedAtt) attendanceMap = JSON.parse(savedAtt);
+    } catch (e) {}
+    const attendanceTimeMap = getStoredAttendanceTimes();
+
+    const getAttendanceStatus = (id: string): 'present' | 'absent' | 'unmarked' => {
+      const val = attendanceMap[id];
+      if (val === true || val === 'present') return 'present';
+      if (val === 'absent') return 'absent';
+      return 'unmarked';
+    };
+
+    const getCheckInTimestamp = (id: string, fallbackId?: string): string | undefined => {
+      return attendanceTimeMap[id] || (fallbackId ? attendanceTimeMap[fallbackId] : undefined);
+    };
+
     // If this is a Match Matrix event or has an embedded cloud rosterPool, load directly from authoritative roster pool
     if (event.isMatchMatrix || (event.rosterPool && event.rosterPool.length > 0)) {
       try {
@@ -1420,7 +1542,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             const baseId = (p.id || '').replace(/-primary$/, '');
             if (!seenIds.has(baseId)) {
               seenIds.add(baseId);
-              uniqueRoster.push(p);
+              const isPresentFlag = Boolean(p.isPresent || p.attendanceStatus === 'present');
+              uniqueRoster.push({
+                ...p,
+                checkedInAt: isPresentFlag
+                  ? p.checkedInAt || getCheckInTimestamp(p.id, baseId) || undefined
+                  : undefined,
+              });
             }
           }
           // Auto-heal duplicate cache in localStorage
@@ -1439,19 +1567,6 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const eventRegs = combinedRegs.filter(
       (r) => r.eventId === event.id && r.status !== 'cancelled' && r.status !== 'waitlisted'
     );
-
-    let attendanceMap: Record<string, any> = {};
-    try {
-      const savedAtt = localStorage.getItem('picklepoint_openplay_attendance');
-      if (savedAtt) attendanceMap = JSON.parse(savedAtt);
-    } catch (e) {}
-
-    const getAttendanceStatus = (id: string): 'present' | 'absent' | 'unmarked' => {
-      const val = attendanceMap[id];
-      if (val === true || val === 'present') return 'present';
-      if (val === 'absent') return 'absent';
-      return 'unmarked';
-    };
 
     const initialPool: OpenPlayMatchRosterItem[] = [];
 
@@ -1483,6 +1598,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           status: pAtt === 'absent' ? 'absent' : 'active',
           attendanceStatus: pAtt,
           isPresent: pAtt === 'present',
+          checkedInAt: pAtt === 'present' ? getCheckInTimestamp(pId, reg.id) : undefined,
           skillLevel: event.skillLevel || 'Intermediate',
           duprId,
           adminDuprId,
@@ -1514,6 +1630,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           status: gAtt === 'absent' ? 'absent' : 'active',
           attendanceStatus: gAtt,
           isPresent: gAtt === 'present',
+          checkedInAt: gAtt === 'present' ? getCheckInTimestamp(gId) : undefined,
           skillLevel: event.skillLevel || 'Intermediate',
           duprId: (reg.guests?.[gIdx] as any)?.duprId || '',
           adminDuprId: (reg.guests?.[gIdx] as any)?.adminDuprId || '',
@@ -1543,6 +1660,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               ...sp,
               attendanceStatus: att,
               isPresent: att === 'present',
+              checkedInAt: att === 'present' ? sp.checkedInAt || getCheckInTimestamp(sp.id) : undefined,
             });
             existingIds.add(sp.id);
             existingNames.add(sp.name.toLowerCase().trim());
@@ -1559,6 +1677,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               if (sp.attendanceStatus) {
                 found.attendanceStatus = sp.attendanceStatus;
                 found.isPresent = sp.attendanceStatus === 'present';
+                found.checkedInAt =
+                  sp.attendanceStatus === 'present'
+                    ? sp.checkedInAt || found.checkedInAt || getCheckInTimestamp(found.id, sp.id)
+                    : undefined;
               }
             }
           }
@@ -1758,15 +1880,18 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     setCreatedRounds([]);
     setDeletedRounds([]);
     setRoundTitles({});
+    setRoundCreatedAt({});
     setCollapsedRounds(new Set());
 
     try {
       localStorage.removeItem(`picklepoint_openplay_matches_${event.id}`);
       localStorage.removeItem(`picklepoint_round_titles_${event.id}`);
+      localStorage.removeItem(`picklepoint_round_created_at_${event.id}`);
     } catch (e) {}
 
     if (isFirebaseConfigured && db) {
       try {
+        setDoc(doc(db, 'openplay_events', event.id), { roundCreatedAt: {} }, { merge: true }).catch(() => {});
         const snap = await getDocs(query(collection(db, 'openplay_matches'), where('eventId', '==', event.id)));
         for (const d of snap.docs) {
           await deleteDoc(doc(db, 'openplay_matches', d.id));
@@ -2002,6 +2127,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
         const combined = [...matches, ...aiResult.matches];
         persistMatches(combined);
+        stampRoundsCreatedAt(Array.from(new Set(aiResult.matches.map((m) => m.round))), true);
         setIsAutoGenModalOpen(false);
         showToast(aiResult.aiSummary);
       } finally {
@@ -2031,6 +2157,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       const combined = [...matches, ...result.matches];
       persistMatches(combined);
+      stampRoundsCreatedAt(Array.from(new Set(result.matches.map((m) => m.round))), true);
       setIsAutoGenModalOpen(false);
       showToast(
         `🏆 DUPR Smart Match generated ${result.matches.length} matches with ${result.partnerUniquenessPercent}% Unique Partners and 1&4 vs 2&3 rating parity across ${courtCount} court(s)${
@@ -2062,6 +2189,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
       const combined = [...matches, ...result.matches];
       persistMatches(combined);
+      stampRoundsCreatedAt(Array.from(new Set(result.matches.map((m) => m.round))), true);
       setIsAutoGenModalOpen(false);
       showToast(
         isSmartMatch
@@ -2224,6 +2352,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
     const combined = [...matches, ...newMatches];
     persistMatches(combined);
+    stampRoundsCreatedAt(Array.from(new Set(newMatches.map((m) => m.round))), true);
     setIsAutoGenModalOpen(false);
     showToast(
       algorithm === 'paddle_stacking'
@@ -2292,6 +2421,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         updatedAt: new Date().toISOString(),
       };
       persistSingleMatch(newMatch);
+      stampRoundsCreatedAt([matchData.round], false);
       showToast('New match created.');
     }
 
@@ -2330,6 +2460,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     }
     const newId = `custom-player-${Date.now()}`;
     const cleanDuprId = newPlayerDuprId.trim() || undefined;
+    const nowIso = new Date().toISOString();
     const newItem: OpenPlayMatchRosterItem = {
       id: newId,
       name: newPlayerName.trim(),
@@ -2337,6 +2468,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       status: 'active',
       attendanceStatus: 'present',
       isPresent: true,
+      checkedInAt: nowIso,
       skillLevel: newPlayerSkill,
       adminDuprId: cleanDuprId,
       duprId: cleanDuprId,
@@ -2346,6 +2478,10 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const attMap = saved ? JSON.parse(saved) : {};
       attMap[newId] = 'present';
       localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+
+      const attTimeMap = getStoredAttendanceTimes();
+      attTimeMap[newId] = nowIso;
+      saveStoredAttendanceTimes(attTimeMap);
     } catch (e) {}
     const updated = [...rosterPool, newItem];
     saveRosterPool(updated);
@@ -2393,6 +2529,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   // Toggle player attendance check-in status (present <-> unmarked)
   const handleToggleAttendance = (id: string, forceStatus?: 'present' | 'absent' | 'unmarked') => {
     let nextStatus: 'present' | 'absent' | 'unmarked' = 'present';
+    const nowIso = new Date().toISOString();
     const updated: OpenPlayMatchRosterItem[] = rosterPool.map((p) => {
       if (p.id === id) {
         if (forceStatus) {
@@ -2406,6 +2543,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           ...p,
           attendanceStatus: nextStatus,
           isPresent: nextStatus === 'present',
+          checkedInAt: nextStatus === 'present' ? nowIso : undefined,
           status: resolvedStatus,
         };
       }
@@ -2417,14 +2555,65 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       const attMap = saved ? JSON.parse(saved) : {};
       attMap[id] = nextStatus;
       localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+
+      const attTimeMap = getStoredAttendanceTimes();
+      if (nextStatus === 'present') {
+        attTimeMap[id] = nowIso;
+      } else {
+        delete attTimeMap[id];
+      }
+      saveStoredAttendanceTimes(attTimeMap);
     } catch (e) {}
 
     saveRosterPool(updated);
+    const formattedTime = new Date(nowIso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     showToast(
       nextStatus === 'present'
-        ? `✓ Checked in player as Present.`
+        ? `✓ Checked in player as Present at ${formattedTime}.`
         : `Marked player as Not Arrived (Unmarked).`
     );
+  };
+
+  // Manual quick edit of a player's check-in arrival time
+  const handleUpdateCheckInTime = (id: string, timeHHMM: string) => {
+    if (!timeHHMM || !/^\d{2}:\d{2}$/.test(timeHHMM)) return;
+    const [hhStr, mmStr] = timeHHMM.split(':');
+    const hh = parseInt(hhStr, 10);
+    const mm = parseInt(mmStr, 10);
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
+
+    const targetPlayer = rosterPool.find((p) => p.id === id);
+    const baseDate = targetPlayer?.checkedInAt ? new Date(targetPlayer.checkedInAt) : new Date();
+    const updatedDate = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
+    updatedDate.setHours(hh, mm, 0, 0);
+    const nextIso = updatedDate.toISOString();
+
+    const updated: OpenPlayMatchRosterItem[] = rosterPool.map((p) =>
+      p.id === id
+        ? {
+            ...p,
+            attendanceStatus: 'present',
+            isPresent: true,
+            status: p.status === 'absent' ? 'active' : p.status,
+            checkedInAt: nextIso,
+          }
+        : p
+    );
+
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_attendance');
+      const attMap = saved ? JSON.parse(saved) : {};
+      attMap[id] = 'present';
+      localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+
+      const attTimeMap = getStoredAttendanceTimes();
+      attTimeMap[id] = nextIso;
+      saveStoredAttendanceTimes(attTimeMap);
+    } catch (e) {}
+
+    saveRosterPool(updated);
+    const formattedTime = updatedDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    showToast(`🕒 Updated check-in time for ${targetPlayer?.name || 'player'} to ${formattedTime}.`);
   };
 
   // Bulk check-in all active players as Present
@@ -2432,14 +2621,21 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     try {
       const saved = localStorage.getItem('picklepoint_openplay_attendance');
       const attMap = saved ? JSON.parse(saved) : {};
+      const attTimeMap = getStoredAttendanceTimes();
+      const nowIso = new Date().toISOString();
       const updated: OpenPlayMatchRosterItem[] = rosterPool.map((p) => {
         if (p.status !== 'absent') {
+          const ts = (p.isPresent || p.attendanceStatus === 'present') && (p.checkedInAt || attTimeMap[p.id])
+            ? (p.checkedInAt || attTimeMap[p.id])
+            : nowIso;
           attMap[p.id] = 'present';
-          return { ...p, attendanceStatus: 'present' as const, isPresent: true };
+          attTimeMap[p.id] = ts;
+          return { ...p, attendanceStatus: 'present' as const, isPresent: true, checkedInAt: ts };
         }
         return p;
       });
       localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+      saveStoredAttendanceTimes(attTimeMap);
       saveRosterPool(updated);
       showToast('✓ All active players checked in as Present.');
     } catch (e) {}
@@ -3497,6 +3693,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     key={roundNum}
                     roundNum={roundNum}
                     roundTitle={getRoundTitle(roundNum)}
+                    roundCreatedAt={getRoundCreatedAt(roundNum, matchesInRound)}
                     matchesInRound={matchesInRound}
                     restingPlayers={restingPlayersInRound}
                     isCollapsed={collapsedRounds.has(roundNum)}
@@ -3597,6 +3794,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         rosterPool={rosterPool}
         onTogglePlayerStatus={togglePlayerStatus}
         onToggleAttendanceStatus={handleToggleAttendance}
+        onUpdateCheckInTime={handleUpdateCheckInTime}
         onMarkAllActivePresent={handleMarkAllActivePresent}
         onDeletePlayer={handleDeletePlayer}
         onMoveToWaitlist={handleMovePlayerToWaitlist}
