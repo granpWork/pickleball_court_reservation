@@ -193,7 +193,13 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [targetManualRound, setTargetManualRound] = useState<number>(1);
 
   // Created rounds state & creation timestamps per round
-  const [createdRounds, setCreatedRounds] = useState<number[]>([]);
+  const [createdRounds, setCreatedRounds] = useState<number[]>(() => {
+    try {
+      const saved = localStorage.getItem(`picklepoint_created_rounds_${event.id}`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
   const [deletedRounds, setDeletedRounds] = useState<number[]>([]);
   const [roundCreatedAt, setRoundCreatedAt] = useState<Record<number, string>>(() => {
     try {
@@ -273,8 +279,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     for (const d of deletedRounds) {
       setRounds.delete(d);
     }
-    // If no rounds exist and no matches, default to [1]
-    if (setRounds.size === 0 && matches.length === 0) {
+    // Round 1 is always available as the base starting round unless explicitly deleted
+    if (!deletedRounds.includes(1)) {
       setRounds.add(1);
     }
     return Array.from(setRounds).sort((a, b) => a - b);
@@ -288,10 +294,17 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   }, [matches, deletedRounds]);
 
   const handleAddNewRound = () => {
-    const maxRound = allActiveRounds.length ? Math.max(...allActiveRounds) : 0;
+    const currentRounds = allActiveRounds;
+    const maxRound = currentRounds.length ? Math.max(...currentRounds) : 0;
     const nextRound = maxRound + 1;
     setDeletedRounds((prev) => prev.filter((r) => r !== nextRound));
-    setCreatedRounds((prev) => [...prev.filter((r) => r !== nextRound), nextRound]);
+    setCreatedRounds((prev) => {
+      const combined = Array.from(new Set([...prev, ...currentRounds, nextRound])).sort((a, b) => a - b);
+      try {
+        localStorage.setItem(`picklepoint_created_rounds_${event.id}`, JSON.stringify(combined));
+      } catch (e) {}
+      return combined;
+    });
     stampRoundsCreatedAt([nextRound], true);
     showToast(`⚡ Round ${nextRound} created! Click "Auto-Generate Round ${nextRound}" or "Add Match" to schedule matches.`);
   };
@@ -548,6 +561,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           localStorage.removeItem(`picklepoint_openplay_matches_${event.id}`);
           localStorage.removeItem(`picklepoint_round_titles_${event.id}`);
           localStorage.removeItem(`picklepoint_round_created_at_${event.id}`);
+          localStorage.removeItem(`picklepoint_created_rounds_${event.id}`);
         } catch (e) {
           console.warn('Failed to clear matches/titles in localStorage:', e);
         }
@@ -665,6 +679,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       try {
         localStorage.setItem(`picklepoint_openplay_matches_${event.id}`, JSON.stringify(remappedMatches));
         localStorage.setItem(`picklepoint_round_titles_${event.id}`, JSON.stringify(updatedTitles));
+        localStorage.setItem(`picklepoint_created_rounds_${event.id}`, JSON.stringify(remappedCreatedRounds));
       } catch (e) {
         console.warn('Failed to update localStorage after resequencing:', e);
       }
