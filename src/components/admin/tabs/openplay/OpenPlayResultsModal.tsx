@@ -133,14 +133,17 @@ export const OpenPlayResultsModal: React.FC<OpenPlayResultsModalProps> = ({
             />
           </div>
 
-          <div>
+          <div className="min-w-0 w-full max-w-full overflow-hidden box-border">
             <label className="block text-slate-400 font-bold mb-1">Match Date</label>
-            <input
-              type="date"
-              value={resultsEventDate}
-              onChange={(e) => setResultsEventDate(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-emerald-400"
-            />
+            <div className="w-full min-w-0 max-w-full overflow-hidden box-border bg-slate-950 border border-slate-800 focus-within:border-emerald-400 rounded-xl px-3 py-2 flex items-center">
+              <input
+                type="date"
+                value={resultsEventDate}
+                onChange={(e) => setResultsEventDate(e.target.value)}
+                className="w-full min-w-0 max-w-full flex-1 bg-transparent border-0 p-0 text-white font-bold focus:outline-none appearance-none block"
+                style={{ colorScheme: 'dark', WebkitAppearance: 'none' }}
+              />
+            </div>
           </div>
 
           <div>

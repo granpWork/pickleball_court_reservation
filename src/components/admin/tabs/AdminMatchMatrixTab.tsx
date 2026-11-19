@@ -722,7 +722,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
               )}
 
               {/* SECTION 1: BASIC MATRIX CONFIGURATION */}
-              <div className="p-3.5 sm:p-4.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3.5 sm:space-y-4 min-w-0">
+              <div className="p-3.5 sm:p-4.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3.5 sm:space-y-4 min-w-0 w-full max-w-full overflow-hidden">
                 <div className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-1.5 pb-2 border-b border-slate-800/80">
                   <Sparkles className="w-4 h-4 text-brand-lime shrink-0" /> 1. Matrix Configuration
                 </div>
@@ -742,18 +742,20 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                     />
                   </div>
 
-                  <div className="space-y-1.5 min-w-0">
+                  <div className="space-y-1.5 min-w-0 w-full max-w-full overflow-hidden box-border">
                     <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block">
                       Event Date <span className="text-rose-400">*</span>
                     </label>
-                    <input
-                      type="date"
-                      required
-                      value={matrixDate}
-                      onChange={(e) => setMatrixDate(e.target.value)}
-                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
-                      style={{ colorScheme: 'dark' }}
-                    />
+                    <div className="w-full min-w-0 max-w-full overflow-hidden box-border bg-slate-900 border border-slate-700 focus-within:border-purple-400 rounded-xl px-3.5 sm:px-4 py-2.5 flex items-center">
+                      <input
+                        type="date"
+                        required
+                        value={matrixDate}
+                        onChange={(e) => setMatrixDate(e.target.value)}
+                        className="w-full min-w-0 max-w-full flex-1 bg-transparent border-0 p-0 text-xs text-white focus:outline-none font-medium appearance-none block"
+                        style={{ colorScheme: 'dark', WebkitAppearance: 'none' }}
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-1.5 min-w-0">

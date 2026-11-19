@@ -143,8 +143,13 @@ body {
 
 /* Date Input Normalization for Mobile / WebKit / iOS */
 input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
   box-sizing: border-box !important;
+  width: 100%;
   max-width: 100% !important;
+  min-width: 0 !important;
+  display: block;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
@@ -157,6 +162,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 input[type="date"]::-webkit-date-and-time-value {
   text-align: left;
   min-height: 1.2em;
+  margin: 0;
 }
 
 /* Hide native number input spinner buttons (up/down arrows) */
