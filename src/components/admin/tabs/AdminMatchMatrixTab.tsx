@@ -492,7 +492,8 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
   }
 
   return (
-    <div className="space-y-6 animate-fade-in text-left">
+    <>
+      <div className="space-y-6 animate-fade-in text-left">
       {/* HEADER SECTION */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
         <div>
@@ -694,11 +695,15 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
           })}
         </div>
       )}
+      </div>
 
       {/* MODAL: CREATE MATCH MATRIX */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in text-left">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl max-h-[92vh] flex flex-col">
+          <form
+            onSubmit={handleCreateMatrix}
+            className="bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl max-h-[90dvh] sm:max-h-[90vh] flex flex-col min-w-0"
+          >
             {/* Sticky Header */}
             <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 shrink-0">
               <div className="flex items-center gap-2.5 min-w-0">
@@ -721,9 +726,8 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleCreateMatrix} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto flex-1">
+            {/* Scrollable Modal Body */}
+            <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
               {errorMessage && (
                 <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium">
                   {errorMessage}
@@ -731,14 +735,14 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
               )}
 
               {/* SECTION 1: BASIC MATRIX CONFIGURATION */}
-              <div className="p-3.5 sm:p-4.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-4">
+              <div className="p-3.5 sm:p-4.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3.5 sm:space-y-4 min-w-0">
                 <div className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-1.5 pb-2 border-b border-slate-800/80">
-                  <Sparkles className="w-4 h-4 text-brand-lime" /> 1. Matrix Configuration
+                  <Sparkles className="w-4 h-4 text-brand-lime shrink-0" /> 1. Matrix Configuration
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-                  <div className="space-y-1.5 sm:col-span-3">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 min-w-0">
+                  <div className="space-y-1.5 col-span-2 sm:col-span-3 min-w-0">
+                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block">
                       Match Matrix Title <span className="text-rose-400">*</span>
                     </label>
                     <input
@@ -747,12 +751,12 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       value={matrixTitle}
                       onChange={(e) => setMatrixTitle(e.target.value)}
                       placeholder="e.g. Friday Night Doubles Matrix"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400 font-medium"
+                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3.5 sm:px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400 font-medium"
                     />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  <div className="space-y-1.5 min-w-0">
+                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block truncate">
                       Event Date <span className="text-rose-400">*</span>
                     </label>
                     <input
@@ -760,14 +764,14 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       required
                       value={matrixDate}
                       onChange={(e) => setMatrixDate(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
+                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-2.5 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
                       style={{ colorScheme: 'dark' }}
                     />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                      Max Players Capacity <span className="text-rose-400">*</span>
+                  <div className="space-y-1.5 min-w-0">
+                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block truncate">
+                      Max Players <span className="text-rose-400">*</span>
                     </label>
                     <input
                       type="number"
@@ -775,22 +779,22 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       max={64}
                       value={maxPlayers}
                       onChange={(e) => setMaxPlayers(parseInt(e.target.value, 10) || 16)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
+                      className="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-xl px-3 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 font-medium"
                     />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  <div className="space-y-1.5 col-span-2 sm:col-span-1 min-w-0">
+                    <label className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-400 block">
                       DUPR Rated Session?
                     </label>
                     <div className="flex items-center gap-2 pt-0.5">
                       <button
                         type="button"
                         onClick={() => setIsDupr(false)}
-                        className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        className={`flex-1 py-2.5 sm:py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
                           !isDupr
-                            ? 'bg-slate-800 text-white border-slate-700'
-                            : 'bg-slate-950 text-slate-500 border-slate-850 hover:text-slate-300'
+                            ? 'bg-slate-800 text-white border-slate-600'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
                         }`}
                       >
                         Non-DUPR
@@ -798,10 +802,10 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       <button
                         type="button"
                         onClick={() => setIsDupr(true)}
-                        className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                        className={`flex-1 py-2.5 sm:py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
                           isDupr
                             ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                            : 'bg-slate-950 text-slate-500 border-slate-850 hover:text-slate-300'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
                         }`}
                       >
                         DUPR Rated
@@ -812,12 +816,12 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
               </div>
 
               {/* SECTION 2: ROSTER POOL BUILDER */}
-              <div className="p-3.5 sm:p-4.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-4">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 flex-wrap gap-2">
+              <div className="p-3.5 sm:p-4.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3.5 sm:space-y-4 min-w-0">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2.5 border-b border-slate-800/80 gap-2">
                   <div className="text-xs font-black uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-brand-lime" /> 2. Roster Pool Management
+                    <Users className="w-4 h-4 text-brand-lime shrink-0" /> 2. Roster Pool Management
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center justify-between sm:justify-end gap-2 flex-wrap">
                     <span
                       className={`text-xs font-black px-2.5 py-0.5 rounded-md border ${
                         isPendingCapacityFull
@@ -831,7 +835,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       type="button"
                       onClick={handleQuickSeed}
                       disabled={isPendingCapacityFull}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-brand-lime font-bold flex items-center gap-1 transition-colors"
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-brand-lime font-bold flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Zap className="w-3 h-3 text-brand-lime" /> Quick Seed {Math.min(12, maxPlayers)}
                     </button>
@@ -839,42 +843,42 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                 </div>
 
                 {/* Roster Source Tabs */}
-                <div className="grid grid-cols-2 sm:flex items-center gap-2 border-b border-slate-800 pb-2">
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-950 border border-slate-800 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setRosterTab('pull')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                    className={`px-2 sm:px-3 py-2 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer text-center truncate ${
                       rosterTab === 'pull'
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-slate-900 text-slate-400 hover:text-white'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Pull from Open Play Event
+                    Pull from Open Play
                   </button>
                   <button
                     type="button"
                     onClick={() => setRosterTab('manual')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                    className={`px-2 sm:px-3 py-2 sm:py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer text-center truncate ${
                       rosterTab === 'manual'
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-slate-900 text-slate-400 hover:text-white'
+                        ? 'bg-purple-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
                     }`}
                   >
-                    Insert Players Manually
+                    Insert Manually
                   </button>
                 </div>
 
                 {/* TAB 1: PULL FROM OPEN PLAY */}
                 {rosterTab === 'pull' && (
-                  <div className="space-y-3 animate-fade-in">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  <div className="space-y-3 animate-fade-in min-w-0">
+                    <div className="space-y-1.5 min-w-0">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
                         Select Existing or Completed Open Play Event
                       </label>
                       <select
                         value={selectedSourceEventId}
                         onChange={(e) => setSelectedSourceEventId(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 cursor-pointer font-medium"
+                        className="w-full min-w-0 max-w-full truncate bg-slate-900 border border-slate-700 rounded-xl px-3 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 cursor-pointer font-medium"
                       >
                         <option value="">-- Choose an Open Play Session --</option>
                         {openPlayEvents.map((ev) => {
@@ -899,7 +903,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                             type="button"
                             onClick={handleImportPulledRoster}
                             disabled={isPendingCapacityFull}
-                            className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-brand-lime text-slate-950 font-black text-xs uppercase tracking-wider hover:bg-lime-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer text-center"
+                            className="w-full sm:w-auto px-3 py-2 sm:py-1.5 rounded-lg bg-brand-lime text-slate-950 font-black text-xs uppercase tracking-wider hover:bg-lime-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer text-center"
                           >
                             {isPendingCapacityFull ? 'Capacity Full' : `+ Import to Matrix (${pulledCandidates.length})`}
                           </button>
@@ -923,7 +927,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
                 {/* TAB 2: INSERT MANUALLY */}
                 {rosterTab === 'manual' && (
-                  <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3.5 animate-fade-in shadow-inner">
+                  <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3.5 animate-fade-in shadow-inner min-w-0">
                     {isPendingCapacityFull && (
                       <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-2 animate-fade-in">
                         <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
@@ -935,7 +939,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
                     <div className="flex items-center justify-between border-b border-slate-800 pb-2 gap-2 flex-wrap">
                       <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                        <User className="w-4 h-4 text-purple-400" /> Add Walk-in or Custom Player
+                        <User className="w-4 h-4 text-purple-400 shrink-0" /> Add Walk-in or Custom Player
                       </span>
                       <span className="text-[10px] text-slate-500 hidden sm:inline">
                         {isPendingCapacityFull
@@ -944,11 +948,11 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 min-w-0">
                       {/* Name Field */}
-                      <div className="space-y-1 sm:col-span-2">
+                      <div className="space-y-1 col-span-2 lg:col-span-2 min-w-0">
                         <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                          <User className="w-3 h-3 text-brand-lime" /> Full Name <span className="text-rose-400">*</span>
+                          <User className="w-3 h-3 text-brand-lime shrink-0" /> Full Name <span className="text-rose-400">*</span>
                         </label>
                         <input
                           type="text"
@@ -962,14 +966,14 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                               if (!isPendingCapacityFull) handleAddManualPlayer();
                             }
                           }}
-                          className="w-full bg-slate-950 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed focus:border-brand-lime text-white rounded-xl px-3.5 py-2 text-xs placeholder-slate-500 focus:outline-none transition-all font-medium"
+                          className="w-full min-w-0 bg-slate-950 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed focus:border-brand-lime text-white rounded-xl px-3.5 py-2 text-xs placeholder-slate-500 focus:outline-none transition-all font-medium"
                         />
                       </div>
 
                       {/* DUPR ID Field */}
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                          <Trophy className="w-3 h-3 text-amber-400" /> DUPR ID (Optional)
+                      <div className="space-y-1 col-span-1 min-w-0">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 truncate">
+                          <Trophy className="w-3 h-3 text-amber-400 shrink-0" /> <span className="truncate">DUPR ID</span>
                         </label>
                         <input
                           type="text"
@@ -983,14 +987,14 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                               if (!isPendingCapacityFull) handleAddManualPlayer();
                             }
                           }}
-                          className="w-full bg-slate-950 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed focus:border-amber-400 text-amber-300 font-mono rounded-xl px-3.5 py-2 text-xs placeholder-slate-500 focus:outline-none uppercase transition-all"
+                          className="w-full min-w-0 bg-slate-950 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed focus:border-amber-400 text-amber-300 font-mono rounded-xl px-3 py-2 text-xs placeholder-slate-500 focus:outline-none uppercase transition-all"
                         />
                       </div>
 
                       {/* Rating Field */}
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                          <Star className="w-3 h-3 text-yellow-400" /> Rating (Optional)
+                      <div className="space-y-1 col-span-1 min-w-0">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1 truncate">
+                          <Star className="w-3 h-3 text-yellow-400 shrink-0" /> <span className="truncate">Rating</span>
                         </label>
                         <input
                           type="text"
@@ -1004,40 +1008,42 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                               if (!isPendingCapacityFull) handleAddManualPlayer();
                             }
                           }}
-                          className="w-full bg-slate-950 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed focus:border-purple-400 text-white rounded-xl px-3.5 py-2 text-xs placeholder-slate-500 focus:outline-none transition-all font-medium"
+                          className="w-full min-w-0 bg-slate-950 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed focus:border-purple-400 text-white rounded-xl px-3 py-2 text-xs placeholder-slate-500 focus:outline-none transition-all font-medium"
                         />
                       </div>
                     </div>
 
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-1 gap-2.5">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] text-slate-400 font-bold">Quick Skill:</span>
-                        {['Beginner (2.0-2.5)', 'Intermediate (3.0-3.5)', 'Advanced (4.0+)'].map((lvl) => (
-                          <button
-                            key={lvl}
-                            type="button"
-                            disabled={isPendingCapacityFull}
-                            onClick={() => {
-                              setManualPlayerSkill(lvl);
-                              const defaultRate = lvl.includes('2.0') ? '2.5' : lvl.includes('3.0') ? '3.5' : '4.2';
-                              if (!manualPlayerRating) setManualPlayerRating(defaultRate);
-                            }}
-                            className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                              manualPlayerSkill === lvl
-                                ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
-                                : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-white'
-                            }`}
-                          >
-                            {lvl.split(' ')[0]}
-                          </button>
-                        ))}
+                      <div className="space-y-1 sm:space-y-0 sm:flex sm:items-center sm:gap-1.5">
+                        <span className="text-[10px] text-slate-400 font-bold block sm:inline">Quick Skill:</span>
+                        <div className="grid grid-cols-3 sm:flex items-center gap-1.5">
+                          {['Beginner (2.0-2.5)', 'Intermediate (3.0-3.5)', 'Advanced (4.0+)'].map((lvl) => (
+                            <button
+                              key={lvl}
+                              type="button"
+                              disabled={isPendingCapacityFull}
+                              onClick={() => {
+                                setManualPlayerSkill(lvl);
+                                const defaultRate = lvl.includes('2.0') ? '2.5' : lvl.includes('3.0') ? '3.5' : '4.2';
+                                if (!manualPlayerRating) setManualPlayerRating(defaultRate);
+                              }}
+                              className={`px-2 py-1.5 sm:py-0.5 rounded-lg text-[10px] font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed text-center cursor-pointer ${
+                                manualPlayerSkill === lvl
+                                  ? 'bg-purple-600/30 text-purple-300 border border-purple-500/50'
+                                  : 'bg-slate-950 text-slate-400 border border-slate-800 hover:text-white'
+                              }`}
+                            >
+                              {lvl.split(' ')[0]}
+                            </button>
+                          ))}
+                        </div>
                       </div>
 
                       <button
                         type="button"
                         onClick={handleAddManualPlayer}
                         disabled={isPendingCapacityFull || !manualPlayerName.trim()}
-                        className="w-full sm:w-auto px-4 py-2 rounded-xl bg-brand-lime hover:bg-lime-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-md transition-all flex items-center justify-center gap-1.5"
+                        className="w-full sm:w-auto px-4 py-2.5 sm:py-2 rounded-xl bg-brand-lime hover:bg-lime-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-md transition-all flex items-center justify-center gap-1.5 shrink-0"
                       >
                         <Plus className="w-3.5 h-3.5 stroke-[3]" />
                         <span>{isPendingCapacityFull ? 'Capacity Full' : 'Add Player'}</span>
@@ -1051,7 +1057,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div>
                       <span className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                        <Users className="w-3.5 h-3.5 text-brand-lime" /> Active Matrix Roster ({pendingRoster.length} of {maxPlayers} Players)
+                        <Users className="w-3.5 h-3.5 text-brand-lime shrink-0" /> Active Matrix Roster ({pendingRoster.length} of {maxPlayers} Players)
                       </span>
                       <p className="text-[10px] text-slate-500 mt-0.5">
                         These players will be automatically paired into matches upon matrix launch.
@@ -1080,7 +1086,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                   </div>
 
                   {pendingRoster.length === 0 ? (
-                    <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-center text-xs text-slate-500 space-y-1">
+                    <div className="p-5 sm:p-6 rounded-2xl bg-slate-900/60 border border-slate-800/80 text-center text-xs text-slate-500 space-y-1">
                       <Users className="w-6 h-6 text-slate-600 mx-auto" />
                       <div className="font-bold text-slate-400">No players in roster pool yet</div>
                       <div className="text-[11px] text-slate-500">
@@ -1100,7 +1106,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                         return (
                           <div
                             key={player.id || idx}
-                            className="p-2.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs flex items-center justify-between gap-2.5 group shadow-xs transition-all"
+                            className="p-2.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-xs flex items-center justify-between gap-2.5 group shadow-xs transition-all min-w-0"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div className="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-500/40 text-purple-300 font-black text-xs flex items-center justify-center shrink-0">
@@ -1141,41 +1147,40 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                   )}
                 </div>
               </div>
-              </div>
+            </div>
 
-              {/* STICKY MODAL FOOTER */}
-              <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 sm:gap-3">
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold cursor-pointer transition-colors text-center"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !matrixTitle.trim()}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-brand-lime hover:bg-lime-400 text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg shadow-brand-lime/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <RotateCcw className="w-4 h-4 animate-spin" />
-                      <span>Creating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Create & Launch Matrix</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
+            {/* STICKY MODAL FOOTER */}
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => setIsCreateModalOpen(false)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold cursor-pointer transition-colors text-center"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || !matrixTitle.trim()}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-brand-lime hover:bg-lime-400 text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg shadow-brand-lime/20 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                    <span>Creating...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Create & Launch Matrix</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
