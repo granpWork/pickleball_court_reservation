@@ -1,6 +1,17 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Calendar, Clock, User, Phone, Mail, DollarSign, Check, AlertCircle, CreditCard, FileText, ChevronDown, Building2, Wrench, Trophy, Crown, Tag, ArrowLeft, ArrowRight } from 'lucide-react';
-import { type Court, type Booking, type BookingCategory, BOOKING_CATEGORIES, SLOTS, getSlotPrice } from '../adminTypes';
+import {
+  type Court,
+  type Booking,
+  type BookingCategory,
+  type Company,
+  type DailyOperatingHoursMap,
+  BOOKING_CATEGORIES,
+  DEFAULT_OPERATING_HOURS,
+  SLOTS,
+  getSlotPrice,
+  parseTimeStringToHour,
+} from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { getOpenPlayTimeSlots } from '../../../utils/timeSlotUtils';
 
@@ -10,6 +21,8 @@ interface AdminManualBookingModalProps {
   courts: Court[];
   existingBookings: Booking[];
   openPlayEvents?: OpenPlayEvent[];
+  myCompany?: Company | null;
+  companies?: Company[];
   onSaveBooking: (booking: Partial<Booking>) => Promise<void> | void;
   isSubmitting?: boolean;
   isEmbedded?: boolean;
@@ -24,6 +37,8 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
   courts,
   existingBookings,
   openPlayEvents = [],
+  myCompany = null,
+  companies = [],
   onSaveBooking,
   isSubmitting = false,
   isEmbedded = false,
@@ -241,6 +256,30 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
     return BOOKING_CATEGORIES.find((c) => c.id === bookingCategory) || BOOKING_CATEGORIES[0];
   }, [bookingCategory]);
 
+  // Operating Hours Resolution for selected court & date
+  const operatingSchedule = useMemo(() => {
+    if (!selectedDate) {
+      return { isDayOff: false, openHour: 5, closeHour: 23, openTime: '05:00 AM', closeTime: '11:00 PM', dayKey: 'monday' };
+    }
+    const dateObj = new Date(selectedDate + 'T00:00:00');
+    const dayKeys: (keyof DailyOperatingHoursMap)[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayKey = dayKeys[dateObj.getDay()] || 'monday';
+    const courtObj = courts.find((c) => c.id === selectedCourtId) || courts[0];
+    const targetCompany = companies.find((c) => c.id === courtObj?.companyId) || myCompany;
+    const daySched = targetCompany?.operatingHours?.[dayKey] || (courtObj as any)?.operatingHours?.[dayKey] || DEFAULT_OPERATING_HOURS[dayKey];
+    const isDayOff = Boolean(daySched?.isDayOff || daySched?.isOpen === false);
+    const openHour = parseTimeStringToHour(daySched?.openTime || '07:00 AM');
+    const closeHour = parseTimeStringToHour(daySched?.closeTime || '11:00 PM');
+    return {
+      isDayOff,
+      openHour,
+      closeHour,
+      openTime: daySched?.openTime || '07:00 AM',
+      closeTime: daySched?.closeTime || '11:00 PM',
+      dayKey,
+    };
+  }, [selectedDate, selectedCourtId, courts, companies, myCompany]);
+
   const isSlotInPast = (startHour: number): boolean => {
     const todayLocalStr = getTodayLocalStr();
     if (selectedDate < todayLocalStr) return true;
@@ -254,18 +293,24 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
       prev.filter((slotTime) => {
         const slotObj = SLOTS.find((s) => s.time === slotTime);
         if (!slotObj) return false;
+        if (operatingSchedule.isDayOff) return false;
+        if (slotObj.startHour < operatingSchedule.openHour || slotObj.startHour >= operatingSchedule.closeHour) return false;
         if (occupiedSlots.has(slotTime)) return false;
         if (isSlotInPast(slotObj.startHour)) return false;
         return true;
       })
     );
-  }, [selectedDate, occupiedSlots]);
+  }, [selectedDate, occupiedSlots, operatingSchedule]);
 
   if (!isEmbedded && !isOpen) return null;
 
   const handleToggleSlot = (slotTime: string) => {
     const slotObj = SLOTS.find((s) => s.time === slotTime);
-    if (occupiedSlots.has(slotTime) || (slotObj && isSlotInPast(slotObj.startHour))) return;
+    if (
+      operatingSchedule.isDayOff ||
+      occupiedSlots.has(slotTime) ||
+      (slotObj && (slotObj.startHour < operatingSchedule.openHour || slotObj.startHour >= operatingSchedule.closeHour || isSlotInPast(slotObj.startHour)))
+    ) return;
     setSelectedSlots((prev) =>
       prev.includes(slotTime)
         ? prev.filter((s) => s !== slotTime)
@@ -274,7 +319,16 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
   };
 
   const handleSelectAllAvailableSlots = () => {
-    const available = SLOTS.filter((s) => !occupiedSlots.has(s.time) && !isSlotInPast(s.startHour)).map((s) => s.time);
+    if (operatingSchedule.isDayOff) {
+      setSelectedSlots([]);
+      return;
+    }
+    const available = SLOTS.filter((s) =>
+      s.startHour >= operatingSchedule.openHour &&
+      s.startHour < operatingSchedule.closeHour &&
+      !occupiedSlots.has(s.time) &&
+      !isSlotInPast(s.startHour)
+    ).map((s) => s.time);
     setSelectedSlots(available);
   };
 
@@ -853,126 +907,159 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
               </div>
             </div>
 
+            {/* Operating Hours Info Badge */}
+            <div className="flex items-center justify-between flex-wrap gap-2 px-3 py-1.5 rounded-xl bg-slate-900/60 border border-slate-800/80 text-xs">
+              <div className="flex items-center gap-1.5 text-slate-300">
+                <Clock className="w-3.5 h-3.5 text-brand-lime" />
+                <span className="text-slate-400">Venue Hours ({operatingSchedule.dayKey.charAt(0).toUpperCase() + operatingSchedule.dayKey.slice(1)}):</span>
+                <span className={`font-bold ${operatingSchedule.isDayOff ? 'text-amber-400' : 'text-white'}`}>
+                  {operatingSchedule.isDayOff ? 'Closed (Day Off)' : `${operatingSchedule.openTime} – ${operatingSchedule.closeTime}`}
+                </span>
+              </div>
+              {!operatingSchedule.isDayOff && (
+                <span className="text-[10px] text-slate-400">
+                  Off-hours slots are hidden automatically
+                </span>
+              )}
+            </div>
+
+            {operatingSchedule.isDayOff ? (
+              <div className="p-8 text-center space-y-2 bg-amber-950/20 rounded-2xl border border-amber-800/40">
+                <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+                <p className="text-sm font-extrabold text-amber-300">Venue Closed / Day Off</p>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  The facility is scheduled as closed on {operatingSchedule.dayKey.charAt(0).toUpperCase() + operatingSchedule.dayKey.slice(1)}s in the venue operating hours settings. Please choose a different date in Step 1.
+                </p>
+              </div>
+            ) : (
             <div className="space-y-4 max-h-[320px] overflow-y-auto pr-1 custom-scrollbar">
               {/* AM (Morning) Section */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800/60">
-                    AM (Morning)
-                  </span>
-                  <div className="h-[1px] bg-slate-800/50 flex-1"></div>
-                </div>
+              {SLOTS.filter((s) => s.startHour < 12 && s.startHour >= operatingSchedule.openHour && s.startHour < operatingSchedule.closeHour).length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800/60">
+                      AM (Morning)
+                    </span>
+                    <div className="h-[1px] bg-slate-800/50 flex-1"></div>
+                  </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  {SLOTS.filter((s) => s.startHour < 12).map((slot, idx) => {
-                    const isApproved = approvedSlots.has(slot.time);
-                    const isPending = pendingSlots.has(slot.time);
-                    const isPast = isSlotInPast(slot.startHour);
-                    const isSelected = selectedSlots.includes(slot.time);
-                    const isDisabled = isApproved || isPending || isPast;
-                    const price = getSlotPrice(slot.startHour, selectedCourt?.dayPrice || 120, selectedCourt?.nightPrice || 200);
+                  <div className="grid grid-cols-2 gap-2">
+                    {SLOTS.filter((s) => s.startHour < 12 && s.startHour >= operatingSchedule.openHour && s.startHour < operatingSchedule.closeHour).map((slot, idx) => {
+                      const isApproved = approvedSlots.has(slot.time);
+                      const isPending = pendingSlots.has(slot.time);
+                      const isPast = isSlotInPast(slot.startHour);
+                      const isSelected = selectedSlots.includes(slot.time);
+                      const isDisabled = isApproved || isPending || isPast;
+                      const price = getSlotPrice(slot.startHour, selectedCourt?.dayPrice || 120, selectedCourt?.nightPrice || 200);
 
-                    return (
-                      <button
-                        key={`am-${idx}`}
-                        type="button"
-                        disabled={isDisabled}
-                        onClick={() => handleToggleSlot(slot.time)}
-                        className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
-                          isApproved
-                            ? 'bg-rose-950/20 border-rose-800/60 text-rose-300/80 cursor-not-allowed opacity-90'
-                            : isPending
-                            ? 'bg-amber-950/30 border-amber-800/60 text-amber-400 cursor-not-allowed opacity-90'
-                            : isPast
-                            ? 'bg-slate-900/40 border-slate-800/40 text-slate-500/70 cursor-not-allowed opacity-60'
-                            : isSelected
-                            ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans shadow-md'
-                            : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
-                        }`}
-                      >
-                        <span>{slot.time.split(' - ')[0]}</span>
-                        <span
-                          className={`text-xs font-extrabold ${
+                      return (
+                        <button
+                          key={`am-${idx}`}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => handleToggleSlot(slot.time)}
+                          className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
                             isApproved
-                              ? 'text-rose-400 font-sans'
+                              ? 'bg-rose-950/20 border-rose-800/60 text-rose-300/80 cursor-not-allowed opacity-90'
                               : isPending
-                              ? 'text-amber-400 font-sans'
+                              ? 'bg-amber-950/30 border-amber-800/60 text-amber-400 cursor-not-allowed opacity-90'
                               : isPast
-                              ? 'text-slate-500 font-sans'
+                              ? 'bg-slate-900/40 border-slate-800/40 text-slate-500/70 cursor-not-allowed opacity-60'
                               : isSelected
-                              ? 'text-dark-bg/85 font-sans'
-                              : 'text-brand-lime font-sans'
+                              ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans shadow-md'
+                              : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
                           }`}
                         >
-                          {isApproved ? 'Booked' : isPending ? 'Blocked' : isPast ? 'Passed' : `₱${price}`}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <span>{slot.time.split(' - ')[0]}</span>
+                          <span
+                            className={`text-xs font-extrabold ${
+                              isApproved
+                                ? 'text-rose-400 font-sans'
+                                : isPending
+                                ? 'text-amber-400 font-sans'
+                                : isPast
+                                ? 'text-slate-500 font-sans'
+                                : isSelected
+                                ? 'text-dark-bg/85 font-sans'
+                                : 'text-brand-lime font-sans'
+                            }`}
+                          >
+                            {isApproved ? 'Booked' : isPending ? 'Blocked' : isPast ? 'Passed' : `₱${price}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Divider between AM & PM */}
-              <div className="border-t border-slate-800/80 my-3" />
+              {/* Divider between AM & PM if both exist */}
+              {SLOTS.filter((s) => s.startHour < 12 && s.startHour >= operatingSchedule.openHour && s.startHour < operatingSchedule.closeHour).length > 0 &&
+               SLOTS.filter((s) => s.startHour >= 12 && s.startHour >= operatingSchedule.openHour && s.startHour < operatingSchedule.closeHour).length > 0 && (
+                <div className="border-t border-slate-800/80 my-3" />
+              )}
 
               {/* PM (Afternoon/Evening) Section */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800/60">
-                    PM (Afternoon/Evening)
-                  </span>
-                  <div className="h-[1px] bg-slate-800/50 flex-1"></div>
-                </div>
+              {SLOTS.filter((s) => s.startHour >= 12 && s.startHour >= operatingSchedule.openHour && s.startHour < operatingSchedule.closeHour).length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-900/80 px-2 py-0.5 rounded border border-slate-800/60">
+                      PM (Afternoon/Evening)
+                    </span>
+                    <div className="h-[1px] bg-slate-800/50 flex-1"></div>
+                  </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  {SLOTS.filter((s) => s.startHour >= 12).map((slot, idx) => {
-                    const isApproved = approvedSlots.has(slot.time);
-                    const isPending = pendingSlots.has(slot.time);
-                    const isPast = isSlotInPast(slot.startHour);
-                    const isSelected = selectedSlots.includes(slot.time);
-                    const isDisabled = isApproved || isPending || isPast;
-                    const price = getSlotPrice(slot.startHour, selectedCourt?.dayPrice || 120, selectedCourt?.nightPrice || 200);
+                  <div className="grid grid-cols-2 gap-2">
+                    {SLOTS.filter((s) => s.startHour >= 12 && s.startHour >= operatingSchedule.openHour && s.startHour < operatingSchedule.closeHour).map((slot, idx) => {
+                      const isApproved = approvedSlots.has(slot.time);
+                      const isPending = pendingSlots.has(slot.time);
+                      const isPast = isSlotInPast(slot.startHour);
+                      const isSelected = selectedSlots.includes(slot.time);
+                      const isDisabled = isApproved || isPending || isPast;
+                      const price = getSlotPrice(slot.startHour, selectedCourt?.dayPrice || 120, selectedCourt?.nightPrice || 200);
 
-                    return (
-                      <button
-                        key={`pm-${idx}`}
-                        type="button"
-                        disabled={isDisabled}
-                        onClick={() => handleToggleSlot(slot.time)}
-                        className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
-                          isApproved
-                            ? 'bg-rose-950/20 border-rose-800/60 text-rose-300/80 cursor-not-allowed opacity-90'
-                            : isPending
-                            ? 'bg-amber-950/30 border-amber-800/60 text-amber-400 cursor-not-allowed opacity-90'
-                            : isPast
-                            ? 'bg-slate-900/40 border-slate-800/40 text-slate-500/70 cursor-not-allowed opacity-60'
-                            : isSelected
-                            ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans shadow-md'
-                            : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
-                        }`}
-                      >
-                        <span>{slot.time.split(' - ')[0]}</span>
-                        <span
-                          className={`text-xs font-extrabold ${
+                      return (
+                        <button
+                          key={`pm-${idx}`}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => handleToggleSlot(slot.time)}
+                          className={`py-2.5 px-3 rounded-xl border text-left text-xs transition-all relative flex justify-between items-center ${
                             isApproved
-                              ? 'text-rose-400 font-sans'
+                              ? 'bg-rose-950/20 border-rose-800/60 text-rose-300/80 cursor-not-allowed opacity-90'
                               : isPending
-                              ? 'text-amber-400 font-sans'
+                              ? 'bg-amber-950/30 border-amber-800/60 text-amber-400 cursor-not-allowed opacity-90'
                               : isPast
-                              ? 'text-slate-500 font-sans'
+                              ? 'bg-slate-900/40 border-slate-800/40 text-slate-500/70 cursor-not-allowed opacity-60'
                               : isSelected
-                              ? 'text-dark-bg/85 font-sans'
-                              : 'text-brand-lime font-sans'
+                              ? 'bg-brand-lime text-dark-bg border-brand-lime font-bold font-sans shadow-md'
+                              : 'bg-dark-bg/60 border-slate-800 text-slate-350 hover:bg-slate-850'
                           }`}
                         >
-                          {isApproved ? 'Booked' : isPending ? 'Blocked' : isPast ? 'Passed' : `₱${price}`}
-                        </span>
-                      </button>
-                    );
-                  })}
+                          <span>{slot.time.split(' - ')[0]}</span>
+                          <span
+                            className={`text-xs font-extrabold ${
+                              isApproved
+                                ? 'text-rose-400 font-sans'
+                                : isPending
+                                ? 'text-amber-400 font-sans'
+                                : isPast
+                                ? 'text-slate-500 font-sans'
+                                : isSelected
+                                ? 'text-dark-bg/85 font-sans'
+                                : 'text-brand-lime font-sans'
+                            }`}
+                          >
+                            {isApproved ? 'Booked' : isPending ? 'Blocked' : isPast ? 'Passed' : `₱${price}`}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
+            )}
 
             {/* Total / Selected Summary */}
             {selectedSlots.length > 0 && (

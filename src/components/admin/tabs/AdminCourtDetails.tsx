@@ -20,7 +20,7 @@ import {
   Check,
   Share2
 } from 'lucide-react';
-import { type Court, type Booking, type GcashAccount as PersonalGcashAccount } from '../adminTypes';
+import { type Court, type Booking, type GcashAccount as PersonalGcashAccount, type Company, DEFAULT_OPERATING_HOURS } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { CourtCalendarView } from './CourtCalendarView';
 
@@ -28,6 +28,7 @@ interface AdminCourtDetailsProps {
   court: Court;
   bookings?: Booking[];
   openPlayEvents?: OpenPlayEvent[];
+  company?: Company | null;
   onBack: () => void;
   onOpenEditCourtModal?: (court: Court) => void;
   onDeleteCourt?: (courtId: string) => void;
@@ -42,6 +43,7 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
   court,
   bookings = [],
   openPlayEvents = [],
+  company = null,
   onBack,
   onOpenEditCourtModal,
   onDeleteCourt,
@@ -58,6 +60,24 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [isRentalsExpanded, setIsRentalsExpanded] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
+
+  // Compute operating hours texts dynamically from court or company settings
+  const opHours = (court as any).operatingHours || company?.operatingHours || DEFAULT_OPERATING_HOURS;
+  const mondaySched = opHours?.monday || DEFAULT_OPERATING_HOURS.monday;
+  const saturdaySched = opHours?.saturday || DEFAULT_OPERATING_HOURS.saturday;
+  const sundaySched = opHours?.sunday || DEFAULT_OPERATING_HOURS.sunday;
+
+  const weekdayHoursText = (mondaySched.isDayOff || !mondaySched.isOpen)
+    ? 'Closed (Day Off)'
+    : `${mondaySched.openTime || '07:00 AM'} – ${mondaySched.closeTime || '11:00 PM'}`;
+
+  const weekendHoursText = (saturdaySched.isDayOff || !saturdaySched.isOpen)
+    ? 'Closed (Day Off)'
+    : `${saturdaySched.openTime || '07:00 AM'} – ${saturdaySched.closeTime || '11:00 PM'}`;
+
+  const holidayHoursText = (sundaySched.isDayOff || !sundaySched.isOpen)
+    ? 'Closed (Day Off)'
+    : `${sundaySched.openTime || '07:00 AM'} – ${sundaySched.closeTime || '11:00 PM'}`;
 
   const handleCopyShareLink = () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -299,17 +319,17 @@ export const AdminCourtDetails: React.FC<AdminCourtDetailsProps> = ({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                   <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
                     <div className="text-[11px] font-normal text-slate-400 uppercase">Mon – Fri (Weekdays)</div>
-                    <div className="font-normal text-white">5:00 AM – 11:00 PM</div>
+                    <div className="font-normal text-white">{weekdayHoursText}</div>
                     <div className="text-[10px] text-emerald-400 font-normal">Active Booking</div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
                     <div className="text-[11px] font-normal text-slate-400 uppercase">Sat – Sun (Weekends)</div>
-                    <div className="font-normal text-white">5:00 AM – 11:00 PM</div>
+                    <div className="font-normal text-white">{weekendHoursText}</div>
                     <div className="text-[10px] text-emerald-400 font-normal">Active Booking</div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1 col-span-2 sm:col-span-1">
                     <div className="text-[11px] font-normal text-slate-400 uppercase">Public Holidays</div>
-                    <div className="font-normal text-white">5:00 AM – 11:00 PM</div>
+                    <div className="font-normal text-white">{holidayHoursText}</div>
                     <div className="text-[10px] text-cyan-400 font-normal">Open All Day</div>
                   </div>
                 </div>

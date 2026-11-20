@@ -7387,6 +7387,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onViewReceipt={(b) => setReceiptLightboxImage(b.receiptImageUrl || null)}
               onDeleteBooking={(id) => { const b = bookings.find(x => x.id === id); if (b) handleOpenDeleteBooking(b); }}
               courts={isSuperAdmin ? courts : availableAdminCourts}
+              myCompany={myCompany}
+              companies={companies}
               openPlayEvents={openPlayEvents}
               users={users}
               userPermissions={getUserEffectivePermissions(user as any)}
@@ -10872,7 +10874,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     </span>
                     <input
                       type="email"
-                      required
                       placeholder="facility.host@example.com"
                       value={inviteEmailInput}
                       onChange={(e) => setInviteEmailInput(e.target.value)}
@@ -13823,6 +13824,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         courts={isSuperAdmin ? courts : availableAdminCourts}
         existingBookings={bookings}
         openPlayEvents={openPlayEvents}
+        myCompany={myCompany}
+        companies={companies}
         onSaveBooking={handleCreateManualBooking}
         isSubmitting={isSubmittingManualBooking}
         initialCourtId={manualBookingInitialParams?.courtId}

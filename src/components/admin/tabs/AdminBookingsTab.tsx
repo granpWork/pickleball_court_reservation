@@ -27,7 +27,19 @@ import {
   Tag,
   LayoutDashboard,
 } from 'lucide-react';
-import { type Booking, type UserPermissions, type BookingCategory, type AdminBookingsSubTab, BOOKING_CATEGORIES, getBookingScheduleState, SLOTS } from '../adminTypes';
+import {
+  type Booking,
+  type UserPermissions,
+  type BookingCategory,
+  type AdminBookingsSubTab,
+  type Company,
+  type DailyOperatingHoursMap,
+  BOOKING_CATEGORIES,
+  DEFAULT_OPERATING_HOURS,
+  getBookingScheduleState,
+  SLOTS,
+  parseTimeStringToHour,
+} from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { getOpenPlayTimeSlots } from '../../../utils/timeSlotUtils';
 
@@ -55,6 +67,8 @@ interface AdminBookingsTabProps {
   ) => Promise<void> | void;
   courts?: any[];
   openPlayEvents?: OpenPlayEvent[];
+  myCompany?: Company | null;
+  companies?: Company[];
   users?: { id?: string; uid?: string; name?: string; email?: string; photoUrl?: string; avatarUrl?: string; role?: string }[];
   userPermissions?: UserPermissions;
   currentAdminEmail?: string;
@@ -82,6 +96,8 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   onUpdateManualBooking,
   courts = [],
   openPlayEvents = [],
+  myCompany = null,
+  companies = [],
   users = [],
   userPermissions: _userPermissions,
   currentAdminEmail = '',
@@ -1167,7 +1183,18 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           openPlayEvent?: OpenPlayEvent;
         }
 
-        const timelineSlots: HourlyTimelineSlot[] = SLOTS.map((s) => {
+        // Compute daily operating schedule for selected court & date
+        const dateObj = new Date(selectedCalendarDate + 'T00:00:00');
+        const dayKeys: (keyof DailyOperatingHoursMap)[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const dayKey = dayKeys[dateObj.getDay()] || 'monday';
+        const targetCompany = companies.find((c) => c.id === effectiveTimelineCourt?.companyId) || myCompany;
+        const daySchedule = targetCompany?.operatingHours?.[dayKey] || (effectiveTimelineCourt as any)?.operatingHours?.[dayKey] || DEFAULT_OPERATING_HOURS[dayKey];
+        const isDayOff = Boolean(daySchedule?.isDayOff || daySchedule?.isOpen === false);
+        const openHour = parseTimeStringToHour(daySchedule?.openTime || '07:00 AM');
+        const closeHour = parseTimeStringToHour(daySchedule?.closeTime || '11:00 PM');
+        const operatingSlots = isDayOff ? [] : SLOTS.filter((s) => s.startHour >= openHour && s.startHour < closeHour);
+
+        const timelineSlots: HourlyTimelineSlot[] = operatingSlots.map((s) => {
           const shortTime = s.time.split(' - ')[0];
 
           const matchingBooking = bookings.find((b) => {
@@ -1827,42 +1854,53 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                       {/* Responsive Filter & Court Toolbar (Mobile, Tablet, Desktop) */}
                       <div className="space-y-2 pb-2.5 border-b border-slate-800/80">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          {/* Court Selector or Court Name */}
-                          {selectedCalendarCourtId === 'all' && courts.length > 0 ? (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider shrink-0 flex items-center gap-1">
-                                <Building2 className="w-3 h-3 text-brand-lime" />
-                                <span>Court:</span>
-                              </span>
-                              <div className="flex items-center gap-1 flex-wrap">
-                                {courts.map((c) => {
-                                  const isCourtActive = effectiveTimelineCourtId === c.id;
-                                  return (
-                                    <button
-                                      key={c.id}
-                                      type="button"
-                                      onClick={() => setTimeGridCourtId(c.id)}
-                                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all shrink-0 cursor-pointer ${
-                                        isCourtActive
-                                          ? 'bg-brand-lime text-dark-bg font-black shadow-sm ring-1 ring-brand-lime/50'
-                                          : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
-                                      }`}
-                                    >
-                                      {c.name}
-                                    </button>
-                                  );
-                                })}
+                          {/* Court Selector or Court Name & Operating Hours Badge */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {selectedCalendarCourtId === 'all' && courts.length > 0 ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider shrink-0 flex items-center gap-1">
+                                  <Building2 className="w-3 h-3 text-brand-lime" />
+                                  <span>Court:</span>
+                                </span>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {courts.map((c) => {
+                                    const isCourtActive = effectiveTimelineCourtId === c.id;
+                                    return (
+                                      <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={() => setTimeGridCourtId(c.id)}
+                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all shrink-0 cursor-pointer ${
+                                          isCourtActive
+                                            ? 'bg-brand-lime text-dark-bg font-black shadow-sm ring-1 ring-brand-lime/50'
+                                            : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+                                        }`}
+                                      >
+                                        {c.name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                              <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                              <span className="text-slate-400 font-medium text-[11px]">Court:</span>
-                              <span className="truncate max-w-[200px] font-black text-white">
-                                {effectiveTimelineCourt?.name || 'Pickleball Court'}
+                            ) : (
+                              <div className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                                <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                                <span className="text-slate-400 font-medium text-[11px]">Court:</span>
+                                <span className="truncate max-w-[200px] font-black text-white">
+                                  {effectiveTimelineCourt?.name || 'Pickleball Court'}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Operating Hours Badge */}
+                            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-[10px] sm:text-[11px] font-bold text-slate-300">
+                              <Clock className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                              <span className="text-slate-400 font-medium text-[10px]">Hours:</span>
+                              <span className={`font-black ${isDayOff ? 'text-amber-400' : 'text-white'}`}>
+                                {isDayOff ? 'Closed (Day Off)' : `${daySchedule?.openTime || '07:00 AM'} – ${daySchedule?.closeTime || '11:00 PM'}`}
                               </span>
                             </div>
-                          )}
+                          </div>
 
                           {/* Filter Status Pills - Responsive Wrapping, Touch-Friendly, Zero Ugly OS Scrollbar */}
                           <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 text-[11px] font-bold">
@@ -1969,7 +2007,15 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                       </div>
 
                       {/* Minimalist 3-to-4 Column Grid: All hours at a single glance with zero scroll */}
-                      {filteredTimelineSlots.length === 0 ? (
+                      {isDayOff ? (
+                        <div className="py-8 text-center space-y-2 bg-amber-950/20 rounded-2xl border border-amber-800/40 p-6">
+                          <AlertCircle className="w-7 h-7 text-amber-400 mx-auto" />
+                          <p className="text-sm font-extrabold text-amber-300">Venue Closed / Day Off</p>
+                          <p className="text-xs text-slate-400 max-w-md mx-auto">
+                            The facility is marked as closed on {dayKey.charAt(0).toUpperCase() + dayKey.slice(1)}s in the venue operating hours settings.
+                          </p>
+                        </div>
+                      ) : filteredTimelineSlots.length === 0 ? (
                         <div className="py-6 text-center space-y-2 text-slate-500 bg-slate-950/40 rounded-2xl border border-slate-800/40 p-4">
                           <Clock className="w-6 h-6 text-slate-600 mx-auto" />
                           <p className="text-xs font-bold text-slate-300">No slots match '{timeGridFilter}' filter.</p>

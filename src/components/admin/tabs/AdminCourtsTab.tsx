@@ -16,7 +16,7 @@ import {
   Check,
   Share2,
 } from 'lucide-react';
-import { type Court, type Booking, type UserPermissions, type GcashAccount, type AdminCourtsSubTab } from '../adminTypes';
+import { type Court, type Booking, type UserPermissions, type GcashAccount, type AdminCourtsSubTab, type Company } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { AdminCourtDetails } from './AdminCourtDetails';
 import { CourtQrModal } from '../modals/CourtQrModal';
@@ -26,18 +26,7 @@ interface AdminCourtsTabProps {
   courts: Court[];
   bookings?: Booking[];
   openPlayEvents?: OpenPlayEvent[];
-  myCompany?: {
-    id: string;
-    name: string;
-    address?: string;
-    addressLine1?: string;
-    barangay?: string;
-    municipality?: string;
-    province?: string;
-    region?: string;
-    country?: string;
-    postalCode?: string;
-  } | null;
+  myCompany?: Company | null;
   courtsSubTab?: AdminCourtsSubTab;
   onSaveManualBooking?: (booking: Partial<Booking>) => Promise<void> | void;
   isSubmittingManualBooking?: boolean;
@@ -55,7 +44,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   courts,
   bookings = [],
   openPlayEvents = [],
-  myCompany: _myCompany,
+  myCompany = null,
   courtsSubTab = 'list',
   onSaveManualBooking,
   isSubmittingManualBooking = false,
@@ -129,6 +118,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
         courts={courts}
         existingBookings={bookings}
         openPlayEvents={openPlayEvents}
+        myCompany={myCompany}
         onSaveBooking={onSaveManualBooking || (async () => {})}
         isSubmitting={isSubmittingManualBooking}
       />
@@ -178,6 +168,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
           court={selectedCourtForDetails}
           bookings={bookings}
           openPlayEvents={openPlayEvents}
+          company={myCompany}
           onBack={() => handleSetSelectedCourt(null)}
           onOpenEditCourtModal={onOpenEditCourtModal}
           onDeleteCourt={onDeleteCourt}
