@@ -568,7 +568,7 @@ export const SLOTS = [
   { time: '08:00 PM - 09:00 PM', startHour: 20 },
   { time: '09:00 PM - 10:00 PM', startHour: 21 },
   { time: '10:00 PM - 11:00 PM', startHour: 22 },
-  { time: '11:00 AM - 12:00 AM', startHour: 23 },
+  { time: '11:00 PM - 12:00 AM', startHour: 23 },
 ];
 
 export const getSlotPrice = (startHour: number, dayPrice = 100, nightPrice = 150) => {

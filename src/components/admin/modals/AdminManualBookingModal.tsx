@@ -547,64 +547,119 @@ export const AdminManualBookingModal: React.FC<AdminManualBookingModalProps> = (
   );
 
   const renderStepperHeader = () => (
-    <div className="glass-panel border border-slate-800 rounded-3xl p-4 shadow-xl w-full mb-6">
-      <div className="flex items-center justify-between relative px-2">
-        {/* Background Connecting Progress Line */}
-        <div className="absolute top-1/2 left-8 right-8 sm:left-12 sm:right-12 -translate-y-1/2 h-1 bg-slate-800/80 rounded-full overflow-hidden -z-0">
-          <div
-            className="h-full bg-brand-lime transition-all duration-500 rounded-full shadow-[0_0_10px_rgba(181,245,41,0.5)]"
-            style={{ width: currentStep === 1 ? '0%' : currentStep === 2 ? '50%' : '100%' }}
-          ></div>
-        </div>
-
-        {/* Step 1 Badge */}
+    <div className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-1.5 sm:p-2 shadow-lg w-full mb-6">
+      <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+        {/* Step 1 Tab */}
         <button
           type="button"
           onClick={() => handleGoToStep(1)}
-          className={`relative z-10 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-2xl border text-xs font-black transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl text-left transition-all cursor-pointer ${
             currentStep === 1
-              ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg shadow-brand-lime/30 scale-105'
+              ? 'bg-brand-lime text-dark-bg font-black shadow-md shadow-brand-lime/20'
               : currentStep > 1
-              ? 'bg-slate-900 text-brand-lime border-brand-lime/40'
-              : 'bg-slate-950 text-slate-500 border-slate-800'
+              ? 'bg-slate-900/90 text-brand-lime hover:bg-slate-850 border border-brand-lime/30 font-bold'
+              : 'bg-slate-900/40 text-slate-400 hover:text-slate-300 hover:bg-slate-900 border border-slate-800/60 font-semibold'
           }`}
         >
-          <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border border-current">
-            {currentStep > 1 ? <Check className="w-3 h-3 stroke-[3]" /> : '1'}
+          <span
+            className={`w-5 h-5 sm:w-6 sm:h-6 rounded-lg sm:rounded-xl flex items-center justify-center text-[10px] sm:text-xs font-black shrink-0 ${
+              currentStep === 1
+                ? 'bg-dark-bg text-brand-lime'
+                : currentStep > 1
+                ? 'bg-brand-lime/20 text-brand-lime'
+                : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            {currentStep > 1 ? <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[3]" /> : '1'}
           </span>
-          <span className="hidden sm:inline">1. Purpose & Court</span>
+          <div className="min-w-0">
+            <span className="block text-[11px] sm:text-xs font-extrabold truncate">
+              Purpose & Court
+            </span>
+            <span
+              className={`hidden md:block text-[10px] leading-none mt-0.5 truncate ${
+                currentStep === 1
+                  ? 'text-dark-bg/80 font-bold'
+                  : currentStep > 1
+                  ? 'text-emerald-400/90'
+                  : 'text-slate-500'
+              }`}
+            >
+              {currentStep > 1 ? 'Selected' : 'Step 1'}
+            </span>
+          </div>
         </button>
 
-        {/* Step 2 Badge */}
+        {/* Step 2 Tab */}
         <button
           type="button"
           onClick={() => handleGoToStep(2)}
-          className={`relative z-10 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-2xl border text-xs font-black transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl text-left transition-all cursor-pointer ${
             currentStep === 2
-              ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg shadow-brand-lime/30 scale-105'
+              ? 'bg-brand-lime text-dark-bg font-black shadow-md shadow-brand-lime/20'
               : currentStep > 2
-              ? 'bg-slate-900 text-brand-lime border-brand-lime/40'
-              : 'bg-slate-950 text-slate-500 border-slate-800'
+              ? 'bg-slate-900/90 text-brand-lime hover:bg-slate-850 border border-brand-lime/30 font-bold'
+              : 'bg-slate-900/40 text-slate-400 hover:text-slate-300 hover:bg-slate-900 border border-slate-800/60 font-semibold'
           }`}
         >
-          <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border border-current">
-            {currentStep > 2 ? <Check className="w-3 h-3 stroke-[3]" /> : '2'}
+          <span
+            className={`w-5 h-5 sm:w-6 sm:h-6 rounded-lg sm:rounded-xl flex items-center justify-center text-[10px] sm:text-xs font-black shrink-0 ${
+              currentStep === 2
+                ? 'bg-dark-bg text-brand-lime'
+                : currentStep > 2
+                ? 'bg-brand-lime/20 text-brand-lime'
+                : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            {currentStep > 2 ? <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 stroke-[3]" /> : '2'}
           </span>
-          <span className="hidden sm:inline">2. Time Slots</span>
+          <div className="min-w-0">
+            <span className="block text-[11px] sm:text-xs font-extrabold truncate">
+              Time Slots
+            </span>
+            <span
+              className={`hidden md:block text-[10px] leading-none mt-0.5 truncate ${
+                currentStep === 2
+                  ? 'text-dark-bg/80 font-bold'
+                  : currentStep > 2
+                  ? 'text-emerald-400/90'
+                  : 'text-slate-500'
+              }`}
+            >
+              {currentStep > 2 ? `${selectedSlots.length} Slot${selectedSlots.length > 1 ? 's' : ''}` : 'Step 2'}
+            </span>
+          </div>
         </button>
 
-        {/* Step 3 Badge */}
+        {/* Step 3 Tab */}
         <button
           type="button"
           onClick={() => handleGoToStep(3)}
-          className={`relative z-10 flex items-center gap-2 px-3 sm:px-4 py-2 rounded-2xl border text-xs font-black transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-2 sm:py-2.5 rounded-xl text-left transition-all cursor-pointer ${
             currentStep === 3
-              ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg shadow-brand-lime/30 scale-105'
-              : 'bg-slate-950 text-slate-500 border-slate-800'
+              ? 'bg-brand-lime text-dark-bg font-black shadow-md shadow-brand-lime/20'
+              : 'bg-slate-900/40 text-slate-400 hover:text-slate-300 hover:bg-slate-900 border border-slate-800/60 font-semibold'
           }`}
         >
-          <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border border-current">3</span>
-          <span className="hidden sm:inline">3. Customer & Payment</span>
+          <span
+            className={`w-5 h-5 sm:w-6 sm:h-6 rounded-lg sm:rounded-xl flex items-center justify-center text-[10px] sm:text-xs font-black shrink-0 ${
+              currentStep === 3 ? 'bg-dark-bg text-brand-lime' : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            3
+          </span>
+          <div className="min-w-0">
+            <span className="block text-[11px] sm:text-xs font-extrabold truncate">
+              Customer & Pay
+            </span>
+            <span
+              className={`hidden md:block text-[10px] leading-none mt-0.5 truncate ${
+                currentStep === 3 ? 'text-dark-bg/80 font-bold' : 'text-slate-500'
+              }`}
+            >
+              Step 3
+            </span>
+          </div>
         </button>
       </div>
     </div>
