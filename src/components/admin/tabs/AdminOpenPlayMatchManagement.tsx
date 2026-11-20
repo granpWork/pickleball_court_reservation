@@ -329,7 +329,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   // AI Auto-generate matches for a specific empty round looking at previous match results, DUPR & gameplay type
   const handleAiGenerateSingleRound = async (targetRoundNum: number) => {
-    let onlyCheckedIn = false;
+    let onlyCheckedIn = true;
     try {
       const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
       if (saved !== null) {
@@ -410,7 +410,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   // Auto-generate matches for a specific empty round (e.g. Round 2 created via "+ Add New Round")
   // looking at all previous rounds to ensure zero duplicate games & unique partners
   const handleAutoGenerateSingleRound = (targetRoundNum: number) => {
-    let onlyCheckedIn = false;
+    let onlyCheckedIn = true;
     try {
       const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
       if (saved !== null) {
@@ -2125,11 +2125,19 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     targetPoints: number,
     isSmartMatch: boolean = false,
     selectedCourts?: string[],
-    onlyPresent: boolean = false,
+    onlyPresent: boolean = true,
     allowOverflowMatch?: boolean,
     useAiEngine: boolean = false,
     aiDirectorNotes?: string
   ) => {
+    let effectiveOnlyPresent = onlyPresent;
+    try {
+      const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
+      if (saved !== null) {
+        effectiveOnlyPresent = saved === 'true';
+      }
+    } catch (e) {}
+
     let effectiveAllowOverflow = allowOverflowMatch;
     if (effectiveAllowOverflow === undefined) {
       try {
@@ -2145,7 +2153,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         ? paddleRackQueue
         : rosterPool;
     let candidatePool = baseQueue.filter((p) => p.status === 'active');
-    if (onlyPresent) {
+    if (effectiveOnlyPresent) {
       candidatePool = candidatePool.filter((p) => p.isPresent || p.attendanceStatus === 'present');
     }
 
@@ -3743,9 +3751,12 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   m.teamBlue.players.forEach((p) => roundPlayerIds.add(p.id));
                 });
 
-                let isStrictAttendance = false;
+                let isStrictAttendance = true;
                 try {
-                  isStrictAttendance = localStorage.getItem('picklepoint_openplay_only_checkedin') === 'true';
+                  const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
+                  if (saved !== null) {
+                    isStrictAttendance = saved === 'true';
+                  }
                 } catch (e) {}
 
                 const activeCandidates = rosterPool.filter((p) => p.status === 'active');

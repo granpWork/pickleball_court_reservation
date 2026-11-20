@@ -41,6 +41,16 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
   const [selectedRedPlayers, setSelectedRedPlayers] = useState<string[]>([]);
   const [selectedBluePlayers, setSelectedBluePlayers] = useState<string[]>([]);
   const [playerSearchQuery, setPlayerSearchQuery] = useState<string>('');
+  const [attendanceFilter, setAttendanceFilter] = useState<'present' | 'all'>('present');
+
+  const presentCount = useMemo(
+    () => rosterPool.filter((p) => p.status !== 'absent' && (p.isPresent || p.attendanceStatus === 'present')).length,
+    [rosterPool]
+  );
+  const totalEligibleCount = useMemo(
+    () => rosterPool.filter((p) => p.status !== 'absent').length,
+    [rosterPool]
+  );
 
   useEffect(() => {
     if (editingMatch) {
@@ -61,6 +71,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
       setSelectedBluePlayers([]);
     }
     setPlayerSearchQuery('');
+    setAttendanceFilter('present');
   }, [editingMatch, targetRound, assignedCourts, existingMatchesInRoundCount, isOpen]);
 
   // Filtered Roster Players for Manual Match Creator / Editor Modal
@@ -68,6 +79,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
     const q = playerSearchQuery.trim().toLowerCase();
     return rosterPool.filter((p) => {
       if (p.status === 'absent') return false;
+      if (attendanceFilter === 'present' && !p.isPresent && p.attendanceStatus !== 'present') return false;
       if (!q) return true;
 
       const nameMatch = p.name.toLowerCase().includes(q);
@@ -76,7 +88,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
 
       return nameMatch || duprIdMatch || ratingMatch;
     });
-  }, [rosterPool, playerSearchQuery]);
+  }, [rosterPool, playerSearchQuery, attendanceFilter]);
 
   if (!isOpen) return null;
 
@@ -175,9 +187,47 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
             </div>
           </div>
 
-          {/* Player Search Bar */}
-          <div>
-            <label className="block text-slate-400 font-bold mb-1">Search Roster Player</label>
+          {/* Player Search Bar & Attendance Filter */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-slate-400 font-bold text-xs">Search & Select Players</label>
+              <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setAttendanceFilter('present')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    attendanceFilter === 'present'
+                      ? 'bg-emerald-500 text-slate-950 font-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  <span>Present Only</span>
+                  <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                    attendanceFilter === 'present' ? 'bg-emerald-600 text-white font-black' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {presentCount}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttendanceFilter('all')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                    attendanceFilter === 'all'
+                      ? 'bg-slate-200 text-slate-950 font-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>All Roster</span>
+                  <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                    attendanceFilter === 'all' ? 'bg-slate-300 text-slate-950 font-black' : 'bg-slate-800 text-slate-400'
+                  }`}>
+                    {totalEligibleCount}
+                  </span>
+                </button>
+              </div>
+            </div>
+
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -252,8 +302,17 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                             />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate flex items-center gap-1.5">
+                            <div className="truncate flex items-center gap-1.5 flex-wrap">
                               <span className="truncate font-extrabold">{p.name}</span>
+                              {p.isPresent || p.attendanceStatus === 'present' ? (
+                                <span className="text-[9px] px-1 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 font-bold uppercase shrink-0">
+                                  Present
+                                </span>
+                              ) : (
+                                <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 border border-slate-700/60 font-bold uppercase shrink-0">
+                                  Unchecked
+                                </span>
+                              )}
                               {p.type === 'guest' && (
                                 <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">
                                   Guest
@@ -333,8 +392,17 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                             />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate flex items-center gap-1.5">
+                            <div className="truncate flex items-center gap-1.5 flex-wrap">
                               <span className="truncate font-extrabold">{p.name}</span>
+                              {p.isPresent || p.attendanceStatus === 'present' ? (
+                                <span className="text-[9px] px-1 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 font-bold uppercase shrink-0">
+                                  Present
+                                </span>
+                              ) : (
+                                <span className="text-[9px] px-1 rounded bg-slate-800 text-slate-400 border border-slate-700/60 font-bold uppercase shrink-0">
+                                  Unchecked
+                                </span>
+                              )}
                               {p.type === 'guest' && (
                                 <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold uppercase shrink-0">
                                   Guest

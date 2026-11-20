@@ -142,7 +142,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
     } catch (e) {}
   };
 
-  // Setting switch state: Include only checked-in players
+  // Setting switch state: Include only checked-in players (defaults to true)
   const [onlyCheckedInPlayers, setOnlyCheckedInPlayers] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('picklepoint_openplay_only_checkedin');
@@ -150,9 +150,7 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
         return saved === 'true';
       }
     } catch (e) {}
-    const activeFromPool = rosterPool.filter((p) => p.status === 'active');
-    const checkedIn = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present').length;
-    return checkedIn >= 4;
+    return true;
   });
 
   // Keep localStorage updated when toggle changes
@@ -173,15 +171,9 @@ export const OpenPlayAutoGenModal: React.FC<OpenPlayAutoGenModalProps> = ({
           return;
         }
       } catch (e) {}
-      const activeFromPool = rosterPool.filter((p) => p.status === 'active');
-      const checkedIn = activeFromPool.filter((p) => p.isPresent || p.attendanceStatus === 'present').length;
-      if (checkedIn >= 4) {
-        setOnlyCheckedInPlayers(true);
-      } else if (checkedIn === 0) {
-        setOnlyCheckedInPlayers(false);
-      }
+      setOnlyCheckedInPlayers(true);
     }
-  }, [isOpen, rosterPool]);
+  }, [isOpen]);
 
   // Candidate players pool filtered strictly by setting switch
   const candidatePlayers = useMemo(() => {
