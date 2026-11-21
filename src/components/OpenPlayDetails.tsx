@@ -96,6 +96,7 @@ export interface OpenPlayEvent {
   isMatchMatrix?: boolean;
   matrixFormat?: string;
   roundTitles?: Record<number, string>;
+  lockedPartners?: Record<string, string>;
   rosterPool?: any[];
 }
 

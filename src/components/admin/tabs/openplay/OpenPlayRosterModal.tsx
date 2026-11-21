@@ -15,6 +15,7 @@ import {
   Star,
   Check,
   UserCheck,
+  Lock,
 } from 'lucide-react';
 import { type OpenPlayMatchRosterItem } from '../../adminTypes';
 import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
@@ -39,6 +40,10 @@ export interface OpenPlayRosterModalProps {
   onDeletePlayer?: (id: string) => void;
   onMoveToWaitlist?: (id: string) => void;
   onUpdatePlayer?: (updated: OpenPlayMatchRosterItem) => void;
+  lockedPartners?: Record<string, string>;
+  onSetLockedPartner?: (player1Id: string, player2Id: string) => void;
+  onRemoveLockedPartner?: (playerId: string) => void;
+  onOpenLockedPartnersModal?: () => void;
 }
 
 const formatCheckInTime12h = (isoStr?: string): string | null => {
@@ -76,6 +81,10 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   onDeletePlayer,
   onMoveToWaitlist,
   onUpdatePlayer,
+  lockedPartners = {},
+  onSetLockedPartner: _onSetLockedPartner,
+  onRemoveLockedPartner,
+  onOpenLockedPartnersModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'present' | 'active' | 'resting' | 'absent'>('all');
@@ -387,6 +396,18 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                 <span>Check In All</span>
               </button>
             )}
+
+            {onOpenLockedPartnersModal && (
+              <button
+                type="button"
+                onClick={onOpenLockedPartnersModal}
+                className="px-2.5 py-1.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/35 text-purple-300 font-bold text-[11px] transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ml-auto"
+                title="Manage Locked Doubles Partners"
+              >
+                <Lock className="w-3 h-3 text-purple-400" />
+                <span>Locked Pairs ({Math.floor(Object.keys(lockedPartners).length / 2)})</span>
+              </button>
+            )}
           </div>
 
           {/* Search Box */}
@@ -413,6 +434,8 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
               const isAbsent = p.status === 'absent';
               const isResting = p.status === 'resting';
               const isActive = p.status === 'active';
+              const partnerId = lockedPartners[p.id];
+              const partner = partnerId ? rosterPool.find((rp) => rp.id === partnerId) : undefined;
 
               return (
                 <div
@@ -539,6 +562,26 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                             </button>
                           )
                         )}
+
+                        {partner && (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-purple-500/15 border border-purple-500/35 text-purple-300 font-mono text-[10px] font-bold">
+                            <Lock className="w-2.5 h-2.5 text-purple-400" />
+                            <span>Partner: {partner.name}</span>
+                            {onRemoveLockedPartner && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onRemoveLockedPartner(p.id);
+                                }}
+                                className="hover:text-rose-400 cursor-pointer ml-0.5"
+                                title={`Unlock ${p.name} and ${partner.name}`}
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -571,6 +614,21 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                         <span>
                           {p.isPresent || p.attendanceStatus === 'present' ? 'Present' : 'Check In'}
                         </span>
+                      </button>
+                    )}
+
+                    {onOpenLockedPartnersModal && (
+                      <button
+                        type="button"
+                        onClick={partner && onRemoveLockedPartner ? () => onRemoveLockedPartner(p.id) : onOpenLockedPartnersModal}
+                        className={`p-2 rounded-xl border transition-all cursor-pointer shrink-0 ${
+                          partner
+                            ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 hover:bg-purple-500/30'
+                            : 'bg-slate-900 border-slate-800 hover:border-purple-500/40 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10'
+                        }`}
+                        title={partner ? `Locked with ${partner.name}. Click to unlock.` : `Lock partner for ${p.name}`}
+                      >
+                        <Lock className="w-3.5 h-3.5" />
                       </button>
                     )}
 

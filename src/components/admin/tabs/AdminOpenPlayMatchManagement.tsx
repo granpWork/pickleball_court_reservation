@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   Sparkles,
   X,
+  Lock,
 } from 'lucide-react';
 import {
   collection,
@@ -47,6 +48,7 @@ import { OpenPlayReportModal } from './openplay/OpenPlayReportModal';
 import { OpenPlayJsonUploadModal } from './openplay/OpenPlayJsonUploadModal';
 import { OpenPlayResultsModal } from './openplay/OpenPlayResultsModal';
 import { OpenPlayDeleteRoundsModal } from './openplay/OpenPlayDeleteRoundsModal';
+import { OpenPlayLockedPartnersModal } from './openplay/OpenPlayLockedPartnersModal';
 import { generateUniquePartnerMatches, generateSmartDuprMatches } from '../../../utils/matchGeneratorUtils';
 import {
   loadVenueGoogleAiConfig,
@@ -201,6 +203,65 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     return [];
   });
   const [deletedRounds, setDeletedRounds] = useState<number[]>([]);
+  const [lockedPartners, setLockedPartners] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(`picklepoint_openplay_locked_partners_${event.id}`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return event.lockedPartners || {};
+  });
+  const [isLockedPartnersModalOpen, setIsLockedPartnersModalOpen] = useState<boolean>(false);
+
+  const persistLockedPartners = (updatedMap: Record<string, string>) => {
+    setLockedPartners(updatedMap);
+    try {
+      localStorage.setItem(`picklepoint_openplay_locked_partners_${event.id}`, JSON.stringify(updatedMap));
+    } catch (e) {
+      console.warn('Failed to save lockedPartners to localStorage:', e);
+    }
+    if (isFirebaseConfigured && db && event.id) {
+      try {
+        setDoc(doc(db, 'openplay_events', event.id), { lockedPartners: updatedMap }, { merge: true }).catch((err) =>
+          console.warn('Failed to save lockedPartners to Firestore:', err)
+        );
+      } catch (e) {
+        console.warn('Failed to save lockedPartners to Firestore:', e);
+      }
+    }
+  };
+
+  const handleSetLockedPartner = (player1Id: string, player2Id: string) => {
+    const updated = { ...lockedPartners };
+    if (updated[player1Id]) {
+      const oldP1 = updated[player1Id];
+      delete updated[oldP1];
+    }
+    if (updated[player2Id]) {
+      const oldP2 = updated[player2Id];
+      delete updated[oldP2];
+    }
+    updated[player1Id] = player2Id;
+    updated[player2Id] = player1Id;
+    persistLockedPartners(updated);
+    const p1 = rosterPool.find((p) => p.id === player1Id);
+    const p2 = rosterPool.find((p) => p.id === player2Id);
+    showToast(`🔒 Locked partner pair: ${p1?.name || player1Id} & ${p2?.name || player2Id}`);
+  };
+
+  const handleRemoveLockedPartner = (playerId: string) => {
+    const partnerId = lockedPartners[playerId];
+    const updated = { ...lockedPartners };
+    delete updated[playerId];
+    if (partnerId) delete updated[partnerId];
+    persistLockedPartners(updated);
+    showToast(`🔓 Unlocked partner pair.`);
+  };
+
+  const handleClearAllLockedPartners = () => {
+    persistLockedPartners({});
+    showToast(`🔓 Cleared all locked partner pairs.`);
+  };
+
   const [roundCreatedAt, setRoundCreatedAt] = useState<Record<number, string>>(() => {
     try {
       const saved = localStorage.getItem(`picklepoint_round_created_at_${event.id}`);
@@ -385,6 +446,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         isSmartMatch: isDupr || true,
         allowOverflowMatch: allowOverflow,
         existingMatches: priorMatches,
+        lockedPartners,
       });
 
       if (aiResponse.matches.length === 0) {
@@ -463,6 +525,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         existingMatches: priorMatches,
         startingRound: targetRoundNum,
         allowOverflowMatch: allowOverflow,
+        lockedPartners,
       });
       resultMatches = result.matches;
     } else {
@@ -476,6 +539,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         existingMatches: priorMatches,
         startingRound: targetRoundNum,
         allowOverflowMatch: allowOverflow,
+        lockedPartners,
       });
       resultMatches = result.matches;
     }
@@ -2195,6 +2259,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           allowOverflowMatch: effectiveAllowOverflow,
           existingMatches: matches,
           aiDirectorNotes,
+          lockedPartners,
         });
 
         if (aiResult.matches.length === 0) {
@@ -2225,6 +2290,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         existingMatches: matches,
         startingRound,
         allowOverflowMatch: effectiveAllowOverflow,
+        lockedPartners,
       });
 
       if (result.matches.length === 0) {
@@ -2257,6 +2323,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         startingRound,
         isSmartMatch,
         allowOverflowMatch: effectiveAllowOverflow,
+        lockedPartners,
       });
 
       if (result.matches.length === 0) {
@@ -2452,6 +2519,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const mapPlayers = (ids: string[]): OpenPlayMatchPlayer[] => {
       return ids.map((id) => {
         const item = rosterPool.find((p) => p.id === id);
+        const partnerId = lockedPartners[id];
         return {
           id,
           name: item ? item.name : 'Player',
@@ -2460,6 +2528,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           type: item?.type,
           duprId: item?.adminDuprId || item?.duprId || undefined,
           duprRating: item?.adminDuprRating || item?.duprRating || undefined,
+          lockedPartnerId: partnerId,
+          lockedPartnerName: partnerId ? rosterPool.find((p) => p.id === partnerId)?.name : undefined,
         };
       });
     };
@@ -3280,6 +3350,16 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
           <button
             type="button"
+            onClick={() => setIsLockedPartnersModalOpen(true)}
+            className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-purple-200 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all text-center flex-wrap"
+            title="Manage Locked Doubles Partners"
+          >
+            <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-400 shrink-0" />
+            <span className="leading-tight">Locked Partners ({Math.floor(Object.keys(lockedPartners).length / 2)})</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setIsReportModalOpen(true)}
             className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-brand-emerald/15 border border-brand-emerald/40 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all shadow-sm text-center"
             title="View per-player match counts, win records, and export CSV report"
@@ -3630,6 +3710,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                       match={m}
                       assignedCourts={assignedCourts}
                       roundTitle={getRoundTitle(m.round)}
+                      lockedPartners={lockedPartners}
                       onInlineCourtChange={handleInlineCourtChange}
                       onStartMatch={handleStartMatch}
                       onCompleteMatch={handleCompleteMatch}
@@ -3720,6 +3801,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                           match={m}
                           assignedCourts={assignedCourts}
                           roundTitle={getRoundTitle(m.round)}
+                          lockedPartners={lockedPartners}
                           onInlineCourtChange={handleInlineCourtChange}
                           onStartMatch={handleStartMatch}
                           onCompleteMatch={handleCompleteMatch}
@@ -3792,6 +3874,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     isAiConfigured={Boolean(aiConfig?.enabled && aiConfig?.apiKey)}
                     isAiGenerating={isAiGenerating}
                     onDeleteRound={(r) => openDeleteRoundsModal(r)}
+                    lockedPartners={lockedPartners}
                   >
                     <div className={`grid gap-4 sm:gap-5 items-stretch ${
                       matchesInRound.length === 1
@@ -3806,6 +3889,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                           match={m}
                           assignedCourts={assignedCourts}
                           roundTitle={getRoundTitle(roundNum)}
+                          lockedPartners={lockedPartners}
                           onInlineCourtChange={handleInlineCourtChange}
                           onStartMatch={handleStartMatch}
                           onCompleteMatch={handleCompleteMatch}
@@ -3855,6 +3939,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         targetRound={targetManualRound}
         rosterPool={rosterPool}
         existingMatchesInRoundCount={matches.filter((m) => m.round === targetManualRound).length}
+        lockedPartners={lockedPartners}
         onSaveManualMatch={handleSaveManualMatch}
       />
 
@@ -3879,6 +3964,21 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         onDeletePlayer={handleDeletePlayer}
         onMoveToWaitlist={handleMovePlayerToWaitlist}
         onUpdatePlayer={handleUpdatePlayer}
+        lockedPartners={lockedPartners}
+        onSetLockedPartner={handleSetLockedPartner}
+        onRemoveLockedPartner={handleRemoveLockedPartner}
+        onOpenLockedPartnersModal={() => setIsLockedPartnersModalOpen(true)}
+      />
+
+      {/* MODAL 3B: LOCKED PARTNERS MANAGEMENT */}
+      <OpenPlayLockedPartnersModal
+        isOpen={isLockedPartnersModalOpen}
+        onClose={() => setIsLockedPartnersModalOpen(false)}
+        rosterPool={rosterPool}
+        lockedPartners={lockedPartners}
+        onSetLockedPartner={handleSetLockedPartner}
+        onRemoveLockedPartner={handleRemoveLockedPartner}
+        onClearAllLockedPartners={handleClearAllLockedPartners}
       />
 
       {/* MODAL 4: PLAYER MATCH ACTIVITY & STATISTICS REPORT */}

@@ -14,6 +14,7 @@ import {
   Sparkles,
   RefreshCw,
   Clock,
+  Lock,
 } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 
@@ -46,6 +47,7 @@ interface MatchMatrixRoundAccordionProps {
   isAiConfigured?: boolean;
   isAiGenerating?: boolean;
   onDeleteRound?: (roundNum: number) => void;
+  lockedPartners?: Record<string, string>;
   children: React.ReactNode;
 }
 
@@ -71,6 +73,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
   isAiConfigured = false,
   isAiGenerating = false,
   onDeleteRound,
+  lockedPartners,
   children,
 }) => {
   // Count unique players participating in this round, completed games, and live ongoing games
@@ -438,6 +441,16 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
                           <span className={`truncate max-w-[180px] sm:max-w-none ${arrivedAfterRound ? 'text-rose-200 font-black' : 'text-amber-400 font-black'}`}>
                             {rp.name}
                           </span>
+
+                          {lockedPartners && lockedPartners[rp.id] && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono font-bold"
+                              title="Locked Doubles Partner (resting as a pair)"
+                            >
+                              <Lock className="w-2.5 h-2.5 text-purple-400" />
+                              <span>Locked</span>
+                            </span>
+                          )}
 
                           {rating && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">

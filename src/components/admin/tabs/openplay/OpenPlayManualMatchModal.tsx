@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, X, Check } from 'lucide-react';
+import { Search, X, Check, Lock } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
 
@@ -11,6 +11,7 @@ interface OpenPlayManualMatchModalProps {
   targetRound?: number;
   rosterPool: OpenPlayMatchRosterItem[];
   existingMatchesInRoundCount: number;
+  lockedPartners?: Record<string, string>;
   onSaveManualMatch: (matchData: {
     matchName: string;
     round: number;
@@ -31,6 +32,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
   targetRound = 1,
   rosterPool,
   existingMatchesInRoundCount,
+  lockedPartners = {},
   onSaveManualMatch,
 }) => {
   const [manualMatchName, setManualMatchName] = useState<string>('');
@@ -270,6 +272,8 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                     const isBlue = selectedBluePlayers.includes(p.id);
                     const effectiveDupr = p.adminDuprId || p.duprId;
                     const effectiveRating = p.adminDuprRating || p.duprRating;
+                    const partnerId = lockedPartners[p.id];
+                    const partner = partnerId ? rosterPool.find((rp) => rp.id === partnerId) : undefined;
 
                     return (
                       <button
@@ -278,11 +282,19 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                         disabled={isBlue}
                         onClick={() => {
                           if (isRed) {
-                            setSelectedRedPlayers(selectedRedPlayers.filter((id) => id !== p.id));
+                            setSelectedRedPlayers(selectedRedPlayers.filter((id) => id !== p.id && id !== partnerId));
                           } else {
-                            const limit = manualGameType === 'doubles' ? 2 : 1;
-                            if (selectedRedPlayers.length >= limit) return;
-                            setSelectedRedPlayers([...selectedRedPlayers, p.id]);
+                            if (manualGameType === 'doubles' && partnerId && rosterPool.some((rp) => rp.id === partnerId && rp.status !== 'absent')) {
+                              if (selectedBluePlayers.includes(partnerId)) {
+                                alert(`${p.name}'s locked partner (${partner?.name || partnerId}) is already selected on Team Blue!`);
+                                return;
+                              }
+                              setSelectedRedPlayers([p.id, partnerId]);
+                            } else {
+                              const limit = manualGameType === 'doubles' ? 2 : 1;
+                              if (selectedRedPlayers.length >= limit) return;
+                              setSelectedRedPlayers([...selectedRedPlayers, p.id]);
+                            }
                           }
                         }}
                         className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all cursor-pointer ${
@@ -304,6 +316,12 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                           <div className="min-w-0 flex-1">
                             <div className="truncate flex items-center gap-1.5 flex-wrap">
                               <span className="truncate font-extrabold">{p.name}</span>
+                              {partner && (
+                                <span className="text-[9px] px-1 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0">
+                                  <Lock className="w-2.5 h-2.5 text-purple-400" />
+                                  <span>Locked: {partner.name}</span>
+                                </span>
+                              )}
                               {p.isPresent || p.attendanceStatus === 'present' ? (
                                 <span className="text-[9px] px-1 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 font-bold uppercase shrink-0">
                                   Present
@@ -360,6 +378,8 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                     const isBlue = selectedBluePlayers.includes(p.id);
                     const effectiveDupr = p.adminDuprId || p.duprId;
                     const effectiveRating = p.adminDuprRating || p.duprRating;
+                    const partnerId = lockedPartners[p.id];
+                    const partner = partnerId ? rosterPool.find((rp) => rp.id === partnerId) : undefined;
 
                     return (
                       <button
@@ -368,11 +388,19 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                         disabled={isRed}
                         onClick={() => {
                           if (isBlue) {
-                            setSelectedBluePlayers(selectedBluePlayers.filter((id) => id !== p.id));
+                            setSelectedBluePlayers(selectedBluePlayers.filter((id) => id !== p.id && id !== partnerId));
                           } else {
-                            const limit = manualGameType === 'doubles' ? 2 : 1;
-                            if (selectedBluePlayers.length >= limit) return;
-                            setSelectedBluePlayers([...selectedBluePlayers, p.id]);
+                            if (manualGameType === 'doubles' && partnerId && rosterPool.some((rp) => rp.id === partnerId && rp.status !== 'absent')) {
+                              if (selectedRedPlayers.includes(partnerId)) {
+                                alert(`${p.name}'s locked partner (${partner?.name || partnerId}) is already selected on Team Red!`);
+                                return;
+                              }
+                              setSelectedBluePlayers([p.id, partnerId]);
+                            } else {
+                              const limit = manualGameType === 'doubles' ? 2 : 1;
+                              if (selectedBluePlayers.length >= limit) return;
+                              setSelectedBluePlayers([...selectedBluePlayers, p.id]);
+                            }
                           }
                         }}
                         className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all cursor-pointer ${
@@ -394,6 +422,12 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                           <div className="min-w-0 flex-1">
                             <div className="truncate flex items-center gap-1.5 flex-wrap">
                               <span className="truncate font-extrabold">{p.name}</span>
+                              {partner && (
+                                <span className="text-[9px] px-1 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0">
+                                  <Lock className="w-2.5 h-2.5 text-purple-400" />
+                                  <span>Locked: {partner.name}</span>
+                                </span>
+                              )}
                               {p.isPresent || p.attendanceStatus === 'present' ? (
                                 <span className="text-[9px] px-1 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 font-bold uppercase shrink-0">
                                   Present

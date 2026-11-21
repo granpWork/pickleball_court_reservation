@@ -737,6 +737,8 @@ export interface OpenPlayMatchPlayer {
   adminDuprId?: string;
   adminDuprRating?: string;
   isDummy?: boolean;
+  lockedPartnerId?: string;
+  lockedPartnerName?: string;
 }
 
 export interface OpenPlayMatch {
@@ -781,6 +783,8 @@ export interface OpenPlayMatchRosterItem {
   duprRating?: string;
   adminDuprRating?: string;
   isDummy?: boolean;
+  lockedPartnerId?: string;
+  lockedPartnerName?: string;
 }
 
 export interface PlayerMatchStats {

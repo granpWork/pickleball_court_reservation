@@ -8,6 +8,7 @@ import {
   Trash2,
   FileSpreadsheet,
   GripVertical,
+  Lock,
 } from 'lucide-react';
 import type { OpenPlayMatch } from '../../adminTypes';
 import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
@@ -25,6 +26,7 @@ interface MatchMatrixCardProps {
   onDownloadSingleCsv: (match: OpenPlayMatch) => void;
   onEditMatch: (match: OpenPlayMatch) => void;
   onDeleteMatch: (match: OpenPlayMatch) => void;
+  lockedPartners?: Record<string, string>;
   isDraggable?: boolean;
   isDragging?: boolean;
   isDragOver?: boolean;
@@ -49,6 +51,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
   onDownloadSingleCsv,
   onEditMatch,
   onDeleteMatch,
+  lockedPartners,
   isDraggable = false,
   isDragging = false,
   isDragOver = false,
@@ -59,6 +62,28 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
   onDrop,
   onDragEnd,
 }) => {
+  const isRedLocked =
+    m.teamRed.players.length === 2 &&
+    Boolean(
+      (m.teamRed.players[0].lockedPartnerId &&
+        m.teamRed.players[0].lockedPartnerId === m.teamRed.players[1].id) ||
+        (m.teamRed.players[1].lockedPartnerId &&
+          m.teamRed.players[1].lockedPartnerId === m.teamRed.players[0].id) ||
+        (lockedPartners &&
+          lockedPartners[m.teamRed.players[0].id] === m.teamRed.players[1].id)
+    );
+
+  const isBlueLocked =
+    m.teamBlue.players.length === 2 &&
+    Boolean(
+      (m.teamBlue.players[0].lockedPartnerId &&
+        m.teamBlue.players[0].lockedPartnerId === m.teamBlue.players[1].id) ||
+        (m.teamBlue.players[1].lockedPartnerId &&
+          m.teamBlue.players[1].lockedPartnerId === m.teamBlue.players[0].id) ||
+        (lockedPartners &&
+          lockedPartners[m.teamBlue.players[0].id] === m.teamBlue.players[1].id)
+    );
+
   return (
     <div
       draggable={isDraggable}
@@ -163,6 +188,14 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
               <span className="text-xs font-black uppercase text-red-400 tracking-wider truncate">
                 Team Red
               </span>
+              {isRedLocked && (
+                <span
+                  className="px-1.5 py-0.5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-300 font-bold text-[10px] flex items-center gap-1 shrink-0"
+                  title="Locked Doubles Partner Pair"
+                >
+                  <Lock className="w-2.5 h-2.5 text-purple-400" /> Locked
+                </span>
+              )}
               {m.winner === 'red' && (
                 <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center gap-0.5 shrink-0">
                   <Trophy className="w-3 h-3 text-amber-400" /> Win
@@ -233,6 +266,11 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-xs sm:text-sm text-white flex items-center gap-1.5 min-w-0">
                     <span className="truncate">{p.name}</span>
+                    {p.lockedPartnerId && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0" title={`Locked with ${p.lockedPartnerName || 'partner'}`}>
+                        <Lock className="w-2.5 h-2.5 text-purple-400" />
+                      </span>
+                    )}
                     {p.type === 'guest' && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold uppercase shrink-0">
                         Guest
@@ -310,6 +348,14 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
               <span className="text-xs font-black uppercase text-blue-400 tracking-wider truncate">
                 Team Blue
               </span>
+              {isBlueLocked && (
+                <span
+                  className="px-1.5 py-0.5 rounded bg-purple-500/20 border border-purple-500/40 text-purple-300 font-bold text-[10px] flex items-center gap-1 shrink-0"
+                  title="Locked Doubles Partner Pair"
+                >
+                  <Lock className="w-2.5 h-2.5 text-purple-400" /> Locked
+                </span>
+              )}
               {m.winner === 'blue' && (
                 <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center gap-0.5 shrink-0">
                   <Trophy className="w-3 h-3 text-amber-400" /> Win
@@ -380,6 +426,11 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-xs sm:text-sm text-white flex items-center gap-1.5 min-w-0">
                     <span className="truncate">{p.name}</span>
+                    {p.lockedPartnerId && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0" title={`Locked with ${p.lockedPartnerName || 'partner'}`}>
+                        <Lock className="w-2.5 h-2.5 text-purple-400" />
+                      </span>
+                    )}
                     {p.type === 'guest' && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold uppercase shrink-0">
                         Guest

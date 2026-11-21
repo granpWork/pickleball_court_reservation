@@ -33,6 +33,7 @@ export interface AiMatchGenerationParams {
   allowOverflowMatch?: boolean;
   existingMatches: OpenPlayMatch[];
   aiDirectorNotes?: string;
+  lockedPartners?: Record<string, string>;
 }
 
 export interface AiMatchGenerationResponse {
@@ -160,6 +161,7 @@ function runLocalFallbackGenerator(
     isSmartMatch,
     allowOverflowMatch,
     existingMatches,
+    lockedPartners,
   } = params;
 
   const result = isSmartMatch
@@ -173,6 +175,7 @@ function runLocalFallbackGenerator(
         existingMatches,
         startingRound,
         allowOverflowMatch,
+        lockedPartners,
       })
     : generateUniquePartnerMatches({
         eventId,
@@ -185,6 +188,7 @@ function runLocalFallbackGenerator(
         startingRound,
         isSmartMatch,
         allowOverflowMatch,
+        lockedPartners,
       });
 
   return {
@@ -219,6 +223,7 @@ export async function generateMatchesWithGeminiAi(
     allowOverflowMatch = false,
     existingMatches,
     aiDirectorNotes,
+    lockedPartners = {},
   } = params;
 
   const activePlayers = rosterPool.filter((p) => p.status === 'active');
@@ -390,6 +395,20 @@ export async function generateMatchesWithGeminiAi(
     (_, idx) => startingRound + idx
   );
 
+  const lockedPartnerDescriptions: string[] = [];
+  const seenLocked = new Set<string>();
+  if (lockedPartners) {
+    for (const [p1, p2] of Object.entries(lockedPartners)) {
+      if (!seenLocked.has(p1) && !seenLocked.has(p2)) {
+        seenLocked.add(p1);
+        seenLocked.add(p2);
+        const name1 = playerMap.get(p1)?.name || p1;
+        const name2 = playerMap.get(p2)?.name || p2;
+        lockedPartnerDescriptions.push(`"${name1}" (ID: ${p1}) is locked with "${name2}" (ID: ${p2})`);
+      }
+    }
+  }
+
   const systemPrompt = `You are the official PicklePoint AI Matchmaking Director powered by Google Gemini.
 Your task is to generate ${totalRounds} round(s) of ${gameType.toUpperCase()} pickleball matches (Rounds: ${roundNumbersToGenerate.join(', ')}) for an Open Play session.
 
@@ -408,8 +427,19 @@ Your task is to generate ${totalRounds} round(s) of ${gameType.toUpperCase()} pi
 - ${duprInstructions}
 
 ${
+  lockedPartnerDescriptions.length > 0
+    ? `### 4. LOCKED DOUBLES PARTNERS (STRICT & ABSOLUTE REQUIREMENT)
+The following player pairs have requested to play together as locked doubles partners:
+${lockedPartnerDescriptions.map((desc) => `- 🔒 ${desc}`).join('\n')}
+MANDATORY RULES FOR LOCKED PARTNERS:
+- Each locked pair MUST ALWAYS be placed on the SAME team (both on Team Red together, or both on Team Blue together) on the same court in every match they play.
+- NEVER separate them onto different courts or place them as opponents on opposing teams.
+- When resting/sitting out, locked partners MUST rest together as a unit so they are never split up.\n`
+    : ''
+}
+${
   aiDirectorNotes && aiDirectorNotes.trim()
-    ? `### 4. SPECIAL ADMIN / DIRECTOR NOTES (HIGH PRIORITY)\n- "${aiDirectorNotes.trim()}"\n`
+    ? `### ${lockedPartnerDescriptions.length > 0 ? '5' : '4'}. SPECIAL ADMIN / DIRECTOR NOTES (HIGH PRIORITY)\n- "${aiDirectorNotes.trim()}"\n`
     : ''
 }
 ### ACTIVE ROSTER POOL (${playerProfiles.length} Players)
@@ -545,12 +575,24 @@ Respond ONLY with valid JSON matching this structure:
             ? mItem.courtName
             : courtsToUse[matchIdxInRound % courtsToUse.length];
 
-        const redPlayers = redIds.map((id) =>
-          mapRosterToMatchPlayer(playerMap.get(id)!)
-        );
-        const bluePlayers = blueIds.map((id) =>
-          mapRosterToMatchPlayer(playerMap.get(id)!)
-        );
+        const redPlayers = redIds.map((id) => {
+          const mp = mapRosterToMatchPlayer(playerMap.get(id)!);
+          const partnerId = lockedPartners ? lockedPartners[id] : undefined;
+          if (partnerId) {
+            mp.lockedPartnerId = partnerId;
+            mp.lockedPartnerName = playerMap.get(partnerId)?.name;
+          }
+          return mp;
+        });
+        const bluePlayers = blueIds.map((id) => {
+          const mp = mapRosterToMatchPlayer(playerMap.get(id)!);
+          const partnerId = lockedPartners ? lockedPartners[id] : undefined;
+          if (partnerId) {
+            mp.lockedPartnerId = partnerId;
+            mp.lockedPartnerName = playerMap.get(partnerId)?.name;
+          }
+          return mp;
+        });
 
         generatedMatches.push({
           id: `match_ai_${Date.now()}_r${targetRoundNum}_m${matchIdxInRound + 1}_${Math.random()
@@ -594,6 +636,7 @@ Respond ONLY with valid JSON matching this structure:
               existingMatches: [...priorMatches, ...generatedMatches],
               startingRound: targetRoundNum,
               allowOverflowMatch: false,
+              lockedPartners,
             })
           : generateUniquePartnerMatches({
               eventId,
@@ -606,8 +649,9 @@ Respond ONLY with valid JSON matching this structure:
               gameType,
               existingMatches: [...priorMatches, ...generatedMatches],
               startingRound: targetRoundNum,
-              isSmartMatch,
+              isSmartMatch: false,
               allowOverflowMatch: false,
+              lockedPartners,
             });
 
         for (const extraMatch of extraResult.matches) {

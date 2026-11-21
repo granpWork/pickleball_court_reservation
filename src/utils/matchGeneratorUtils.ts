@@ -15,6 +15,7 @@ export interface UniquePartnerOptions {
   startingRound?: number;
   isSmartMatch?: boolean;
   allowOverflowMatch?: boolean;
+  lockedPartners?: Record<string, string>;
 }
 
 export interface MatchGenerationResult {
@@ -212,6 +213,29 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
   const lastRoundOpponents = new Set<string>();
   const lastRoundRepeaters = new Set<string>();
 
+  // Normalized locked partner map (bidirectional lookup)
+  const lockedPartnerMap = new Map<string, string>();
+  if (options.lockedPartners) {
+    Object.entries(options.lockedPartners).forEach(([p1, p2]) => {
+      if (p1 && p2 && p1 !== p2) {
+        lockedPartnerMap.set(p1, p2);
+        lockedPartnerMap.set(p2, p1);
+      }
+    });
+  }
+  rosterPool.forEach((p) => {
+    if (p.lockedPartnerId && p.lockedPartnerId !== p.id) {
+      lockedPartnerMap.set(p.id, p.lockedPartnerId);
+      lockedPartnerMap.set(p.lockedPartnerId, p.id);
+    }
+  });
+
+  const getLockedPartner = (id: string): string | undefined => lockedPartnerMap.get(id);
+  const isLockedPair = (id1: string, id2: string): boolean => {
+    const l1 = lockedPartnerMap.get(id1);
+    return Boolean(l1 && l1 === id2);
+  };
+
   // Initialize tracking maps for active players
   activePlayers.forEach((p) => {
     matchesPlayed.set(p.id, 0);
@@ -326,19 +350,35 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       teamRedPlayers = [mapRosterToMatchPlayer(pRed1), mapRosterToMatchPlayer(pRed2)];
       teamBluePlayers = [mapRosterToMatchPlayer(pBlue1), mapRosterToMatchPlayer(pBlue2)];
 
+      // Annotate locked partners on formed match players
+      if (isLockedPair(pRed1.id, pRed2.id)) {
+        teamRedPlayers[0].lockedPartnerId = pRed2.id;
+        teamRedPlayers[0].lockedPartnerName = pRed2.name;
+        teamRedPlayers[1].lockedPartnerId = pRed1.id;
+        teamRedPlayers[1].lockedPartnerName = pRed1.name;
+      }
+      if (isLockedPair(pBlue1.id, pBlue2.id)) {
+        teamBluePlayers[0].lockedPartnerId = pBlue2.id;
+        teamBluePlayers[0].lockedPartnerName = pBlue2.name;
+        teamBluePlayers[1].lockedPartnerId = pBlue1.id;
+        teamBluePlayers[1].lockedPartnerName = pBlue1.name;
+      }
+
       // Record partnerships formed
       const redPairKey = getPairKey(pRed1.id, pRed2.id);
       const redPrior = partnerCounts.get(redPairKey) || 0;
       partnerCounts.set(redPairKey, redPrior + 1);
       totalPairingsFormed++;
-      if (redPrior === 0) uniquePairingsFormed++;
+      const redIsLocked = isLockedPair(pRed1.id, pRed2.id);
+      if (redPrior === 0 || redIsLocked) uniquePairingsFormed++;
       else repeatedPairingsFormed++;
 
       const bluePairKey = getPairKey(pBlue1.id, pBlue2.id);
       const bluePrior = partnerCounts.get(bluePairKey) || 0;
       partnerCounts.set(bluePairKey, bluePrior + 1);
       totalPairingsFormed++;
-      if (bluePrior === 0) uniquePairingsFormed++;
+      const blueIsLocked = isLockedPair(pBlue1.id, pBlue2.id);
+      if (bluePrior === 0 || blueIsLocked) uniquePairingsFormed++;
       else repeatedPairingsFormed++;
 
       // Record foursome and matchup formed
@@ -445,13 +485,36 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       const mKey = getMatchupKey([r1, r2], [b1, b2]);
       splitCost += (exactMatchCounts.get(mKey) || 0) * 150000;
 
-      // 2. Partner Repeats (12,000 + 8,000 if back-to-back)
+      // Locked Partners Enforcement
+      const redHasLocked = isLockedPair(r1, r2);
+      const blueHasLocked = isLockedPair(b1, b2);
+
+      // Prohibit candidate splits that place locked partners on opposite teams
+      const separatesLocked =
+        (getLockedPartner(r1) === b1 || getLockedPartner(r1) === b2) ||
+        (getLockedPartner(r2) === b1 || getLockedPartner(r2) === b2);
+
+      if (separatesLocked) {
+        splitCost += 5000000;
+      }
+      if (redHasLocked) {
+        splitCost -= 500000;
+      }
+      if (blueHasLocked) {
+        splitCost -= 500000;
+      }
+
+      // 2. Partner Repeats (12,000 + 8,000 if back-to-back) - exempt locked pairs
       const kRed = getPairKey(r1, r2);
       const kBlue = getPairKey(b1, b2);
-      splitCost += (partnerCounts.get(kRed) || 0) * 12000;
-      splitCost += (partnerCounts.get(kBlue) || 0) * 12000;
-      if (lastRoundPartners.has(kRed)) splitCost += 8000;
-      if (lastRoundPartners.has(kBlue)) splitCost += 8000;
+      if (!redHasLocked) {
+        splitCost += (partnerCounts.get(kRed) || 0) * 12000;
+        if (lastRoundPartners.has(kRed)) splitCost += 8000;
+      }
+      if (!blueHasLocked) {
+        splitCost += (partnerCounts.get(kBlue) || 0) * 12000;
+        if (lastRoundPartners.has(kBlue)) splitCost += 8000;
+      }
 
       // 3. Opponent Repeats
       const opps = [
@@ -551,22 +614,46 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
           }
         }
 
-        // 3. Heavy penalty for partner repeats (12,000 per repeat)
+        // Locked Partners Court & Team Enforcement
+        const courtPlayerIds = [red1, red2, blue1, blue2];
+        const courtSet = new Set(courtPlayerIds);
+        courtPlayerIds.forEach((pId) => {
+          const lId = getLockedPartner(pId);
+          if (lId) {
+            if (!courtSet.has(lId)) {
+              cost += 5000000;
+            } else {
+              const isTeammate =
+                (pId === red1 && lId === red2) ||
+                (pId === red2 && lId === red1) ||
+                (pId === blue1 && lId === blue2) ||
+                (pId === blue2 && lId === blue1);
+              if (!isTeammate) {
+                cost += 5000000;
+              }
+            }
+          }
+        });
+
+        // 3. Heavy penalty for partner repeats (12,000 per repeat) - exempt locked pairs
+        const isRedLocked = isLockedPair(red1, red2);
+        const isBlueLocked = isLockedPair(blue1, blue2);
+
         const redPartnerKey = getPairKey(red1, red2);
         const redPartnerTimes = partnerCounts.get(redPartnerKey) || 0;
-        if (redPartnerTimes > 0) {
+        if (redPartnerTimes > 0 && !isRedLocked) {
           cost += redPartnerTimes * 12000;
         }
-        if (lastRoundPartners.has(redPartnerKey)) {
+        if (lastRoundPartners.has(redPartnerKey) && !isRedLocked) {
           cost += 8000;
         }
 
         const bluePartnerKey = getPairKey(blue1, blue2);
         const bluePartnerTimes = partnerCounts.get(bluePartnerKey) || 0;
-        if (bluePartnerTimes > 0) {
+        if (bluePartnerTimes > 0 && !isBlueLocked) {
           cost += bluePartnerTimes * 12000;
         }
-        if (lastRoundPartners.has(bluePartnerKey)) {
+        if (lastRoundPartners.has(bluePartnerKey) && !isBlueLocked) {
           cost += 8000;
         }
 
@@ -680,6 +767,24 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     return normalized;
   };
 
+  // Groups locked partner IDs adjacently so initial court slices contain both partners
+  const groupLockedPartnerIds = (ids: string[]): string[] => {
+    if (lockedPartnerMap.size === 0) return ids;
+    const seen = new Set<string>();
+    const grouped: string[] = [];
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      grouped.push(id);
+      seen.add(id);
+      const partner = getLockedPartner(id);
+      if (partner && ids.includes(partner) && !seen.has(partner)) {
+        grouped.push(partner);
+        seen.add(partner);
+      }
+    }
+    return grouped;
+  };
+
   // Optimizes ordering of player IDs across `numGames` using rating-seeded + randomized hill-climbing
   const optimizePlayerArrangement = (playerIds: string[], numGames: number, baseCourtIdx: number): string[] => {
     // Seed 0: Rating-sorted tier clusters with 1&4 vs 2&3 parity
@@ -691,8 +796,9 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
       return rB - rA;
     });
 
+    const initialSeeded = groupLockedPartnerIds(isSmartMatch ? ratingSortedIds : [...playerIds]);
     let bestArrangement = normalizeOrderFoursomes(
-      isSmartMatch ? ratingSortedIds : [...playerIds],
+      initialSeeded,
       numGames
     );
     let bestCost = computeBatchCost(bestArrangement, numGames, baseCourtIdx);
@@ -704,8 +810,8 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
     for (let restart = 0; restart < RESTARTS; restart++) {
       const currentOrder =
         restart === 0
-          ? [...ratingSortedIds]
-          : [...playerIds].sort(() => Math.random() - 0.5);
+          ? groupLockedPartnerIds([...ratingSortedIds])
+          : groupLockedPartnerIds([...playerIds].sort(() => Math.random() - 0.5));
 
       const normalizedInit = normalizeOrderFoursomes(currentOrder, numGames);
       for (let k = 0; k < normalizedInit.length; k++) currentOrder[k] = normalizedInit[k];
@@ -879,20 +985,31 @@ export const generateUniquePartnerMatches = (options: UniquePartnerOptions): Mat
 
         if (candidatePlayingIds.length !== primarySlots) continue;
 
+        // Check if locked partners are split between sitting out and playing
+        let splitLockedSitOutPenalty = 0;
+        for (const sitId of sitIds) {
+          const partnerId = getLockedPartner(sitId);
+          if (partnerId && !sitSet.has(partnerId) && playerMap.has(partnerId)) {
+            splitLockedSitOutPenalty += 10_000_000;
+          }
+        }
+
         const seededOrder = normalizeOrderFoursomes(
-          isSmartMatch
-            ? [...candidatePlayingIds].sort((a, b) => {
-                const pA = playerMap.get(a);
-                const pB = playerMap.get(b);
-                const rA = pA ? getPlayerEffectiveRating(pA, allPlayersNR) : 3.0;
-                const rB = pB ? getPlayerEffectiveRating(pB, allPlayersNR) : 3.0;
-                return rB - rA;
-              })
-            : [...candidatePlayingIds],
+          groupLockedPartnerIds(
+            isSmartMatch
+              ? [...candidatePlayingIds].sort((a, b) => {
+                  const pA = playerMap.get(a);
+                  const pB = playerMap.get(b);
+                  const rA = pA ? getPlayerEffectiveRating(pA, allPlayersNR) : 3.0;
+                  const rB = pB ? getPlayerEffectiveRating(pB, allPlayersNR) : 3.0;
+                  return rB - rA;
+                })
+              : [...candidatePlayingIds]
+          ),
           fullBatchGamesCount
         );
 
-        const cost = computeBatchCost(seededOrder, fullBatchGamesCount, globalCourtCounter);
+        const cost = computeBatchCost(seededOrder, fullBatchGamesCount, globalCourtCounter) + splitLockedSitOutPenalty;
         if (cost < bestBatchCost) {
           bestBatchCost = cost;
           bestPlayingIds = candidatePlayingIds;
