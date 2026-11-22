@@ -16,6 +16,8 @@ import {
   Sparkles,
   X,
   Lock,
+  Flag,
+  Unlock,
 } from 'lucide-react';
 import {
   collection,
@@ -49,7 +51,9 @@ import { OpenPlayJsonUploadModal } from './openplay/OpenPlayJsonUploadModal';
 import { OpenPlayResultsModal } from './openplay/OpenPlayResultsModal';
 import { OpenPlayDeleteRoundsModal } from './openplay/OpenPlayDeleteRoundsModal';
 import { OpenPlayLockedPartnersModal } from './openplay/OpenPlayLockedPartnersModal';
+import { OpenPlayConcludeModal } from './openplay/OpenPlayConcludeModal';
 import { generateUniquePartnerMatches, generateSmartDuprMatches } from '../../../utils/matchGeneratorUtils';
+import { isEventExpired } from '../../../utils/openPlayUtils';
 import {
   loadVenueGoogleAiConfig,
   getCachedVenueGoogleAiConfig,
@@ -193,6 +197,82 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   const [isManualModalOpen, setIsManualModalOpen] = useState<boolean>(false);
   const [editingMatch, setEditingMatch] = useState<OpenPlayMatch | null>(null);
   const [targetManualRound, setTargetManualRound] = useState<number>(1);
+
+  // Session status state (concluded / completed / active)
+  const [eventStatus, setEventStatus] = useState<string>(event.status || 'active');
+  const [isConcludeModalOpen, setIsConcludeModalOpen] = useState<boolean>(false);
+  const [isConcluding, setIsConcluding] = useState<boolean>(false);
+
+  const isConcluded =
+    eventStatus === 'completed' ||
+    eventStatus === 'expired' ||
+    isEventExpired(event.eventDate, event.endTime);
+
+  const handleConcludeSession = async (options: { markUnfinishedCompleted: boolean }) => {
+    setIsConcluding(true);
+    try {
+      const nowIso = new Date().toISOString();
+      if (options.markUnfinishedCompleted) {
+        const updatedMatches = matches.map((m) => {
+          if (m.status !== 'completed') {
+            return {
+              ...m,
+              status: 'completed' as const,
+              updatedAt: nowIso,
+            };
+          }
+          return m;
+        });
+        persistMatches(updatedMatches);
+      }
+
+      if (isFirebaseConfigured && db && event.id) {
+        await setDoc(
+          doc(db, 'openplay_events', event.id),
+          {
+            status: 'completed',
+            concludedAt: nowIso,
+          },
+          { merge: true }
+        );
+      }
+
+      setEventStatus('completed');
+      setIsConcludeModalOpen(false);
+      showToast('🏁 Open Play Session has been concluded and set to read-only.');
+    } catch (err: any) {
+      console.error('Error concluding session:', err);
+      showToast(`⚠️ Failed to conclude session: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsConcluding(false);
+    }
+  };
+
+  const handleReopenSession = async () => {
+    const confirmReopen = window.confirm(
+      'Are you sure you want to reopen this session? This will set the session status back to Active and re-enable match editing and auto-generation.'
+    );
+    if (!confirmReopen) return;
+
+    try {
+      const nowIso = new Date().toISOString();
+      if (isFirebaseConfigured && db && event.id) {
+        await setDoc(
+          doc(db, 'openplay_events', event.id),
+          {
+            status: 'active',
+            reopenedAt: nowIso,
+          },
+          { merge: true }
+        );
+      }
+      setEventStatus('active');
+      showToast('🔓 Session reopened. Match editing and auto-generation are now active.');
+    } catch (err: any) {
+      console.error('Error reopening session:', err);
+      showToast(`⚠️ Failed to reopen session: ${err.message || 'Unknown error'}`);
+    }
+  };
 
   // Created rounds state & creation timestamps per round
   const [createdRounds, setCreatedRounds] = useState<number[]>(() => {
@@ -3265,52 +3345,56 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-2 w-full xl:w-auto">
           {activeView === 'matrix' && (
             <>
-              <button
-                type="button"
-                onClick={handleAddNewRound}
-                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
-              >
-                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
-                <span className="leading-tight">Add New Round</span>
-              </button>
+              {!isConcluded && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleAddNewRound}
+                    className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
+                  >
+                    <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white shrink-0" />
+                    <span className="leading-tight">Add New Round</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => openDeleteRoundsModal()}
-                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500 hover:text-white text-rose-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
-                title="Select and delete multiple rounds"
-              >
-                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-400 shrink-0" />
-                <span className="leading-tight">Delete Rounds</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => openDeleteRoundsModal()}
+                    className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-rose-500/15 border border-rose-500/30 hover:bg-rose-500 hover:text-white text-rose-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
+                    title="Select and delete multiple rounds"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-400 shrink-0" />
+                    <span className="leading-tight">Delete Rounds</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setIsAutoGenModalOpen(true)}
-                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02] text-center"
-              >
-                <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-lime animate-pulse shrink-0" />
-                <span className="leading-tight">Auto-Generate Round Robin</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAutoGenModalOpen(true)}
+                    className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-lg shadow-purple-500/20 transition-all hover:scale-[1.02] text-center"
+                  >
+                    <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-lime animate-pulse shrink-0" />
+                    <span className="leading-tight">Auto-Generate Round Robin</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => openNewManualMatchModal()}
-                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
-              >
-                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-dark-bg shrink-0" />
-                <span className="leading-tight">Create Manual Match</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => openNewManualMatchModal()}
+                    className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-brand-lime hover:bg-[#a6e224] text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.02] text-center"
+                  >
+                    <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-dark-bg shrink-0" />
+                    <span className="leading-tight">Create Manual Match</span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => openJsonUploadModal()}
-                className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
-                title="Import matches into Round N from JSON data or file upload"
-              >
-                <UploadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
-                <span className="leading-tight">Upload Matches JSON</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => openJsonUploadModal()}
+                    className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer shadow-sm transition-all hover:scale-[1.02] text-center"
+                    title="Import matches into Round N from JSON data or file upload"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+                    <span className="leading-tight">Upload Matches JSON</span>
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"
@@ -3348,15 +3432,17 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={() => setIsLockedPartnersModalOpen(true)}
-            className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-purple-200 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all text-center flex-wrap"
-            title="Manage Locked Doubles Partners"
-          >
-            <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-400 shrink-0" />
-            <span className="leading-tight">Locked Partners ({Math.floor(Object.keys(lockedPartners).length / 2)})</span>
-          </button>
+          {!isConcluded && (
+            <button
+              type="button"
+              onClick={() => setIsLockedPartnersModalOpen(true)}
+              className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800 border border-slate-700 hover:border-purple-500/60 text-purple-200 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all text-center flex-wrap"
+              title="Manage Locked Doubles Partners"
+            >
+              <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-400 shrink-0" />
+              <span className="leading-tight">Locked Partners ({Math.floor(Object.keys(lockedPartners).length / 2)})</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -3368,7 +3454,30 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             <span className="leading-tight">Player Stats Report</span>
           </button>
 
-          {isNonProductionEnvironment() && (
+          {/* Conclude Session / Reopen Session Button */}
+          {isConcluded ? (
+            <button
+              type="button"
+              onClick={handleReopenSession}
+              className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all shadow-sm text-center"
+              title="Reopen concluded session to resume match editing and scoring"
+            >
+              <Unlock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+              <span className="leading-tight">Reopen Session</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsConcludeModalOpen(true)}
+              className="py-2.5 px-2.5 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800 border border-slate-700 hover:border-amber-500/60 hover:bg-slate-750 text-amber-200 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 cursor-pointer transition-all text-center"
+              title="Conclude / Close session and lock matrix into read-only mode"
+            >
+              <Flag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400 shrink-0" />
+              <span className="leading-tight">Conclude Session</span>
+            </button>
+          )}
+
+          {isNonProductionEnvironment() && !isConcluded && (
             <button
               type="button"
               disabled={isSeedingQuickDummy}
@@ -3382,7 +3491,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           )}
         </div>
 
-        {matches.length > 0 && (
+        {matches.length > 0 && !isConcluded && (
           <button
             type="button"
             onClick={clearAllMatches}
@@ -3636,24 +3745,40 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 No matches have been generated yet for this session. Click 'Add New Round', 'Auto-Generate Round Robin' or 'Create Manual Match' to get started.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setIsAutoGenModalOpen(true)}
-                className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
-              >
-                <Zap className="w-4 h-4 text-brand-lime" /> Auto-Generate Match Matrix
-              </button>
-              <button
-                type="button"
-                onClick={() => openJsonUploadModal()}
-                className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-md hover:scale-[1.02] transition-all"
-              >
-                <UploadCloud className="w-4 h-4 text-amber-400" /> Upload Matches JSON
-              </button>
-            </div>
+            {isConcluded ? (
+              <div className="max-w-md mx-auto p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-2">
+                <p className="text-xs text-amber-300 font-semibold">
+                  🏁 This session was concluded without scheduled matches.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleReopenSession}
+                  className="px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  Reopen Session
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setIsAutoGenModalOpen(true)}
+                  className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-lg hover:scale-[1.02] transition-all"
+                >
+                  <Zap className="w-4 h-4 text-brand-lime" /> Auto-Generate Match Matrix
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openJsonUploadModal()}
+                  className="w-full sm:w-auto justify-center px-5 py-2.5 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-black text-xs inline-flex items-center gap-2 cursor-pointer shadow-md hover:scale-[1.02] transition-all"
+                >
+                  <UploadCloud className="w-4 h-4 text-amber-400" /> Upload Matches JSON
+                </button>
+              </div>
+            )}
 
-            {isNonProductionEnvironment() && rosterPool.length < 4 && (
+            {isNonProductionEnvironment() && !isConcluded && rosterPool.length < 4 && (
               <div className="max-w-md mx-auto p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-2 mt-2">
                 <div className="flex items-center justify-center gap-1.5 text-amber-300 font-bold text-xs">
                   <Sparkles className="w-4 h-4 text-amber-400" />
@@ -3676,6 +3801,36 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </div>
         ) : (
           <div className="space-y-8">
+            {/* CONCLUDED SESSION BANNER */}
+            {isConcluded && (
+              <div className="rounded-3xl border border-amber-500/40 bg-gradient-to-r from-amber-950/40 via-slate-900 to-amber-950/20 p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+                    <Flag className="w-5 h-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm sm:text-base font-black text-white">Session Concluded</span>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] uppercase tracking-wide">
+                        Read-Only Mode
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Match editing, scoring, and round generation are locked. Results CSV export and Player Leaderboard remain accessible.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleReopenSession}
+                  className="w-full md:w-auto px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs inline-flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  Reopen Session
+                </button>
+              </div>
+            )}
+
             {/* ONGOING / LIVE MATCHES SPOTLIGHT */}
             {liveMatches.length > 0 && selectedStatusFilter !== 'completed' && selectedStatusFilter !== 'scheduled' && (
               <div className="rounded-3xl border-2 border-blue-500/80 bg-gradient-to-b from-blue-950/60 via-slate-900 to-slate-950 p-4 sm:p-6 shadow-2xl shadow-blue-500/20 space-y-4">
@@ -3711,6 +3866,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                       assignedCourts={assignedCourts}
                       roundTitle={getRoundTitle(m.round)}
                       lockedPartners={lockedPartners}
+                      isReadOnly={isConcluded}
                       onInlineCourtChange={handleInlineCourtChange}
                       onStartMatch={handleStartMatch}
                       onCompleteMatch={handleCompleteMatch}
@@ -3802,6 +3958,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                           assignedCourts={assignedCourts}
                           roundTitle={getRoundTitle(m.round)}
                           lockedPartners={lockedPartners}
+                          isReadOnly={isConcluded}
                           onInlineCourtChange={handleInlineCourtChange}
                           onStartMatch={handleStartMatch}
                           onCompleteMatch={handleCompleteMatch}
@@ -3861,6 +4018,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     isCollapsed={collapsedRounds.has(roundNum)}
                     isEditingTitle={editingRoundNum === roundNum}
                     tempRoundTitle={tempRoundTitle}
+                    isReadOnly={isConcluded}
                     onToggleCollapse={toggleRoundCollapse}
                     onStartEditTitle={startEditingRoundTitle}
                     onSaveTitle={handleSaveRoundTitle}
@@ -3890,6 +4048,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                           assignedCourts={assignedCourts}
                           roundTitle={getRoundTitle(roundNum)}
                           lockedPartners={lockedPartners}
+                          isReadOnly={isConcluded}
                           onInlineCourtChange={handleInlineCourtChange}
                           onStartMatch={handleStartMatch}
                           onCompleteMatch={handleCompleteMatch}
@@ -4100,6 +4259,20 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         onDeselectAll={handleDeselectAllRoundsToDelete}
         onConfirmDelete={handleConfirmDeleteRounds}
         isDeleting={isDeletingRounds}
+      />
+
+      {/* MODAL 9: CONCLUDE OPEN PLAY SESSION */}
+      <OpenPlayConcludeModal
+        isOpen={isConcludeModalOpen}
+        onClose={() => {
+          if (!isConcluding) setIsConcludeModalOpen(false);
+        }}
+        eventName={event.title}
+        matches={matches}
+        rosterPool={rosterPool}
+        playerStatsList={playerStatsList}
+        onConfirmConclude={handleConcludeSession}
+        isConcluding={isConcluding}
       />
     </div>
   );

@@ -604,6 +604,8 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                             >
                               {event.status === 'draft' ? (
                                 <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">Draft</span>
+                              ) : event.status === 'completed' ? (
+                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">🏁 Concluded</span>
                               ) : isExpired ? (
                                 <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-slate-800 text-slate-400 border border-slate-700">Expired</span>
                               ) : (
@@ -729,9 +731,13 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                             <EyeOff className="w-3 h-3 text-amber-400" />
                             <h2 className="text-[10px] font-black uppercase tracking-wider text-amber-300 inline">DRAFT</h2>
                           </button>
+                        ) : event.status === 'completed' ? (
+                          <div className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                            <span>🏁 CONCLUDED</span>
+                          </div>
                         ) : isExpired ? (
                           <div className="px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
-                            <span>⏰ EXPIRED / CONCLUDED</span>
+                            <span>⏰ EXPIRED</span>
                           </div>
                         ) : (
                           <button

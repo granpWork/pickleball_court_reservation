@@ -27,6 +27,7 @@ interface MatchMatrixCardProps {
   onEditMatch: (match: OpenPlayMatch) => void;
   onDeleteMatch: (match: OpenPlayMatch) => void;
   lockedPartners?: Record<string, string>;
+  isReadOnly?: boolean;
   isDraggable?: boolean;
   isDragging?: boolean;
   isDragOver?: boolean;
@@ -52,6 +53,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
   onEditMatch,
   onDeleteMatch,
   lockedPartners,
+  isReadOnly = false,
   isDraggable = false,
   isDragging = false,
   isDragOver = false,
@@ -86,7 +88,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
 
   return (
     <div
-      draggable={isDraggable}
+      draggable={isDraggable && !isReadOnly}
       onDragStart={(e) => onDragStart?.(e, m.id)}
       onDragOver={(e) => onDragOver?.(e, m.id)}
       onDragEnter={(e) => onDragEnter?.(e, m.id)}
@@ -125,7 +127,7 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
       <div className="flex items-start justify-between flex-wrap gap-2 text-xs pb-3 border-b border-slate-800/80 min-w-0">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
-            {isDraggable && (
+            {isDraggable && !isReadOnly && (
               <div
                 className="p-1 -ml-1 text-slate-500 hover:text-brand-lime hover:bg-slate-800/90 rounded-lg cursor-grab active:cursor-grabbing transition-colors shrink-0"
                 title="Click and drag to reorder this game within the round"
@@ -157,17 +159,23 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
         {/* Inline Court Assignment Selector */}
         <div className="flex items-center gap-1.5 shrink-0 bg-slate-950/90 border border-slate-800 rounded-xl px-2.5 py-1">
           <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-          <select
-            value={m.courtName}
-            onChange={(e) => onInlineCourtChange(m.id, e.target.value)}
-            className="bg-transparent text-[11px] font-bold text-brand-lime cursor-pointer focus:outline-none"
-          >
-            {assignedCourts.map((c, i) => (
-              <option key={i} value={c} className="bg-slate-950 text-white">
-                {c}
-              </option>
-            ))}
-          </select>
+          {isReadOnly ? (
+            <span className="text-[11px] font-bold text-slate-300 font-mono">
+              {m.courtName}
+            </span>
+          ) : (
+            <select
+              value={m.courtName}
+              onChange={(e) => onInlineCourtChange(m.id, e.target.value)}
+              className="bg-transparent text-[11px] font-bold text-brand-lime cursor-pointer focus:outline-none"
+            >
+              {assignedCourts.map((c, i) => (
+                <option key={i} value={c} className="bg-slate-950 text-white">
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -207,10 +215,10 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
             <div className="flex items-center gap-1 shrink-0 bg-slate-900 border border-slate-700/80 p-1 rounded-xl shadow-inner">
               <button
                 type="button"
-                disabled={m.status === 'completed'}
+                disabled={isReadOnly || m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'red', -1)}
                 className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
-                  m.status === 'completed'
+                  isReadOnly || m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
                 }`}
@@ -223,19 +231,19 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 min={0}
                 max={99}
                 inputMode="numeric"
-                disabled={m.status === 'completed'}
+                disabled={isReadOnly || m.status === 'completed'}
                 value={m.teamRed.score}
                 onChange={(e) => onDirectScoreChange(m.id, 'red', e.target.value)}
                 className={`w-10 sm:w-9 text-center font-mono font-black text-base bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                  m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-red-400'
+                  isReadOnly || m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-red-400'
                 }`}
               />
               <button
                 type="button"
-                disabled={m.status === 'completed'}
+                disabled={isReadOnly || m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'red', 1)}
                 className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
-                  m.status === 'completed'
+                  isReadOnly || m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-red-600 hover:bg-red-500 text-white cursor-pointer shadow-sm'
                 }`}
@@ -367,10 +375,10 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
             <div className="flex items-center gap-1 shrink-0 bg-slate-900 border border-slate-700/80 p-1 rounded-xl shadow-inner">
               <button
                 type="button"
-                disabled={m.status === 'completed'}
+                disabled={isReadOnly || m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'blue', -1)}
                 className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
-                  m.status === 'completed'
+                  isReadOnly || m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer'
                 }`}
@@ -383,19 +391,19 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
                 min={0}
                 max={99}
                 inputMode="numeric"
-                disabled={m.status === 'completed'}
+                disabled={isReadOnly || m.status === 'completed'}
                 value={m.teamBlue.score}
                 onChange={(e) => onDirectScoreChange(m.id, 'blue', e.target.value)}
                 className={`w-10 sm:w-9 text-center font-mono font-black text-base bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                  m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-blue-400'
+                  isReadOnly || m.status === 'completed' ? 'text-slate-400 opacity-60' : 'text-blue-400'
                 }`}
               />
               <button
                 type="button"
-                disabled={m.status === 'completed'}
+                disabled={isReadOnly || m.status === 'completed'}
                 onClick={() => onScoreDelta(m.id, 'blue', 1)}
                 className={`w-8 h-8 sm:w-7 sm:h-7 rounded-lg font-black text-sm sm:text-xs flex items-center justify-center transition-all ${
-                  m.status === 'completed'
+                  isReadOnly || m.status === 'completed'
                     ? 'bg-slate-900/40 text-slate-600 cursor-not-allowed border border-slate-800/40'
                     : 'bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shadow-sm'
                 }`}
@@ -516,72 +524,78 @@ export const MatchMatrixCard: React.FC<MatchMatrixCardProps> = ({
               <span className="text-[10px] font-mono">CSV</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => onEditMatch(m)}
-              className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
-              title="Edit match details"
-            >
-              <Edit2 className="w-3.5 h-3.5 text-slate-400" />
-            </button>
+            {!isReadOnly && (
+              <button
+                type="button"
+                onClick={() => onEditMatch(m)}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
+                title="Edit match details"
+              >
+                <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+            )}
 
-            <button
-              type="button"
-              disabled={m.status === 'completed'}
-              onClick={() => onDeleteMatch(m)}
-              className={`p-1.5 rounded-xl transition-all ${
-                m.status === 'completed'
-                  ? 'opacity-30 cursor-not-allowed bg-slate-900 border border-slate-800/40 text-slate-600 shadow-none'
-                  : 'bg-slate-800 hover:bg-red-900/60 text-slate-400 hover:text-red-300 cursor-pointer'
-              }`}
-              title={
-                m.status === 'completed'
-                  ? 'Completed matches cannot be deleted. Reopen the match first to delete.'
-                  : 'Delete match'
-              }
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {!isReadOnly && (
+              <button
+                type="button"
+                disabled={m.status === 'completed'}
+                onClick={() => onDeleteMatch(m)}
+                className={`p-1.5 rounded-xl transition-all ${
+                  m.status === 'completed'
+                    ? 'opacity-30 cursor-not-allowed bg-slate-900 border border-slate-800/40 text-slate-600 shadow-none'
+                    : 'bg-slate-800 hover:bg-red-900/60 text-slate-400 hover:text-red-300 cursor-pointer'
+                }`}
+                title={
+                  m.status === 'completed'
+                    ? 'Completed matches cannot be deleted. Reopen the match first to delete.'
+                    : 'Delete match'
+                }
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 
         {/* Bottom Footer Row: Primary Match Progression Buttons */}
-        <div className="flex flex-wrap items-center gap-2 min-w-0">
-          {m.status === 'scheduled' && (
-            <button
-              type="button"
-              onClick={() => onStartMatch(m.id)}
-              className="flex-1 py-2.5 sm:py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-              title="Mark match as active/ongoing on court"
-            >
-              ▶ Start Match
-            </button>
-          )}
+        {!isReadOnly && (
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            {m.status === 'scheduled' && (
+              <button
+                type="button"
+                onClick={() => onStartMatch(m.id)}
+                className="flex-1 py-2.5 sm:py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                title="Mark match as active/ongoing on court"
+              >
+                ▶ Start Match
+              </button>
+            )}
 
-          {m.status !== 'completed' ? (
-            <button
-              type="button"
-              onClick={() => onCompleteMatch(m.id)}
-              className={`flex-1 py-2.5 sm:py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer ${
-                m.status === 'in_progress'
-                  ? 'bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white'
-              }`}
-            >
-              <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${m.status === 'in_progress' ? 'text-slate-950' : 'text-white'}`} />
-              <span>{m.status === 'in_progress' ? 'Finish & Complete Match' : 'Complete'}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onReopenMatch(m.id)}
-              className="w-full py-2.5 sm:py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-700"
-              title="Reopen match to edit score or resume play"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-slate-400 shrink-0" /> Reopen Match
-            </button>
-          )}
-        </div>
+            {m.status !== 'completed' ? (
+              <button
+                type="button"
+                onClick={() => onCompleteMatch(m.id)}
+                className={`flex-1 py-2.5 sm:py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer ${
+                  m.status === 'in_progress'
+                    ? 'bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-400 hover:to-green-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                    : 'bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white'
+                }`}
+              >
+                <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${m.status === 'in_progress' ? 'text-slate-950' : 'text-white'}`} />
+                <span>{m.status === 'in_progress' ? 'Finish & Complete Match' : 'Complete'}</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onReopenMatch(m.id)}
+                className="w-full py-2.5 sm:py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-700"
+                title="Reopen match to edit score or resume play"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-400 shrink-0" /> Reopen Match
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

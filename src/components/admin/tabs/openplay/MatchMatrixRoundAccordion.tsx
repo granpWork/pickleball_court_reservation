@@ -48,6 +48,7 @@ interface MatchMatrixRoundAccordionProps {
   isAiGenerating?: boolean;
   onDeleteRound?: (roundNum: number) => void;
   lockedPartners?: Record<string, string>;
+  isReadOnly?: boolean;
   children: React.ReactNode;
 }
 
@@ -74,6 +75,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
   isAiGenerating = false,
   onDeleteRound,
   lockedPartners,
+  isReadOnly = false,
   children,
 }) => {
   // Count unique players participating in this round, completed games, and live ongoing games
@@ -265,17 +267,19 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             <span className="truncate">Generate Results</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => onOpenJsonModal(roundNum)}
-            className="py-2 sm:py-1.5 px-2.5 sm:px-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
-            title={`Upload JSON match data to ${roundTitle}`}
-          >
-            <UploadCloud className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Upload JSON</span>
-          </button>
+          {!isReadOnly && (
+            <button
+              type="button"
+              onClick={() => onOpenJsonModal(roundNum)}
+              className="py-2 sm:py-1.5 px-2.5 sm:px-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              title={`Upload JSON match data to ${roundTitle}`}
+            >
+              <UploadCloud className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Upload JSON</span>
+            </button>
+          )}
 
-          {matchesInRound.length === 0 && isAiConfigured && onAiGenerateRound && (
+          {!isReadOnly && matchesInRound.length === 0 && isAiConfigured && onAiGenerateRound && (
             <button
               type="button"
               disabled={isAiGenerating}
@@ -292,7 +296,7 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             </button>
           )}
 
-          {matchesInRound.length === 0 && onAutoGenerateRound && (
+          {!isReadOnly && matchesInRound.length === 0 && onAutoGenerateRound && (
             <button
               type="button"
               disabled={isAiGenerating}
@@ -305,16 +309,18 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() => onOpenManualMatchModal(roundNum)}
-            className="py-2 sm:py-1.5 px-2.5 sm:px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Add Match</span>
-          </button>
+          {!isReadOnly && (
+            <button
+              type="button"
+              onClick={() => onOpenManualMatchModal(roundNum)}
+              className="py-2 sm:py-1.5 px-2.5 sm:px-3.5 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Add Match</span>
+            </button>
+          )}
 
-          {onDeleteRound && (
+          {!isReadOnly && onDeleteRound && (
             <button
               type="button"
               onClick={() => onDeleteRound(roundNum)}
@@ -334,53 +340,57 @@ export const MatchMatrixRoundAccordion: React.FC<MatchMatrixRoundAccordionProps>
           {matchesInRound.length === 0 ? (
             <div className="p-5 sm:p-8 text-center border border-dashed border-slate-800 rounded-2xl sm:rounded-3xl bg-slate-900/20 space-y-3">
               <p className="text-xs sm:text-sm font-semibold text-slate-400">No matches created for {roundTitle} yet.</p>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 sm:gap-2.5 flex-wrap">
-                {isAiConfigured && onAiGenerateRound && (
+              {isReadOnly ? (
+                <p className="text-xs text-slate-500 italic">This round has no scheduled matches. The session is concluded (read-only).</p>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 sm:gap-2.5 flex-wrap">
+                  {isAiConfigured && onAiGenerateRound && (
+                    <button
+                      type="button"
+                      disabled={isAiGenerating}
+                      onClick={() => onAiGenerateRound(roundNum)}
+                      className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
+                      title={`Use Google Gemini AI to generate ${roundTitle} based on previous match results, DUPR ratings, and gameplay rules`}
+                    >
+                      {isAiGenerating ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg shrink-0" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-dark-bg shrink-0" />
+                      )}
+                      <span>
+                        {isAiGenerating
+                          ? `🤖 Gemini AI Generating ${roundTitle}...`
+                          : `✨ AI Auto-Generate ${roundTitle} (Prev Match + DUPR)`}
+                      </span>
+                    </button>
+                  )}
+                  {onAutoGenerateRound && (
+                    <button
+                      type="button"
+                      disabled={isAiGenerating}
+                      onClick={() => onAutoGenerateRound(roundNum)}
+                      className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
+                      title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
+                    >
+                      <Zap className="w-3.5 h-3.5 text-brand-lime shrink-0" /> Auto-Generate {roundTitle} (No Duplicates)
+                    </button>
+                  )}
                   <button
                     type="button"
-                    disabled={isAiGenerating}
-                    onClick={() => onAiGenerateRound(roundNum)}
-                    className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-500 via-indigo-500 to-brand-lime hover:from-purple-400 hover:to-brand-lime text-dark-bg font-black text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
-                    title={`Use Google Gemini AI to generate ${roundTitle} based on previous match results, DUPR ratings, and gameplay rules`}
+                    onClick={() => onOpenManualMatchModal(roundNum)}
+                    className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
                   >
-                    {isAiGenerating ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-dark-bg shrink-0" />
-                    ) : (
-                      <Sparkles className="w-3.5 h-3.5 text-dark-bg shrink-0" />
-                    )}
-                    <span>
-                      {isAiGenerating
-                        ? `🤖 Gemini AI Generating ${roundTitle}...`
-                        : `✨ AI Auto-Generate ${roundTitle} (Prev Match + DUPR)`}
-                    </span>
+                    <Plus className="w-3.5 h-3.5 shrink-0" /> Create Match in {roundTitle}
                   </button>
-                )}
-                {onAutoGenerateRound && (
                   <button
                     type="button"
-                    disabled={isAiGenerating}
-                    onClick={() => onAutoGenerateRound(roundNum)}
-                    className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-md hover:scale-[1.02] disabled:opacity-50"
-                    title={`Auto-generate matches for ${roundTitle} avoiding previous round duplicates`}
+                    onClick={() => onOpenJsonModal(roundNum)}
+                    className="w-full sm:w-auto justify-center px-3.5 py-2.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
                   >
-                    <Zap className="w-3.5 h-3.5 text-brand-lime shrink-0" /> Auto-Generate {roundTitle} (No Duplicates)
+                    <UploadCloud className="w-3.5 h-3.5 text-amber-400 shrink-0" /> Upload JSON
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onOpenManualMatchModal(roundNum)}
-                  className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 rounded-xl bg-brand-lime/15 border border-brand-lime/40 text-brand-lime hover:bg-brand-lime hover:text-dark-bg font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5 shrink-0" /> Create Match in {roundTitle}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenJsonModal(roundNum)}
-                  className="w-full sm:w-auto justify-center px-3.5 py-2.5 sm:py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
-                >
-                  <UploadCloud className="w-3.5 h-3.5 text-amber-400 shrink-0" /> Upload JSON
-                </button>
-              </div>
+                </div>
+              )}
             </div>
           ) : (
             <>

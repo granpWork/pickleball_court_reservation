@@ -1664,9 +1664,13 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
               <EyeOff className="w-4 h-4 text-amber-400" />
               <h2 className="text-xs md:text-sm font-black uppercase tracking-wider text-amber-300 inline">DRAFT</h2>
             </button>
+          ) : event.status === 'completed' ? (
+            <span className="px-4 py-1.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm">
+              🏁 CONCLUDED
+            </span>
           ) : isEventExpired || event.status === 'expired' ? (
             <span className="px-4 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-xs font-black uppercase tracking-wider">
-              ⏰ EXPIRED / CONCLUDED
+              ⏰ EXPIRED
             </span>
           ) : (
             <button
@@ -1956,22 +1960,22 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             {onOpenManualBookingModal && (
               <button
                 type="button"
-                disabled={isEventExpired || event.status === 'expired' || isFull}
+                disabled={isEventExpired || event.status === 'expired' || event.status === 'completed' || isFull}
                 onClick={() => onOpenManualBookingModal(event)}
                 className={`py-2 px-3.5 rounded-2xl transition-all text-xs font-normal flex items-center gap-1.5 shadow-lg ${
-                  isEventExpired || event.status === 'expired' || isFull
+                  isEventExpired || event.status === 'expired' || event.status === 'completed' || isFull
                     ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
                     : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-brand-lime/20'
                 }`}
                 title={
-                  isEventExpired || event.status === 'expired'
-                    ? "Cannot add player to an expired event session"
+                  isEventExpired || event.status === 'expired' || event.status === 'completed'
+                    ? "Cannot add player to an expired or concluded event session"
                     : isFull
                       ? "This Open Play session is fully booked"
                       : "Manually add walk-in or cash player registration"
                 }
               >
-                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' || isFull ? 'text-slate-500' : 'text-dark-bg'}`} />
+                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' || event.status === 'completed' || isFull ? 'text-slate-500' : 'text-dark-bg'}`} />
                 <span>+ Add Player (Manual)</span>
               </button>
             )}

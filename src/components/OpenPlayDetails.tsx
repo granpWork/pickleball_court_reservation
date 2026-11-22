@@ -1353,7 +1353,9 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   const activeRegistrationsCount = useMemo(() => activeRegistrations.reduce((acc, r) => acc + (r.playerCount || 1), 0), [activeRegistrations]);
   const availableSlots = event ? Math.max(0, event.maxParticipants - activeRegistrationsCount) : 0;
   const isFull = availableSlots <= 0;
-  const isExpired = event ? isEventExpired(event.eventDate, event.endTime) : false;
+  const isExpired = event
+    ? (isEventExpired(event.eventDate, event.endTime) || event.status === 'completed' || event.status === 'expired')
+    : false;
   const fillPercentage = event ? Math.min(100, Math.round((activeRegistrationsCount / event.maxParticipants) * 100)) : 0;
 
   const navigateToAuthForWaitlist = (mode: 'login' | 'register') => {
