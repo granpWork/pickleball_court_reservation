@@ -3852,13 +3852,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                   </span>
                 </div>
 
-                <div className={`grid gap-4 items-stretch ${
-                  liveMatches.length === 1
-                    ? 'grid-cols-1 max-w-3xl'
-                    : liveMatches.length === 2
-                    ? 'grid-cols-1 lg:grid-cols-2'
-                    : 'grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3'
-                }`}>
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch">
                   {liveMatches.map((m) => (
                     <MatchMatrixCard
                       key={`spotlight-${m.id}`}
@@ -3942,13 +3936,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     </button>
                   </div>
                 ) : (
-                  <div className={`grid gap-4 sm:gap-5 items-stretch ${
-                    filteredMatches.length === 1
-                      ? 'grid-cols-1 max-w-4xl'
-                      : filteredMatches.length === 2
-                      ? 'grid-cols-1 lg:grid-cols-2'
-                      : 'grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3'
-                  }`}>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 items-stretch">
                     {[...filteredMatches]
                       .sort((a, b) => a.round - b.round)
                       .map((m) => (
@@ -4034,13 +4022,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     onDeleteRound={(r) => openDeleteRoundsModal(r)}
                     lockedPartners={lockedPartners}
                   >
-                    <div className={`grid gap-4 sm:gap-5 items-stretch ${
-                      matchesInRound.length === 1
-                        ? 'grid-cols-1 max-w-4xl'
-                        : matchesInRound.length === 2
-                        ? 'grid-cols-1 lg:grid-cols-2'
-                        : 'grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3'
-                    }`}>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 items-stretch">
                       {matchesInRound.map((m) => (
                         <MatchMatrixCard
                           key={m.id}
