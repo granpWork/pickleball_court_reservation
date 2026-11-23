@@ -2510,7 +2510,7 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                 list.push(m);
                 roundsMap.set(m.round, list);
               });
-              return Array.from(roundsMap.entries()).sort((a, b) => a[0] - b[0]);
+              return Array.from(roundsMap.entries()).sort((a, b) => b[0] - a[0]);
             })();
 
             const confirmedCount = participants.filter((p) => p.isApproved).length;

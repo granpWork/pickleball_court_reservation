@@ -424,7 +424,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     if (!deletedRounds.includes(1)) {
       setRounds.add(1);
     }
-    return Array.from(setRounds).sort((a, b) => a - b);
+    return Array.from(setRounds).sort((a, b) => b - a);
   }, [matches, createdRounds, deletedRounds]);
 
   const nextStartingRound = useMemo(() => {
@@ -440,7 +440,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const nextRound = maxRound + 1;
     setDeletedRounds((prev) => prev.filter((r) => r !== nextRound));
     setCreatedRounds((prev) => {
-      const combined = Array.from(new Set([...prev, ...currentRounds, nextRound])).sort((a, b) => a - b);
+      const combined = Array.from(new Set([...prev, ...currentRounds, nextRound])).sort((a, b) => b - a);
       try {
         localStorage.setItem(`picklepoint_created_rounds_${event.id}`, JSON.stringify(combined));
       } catch (e) {}
@@ -3938,7 +3938,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5 items-stretch">
                     {[...filteredMatches]
-                      .sort((a, b) => a.round - b.round)
+                      .sort((a, b) => b.round - a.round)
                       .map((m) => (
                         <MatchMatrixCard
                           key={m.id}
