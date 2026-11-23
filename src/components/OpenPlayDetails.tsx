@@ -770,7 +770,7 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
         const localEventsStr = localStorage.getItem('picklepoint_openplay_events') || sessionStorage.getItem('picklepoint_openplay_events');
         if (localEventsStr) {
           const localEvents = JSON.parse(localEventsStr) as OpenPlayEvent[];
-          cachedEvent = localEvents.find((e) => e.id === targetEventId) || null;
+          cachedEvent = localEvents.find((e) => e.id === targetEventId && !e.isMatchMatrix) || null;
         }
       } catch (e) {}
     }
@@ -894,9 +894,14 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
         let foundEvent: OpenPlayEvent | null = localData.cachedEvent;
 
         if (eventResult.status === 'fulfilled' && eventResult.value.exists()) {
-          foundEvent = { id: eventResult.value.id, ...eventResult.value.data() } as OpenPlayEvent;
-          setEvent(foundEvent);
-          setLoading(false); // Display event immediately once event doc is fetched!
+          const rawEv = { id: eventResult.value.id, ...eventResult.value.data() } as OpenPlayEvent;
+          if (!rawEv.isMatchMatrix) {
+            foundEvent = rawEv;
+            setEvent(foundEvent);
+            setLoading(false); // Display event immediately once event doc is fetched!
+          } else {
+            foundEvent = null;
+          }
         }
 
         if (foundEvent) {

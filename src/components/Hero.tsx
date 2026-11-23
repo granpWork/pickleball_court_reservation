@@ -371,7 +371,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
             });
           }
 
-          setOpenPlayEvents(eventsList);
+          setOpenPlayEvents(eventsList.filter((e) => !e.isMatchMatrix));
           setOpenPlayRegistrations(regsList);
         } catch (err) {
           console.error('Error fetching data from Firestore:', err);
@@ -412,7 +412,9 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
 
           const localStr = localStorage.getItem('picklepoint_openplay_events');
           const localEventsRaw = localStr ? JSON.parse(localStr) : [];
-          const localEvents = localEventsRaw.map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e));
+          const localEvents = localEventsRaw
+            .map((e: any) => normalizeOpenPlayEvent(e.id || 'op-' + Date.now(), e))
+            .filter((e: any) => !e.isMatchMatrix);
           setOpenPlayEvents(localEvents);
         } catch {
           setCourts([]);

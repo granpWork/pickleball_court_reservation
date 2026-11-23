@@ -402,11 +402,12 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
     });
   };
 
-  const activeAdminEvents = events.filter(e => !isEventConcluded(e) && e.status !== 'cancelled');
-  const expiredAdminEvents = events.filter(e => isEventConcluded(e));
+  const activeAdminEvents = events.filter(e => !e.isMatchMatrix && !isEventConcluded(e) && e.status !== 'cancelled');
+  const expiredAdminEvents = events.filter(e => !e.isMatchMatrix && isEventConcluded(e));
 
   const displayedAdminEvents = events
     .filter(event => {
+      if (event.isMatchMatrix) return false;
       const isConcluded = isEventConcluded(event);
       if (adminOpenPlayFilter === 'upcoming') return !isConcluded;
       if (adminOpenPlayFilter === 'expired') return isConcluded;

@@ -217,7 +217,7 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
       return e;
     });
 
-    setEvents(finalEventsList.filter((e) => e.status !== 'cancelled' && e.status !== 'draft'));
+    setEvents(finalEventsList.filter((e) => !e.isMatchMatrix && e.status !== 'cancelled' && e.status !== 'draft'));
     setRegistrations(regsList);
     setLoading(false);
   };

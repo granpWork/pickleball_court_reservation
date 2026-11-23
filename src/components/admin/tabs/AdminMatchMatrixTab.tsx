@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Grid3X3,
   Users,
@@ -105,6 +106,10 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
       return [];
     }
   });
+
+  // Delete matrix confirmation modal states
+  const [matrixToDelete, setMatrixToDelete] = useState<OpenPlayEvent | null>(null);
+  const [isDeletingMatrix, setIsDeletingMatrix] = useState<boolean>(false);
 
   // Filter existing events that are match matrices or open play events
   const allMatrices = useMemo(() => {
@@ -481,11 +486,11 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
     }
   };
 
-  // Delete Match Matrix
-  const handleDeleteMatrix = async (matrixId: string) => {
-    if (!window.confirm('Are you sure you want to delete this Match Matrix? All matches and scores will be removed.')) {
-      return;
-    }
+  // Delete Match Matrix Confirmation Handler
+  const handleConfirmDeleteMatrix = async () => {
+    if (!matrixToDelete) return;
+    const matrixId = matrixToDelete.id;
+    setIsDeletingMatrix(true);
 
     try {
       if (isFirebaseConfigured && db) {
@@ -506,8 +511,11 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
       if (activeMatrix?.id === matrixId) setActiveMatrix(null);
       if (onRefreshEvents) onRefreshEvents();
+      setMatrixToDelete(null);
     } catch (err) {
       console.error('Failed to delete match matrix:', err);
+    } finally {
+      setIsDeletingMatrix(false);
     }
   };
 
@@ -740,7 +748,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                 <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
                   <button
                     type="button"
-                    onClick={() => handleDeleteMatrix(matrix.id)}
+                    onClick={() => setMatrixToDelete(matrix)}
                     title="Delete Matrix"
                     className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-all cursor-pointer"
                   >
@@ -949,7 +957,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                         className="w-full min-w-0 max-w-full truncate bg-slate-900 border border-slate-700 rounded-xl px-3 sm:px-4 py-2.5 text-xs text-white focus:outline-none focus:border-purple-400 cursor-pointer font-medium"
                       >
                         <option value="">-- Choose an Open Play Session --</option>
-                        {openPlayEvents.map((ev) => {
+                        {openPlayEvents.filter((ev) => !ev.isMatchMatrix).map((ev) => {
                           const playerCount = getEventPlayerCount(ev);
                           const playerStr = `${playerCount} ${playerCount === 1 ? 'player' : 'players'}${
                             ev.maxParticipants ? ` / ${ev.maxParticipants} max` : ''
@@ -1247,6 +1255,97 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
             </div>
           </form>
         </div>
+      )}
+
+      {/* DELETE MATRIX CONFIRMATION MODAL OVERLAY */}
+      {matrixToDelete && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in overflow-y-auto text-left">
+          <div className="glass-panel border border-rose-500/40 rounded-2xl sm:rounded-3xl max-w-md w-full shadow-2xl bg-slate-900 overflow-hidden m-auto my-auto relative animate-scale-up">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-800 bg-slate-950/90 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                  <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">Delete Match Matrix</h3>
+                  <p className="text-[11px] text-slate-400">Permanent session removal</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isDeletingMatrix}
+                onClick={() => setMatrixToDelete(null)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 sm:p-6 space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+                <div className="font-black text-sm text-white truncate">
+                  {matrixToDelete.title}
+                </div>
+                <div className="flex items-center gap-3 text-slate-400 text-[11px] flex-wrap">
+                  <span className="flex items-center gap-1">
+                    <Calendar className="w-3 h-3 text-brand-lime" />
+                    {matrixToDelete.eventDate}
+                  </span>
+                  {matrixToDelete.startTime && (
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-brand-lime" />
+                      {matrixToDelete.startTime} - {matrixToDelete.endTime}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3 h-3 text-brand-lime" />
+                    {matrixToDelete.maxParticipants} max
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-start gap-2.5 leading-relaxed">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span>
+                  Are you sure you want to delete this Match Matrix? All scheduled games, rounds, attendance, and match results will be <strong>permanently removed</strong>. This action cannot be undone.
+                </span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90 shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
+              <button
+                type="button"
+                disabled={isDeletingMatrix}
+                onClick={() => setMatrixToDelete(null)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white text-xs font-bold cursor-pointer transition-colors text-center disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingMatrix}
+                onClick={handleConfirmDeleteMatrix}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg shadow-rose-600/30 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                {isDeletingMatrix ? (
+                  <>
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Match Matrix</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );

@@ -556,7 +556,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
 
     // Helper to process an Open Play event for slot blocking
     const processOpenPlayEvent = (ev: any, docId: string, blocksObj: Record<string, any>) => {
-      if (!ev || ev.status === 'cancelled') return;
+      if (!ev || ev.status === 'cancelled' || ev.isMatchMatrix) return;
       const evDate = ev.eventDate || ev.date;
       if (!isSameDateStr(evDate, selectedDate)) return;
 

@@ -7226,7 +7226,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           return pendingCompCount + pendingLeadsCount;
         })()}
         pendingVerificationCount={pendingVerificationCount}
-        openPlayCount={openPlayEvents.length}
+        openPlayCount={openPlayEvents.filter((e) => !e.isMatchMatrix).length}
         personalAccountsCount={personalAccounts.length}
         bookingLeadTimeMinutes={bookingLeadTimeMinutes}
       />
@@ -7510,7 +7510,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'openplay' && (
             <AdminOpenPlayTab
               key={openPlayResetKey}
-              events={openPlayEvents}
+              events={openPlayEvents.filter((e) => !e.isMatchMatrix)}
               openPlayRegistrations={openPlayRegistrations}
               selectedEventForRegs={selectedEventForRegs}
               setSelectedEventForRegs={handleSetSelectedEventForRegs}
