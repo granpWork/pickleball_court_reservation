@@ -16,6 +16,7 @@ import {
   Check,
   UserCheck,
   Lock,
+  ChevronDown,
 } from 'lucide-react';
 import { type OpenPlayMatchRosterItem } from '../../adminTypes';
 import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
@@ -65,7 +66,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   isOpen,
   onClose,
   maxParticipants,
-  absentCount,
+  absentCount: _externalAbsentCount,
   newPlayerName,
   setNewPlayerName,
   newPlayerDuprId,
@@ -77,7 +78,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   onTogglePlayerStatus,
   onToggleAttendanceStatus,
   onUpdateCheckInTime,
-  onMarkAllActivePresent,
+  onMarkAllActivePresent: _onMarkAllActivePresent,
   onDeletePlayer,
   onMoveToWaitlist,
   onUpdatePlayer,
@@ -87,7 +88,7 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   onOpenLockedPartnersModal,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'present' | 'active' | 'resting' | 'absent'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'present' | 'not_checked_in' | 'active' | 'resting' | 'absent'>('all');
   const [playerToDelete, setPlayerToDelete] = useState<OpenPlayMatchRosterItem | null>(null);
   const [editingTimePlayerId, setEditingTimePlayerId] = useState<string | null>(null);
   const [tempCheckInTime, setTempCheckInTime] = useState<string>('');
@@ -130,16 +131,33 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   const isMaxCapacityReached = Boolean(maxParticipants && rosterPool.length >= maxParticipants);
 
   // Compute counts
-  const { activeCount, restingCount, presentCount } = useMemo(() => {
+  const { activeCount, restingCount, presentCount, notCheckedInCount, absentCount } = useMemo(() => {
     let active = 0;
     let resting = 0;
     let present = 0;
+    let absent = 0;
+    let notCheckedIn = 0;
     for (const p of rosterPool) {
-      if (p.status === 'active') active++;
-      else if (p.status === 'resting') resting++;
-      if (p.isPresent || p.attendanceStatus === 'present') present++;
+      const isAbsent = p.status === 'absent' || p.attendanceStatus === 'absent';
+      if (isAbsent) {
+        absent++;
+      } else {
+        if (p.status === 'active') active++;
+        else if (p.status === 'resting') resting++;
+        if (p.isPresent || p.attendanceStatus === 'present') {
+          present++;
+        } else {
+          notCheckedIn++;
+        }
+      }
     }
-    return { activeCount: active, restingCount: resting, presentCount: present };
+    return {
+      activeCount: active,
+      restingCount: resting,
+      presentCount: present,
+      notCheckedInCount: notCheckedIn,
+      absentCount: absent,
+    };
   }, [rosterPool]);
 
   // Filter roster items
@@ -152,12 +170,24 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
         (p.duprId || '').toLowerCase().includes(q) ||
         (p.adminDuprId || '').toLowerCase().includes(q);
 
+      const isAbsent = p.status === 'absent' || p.attendanceStatus === 'absent';
+      const isPresent = (p.isPresent || p.attendanceStatus === 'present') && !isAbsent;
+      const isNotCheckedIn = !isPresent && !isAbsent;
+
       const matchesStatus =
         filterStatus === 'all'
           ? true
           : filterStatus === 'present'
-          ? p.isPresent || p.attendanceStatus === 'present'
-          : p.status === filterStatus;
+          ? isPresent
+          : filterStatus === 'not_checked_in'
+          ? isNotCheckedIn
+          : filterStatus === 'active'
+          ? p.status === 'active' && !isAbsent
+          : filterStatus === 'resting'
+          ? p.status === 'resting' && !isAbsent
+          : filterStatus === 'absent'
+          ? isAbsent
+          : true;
 
       return matchesSearch && matchesStatus;
     });
@@ -321,91 +351,55 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
           </div>
         </div>
 
-        {/* Filter & Search Bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0">
-          {/* Status Tabs */}
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs w-full sm:w-auto overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => setFilterStatus('all')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                filterStatus === 'all'
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              All ({rosterPool.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterStatus('present')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filterStatus === 'present'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-              Present ({presentCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterStatus('active')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filterStatus === 'active'
-                  ? 'bg-emerald-600/80 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              Active ({activeCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterStatus('resting')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filterStatus === 'resting'
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-              Bench ({restingCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterStatus('absent')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filterStatus === 'absent'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-rose-400"></span>
-              Absent ({absentCount})
-            </button>
-
-            {onMarkAllActivePresent && (
-              <button
-                type="button"
-                onClick={onMarkAllActivePresent}
-                className="px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-[11px] transition-all cursor-pointer flex items-center gap-1 shrink-0 ml-1"
-                title="Mark all currently active players as Present"
+        {/* Filter & Search Bar - Responsive for Mobile & Tablet/Desktop */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {/* Filter Dropdown */}
+            <div className="relative flex-1 sm:flex-initial sm:w-56">
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as any)}
+                className="w-full appearance-none bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-brand-lime text-white rounded-xl pl-3.5 pr-8 py-2 text-xs font-extrabold cursor-pointer transition-all shadow-sm focus:outline-none"
               >
-                <Check className="w-3 h-3" />
-                <span>Check In All</span>
-              </button>
-            )}
+                <option value="all" className="bg-slate-900 text-white font-bold">
+                  All Players ({rosterPool.length})
+                </option>
+                <option value="present" className="bg-slate-900 text-emerald-400 font-bold">
+                  ✓ Present ({presentCount})
+                </option>
+                <option value="not_checked_in" className="bg-slate-900 text-amber-300 font-bold">
+                  ⏳ Not Checked In ({notCheckedInCount})
+                </option>
+                <option value="active" className="bg-slate-900 text-blue-400 font-bold">
+                  ● Active Pool ({activeCount})
+                </option>
+                <option value="resting" className="bg-slate-900 text-amber-400 font-bold">
+                  ● Bench / Resting ({restingCount})
+                </option>
+                <option value="absent" className="bg-slate-900 text-rose-400 font-bold">
+                  ✕ Absent ({absentCount})
+                </option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400">
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
 
+            {/* Locked Pairs Button */}
             {onOpenLockedPartnersModal && (
               <button
                 type="button"
                 onClick={onOpenLockedPartnersModal}
-                className="px-2.5 py-1.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/35 text-purple-300 font-bold text-[11px] transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ml-auto"
+                className="px-3 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/35 text-purple-300 font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
                 title="Manage Locked Doubles Partners"
               >
-                <Lock className="w-3 h-3 text-purple-400" />
-                <span>Locked Pairs ({Math.floor(Object.keys(lockedPartners).length / 2)})</span>
+                <Lock className="w-3.5 h-3.5 text-purple-400" />
+                <span className="hidden xs:inline sm:inline">
+                  Locked ({Math.floor(Object.keys(lockedPartners).length / 2)})
+                </span>
+                <span className="xs:hidden sm:hidden">
+                  ({Math.floor(Object.keys(lockedPartners).length / 2)})
+                </span>
               </button>
             )}
           </div>
@@ -418,8 +412,18 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
               placeholder="Search by name or DUPR..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8.5 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-400"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8.5 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime transition-all"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
 

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, X, Check, Lock } from 'lucide-react';
 import type { OpenPlayMatch, OpenPlayMatchRosterItem } from '../../adminTypes';
 import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
@@ -92,6 +93,126 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
     });
   }, [rosterPool, playerSearchQuery, attendanceFilter]);
 
+  // Helper to resolve player information from roster pool or fallback to editingMatch
+  const resolvePlayer = (id: string) => {
+    const fromPool = rosterPool.find((p) => p.id === id);
+    if (fromPool) {
+      const pId = lockedPartners[fromPool.id];
+      const partner = pId ? rosterPool.find((rp) => rp.id === pId) : undefined;
+      return {
+        id: fromPool.id,
+        name: fromPool.name,
+        photoUrl: fromPool.photoUrl,
+        duprId: fromPool.adminDuprId || fromPool.duprId,
+        duprRating: fromPool.adminDuprRating || fromPool.duprRating,
+        skillLevel: fromPool.skillLevel,
+        isPresent: fromPool.isPresent || fromPool.attendanceStatus === 'present',
+        lockedPartnerName: partner?.name,
+      };
+    }
+    const matchPlayer =
+      editingMatch?.teamRed.players.find((p) => p.id === id) ||
+      editingMatch?.teamBlue.players.find((p) => p.id === id);
+    if (matchPlayer) {
+      return {
+        id: matchPlayer.id,
+        name: matchPlayer.name,
+        photoUrl: matchPlayer.photoUrl,
+        duprId: matchPlayer.duprId,
+        duprRating: matchPlayer.duprRating,
+        skillLevel: matchPlayer.skillLevel,
+        isPresent: true,
+      };
+    }
+    return { id, name: 'Player' };
+  };
+
+  const handleRemoveRedPlayer = (idToRemove: string) => {
+    setSelectedRedPlayers((prev) => prev.filter((id) => id !== idToRemove));
+  };
+
+  const handleRemoveBluePlayer = (idToRemove: string) => {
+    setSelectedBluePlayers((prev) => prev.filter((id) => id !== idToRemove));
+  };
+
+  const handleToggleRedPlayer = (p: OpenPlayMatchRosterItem) => {
+    const isRed = selectedRedPlayers.includes(p.id);
+    if (isRed) {
+      handleRemoveRedPlayer(p.id);
+      return;
+    }
+
+    if (selectedBluePlayers.includes(p.id)) {
+      alert(`${p.name} is already selected on Team Blue!`);
+      return;
+    }
+
+    const partnerId = lockedPartners[p.id];
+    const partner = partnerId ? rosterPool.find((rp) => rp.id === partnerId) : undefined;
+    const limit = manualGameType === 'doubles' ? 2 : 1;
+
+    // Auto-fill both locked partners ONLY when Team Red has 0 players assigned
+    if (
+      manualGameType === 'doubles' &&
+      selectedRedPlayers.length === 0 &&
+      partnerId &&
+      rosterPool.some((rp) => rp.id === partnerId && rp.status !== 'absent')
+    ) {
+      if (selectedBluePlayers.includes(partnerId)) {
+        alert(`${p.name}'s locked partner (${partner?.name || partnerId}) is already selected on Team Blue!`);
+        return;
+      }
+      setSelectedRedPlayers([p.id, partnerId]);
+      return;
+    }
+
+    if (selectedRedPlayers.length >= limit) {
+      alert(`Team Red already has ${limit} player(s). Click [X] on a player in the Team Red Lineup above to replace them.`);
+      return;
+    }
+
+    setSelectedRedPlayers((prev) => [...prev, p.id]);
+  };
+
+  const handleToggleBluePlayer = (p: OpenPlayMatchRosterItem) => {
+    const isBlue = selectedBluePlayers.includes(p.id);
+    if (isBlue) {
+      handleRemoveBluePlayer(p.id);
+      return;
+    }
+
+    if (selectedRedPlayers.includes(p.id)) {
+      alert(`${p.name} is already selected on Team Red!`);
+      return;
+    }
+
+    const partnerId = lockedPartners[p.id];
+    const partner = partnerId ? rosterPool.find((rp) => rp.id === partnerId) : undefined;
+    const limit = manualGameType === 'doubles' ? 2 : 1;
+
+    // Auto-fill both locked partners ONLY when Team Blue has 0 players assigned
+    if (
+      manualGameType === 'doubles' &&
+      selectedBluePlayers.length === 0 &&
+      partnerId &&
+      rosterPool.some((rp) => rp.id === partnerId && rp.status !== 'absent')
+    ) {
+      if (selectedRedPlayers.includes(partnerId)) {
+        alert(`${p.name}'s locked partner (${partner?.name || partnerId}) is already selected on Team Red!`);
+        return;
+      }
+      setSelectedBluePlayers([p.id, partnerId]);
+      return;
+    }
+
+    if (selectedBluePlayers.length >= limit) {
+      alert(`Team Blue already has ${limit} player(s). Click [X] on a player in the Team Blue Lineup above to replace them.`);
+      return;
+    }
+
+    setSelectedBluePlayers((prev) => [...prev, p.id]);
+  };
+
   if (!isOpen) return null;
 
   const handleSubmit = () => {
@@ -115,9 +236,9 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-3xl md:max-w-4xl w-full shadow-2xl text-left bg-slate-900 max-h-[92vh] flex flex-col overflow-hidden">
+  const modalNode = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md animate-fade-in overflow-y-auto">
+      <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl max-w-3xl md:max-w-4xl w-full shadow-2xl text-left bg-slate-900 max-h-[88vh] sm:max-h-[85vh] flex flex-col overflow-hidden m-auto my-auto relative">
         {/* Sticky Header */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-800 bg-slate-950/90 shrink-0">
           <h3 className="text-base sm:text-lg font-black text-white">
@@ -254,14 +375,94 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
           {/* Player Selection Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Team Red Selection */}
-            <div className="p-3.5 rounded-2xl bg-red-950/20 border border-red-800/40 space-y-2">
+            <div className="p-3.5 rounded-2xl bg-red-950/20 border border-red-800/40 space-y-3">
               <div className="font-extrabold text-red-400 text-xs flex items-center justify-between">
-                <span>Team Red Players</span>
-                <span className="font-mono bg-red-950 border border-red-800/60 px-2 py-0.5 rounded text-[11px]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-500 shadow-sm" />
+                  <span>Team Red Lineup</span>
+                </span>
+                <span className="font-mono bg-red-950/80 border border-red-800/60 px-2 py-0.5 rounded text-[11px] text-red-300">
                   {selectedRedPlayers.length} / {manualGameType === 'doubles' ? 2 : 1}
                 </span>
               </div>
-              <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+
+              {/* Pinned Team Red Slots */}
+              <div className="space-y-1.5">
+                {Array.from({ length: manualGameType === 'doubles' ? 2 : 1 }).map((_, slotIdx) => {
+                  const playerId = selectedRedPlayers[slotIdx];
+                  if (!playerId) {
+                    return (
+                      <div
+                        key={`empty-red-slot-${slotIdx}`}
+                        className="p-2.5 rounded-xl border border-dashed border-red-800/60 bg-red-950/10 text-red-300/60 text-xs font-semibold flex items-center justify-center gap-1.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500/40" />
+                        <span>Slot {slotIdx + 1} Open — Select replacement player below</span>
+                      </div>
+                    );
+                  }
+
+                  const p = resolvePlayer(playerId);
+                  return (
+                    <div
+                      key={playerId}
+                      className="p-2 sm:p-2.5 rounded-xl bg-red-900/30 border border-red-600/50 flex items-center justify-between gap-2.5 shadow-sm transition-all animate-fade-in"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-full bg-slate-800 border border-red-500/50 overflow-hidden shrink-0 shadow-sm">
+                          <img
+                            src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate font-extrabold text-white text-xs">{p.name}</span>
+                            {p.lockedPartnerName && (
+                              <span className="text-[9px] px-1 rounded bg-purple-950/70 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0">
+                                <Lock className="w-2.5 h-2.5 text-purple-400" />
+                                <span>Pair: {p.lockedPartnerName}</span>
+                              </span>
+                            )}
+                          </div>
+                          {(p.duprId || p.duprRating) && (
+                            <div className="text-[10px] font-mono text-red-200/90 truncate flex items-center gap-1.5 flex-wrap mt-0.5">
+                              {p.duprId && <span>ID: {p.duprId}</span>}
+                              {p.duprRating && (
+                                <span className="bg-red-950/80 px-1 rounded border border-red-800/40 font-bold text-red-300">
+                                  ★ {p.duprRating}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveRedPlayer(playerId)}
+                        className="p-1.5 rounded-lg bg-red-950/80 hover:bg-red-800 border border-red-700/60 text-red-200 hover:text-white transition-all cursor-pointer shrink-0"
+                        title={`Remove ${p.name} from Team Red`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Subheader for candidate roster list */}
+              <div className="pt-2 border-t border-red-900/40 flex items-center justify-between text-[11px] font-bold text-slate-400">
+                <span>Available Roster</span>
+                <span className="text-[10px] font-normal text-slate-500">
+                  {selectedRedPlayers.length < (manualGameType === 'doubles' ? 2 : 1)
+                    ? 'Click to assign to open slot'
+                    : 'Team full (click [X] above to replace)'}
+                </span>
+              </div>
+
+              {/* Candidate Roster List */}
+              <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
                 {filteredRosterPlayers.length === 0 ? (
                   <div className="text-center py-6 text-slate-500 text-xs italic">
                     No players matching "{playerSearchQuery}"
@@ -280,23 +481,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                         key={p.id}
                         type="button"
                         disabled={isBlue}
-                        onClick={() => {
-                          if (isRed) {
-                            setSelectedRedPlayers(selectedRedPlayers.filter((id) => id !== p.id && id !== partnerId));
-                          } else {
-                            if (manualGameType === 'doubles' && partnerId && rosterPool.some((rp) => rp.id === partnerId && rp.status !== 'absent')) {
-                              if (selectedBluePlayers.includes(partnerId)) {
-                                alert(`${p.name}'s locked partner (${partner?.name || partnerId}) is already selected on Team Blue!`);
-                                return;
-                              }
-                              setSelectedRedPlayers([p.id, partnerId]);
-                            } else {
-                              const limit = manualGameType === 'doubles' ? 2 : 1;
-                              if (selectedRedPlayers.length >= limit) return;
-                              setSelectedRedPlayers([...selectedRedPlayers, p.id]);
-                            }
-                          }
-                        }}
+                        onClick={() => handleToggleRedPlayer(p)}
                         className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all cursor-pointer ${
                           isRed
                             ? 'bg-red-600 text-white border-red-500 shadow-md'
@@ -351,7 +536,14 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                             )}
                           </div>
                         </div>
-                        {isRed && <Check className="w-4 h-4 text-white shrink-0" />}
+                        {isRed ? (
+                          <div className="flex items-center gap-1 text-[11px] font-bold bg-red-700 px-2 py-0.5 rounded-lg text-white shrink-0">
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Selected</span>
+                          </div>
+                        ) : isBlue ? (
+                          <span className="text-[10px] text-slate-500 font-bold shrink-0">On Team Blue</span>
+                        ) : null}
                       </button>
                     );
                   })
@@ -360,14 +552,94 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
             </div>
 
             {/* Team Blue Selection */}
-            <div className="p-3.5 rounded-2xl bg-blue-950/20 border border-blue-800/40 space-y-2">
+            <div className="p-3.5 rounded-2xl bg-blue-950/20 border border-blue-800/40 space-y-3">
               <div className="font-extrabold text-blue-400 text-xs flex items-center justify-between">
-                <span>Team Blue Players</span>
-                <span className="font-mono bg-blue-950 border border-blue-800/60 px-2 py-0.5 rounded text-[11px]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 shadow-sm" />
+                  <span>Team Blue Lineup</span>
+                </span>
+                <span className="font-mono bg-blue-950/80 border border-blue-800/60 px-2 py-0.5 rounded text-[11px] text-blue-300">
                   {selectedBluePlayers.length} / {manualGameType === 'doubles' ? 2 : 1}
                 </span>
               </div>
-              <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+
+              {/* Pinned Team Blue Slots */}
+              <div className="space-y-1.5">
+                {Array.from({ length: manualGameType === 'doubles' ? 2 : 1 }).map((_, slotIdx) => {
+                  const playerId = selectedBluePlayers[slotIdx];
+                  if (!playerId) {
+                    return (
+                      <div
+                        key={`empty-blue-slot-${slotIdx}`}
+                        className="p-2.5 rounded-xl border border-dashed border-blue-800/60 bg-blue-950/10 text-blue-300/60 text-xs font-semibold flex items-center justify-center gap-1.5"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500/40" />
+                        <span>Slot {slotIdx + 1} Open — Select replacement player below</span>
+                      </div>
+                    );
+                  }
+
+                  const p = resolvePlayer(playerId);
+                  return (
+                    <div
+                      key={playerId}
+                      className="p-2 sm:p-2.5 rounded-xl bg-blue-900/30 border border-blue-600/50 flex items-center justify-between gap-2.5 shadow-sm transition-all animate-fade-in"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-full bg-slate-800 border border-blue-500/50 overflow-hidden shrink-0 shadow-sm">
+                          <img
+                            src={p.photoUrl || `https://robohash.org/${encodeURIComponent(p.name)}?set=set4`}
+                            alt={p.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate flex items-center gap-1.5 flex-wrap">
+                            <span className="truncate font-extrabold text-white text-xs">{p.name}</span>
+                            {p.lockedPartnerName && (
+                              <span className="text-[9px] px-1 rounded bg-purple-950/70 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0">
+                                <Lock className="w-2.5 h-2.5 text-purple-400" />
+                                <span>Pair: {p.lockedPartnerName}</span>
+                              </span>
+                            )}
+                          </div>
+                          {(p.duprId || p.duprRating) && (
+                            <div className="text-[10px] font-mono text-blue-200/90 truncate flex items-center gap-1.5 flex-wrap mt-0.5">
+                              {p.duprId && <span>ID: {p.duprId}</span>}
+                              {p.duprRating && (
+                                <span className="bg-blue-950/80 px-1 rounded border border-blue-800/40 font-bold text-blue-300">
+                                  ★ {p.duprRating}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBluePlayer(playerId)}
+                        className="p-1.5 rounded-lg bg-blue-950/80 hover:bg-blue-800 border border-blue-700/60 text-blue-200 hover:text-white transition-all cursor-pointer shrink-0"
+                        title={`Remove ${p.name} from Team Blue`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Subheader for candidate roster list */}
+              <div className="pt-2 border-t border-blue-900/40 flex items-center justify-between text-[11px] font-bold text-slate-400">
+                <span>Available Roster</span>
+                <span className="text-[10px] font-normal text-slate-500">
+                  {selectedBluePlayers.length < (manualGameType === 'doubles' ? 2 : 1)
+                    ? 'Click to assign to open slot'
+                    : 'Team full (click [X] above to replace)'}
+                </span>
+              </div>
+
+              {/* Candidate Roster List */}
+              <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
                 {filteredRosterPlayers.length === 0 ? (
                   <div className="text-center py-6 text-slate-500 text-xs italic">
                     No players matching "{playerSearchQuery}"
@@ -386,23 +658,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                         key={p.id}
                         type="button"
                         disabled={isRed}
-                        onClick={() => {
-                          if (isBlue) {
-                            setSelectedBluePlayers(selectedBluePlayers.filter((id) => id !== p.id && id !== partnerId));
-                          } else {
-                            if (manualGameType === 'doubles' && partnerId && rosterPool.some((rp) => rp.id === partnerId && rp.status !== 'absent')) {
-                              if (selectedRedPlayers.includes(partnerId)) {
-                                alert(`${p.name}'s locked partner (${partner?.name || partnerId}) is already selected on Team Red!`);
-                                return;
-                              }
-                              setSelectedBluePlayers([p.id, partnerId]);
-                            } else {
-                              const limit = manualGameType === 'doubles' ? 2 : 1;
-                              if (selectedBluePlayers.length >= limit) return;
-                              setSelectedBluePlayers([...selectedBluePlayers, p.id]);
-                            }
-                          }
-                        }}
+                        onClick={() => handleToggleBluePlayer(p)}
                         className={`w-full text-left px-2.5 py-2 rounded-xl border flex items-center justify-between gap-2.5 text-xs font-semibold transition-all cursor-pointer ${
                           isBlue
                             ? 'bg-blue-600 text-white border-blue-500 shadow-md'
@@ -457,7 +713,14 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                             )}
                           </div>
                         </div>
-                        {isBlue && <Check className="w-4 h-4 text-white shrink-0" />}
+                        {isBlue ? (
+                          <div className="flex items-center gap-1 text-[11px] font-bold bg-blue-700 px-2 py-0.5 rounded-lg text-white shrink-0">
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Selected</span>
+                          </div>
+                        ) : isRed ? (
+                          <span className="text-[10px] text-slate-500 font-bold shrink-0">On Team Red</span>
+                        ) : null}
                       </button>
                     );
                   })
@@ -487,5 +750,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalNode, document.body) : modalNode;
 };
 

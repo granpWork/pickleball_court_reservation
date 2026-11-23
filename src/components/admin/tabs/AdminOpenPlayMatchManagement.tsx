@@ -2599,15 +2599,18 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     const mapPlayers = (ids: string[]): OpenPlayMatchPlayer[] => {
       return ids.map((id) => {
         const item = rosterPool.find((p) => p.id === id);
+        const existingMatchPlayer =
+          matchData.editingMatch?.teamRed.players.find((p) => p.id === id) ||
+          matchData.editingMatch?.teamBlue.players.find((p) => p.id === id);
         const partnerId = lockedPartners[id];
         return {
           id,
-          name: item ? item.name : 'Player',
-          photoUrl: item?.photoUrl,
-          skillLevel: item?.skillLevel,
-          type: item?.type,
-          duprId: item?.adminDuprId || item?.duprId || undefined,
-          duprRating: item?.adminDuprRating || item?.duprRating || undefined,
+          name: item ? item.name : existingMatchPlayer ? existingMatchPlayer.name : 'Player',
+          photoUrl: item?.photoUrl || existingMatchPlayer?.photoUrl,
+          skillLevel: item?.skillLevel || existingMatchPlayer?.skillLevel,
+          type: item?.type || existingMatchPlayer?.type,
+          duprId: item?.adminDuprId || item?.duprId || existingMatchPlayer?.duprId || undefined,
+          duprRating: item?.adminDuprRating || item?.duprRating || existingMatchPlayer?.duprRating || undefined,
           lockedPartnerId: partnerId,
           lockedPartnerName: partnerId ? rosterPool.find((p) => p.id === partnerId)?.name : undefined,
         };
@@ -2870,14 +2873,52 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
 
   // Toggle player roster status
   const togglePlayerStatus = (id: string) => {
+    let newAttendanceStatus: 'present' | 'absent' | 'unmarked' | undefined;
     const updated = rosterPool.map((p) => {
       if (p.id === id) {
         const nextStatus: 'active' | 'resting' | 'absent' =
           p.status === 'active' ? 'resting' : p.status === 'resting' ? 'absent' : 'active';
+
+        if (nextStatus === 'absent') {
+          newAttendanceStatus = 'absent';
+          return {
+            ...p,
+            status: nextStatus,
+            isPresent: false,
+            attendanceStatus: 'absent' as const,
+            checkedInAt: undefined,
+          };
+        }
+
+        if (p.status === 'absent' && nextStatus === 'active') {
+          newAttendanceStatus = 'unmarked';
+          return {
+            ...p,
+            status: nextStatus,
+            isPresent: false,
+            attendanceStatus: 'unmarked' as const,
+            checkedInAt: undefined,
+          };
+        }
+
         return { ...p, status: nextStatus };
       }
       return p;
     });
+
+    if (newAttendanceStatus) {
+      try {
+        const saved = localStorage.getItem('picklepoint_openplay_attendance');
+        const attMap = saved ? JSON.parse(saved) : {};
+        attMap[id] = newAttendanceStatus;
+        localStorage.setItem('picklepoint_openplay_attendance', JSON.stringify(attMap));
+
+        const attTimeMap = getStoredAttendanceTimes();
+        delete attTimeMap[id];
+        saveStoredAttendanceTimes(attTimeMap);
+      } catch (e) {}
+    }
+
     saveRosterPool(updated);
   };
 
