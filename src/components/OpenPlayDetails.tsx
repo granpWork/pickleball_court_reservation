@@ -32,6 +32,8 @@ import {
   Maximize2,
   Phone,
   LogIn,
+  Share2,
+  Check,
 } from 'lucide-react';
 
 import { parseGoogleMapsUrl } from '../utils/mapUtils';
@@ -226,6 +228,29 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   useEffect(() => {
     setActivePosterIdx(0);
   }, [event?.id, allPosters.length]);
+
+  // Share Event Link handler with toast feedback
+  const [copiedShareUrl, setCopiedShareUrl] = useState(false);
+  const handleShareEvent = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const shareUrl = `${window.location.origin}/?view=openplay&eventId=${eventId}`;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedShareUrl(true);
+      setTimeout(() => setCopiedShareUrl(false), 2500);
+    } catch (err) {
+      console.warn('Share copy error:', err);
+    }
+  };
 
 
   // Bottom Roster Tabs, Matches & Chat States
@@ -1701,7 +1726,7 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
   }
 
   return (
-    <div className="min-h-screen bg-dark-bg text-slate-100 relative overflow-hidden pt-20 md:pt-24 pb-12 px-4 md:px-8">
+    <div className="min-h-screen bg-dark-bg text-slate-100 relative overflow-hidden pt-20 md:pt-24 pb-28 lg:pb-12 px-4 md:px-8">
       {/* Decorative background glows */}
       <div className="absolute top-[5%] left-[15%] w-[45%] h-[45%] bg-brand-lime/10 blur-[150px] rounded-full pointer-events-none"></div>
       <div className="absolute bottom-[5%] right-[15%] w-[45%] h-[45%] bg-brand-emerald/10 blur-[150px] rounded-full pointer-events-none"></div>
@@ -1919,13 +1944,35 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
 
       <div className="w-full max-w-7xl mx-auto relative z-10 space-y-6">
         {/* Navigation Bar */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between gap-3 mb-6">
           <button
             onClick={onBack}
-            className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors cursor-pointer group uppercase tracking-wider"
+            className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors cursor-pointer group uppercase tracking-wider min-h-[40px] touch-manipulation"
           >
             <ArrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-1" />
-            Back to App
+            <span>Back to App</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleShareEvent}
+            className={`px-3.5 py-1.5 rounded-full border text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer min-h-[40px] touch-manipulation active:scale-[0.98] ${
+              copiedShareUrl
+                ? 'bg-brand-lime/20 border-brand-lime text-brand-lime shadow-sm shadow-brand-lime/20'
+                : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+            }`}
+          >
+            {copiedShareUrl ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-brand-lime" />
+                <span className="text-brand-lime font-black">Link Copied!</span>
+              </>
+            ) : (
+              <>
+                <Share2 className="w-3.5 h-3.5 text-slate-400" />
+                <span>Share Event</span>
+              </>
+            )}
           </button>
         </div>
 
@@ -1941,10 +1988,10 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
           </div>
         )}
 
-        {/* MAIN 2-COLUMN GRID (Full Left Poster & Right Stacked Info & Roster Hub) */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 text-left items-start">
-          {/* LEFT COLUMN: Unified Event & Rules Posters Gallery */}
-          <div className="lg:col-span-4 space-y-3 lg:sticky lg:top-6">
+        {/* MAIN 2-COLUMN GRID (Responsive: Header & Info on top for mobile, Poster gallery below it; Desktop: 2-column side-by-side) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 text-left items-start">
+          {/* POSTER GALLERY: Order 2 on mobile (below header), Order 1 on Desktop (sticky left column) */}
+          <div className="order-2 lg:order-1 lg:col-span-4 space-y-3 lg:sticky lg:top-6">
             {(() => {
               const safeIdx = allPosters.length > 0 ? Math.min(activePosterIdx, allPosters.length - 1) : 0;
               const currentPoster = allPosters[safeIdx] || null;
@@ -1954,7 +2001,7 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                 <>
                   <div
                     onClick={() => currentPoster && setLightboxImage(currentPoster.url)}
-                    className={`w-full aspect-[3/4] rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden relative shadow-2xl group ${
+                    className={`w-full aspect-[16/10] sm:aspect-[4/3] lg:aspect-[3/4] rounded-2xl sm:rounded-3xl bg-slate-950 border border-slate-800 overflow-hidden relative shadow-2xl group ${
                       currentPoster ? 'cursor-zoom-in' : ''
                     }`}
                   >
@@ -2071,12 +2118,12 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
             })()}
           </div>
 
-          {/* RIGHT COLUMN: Stacked Event Info, House Rules, & Roster Hub */}
-          <div className="lg:col-span-8 space-y-6">
+          {/* RIGHT COLUMN: Stacked Event Info, House Rules, & Roster Hub (Order 1 on mobile, Order 2 on Desktop) */}
+          <div className="order-1 lg:order-2 lg:col-span-8 space-y-6">
             {/* 1. Header & Event Info Box */}
-            <div className="glass-panel bg-gradient-to-br from-slate-900 via-slate-950 to-dark-bg border border-slate-800/80 rounded-3xl p-6 md:p-8 shadow-2xl relative overflow-hidden text-left space-y-6">
+            <div className="glass-panel bg-gradient-to-br from-slate-900 via-slate-950 to-dark-bg border border-slate-800/80 rounded-2xl sm:rounded-3xl p-5 sm:p-6 md:p-8 shadow-2xl relative overflow-hidden text-left space-y-5 sm:space-y-6">
               <div className="absolute top-0 right-0 w-96 h-96 bg-brand-lime/5 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative z-10 space-y-6">
+              <div className="relative z-10 space-y-5 sm:space-y-6">
                 {/* Header Top Row: Event Status Badges & Organizer Pill */}
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2.5 text-xs font-extrabold uppercase tracking-widest">
@@ -2133,19 +2180,45 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                   )}
                 </div>
 
-                {/* Title & Action Row */}
-                <div className="flex flex-wrap items-center justify-between gap-4">
+                {/* Title & Fee / Spots Row */}
+                <div className="space-y-3">
                   <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight tracking-tight">
                     {event.title}
                   </h1>
 
-                  {/* Prominent Book Now / Join Waitlist Action Button */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800/80">
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Registration Fee</div>
+                      <div className="text-xl sm:text-2xl font-black text-brand-lime font-sans mt-0.5">
+                        {event.registrationFee > 0 ? `₱${event.registrationFee}` : 'FREE ENTRY'}
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Session Capacity</div>
+                      <div className="text-xs font-black text-white flex items-center gap-1.5 justify-end mt-0.5">
+                        <Users className="w-3.5 h-3.5 text-brand-lime" />
+                        <span className={isFull ? 'text-red-400 font-extrabold' : 'text-slate-200'}>
+                          {activeRegistrationsCount} / {event.maxParticipants} Registered
+                        </span>
+                      </div>
+                      <div className="text-[11px] font-extrabold mt-0.5">
+                        {isFull ? (
+                          <span className="text-red-400 uppercase tracking-wider">Full / Waitlist Only</span>
+                        ) : (
+                          <span className="text-brand-lime">{availableSlots} {availableSlots === 1 ? 'slot' : 'slots'} remaining</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Prominent Full-Width Book Now / Join Waitlist Action Button */}
                   {!isAlreadyRegistered && (
                     <button
                       type="button"
                       onClick={isFull ? scrollToWaitlistSection : () => handleProceedToCheckout(false)}
                       disabled={isExpired || (isFull && isAlreadyWaitlisted)}
-                      className={`px-7 py-3.5 rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center gap-2.5 shadow-xl hover:scale-[1.02] cursor-pointer shrink-0 ${
+                      className={`w-full sm:w-auto px-7 py-3.5 min-h-[48px] rounded-2xl font-black text-xs md:text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2.5 shadow-xl hover:scale-[1.01] active:scale-[0.98] cursor-pointer shrink-0 touch-manipulation ${
                         isExpired
                           ? 'bg-red-500/10 border border-red-500/30 text-red-400 cursor-not-allowed opacity-80'
                           : isFull
@@ -2173,10 +2246,50 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                       </span>
                     </button>
                   )}
+
+                  {/* Ergonomic Quick Action Buttons Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 w-full pt-1">
+                    <button
+                      type="button"
+                      onClick={handleOpenGoogleMaps}
+                      title="Open location in Google Maps"
+                      className="w-full px-3 sm:px-4 py-2.5 min-h-[44px] rounded-xl border border-emerald-500/50 bg-emerald-500/5 hover:bg-emerald-500/15 text-emerald-400 font-extrabold text-[11px] sm:text-xs uppercase tracking-wider transition-all cursor-pointer shadow-sm inline-flex items-center justify-center gap-1.5 touch-manipulation active:scale-[0.98]"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="truncate">Location Map</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsRulesModalOpen(true)}
+                      className="w-full px-3 sm:px-4 py-2.5 min-h-[44px] rounded-xl border border-brand-lime/50 bg-brand-lime/5 hover:bg-brand-lime/15 text-brand-lime font-extrabold text-[11px] sm:text-xs uppercase tracking-wider transition-all cursor-pointer shadow-sm inline-flex items-center justify-center gap-1.5 touch-manipulation active:scale-[0.98]"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                      <span className="truncate">Rules & Format</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleShareEvent}
+                      className="col-span-2 sm:col-span-1 w-full px-3 sm:px-4 py-2.5 min-h-[44px] rounded-xl border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-200 font-extrabold text-[11px] sm:text-xs uppercase tracking-wider transition-all cursor-pointer shadow-sm inline-flex items-center justify-center gap-1.5 touch-manipulation active:scale-[0.98]"
+                    >
+                      {copiedShareUrl ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                          <span className="text-brand-lime truncate">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Share2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <span className="truncate">Share Event</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
-                {/* Organized Key Info Grid (Matching UI Screenshot Layout with Existing Dynamic Data) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8 pt-4 pb-2 text-left">
+                {/* Organized Key Info Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-5 gap-x-8 pt-2 text-left">
                   {/* 1. DATE & SCHEDULE */}
                   <div className="border-l-2 border-brand-lime pl-4 space-y-1">
                     <div className="flex items-center gap-2 text-slate-400">
@@ -2231,74 +2344,21 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                       {event.maxParticipants} Max Players • {event.category || 'All Skill Levels'}
                     </div>
                   </div>
-
-                  {/* Row 3 Left: 5. VIEW MAP BUTTON */}
-                  <div className="flex items-center w-full sm:w-auto">
-                    <button
-                      type="button"
-                      onClick={handleOpenGoogleMaps}
-                      title="Open location in Google Maps"
-                      className="w-full sm:w-auto px-5 py-3 min-h-[44px] rounded-full border border-emerald-500/60 text-emerald-400 hover:bg-emerald-500/10 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md inline-flex items-center justify-center gap-2 touch-manipulation active:scale-[0.98]"
-                    >
-                      <MapPin className="w-4 h-4 text-emerald-400" />
-                      <span>View Location Map</span>
-                    </button>
-                  </div>
-
-                  {/* Row 3 Right: 6. VIEW RULES BUTTON */}
-                  <div className="flex items-center w-full sm:w-auto">
-                    <button
-                      type="button"
-                      onClick={() => setIsRulesModalOpen(true)}
-                      className="w-full sm:w-auto px-5 py-3 min-h-[44px] rounded-full border border-brand-lime/60 text-brand-lime hover:bg-brand-lime/10 font-extrabold text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md inline-flex items-center justify-center gap-2 touch-manipulation active:scale-[0.98]"
-                    >
-                      View Rules & Play Format
-                    </button>
-                  </div>
                 </div>
 
-                {/* Full-Width Capacity Fill & Registration Fee Banner */}
-                <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-3 shadow-lg">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Registration Fee</div>
-                      <div className="text-xl font-black text-brand-lime font-sans mt-0.5">
-                        {event.registrationFee > 0 ? `₱${event.registrationFee}` : 'FREE ENTRY'}
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Session Capacity</div>
-                      <div className="text-xs font-black text-white flex items-center gap-1.5 justify-end mt-0.5">
-                        <Users className="w-3.5 h-3.5 text-brand-lime" />
-                        <span className={isFull ? 'text-red-400 font-extrabold' : 'text-slate-200'}>
-                          {activeRegistrationsCount} / {event.maxParticipants} Registered
-                        </span>
-                      </div>
-                      <div className="text-[11px] font-extrabold mt-0.5">
-                        {isFull ? (
-                          <span className="text-red-400 uppercase tracking-wider">Full / Waitlist Only</span>
-                        ) : (
-                          <span className="text-brand-lime">{availableSlots} {availableSlots === 1 ? 'slot' : 'slots'} remaining</span>
-                        )}
-                      </div>
-                    </div>
+                {/* Animated Capacity Progress Bar */}
+                <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2 shadow-lg">
+                  <div className="flex items-center justify-between text-[11px] font-bold">
+                    <span className="text-slate-400 uppercase tracking-wider">Capacity Fill Rate</span>
+                    <span className="text-slate-300 font-mono">{fillPercentage}% Full</span>
                   </div>
-
-                  {/* Animated Capacity Progress Bar */}
-                  <div className="space-y-1 pt-1.5 border-t border-slate-800/80">
-                    <div className="flex items-center justify-between text-[11px] font-bold">
-                      <span className="text-slate-400 uppercase tracking-wider">Capacity Fill Rate</span>
-                      <span className="text-slate-300 font-mono">{fillPercentage}% Full</span>
-                    </div>
-                    <div className="w-full h-3 rounded-full bg-slate-950 border border-slate-800 overflow-hidden flex">
-                      <div
-                        style={{ width: `${fillPercentage}%` }}
-                        className={`h-full transition-all duration-500 ${
-                          isFull ? 'bg-red-500' : fillPercentage > 80 ? 'bg-amber-400' : 'bg-brand-lime'
-                        }`}
-                      />
-                    </div>
+                  <div className="w-full h-3 rounded-full bg-slate-950 border border-slate-800 overflow-hidden flex">
+                    <div
+                      style={{ width: `${fillPercentage}%` }}
+                      className={`h-full transition-all duration-500 ${
+                        isFull ? 'bg-red-500' : fillPercentage > 80 ? 'bg-amber-400' : 'bg-brand-lime'
+                      }`}
+                    />
                   </div>
                 </div>
               </div>
@@ -2523,21 +2583,21 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
 
             return (
               <div className="text-left">
-                {/* Tab Navigation Header */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-6 border-b border-slate-800 pb-4">
-                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+                {/* Tab Navigation Header & Search Bar */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6 border-b border-slate-800 pb-4">
+                  {/* Scrollable Tab Switcher */}
+                  <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth pb-1 sm:pb-0 w-full sm:w-auto flex-nowrap">
                     <button
                       type="button"
                       onClick={() => setRosterTab('participants')}
-                      className={`px-2 sm:px-4 py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center justify-center sm:justify-start gap-1 sm:gap-2 transition-all cursor-pointer border min-w-0 ${
+                      className={`px-3 sm:px-4 py-2.5 min-h-[42px] rounded-xl font-extrabold text-[11px] sm:text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 transition-all cursor-pointer border shrink-0 touch-manipulation active:scale-[0.98] ${
                         rosterTab === 'participants'
                           ? 'bg-brand-lime text-dark-bg border-brand-lime/40 shadow-lg shadow-brand-lime/10'
                           : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
                       }`}
                     >
                       <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                      <span className="truncate hidden xs:inline">Participants</span>
-                      <span className="truncate xs:hidden">Roster</span>
+                      <span>Participants</span>
                       <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shrink-0 ${
                         rosterTab === 'participants' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
                       }`}>
@@ -2548,14 +2608,14 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                     <button
                       type="button"
                       onClick={() => setRosterTab('matches')}
-                      className={`px-2 sm:px-4 py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center justify-center sm:justify-start gap-1 sm:gap-2 transition-all cursor-pointer border min-w-0 ${
+                      className={`px-3 sm:px-4 py-2.5 min-h-[42px] rounded-xl font-extrabold text-[11px] sm:text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 transition-all cursor-pointer border shrink-0 touch-manipulation active:scale-[0.98] ${
                         rosterTab === 'matches'
                           ? 'bg-gradient-to-r from-amber-400 to-lime-400 text-dark-bg border-amber-400/40 shadow-lg shadow-amber-400/10'
                           : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
                       }`}
                     >
                       <Trophy className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                      <span className="truncate">Matches</span>
+                      <span>Matches</span>
                       <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shrink-0 ${
                         rosterTab === 'matches' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
                       }`}>
@@ -2566,15 +2626,14 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                     <button
                       type="button"
                       onClick={() => setRosterTab('waitlist')}
-                      className={`px-2 sm:px-4 py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center justify-center sm:justify-start gap-1 sm:gap-2 transition-all cursor-pointer border min-w-0 ${
+                      className={`px-3 sm:px-4 py-2.5 min-h-[42px] rounded-xl font-extrabold text-[11px] sm:text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 transition-all cursor-pointer border shrink-0 touch-manipulation active:scale-[0.98] ${
                         rosterTab === 'waitlist'
                           ? 'bg-amber-400 text-dark-bg border-amber-400/40 shadow-lg shadow-amber-400/10'
                           : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
                       }`}
                     >
                       <Hourglass className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                      <span className="truncate hidden xs:inline">Waitlist</span>
-                      <span className="truncate xs:hidden">Wait</span>
+                      <span>Waitlist</span>
                       <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shrink-0 ${
                         rosterTab === 'waitlist' ? 'bg-dark-bg/20 text-dark-bg' : 'bg-slate-800 text-slate-300'
                       }`}>
@@ -2585,14 +2644,14 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                     <button
                       type="button"
                       onClick={() => setRosterTab('chat')}
-                      className={`px-2 sm:px-4 py-2.5 rounded-xl font-extrabold text-[10px] sm:text-xs uppercase tracking-wider flex items-center justify-center sm:justify-start gap-1 sm:gap-2 transition-all cursor-pointer border min-w-0 ${
+                      className={`px-3 sm:px-4 py-2.5 min-h-[42px] rounded-xl font-extrabold text-[11px] sm:text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 transition-all cursor-pointer border shrink-0 touch-manipulation active:scale-[0.98] ${
                         rosterTab === 'chat'
                           ? 'bg-purple-500 text-white border-purple-500/40 shadow-lg shadow-purple-500/20'
                           : 'bg-slate-900/80 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
                       }`}
                     >
                       <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                      <span className="truncate">Chat</span>
+                      <span>Chat</span>
                       <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shrink-0 ${
                         rosterTab === 'chat' ? 'bg-white/20 text-white' : 'bg-slate-800 text-purple-300'
                       }`}>
@@ -2603,15 +2662,24 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
 
                   {/* Search Bar for Roster Tabs & Matches */}
                   {(rosterTab === 'participants' || rosterTab === 'waitlist' || rosterTab === 'matches') && (
-                    <div className="relative w-full sm:w-64">
-                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <div className="relative w-full sm:w-64 shrink-0">
+                      <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                       <input
                         type="text"
                         placeholder={rosterTab === 'matches' ? 'Search match or player...' : 'Search roster...'}
                         value={rosterSearch}
                         onChange={(e) => setRosterSearch(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime/50"
+                        className="w-full min-h-[42px] bg-slate-950 border border-slate-800 focus:border-brand-lime/50 rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
                       />
+                      {rosterSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setRosterSearch('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3376,12 +3444,12 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
                                 placeholder={replyingTo ? `Replying to @${replyingTo.senderName}...` : "Type a message or question for attendees..."}
                                 value={newChatMessage}
                                 onChange={(e) => setNewChatMessage(e.target.value)}
-                                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 min-h-[44px]"
                               />
                               <button
                                 type="submit"
                                 disabled={!newChatMessage.trim() || isSendingChat}
-                                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-md shrink-0"
+                                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-md shrink-0 min-h-[44px] touch-manipulation active:scale-[0.98]"
                               >
                                 {isSendingChat ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                                 <span className="hidden sm:inline">Send</span>
@@ -3396,6 +3464,81 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
               </div>
             );
           })()}
+        </div>
+      </div>
+
+      {/* Mobile Persistent Sticky Bottom Booking / Status Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/95 backdrop-blur-md border-t border-slate-800/90 px-4 py-3 shadow-[0_-8px_25px_rgba(0,0,0,0.5)] block lg:hidden">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              {event.registrationFee > 0 ? 'Registration Fee' : 'Entry'}
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-base sm:text-lg font-black text-brand-lime leading-tight">
+                {event.registrationFee > 0 ? `₱${event.registrationFee}` : 'Free'}
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium truncate">
+                • {isFull ? (
+                  <span className="text-red-400 font-bold">Full</span>
+                ) : (
+                  <span>{availableSlots} left</span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {isAlreadyRegistered ? (
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  isVerifiedJoining ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                }`}>
+                  {isVerifiedJoining ? 'Spot Confirmed' : 'Pending'}
+                </span>
+                {!isDuprEvent && !isExpired && !isFull && (
+                  <button
+                    type="button"
+                    onClick={() => handleProceedToCheckout(true)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-dark-bg font-extrabold text-xs uppercase tracking-wider transition-all flex items-center gap-1.5 shadow cursor-pointer min-h-[40px] touch-manipulation"
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>+ Guest</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={isFull ? scrollToWaitlistSection : () => handleProceedToCheckout(false)}
+                disabled={isExpired || (isFull && isAlreadyWaitlisted)}
+                className={`px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg min-h-[44px] cursor-pointer touch-manipulation active:scale-[0.98] ${
+                  isExpired
+                    ? 'bg-red-500/10 border border-red-500/30 text-red-400 cursor-not-allowed opacity-80'
+                    : isFull
+                    ? isAlreadyWaitlisted
+                      ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 cursor-not-allowed opacity-80'
+                      : 'bg-amber-400 text-dark-bg hover:bg-amber-300 shadow-amber-400/20'
+                    : 'bg-brand-lime text-dark-bg hover:bg-[#a6e224] shadow-brand-lime/20'
+                }`}
+              >
+                {isExpired ? (
+                  <span>Concluded</span>
+                ) : isFull ? (
+                  isAlreadyWaitlisted ? (
+                    <span>Waitlist #{userWaitlistPosition}</span>
+                  ) : (
+                    <span>Join Waitlist</span>
+                  )
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-dark-bg" />
+                    <span>Book Now</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

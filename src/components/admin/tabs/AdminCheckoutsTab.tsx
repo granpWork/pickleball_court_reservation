@@ -33,6 +33,8 @@ import {
 import { type Booking, type GcashAccount, type UserAccount, type UserPermissions, type Court, type BookingUpdatePayload, SLOTS, getSlotPrice } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { parseTimeStringToHour } from '../../../utils/timeSlotUtils';
+import { AdminMessengerPreviewModal } from '../modals/AdminMessengerPreviewModal';
+import { type BookingMessengerData } from '../../../utils/messengerTemplateUtils';
 
 interface AdminCheckoutsTabProps {
   users?: UserAccount[];
@@ -114,6 +116,41 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
     try {
       localStorage.setItem('picklepoint_checkouts_view_mode', mode);
     } catch {}
+  };
+
+  // Messenger Modal State
+  const [messengerBookingData, setMessengerBookingData] = useState<BookingMessengerData | null>(null);
+  const [isMessengerModalOpen, setIsMessengerModalOpen] = useState<boolean>(false);
+
+  const handleOpenMessengerModal = (b: Booking) => {
+    const pName = b.user?.name || (b as any).userName || (b as any).playerName || 'Pickleball Player';
+    const cName = b.courtName || (b as any).openPlayTitle || 'Pickleball Court';
+    const ref = b.bookingReference || (b as any).bookingId || b.id || '';
+    const dateStr = b.date || '';
+    const slotsStr = Array.isArray(b.slots) ? b.slots.join(', ') : ((b as any).timeSlot || b.slots || '');
+    const count = (b as any).playerCount || ((b as any).guestCount ? (b as any).guestCount + 1 : (b.guests?.length ? b.guests.length + 1 : 1));
+    const cost = b.totalCost !== undefined ? b.totalCost : 0;
+    const statusStr = b.status === 'approved' ? 'Approved' : b.status === 'pending' ? 'Pending Verification' : b.status || 'Confirmed';
+    const vAddress = (b as any).ownerCompanyAddress || (b as any).courtLocation || (b as any).companyAddress || '';
+    const vName = (b as any).ownerCompanyName || (b as any).companyName || '';
+    const hPhone = (b as any).ownerPhone || '';
+    const hEmail = (b as any).ownerEmail || '';
+
+    setMessengerBookingData({
+      playerName: pName,
+      venueName: vName,
+      bookingRef: ref,
+      courtName: cName,
+      date: dateStr,
+      timeSlot: slotsStr,
+      playerCount: `${count} spot${count > 1 ? 's' : ''}`,
+      totalCost: cost,
+      paymentStatus: statusStr,
+      venueAddress: vAddress,
+      hostPhone: hPhone,
+      hostEmail: hEmail,
+    });
+    setIsMessengerModalOpen(true);
   };
 
   // Edit Booking Modal state
@@ -852,6 +889,17 @@ Thank you!`;
                               </button>
                             )}
 
+                            {/* Messenger icon (Generate Confirmation) */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenMessengerModal(booking)}
+                              className="w-11 h-11 min-h-[44px] min-w-[44px] rounded-xl bg-blue-500/15 hover:bg-blue-600 border border-blue-500/30 text-blue-300 hover:text-white flex items-center justify-center transition-all cursor-pointer shadow-md active:scale-95"
+                              title="Send Facebook Messenger Confirmation"
+                              aria-label="Send Messenger Confirmation"
+                            >
+                              <MessageSquare className="w-5 h-5" />
+                            </button>
+
                             {/* Ellipsis (...) icon (Toggle Inline Details Drawer) */}
                             <button
                               type="button"
@@ -1245,6 +1293,14 @@ Thank you!`;
                                   {booking.paymentStatus !== 'pending_verification' && booking.paymentStatus !== 'paid' && booking.paymentStatus !== 'refunded' && !proofUrl && (
                                     <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Verified</span>
                                   )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenMessengerModal(booking)}
+                                    title="Send Facebook Messenger Confirmation"
+                                    className="p-2 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-600 hover:text-white transition-all cursor-pointer shadow-xs hover:scale-105 flex items-center justify-center"
+                                  >
+                                    <MessageSquare className="w-4 h-4" />
+                                  </button>
                                 </>
                               )}
                             </div>
@@ -2041,6 +2097,14 @@ Thank you!`;
           </div>
         </div>
       )}
+
+      {/* Facebook Messenger Preview Modal */}
+      <AdminMessengerPreviewModal
+        isOpen={isMessengerModalOpen}
+        onClose={() => setIsMessengerModalOpen(false)}
+        bookingData={messengerBookingData}
+        customTemplate={localStorage.getItem('picklepoint_messenger_template') || undefined}
+      />
     </div>
   );
 };

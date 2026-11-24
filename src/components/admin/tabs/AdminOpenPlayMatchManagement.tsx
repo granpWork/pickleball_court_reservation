@@ -4122,6 +4122,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         rosterPool={rosterPool}
         existingMatchesInRoundCount={matches.filter((m) => m.round === targetManualRound).length}
         lockedPartners={lockedPartners}
+        matches={matches}
         onSaveManualMatch={handleSaveManualMatch}
       />
 

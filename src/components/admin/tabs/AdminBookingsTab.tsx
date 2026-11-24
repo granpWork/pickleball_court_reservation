@@ -26,7 +26,10 @@ import {
   Check,
   Tag,
   LayoutDashboard,
+  MessageSquare,
 } from 'lucide-react';
+import { AdminMessengerPreviewModal } from '../modals/AdminMessengerPreviewModal';
+import { type BookingMessengerData } from '../../../utils/messengerTemplateUtils';
 import {
   type Booking,
   type UserPermissions,
@@ -134,6 +137,41 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   const [scheduleFilter, setScheduleFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [selectedBookingDate, setSelectedBookingDate] = useState<string>('');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
+
+  // Messenger Modal State
+  const [messengerBookingData, setMessengerBookingData] = useState<BookingMessengerData | null>(null);
+  const [isMessengerModalOpen, setIsMessengerModalOpen] = useState<boolean>(false);
+
+  const handleOpenMessengerModal = (b: Booking) => {
+    const pName = b.user?.name || (b as any).userName || (b as any).playerName || 'Pickleball Player';
+    const cName = b.courtName || (b as any).openPlayTitle || 'Pickleball Court';
+    const ref = b.bookingReference || (b as any).bookingId || b.id || '';
+    const dateStr = b.date || '';
+    const slotsStr = Array.isArray(b.slots) ? b.slots.join(', ') : ((b as any).timeSlot || b.slots || '');
+    const count = (b as any).playerCount || ((b as any).guestCount ? (b as any).guestCount + 1 : (b.guests?.length ? b.guests.length + 1 : 1));
+    const cost = b.totalCost !== undefined ? b.totalCost : 0;
+    const statusStr = b.status === 'approved' ? 'Approved' : b.status === 'pending' ? 'Pending Verification' : b.status || 'Confirmed';
+    const vAddress = (b as any).ownerCompanyAddress || (b as any).courtLocation || (b as any).companyAddress || myCompany?.address || '';
+    const vName = (b as any).ownerCompanyName || (b as any).companyName || myCompany?.name || '';
+    const hPhone = (b as any).ownerPhone || myCompany?.phone || '';
+    const hEmail = (b as any).ownerEmail || myCompany?.clientAdminEmail || '';
+
+    setMessengerBookingData({
+      playerName: pName,
+      venueName: vName,
+      bookingRef: ref,
+      courtName: cName,
+      date: dateStr,
+      timeSlot: slotsStr,
+      playerCount: `${count} spot${count > 1 ? 's' : ''}`,
+      totalCost: cost,
+      paymentStatus: statusStr,
+      venueAddress: vAddress,
+      hostPhone: hPhone,
+      hostEmail: hEmail,
+    });
+    setIsMessengerModalOpen(true);
+  };
 
   // Edit Manual Booking Modal state
   const [editingManualBooking, setEditingManualBooking] = useState<Booking | null>(null);
@@ -1815,6 +1853,15 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                       <span>Proof</span>
                                     </button>
                                   )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenMessengerModal(b)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold transition-colors cursor-pointer active:scale-95"
+                                    title="Generate Facebook Messenger Confirmation"
+                                  >
+                                    <MessageSquare className="w-3 h-3" />
+                                    <span>Messenger</span>
+                                  </button>
                                   <span className="font-black text-white font-mono text-xs sm:text-sm">
                                     ₱{b.totalCost?.toLocaleString() || 0}
                                   </span>
@@ -2274,6 +2321,17 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                       </button>
                     )}
 
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenMessengerModal(b);
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-blue-500/30 transition-all cursor-pointer active:scale-98"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Send Messenger Confirmation</span>
+                    </button>
+
                     {_userPermissions?.canManageBookings && (
                       <button
                         type="button"
@@ -2701,6 +2759,14 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           </div>
         </div>
       )}
+
+      {/* Facebook Messenger Preview Modal */}
+      <AdminMessengerPreviewModal
+        isOpen={isMessengerModalOpen}
+        onClose={() => setIsMessengerModalOpen(false)}
+        bookingData={messengerBookingData}
+        customTemplate={myCompany?.messengerTemplate || localStorage.getItem('picklepoint_messenger_template') || undefined}
+      />
     </div>
   );
 };

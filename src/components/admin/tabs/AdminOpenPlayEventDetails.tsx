@@ -43,12 +43,18 @@ import {
   BookOpen,
   ShieldAlert,
   ArrowRightLeft,
+  MessageSquare,
+  ChevronDown,
+  ChevronUp,
+  MoreHorizontal,
 } from 'lucide-react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../../../firebase';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { type OpenPlayRegistrationItem } from './AdminOpenPlayTab';
 import { AdminMoveOpenPlayPlayerModal } from '../modals/AdminMoveOpenPlayPlayerModal';
+import { AdminMessengerPreviewModal } from '../modals/AdminMessengerPreviewModal';
+import { type BookingMessengerData } from '../../../utils/messengerTemplateUtils';
 import {
   sendOpenPlayEventCancellationEmail,
   sendOpenPlayGameReminderEmail
@@ -136,6 +142,29 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest' | 'waitlist'>('all');
   const [copiedShareLink, setCopiedShareLink] = useState<boolean>(false);
 
+  // Messenger Modal State
+  const [messengerBookingData, setMessengerBookingData] = useState<BookingMessengerData | null>(null);
+  const [isMessengerModalOpen, setIsMessengerModalOpen] = useState<boolean>(false);
+
+  const handleOpenMessengerForAttendee = (att: any) => {
+    setMessengerBookingData({
+      playerName: att.name || 'Pickleball Player',
+      venueName: event.companyName || event.location || 'Pickleball Facility',
+      bookingRef: att.referenceNumber || (event as any).bookingReference || event.id || '',
+      courtName: event.title,
+      date: event.eventDate,
+      timeSlot: `${event.startTime} - ${event.endTime}`,
+      playerCount: '1 spot',
+      totalCost: event.registrationFee || 0,
+      paymentStatus: att.paymentStatus === 'paid' ? 'Paid' : 'Confirmed',
+      venueAddress: event.location,
+      voucherLink: att.referenceNumber
+        ? `https://bookpicklecourt.com/?view=lookup&ref=${encodeURIComponent(att.referenceNumber)}`
+        : undefined,
+    });
+    setIsMessengerModalOpen(true);
+  };
+
   // Poster Lightbox Modal State
   const [isPosterModalOpen, setIsPosterModalOpen] = useState<boolean>(false);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState<boolean>(false);
@@ -193,6 +222,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   const [customRefundNotice, setCustomRefundNotice] = useState<string>('');
   const [isDispatchingEmails, setIsDispatchingEmails] = useState<boolean>(false);
   const [dispatchStatusToast, setDispatchStatusToast] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
+
+  // Mobile More Actions Collapsible State
+  const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
 
   // Persistent Attendance Map from localStorage (supports boolean or 'present' | 'absent' | 'unmarked')
   const [attendanceMap, setAttendanceMap] = useState<Record<string, boolean | 'present' | 'absent' | 'unmarked'>>(() => {
@@ -1380,7 +1412,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   const activeHeadcount = totalHeadcount - absentAttendeesCount;
   const hasAbsentPlayer = absentAttendeesCount > 0;
   const isFull = totalHeadcount >= maxCapacity && activeHeadcount >= maxCapacity && !hasAbsentPlayer;
-  const isAddPlayerDisabled = isEventExpired || event.status === 'expired' || (isFull && !hasAbsentPlayer);
+  const isAddPlayerDisabled = isEventExpired || event.status === 'expired' || event.status === 'completed' || isFull;
   const primaryCount = allAttendees.filter((a) => a.type === 'primary').length;
   const guestCount = allAttendees.filter((a) => a.type === 'guest').length;
   const approvedHeadcount = allAttendees.filter((a) => a.status === 'approved' || a.paymentStatus === 'paid').length;
@@ -1686,62 +1718,62 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         </div>
       </div>
 
-      {/* KPI Stat Cards Grid (Right after Back to Sessions) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+      {/* KPI Stat Cards Grid: 2x2 on mobile, 4 columns on large screens */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         {/* Stat 1: Gross Revenue */}
-        <div className="glass-panel border border-slate-800 rounded-3xl p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Gross Revenue</span>
-            <DollarSign className="w-4 h-4 text-brand-lime" />
+        <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
+          <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+            <span className="truncate">Gross Revenue</span>
+            <DollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-lime shrink-0" />
           </div>
-          <div className="text-2xl font-mono font-black text-brand-lime">
+          <div className="text-lg sm:text-2xl font-mono font-black text-brand-lime truncate">
             ₱{totalGrossRevenue.toLocaleString()}
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">
             From {approvedHeadcount} confirmed {approvedHeadcount === 1 ? 'player' : 'players'}
           </div>
         </div>
 
         {/* Stat 2: Total Headcount */}
-        <div className="glass-panel border border-slate-800 rounded-3xl p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Headcount</span>
-            <Users className="w-4 h-4 text-blue-400" />
+        <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
+          <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+            <span className="truncate">Headcount</span>
+            <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400 shrink-0" />
           </div>
-          <div className="text-2xl font-black text-white">
-            {totalHeadcount} <span className="text-xs text-slate-500 font-bold">/ {maxCapacity} Max</span>
+          <div className="text-lg sm:text-2xl font-black text-white truncate">
+            {totalHeadcount} <span className="text-[10px] sm:text-xs text-slate-500 font-bold">/ {maxCapacity} Max</span>
           </div>
-          <div className="text-[11px] text-slate-400">
-            👤 {primaryCount} Primary • 👥 {guestCount} Guests
+          <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">
+            👤 {primaryCount} Pri • 👥 {guestCount} Guests
           </div>
         </div>
 
         {/* Stat 3: Attendance Tracking */}
-        <div className="glass-panel border border-slate-800 rounded-3xl p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Attendance</span>
-            <UserCheck className="w-4 h-4 text-brand-lime" />
+        <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
+          <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+            <span className="truncate">Attendance</span>
+            <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-lime shrink-0" />
           </div>
-          <div className="text-2xl font-black text-brand-lime">
-            {attendedCount} <span className="text-xs text-slate-400 font-bold">({attendancePercent}%)</span>
+          <div className="text-lg sm:text-2xl font-black text-brand-lime truncate">
+            {attendedCount} <span className="text-[10px] sm:text-xs text-slate-400 font-bold">({attendancePercent}%)</span>
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">
             {totalHeadcount - attendedCount} remaining to check in
           </div>
         </div>
 
         {/* Stat 4: Payment Verification */}
-        <div className="glass-panel border border-slate-800 rounded-3xl p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-bold uppercase tracking-wider">
-            <span>Payment Status</span>
-            <CreditCard className="w-4 h-4 text-brand-emerald" />
+        <div className="glass-panel border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 shadow-lg text-left space-y-1 bg-slate-900/40">
+          <div className="flex items-center justify-between text-slate-400 text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+            <span className="truncate">Payment Status</span>
+            <CreditCard className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-emerald shrink-0" />
           </div>
-          <div className="text-2xl font-black text-brand-emerald">
-            {approvedHeadcount} <span className="text-xs text-slate-400 font-bold">Approved</span>
+          <div className="text-lg sm:text-2xl font-black text-brand-emerald truncate">
+            {approvedHeadcount} <span className="text-[10px] sm:text-xs text-slate-400 font-bold">Approved</span>
           </div>
-          <div className="text-[11px] text-slate-400">
+          <div className="text-[10px] sm:text-[11px] text-slate-400 truncate">
             {pendingHeadcount > 0 ? (
-              <span className="text-yellow-400 font-bold">⏳ {pendingHeadcount} Pending Verification</span>
+              <span className="text-yellow-400 font-bold">⏳ {pendingHeadcount} Pending</span>
             ) : (
               <span>All payments verified</span>
             )}
@@ -1749,19 +1781,19 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         </div>
       </div>
 
-      {/* Hero Session Summary & Poster Section */}
+      {/* Hero Session Summary & Poster Section (Mobile: Overview on top, Poster below; Desktop: side-by-side) */}
       <div className="glass-panel border border-slate-800 rounded-3xl p-5 md:p-6 shadow-2xl relative overflow-hidden flex flex-col md:flex-row gap-6 items-start">
-        {/* Left Column: Poster Image Preview */}
+        {/* Poster Image Preview: order-2 on mobile (below overview), order-1 on desktop */}
         <div
           onClick={() => {
             if (event.posterImageUrl) setIsPosterModalOpen(true);
           }}
-          className={`w-full md:w-72 lg:w-80 flex-shrink-0 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden relative group shadow-lg ${
+          className={`order-2 md:order-1 w-full md:w-72 lg:w-80 flex-shrink-0 rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden relative group shadow-lg ${
             event.posterImageUrl ? 'cursor-pointer' : ''
           }`}
           title={event.posterImageUrl ? 'Click to view full poster image' : ''}
         >
-          <div className="w-full aspect-[3/4] max-h-[380px] bg-slate-950 flex items-center justify-center relative">
+          <div className="w-full aspect-[16/10] sm:aspect-[4/3] md:aspect-[3/4] max-h-[380px] bg-slate-950 flex items-center justify-center relative">
             {event.posterImageUrl ? (
               <>
                 <img
@@ -1797,21 +1829,21 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
           </div>
         </div>
 
-        {/* Right Column: Detailed Overview Metadata */}
-        <div className="flex-1 min-w-0 w-full space-y-4 flex flex-col justify-between self-stretch">
+        {/* Detailed Overview Metadata: order-1 on mobile, order-2 on desktop */}
+        <div className="order-1 md:order-2 flex-1 min-w-0 w-full space-y-4 flex flex-col justify-between self-stretch">
           <div className="space-y-4 min-w-0">
             {/* Header: Title & Entry Fee Box */}
-            <div className="flex flex-row items-start justify-between gap-4 pb-3 border-b border-slate-800/80 min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4 pb-3 border-b border-slate-800/80 min-w-0">
               <div className="min-w-0 flex-1">
-                <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight break-words">
+                <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white leading-tight break-words">
                   {event.title}
                 </h2>
-                <div className="flex items-center gap-2.5 mt-2 flex-wrap text-sm">
+                <div className="flex items-center gap-2 mt-2 flex-wrap text-xs sm:text-sm">
                   <span className="font-semibold text-slate-300">
                     Category: <strong className="text-brand-lime font-mono font-bold">{event.category || 'Open Play'}</strong>
                   </span>
                   {event.isRecurring && event.recurrencePattern && (
-                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-300 bg-purple-950/50 border border-purple-800/60 px-3 py-1 rounded-xl">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-300 bg-purple-950/50 border border-purple-800/60 px-2.5 py-0.5 rounded-xl">
                       <Repeat className="w-3.5 h-3.5 text-purple-400" />
                       <span>{event.recurrencePattern}</span>
                     </span>
@@ -1819,17 +1851,16 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 </div>
               </div>
 
-              <div className="shrink-0 bg-slate-900/90 border border-slate-800 rounded-2xl px-5 py-2.5 text-right shadow-md">
-                <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider block">Entry Fee</span>
-                <span className="text-xl md:text-2xl font-mono font-bold text-brand-lime">
+              <div className="self-start sm:self-auto shrink-0 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-2 sm:px-5 sm:py-2.5 text-left sm:text-right shadow-md">
+                <span className="text-[10px] sm:text-xs text-slate-400 font-semibold uppercase tracking-wider block">Entry Fee</span>
+                <span className="text-lg sm:text-xl md:text-2xl font-mono font-bold text-brand-lime">
                   {feePerPlayer > 0 ? `₱${feePerPlayer}` : 'FREE'}
                 </span>
               </div>
             </div>
 
-
-            {/* Open Minimalist Metadata Section (No Individual Card Boxes) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6 text-sm text-slate-200 min-w-0 py-1">
+            {/* Open Minimalist Metadata Section */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-3.5 sm:gap-y-4 gap-x-6 text-sm text-slate-200 min-w-0 py-1">
               {/* Date & Time */}
               <div className="flex items-start gap-3 border-l-2 border-brand-lime/60 pl-3.5 py-0.5 min-w-0">
                 <Calendar className="w-5 h-5 text-brand-lime flex-shrink-0 mt-0.5" />
@@ -1909,7 +1940,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             </div>
 
             {/* Modal Alert Trigger Card for Session Rules, Format & Description */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800 flex items-center justify-between gap-3 shadow-md mt-2">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md mt-2">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime flex items-center justify-center shrink-0">
                   <BookOpen className="w-4.5 h-4.5" />
@@ -1923,7 +1954,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
               <button
                 type="button"
                 onClick={() => setIsRulesModalOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-brand-lime/15 hover:bg-brand-lime/25 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm hover:scale-[1.02] shrink-0"
+                className="w-full sm:w-auto px-3.5 py-2 min-h-[40px] rounded-xl bg-brand-lime/15 hover:bg-brand-lime/25 border border-brand-lime/40 text-brand-lime text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm hover:scale-[1.01] active:scale-[0.98] shrink-0 touch-manipulation"
               >
                 <Eye className="w-4 h-4 text-brand-lime" />
                 <span>View Rules & Play Format</span>
@@ -1931,148 +1962,177 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             </div>
           </div>
 
+          {/* Action Toolbar: 2-Tier Layout (Primary Ops on Top, Collapsible More Actions) */}
+          <div className="space-y-3 pt-3 border-t border-slate-800 w-full mt-auto">
+            {/* Tier 1: Primary Operational Actions Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full">
+              {onOpenMatchManagement && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onOpenMatchManagement(event, 'matrix')}
+                    className="w-full py-2.5 px-4 min-h-[44px] rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-500/25 transition-all hover:scale-[1.01] active:scale-[0.98] touch-manipulation"
+                    title="Create, auto-generate, assign courts, edit and score open play matches"
+                  >
+                    <Trophy className="w-4 h-4 text-brand-lime shrink-0" />
+                    <span className="truncate">Matches / Court Matrix</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenMatchManagement(event, 'leaderboard')}
+                    className="w-full py-2.5 px-4 min-h-[44px] rounded-2xl bg-amber-400 hover:bg-amber-300 text-dark-bg font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-400/20 transition-all hover:scale-[1.01] active:scale-[0.98] touch-manipulation"
+                    title="View participant leaderboard, win rates, and standings"
+                  >
+                    <Trophy className="w-4 h-4 text-dark-bg shrink-0" />
+                    <span className="truncate">Standings & Leaderboard</span>
+                  </button>
+                </>
+              )}
 
-          {/* Action Toolbar Row next to Copy Shareable Link */}
-          <div className="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-800 text-xs mt-auto">
-            {onOpenMatchManagement && (
-              <>
+              {onOpenManualBookingModal && (
                 <button
                   type="button"
-                  onClick={() => onOpenMatchManagement(event, 'matrix')}
-                  className="py-2 px-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs flex items-center gap-2 cursor-pointer shadow-lg shadow-purple-500/25 transition-all hover:scale-[1.02]"
-                  title="Create, auto-generate, assign courts, edit and score open play matches"
+                  disabled={isAddPlayerDisabled}
+                  onClick={() => onOpenManualBookingModal(event)}
+                  className={`w-full py-2.5 px-4 min-h-[44px] rounded-2xl transition-all text-xs font-black flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] touch-manipulation ${
+                    isAddPlayerDisabled
+                      ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
+                      : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-brand-lime/20'
+                  }`}
+                  title={
+                    isEventExpired || event.status === 'expired' || event.status === 'completed'
+                      ? "Cannot add player to an expired or concluded event session"
+                      : isFull
+                        ? "This Open Play session is fully booked"
+                        : "Manually add walk-in or cash player registration"
+                  }
                 >
-                  <Trophy className="w-4 h-4 text-brand-lime" />
-                  <span>Matches / Court Matrix</span>
+                  <UserPlus className={`w-4 h-4 shrink-0 ${isAddPlayerDisabled ? 'text-slate-500' : 'text-dark-bg'}`} />
+                  <span className="truncate">+ Add Player (Manual)</span>
                 </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsReminderModalOpen(true)}
+                className="w-full py-2.5 px-4 min-h-[44px] rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg transition-all text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-[0.98] touch-manipulation"
+                title="Send flexible game start email reminder to all rostered participants"
+              >
+                <Bell className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate">Game Reminder</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 font-mono text-[10px] shrink-0">
+                  {allAttendees.filter((a) => a.email && a.email.includes('@') && !a.email.toLowerCase().startsWith('shared (')).length}
+                </span>
+              </button>
+            </div>
+
+            {/* Tier 2: Secondary Utility Actions (Collapsible on Mobile, Clean row on Desktop) */}
+            <div className="pt-1">
+              {/* Mobile Toggle Button */}
+              <button
+                type="button"
+                onClick={() => setIsMoreActionsOpen(!isMoreActionsOpen)}
+                className="w-full py-2 px-3.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 text-xs font-extrabold flex items-center justify-between cursor-pointer transition-all sm:hidden min-h-[40px] touch-manipulation"
+              >
+                <div className="flex items-center gap-2">
+                  <MoreHorizontal className="w-4 h-4 text-brand-lime" />
+                  <span>More Event Actions (9)</span>
+                </div>
+                {isMoreActionsOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+              </button>
+
+              {/* Utility Buttons Container (hidden on mobile unless toggled open; always visible on >=sm) */}
+              <div className={`${isMoreActionsOpen ? 'flex' : 'hidden'} sm:flex items-center gap-2 flex-wrap pt-2 sm:pt-0 text-xs`}>
                 <button
                   type="button"
-                  onClick={() => onOpenMatchManagement(event, 'leaderboard')}
-                  className="py-2 px-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-dark-bg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-lg shadow-amber-400/20 transition-all hover:scale-[1.02]"
-                  title="View participant leaderboard, win rates, and standings"
+                  onClick={handleCopyLink}
+                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-900 border border-slate-800 hover:border-brand-lime text-slate-300 hover:text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
                 >
-                  <Trophy className="w-4 h-4 text-dark-bg" />
-                  <span>Standings & Leaderboard</span>
+                  <Share2 className="w-4 h-4 text-brand-lime" />
+                  <span>Copy Link</span>
                 </button>
-              </>
-            )}
 
-            {onOpenManualBookingModal && (
-              <button
-                type="button"
-                disabled={isEventExpired || event.status === 'expired' || event.status === 'completed' || isFull}
-                onClick={() => onOpenManualBookingModal(event)}
-                className={`py-2 px-3.5 rounded-2xl transition-all text-xs font-normal flex items-center gap-1.5 shadow-lg ${
-                  isEventExpired || event.status === 'expired' || event.status === 'completed' || isFull
-                    ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
-                    : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-brand-lime/20'
-                }`}
-                title={
-                  isEventExpired || event.status === 'expired' || event.status === 'completed'
-                    ? "Cannot add player to an expired or concluded event session"
-                    : isFull
-                      ? "This Open Play session is fully booked"
-                      : "Manually add walk-in or cash player registration"
-                }
-              >
-                <UserPlus className={`w-4 h-4 ${isEventExpired || event.status === 'expired' || event.status === 'completed' || isFull ? 'text-slate-500' : 'text-dark-bg'}`} />
-                <span>+ Add Player (Manual)</span>
-              </button>
-            )}
+                <button
+                  type="button"
+                  onClick={handleOpenPublicPage}
+                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                  title="Open public registration page in new tab"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Public Page</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => setIsReminderModalOpen(true)}
-              className="py-2 px-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-dark-bg transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Send flexible game start email reminder to all rostered participants"
-            >
-              <Bell className="w-4 h-4 text-amber-400" />
-              <span>Send Game Start Reminder</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-400/20 text-amber-300 font-mono text-[10px]">
-                {allAttendees.filter((a) => a.email && a.email.includes('@') && !a.email.toLowerCase().startsWith('shared (')).length}
-              </span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenQrModal(event)}
+                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-900 border border-slate-800 hover:border-brand-lime text-slate-300 hover:text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                >
+                  <QrCode className="w-4 h-4 text-brand-lime" />
+                  <span>QR Code</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={handleCopyLink}
-              className="py-2 px-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-brand-lime text-slate-300 hover:text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <Share2 className="w-4 h-4 text-brand-lime" />
-              <span>Copy Shareable Link</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenJsonModal(event)}
+                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-900 border border-slate-800 hover:border-brand-lime text-slate-300 hover:text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                >
+                  <FileCode className="w-4 h-4 text-brand-lime" />
+                  <span>JSON</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={handleOpenPublicPage}
-              className="py-2 px-3.5 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Open public registration page in new tab"
-            >
-              <ExternalLink className="w-4 h-4" /> View Public Page
-            </button>
+                {onExportRoster && (
+                  <button
+                    type="button"
+                    onClick={() => onExportRoster(event)}
+                    className="py-2 px-3.5 min-h-[40px] rounded-xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Export CSV</span>
+                  </button>
+                )}
 
-            <button
-              type="button"
-              onClick={() => onOpenQrModal(event)}
-              className="py-2 px-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-brand-lime text-slate-300 hover:text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <QrCode className="w-4 h-4 text-brand-lime" /> Share QR Code
-            </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenEditModal(event)}
+                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-800 hover:bg-slate-700 text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  <span>Edit</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => onOpenJsonModal(event)}
-              className="py-2 px-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-brand-lime text-slate-300 hover:text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <FileCode className="w-4 h-4 text-brand-lime" /> Generate JSON
-            </button>
+                {onDuplicateEvent && (
+                  <button
+                    type="button"
+                    onClick={() => onDuplicateEvent(event)}
+                    className="py-2 px-3.5 min-h-[40px] rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                    title="Duplicate Session"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span>Duplicate</span>
+                  </button>
+                )}
 
-            {onExportRoster && (
-              <button
-                type="button"
-                onClick={() => onExportRoster(event)}
-                className="py-2 px-3.5 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-brand-emerald hover:bg-brand-emerald hover:text-dark-bg transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-              >
-                <Download className="w-4 h-4" /> Export CSV
-              </button>
-            )}
+                <button
+                  type="button"
+                  onClick={() => setIsCancelModalOpen(true)}
+                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-red-950/40 border border-red-800/60 text-red-300 hover:bg-red-900/60 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                  title="Cancel Session & Notify Registered Roster"
+                >
+                  <Ban className="w-4 h-4 text-red-400" />
+                  <span>Cancel Event</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => onOpenEditModal(event)}
-              className="py-2 px-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-            >
-              <Edit2 className="w-4 h-4" /> Edit
-            </button>
-
-            {onDuplicateEvent && (
-              <button
-                type="button"
-                onClick={() => onDuplicateEvent(event)}
-                className="py-2 px-3.5 rounded-2xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-                title="Duplicate Session"
-              >
-                <Copy className="w-4 h-4" /> Duplicate
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setIsCancelModalOpen(true)}
-              className="py-2 px-3.5 rounded-2xl bg-red-950/40 border border-red-800/60 text-red-300 hover:bg-red-900/60 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Cancel Session & Notify Registered Roster"
-            >
-              <Ban className="w-4 h-4 text-red-400" /> Cancel Event
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onDeleteEvent(event.id)}
-              className="py-2 px-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 hover:border-red-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Delete Session"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteEvent(event.id)}
+                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 hover:border-red-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                  title="Delete Session"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2226,173 +2286,157 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         </div>
       )}
       {/* Roster Controls & View Switcher Bar */}
-      <div className="glass-panel border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+      <div className="glass-panel border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl space-y-4">
+        {/* Roster Section Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
           <div>
-            <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
+            <h3 className="text-base sm:text-lg font-extrabold text-white flex items-center gap-2">
               <Users className="w-5 h-5 text-brand-lime" /> Registered Player & Guest Roster
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
               Review primary players and guests, mark present check-ins, and inspect GCash references.
             </p>
           </div>
+          <div className="text-xs text-slate-400 font-semibold self-start sm:self-auto shrink-0 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
+            <span>{attendedCount} / {totalHeadcount} Present</span>
+          </div>
+        </div>
 
-          {/* Bulk Attendance Controls */}
+        {/* 1. Full-Width Search Input on Top */}
+        <div className="relative w-full">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={rosterSearchQuery}
+            onChange={(e) => setRosterSearchQuery(e.target.value)}
+            placeholder="Search attendee by name, email, phone, or GCash ref..."
+            className="w-full min-h-[44px] pl-10 pr-10 py-2.5 bg-slate-900/90 border border-slate-800 focus:border-brand-lime/50 rounded-2xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none transition-colors"
+          />
+          {rosterSearchQuery && (
+            <button
+              type="button"
+              onClick={() => setRosterSearchQuery('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* 2. Horizontally Scrollable Role Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth pb-1 flex-nowrap w-full">
+          <button
+            type="button"
+            onClick={() => setRosterFilterRole('all')}
+            className={`px-3.5 py-2 min-h-[38px] rounded-xl font-extrabold text-xs transition-all cursor-pointer shrink-0 touch-manipulation active:scale-[0.98] ${
+              rosterFilterRole === 'all'
+                ? 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700'
+                : 'text-slate-400 hover:text-slate-200 bg-slate-900/80 border border-slate-800'
+            }`}
+          >
+            All ({allAttendees.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setRosterFilterRole('primary')}
+            className={`px-3.5 py-2 min-h-[38px] rounded-xl font-extrabold text-xs transition-all cursor-pointer shrink-0 touch-manipulation active:scale-[0.98] ${
+              rosterFilterRole === 'primary'
+                ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 bg-slate-900/80 border border-slate-800'
+            }`}
+          >
+            Primary ({primaryCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setRosterFilterRole('guest')}
+            className={`px-3.5 py-2 min-h-[38px] rounded-xl font-extrabold text-xs transition-all cursor-pointer shrink-0 touch-manipulation active:scale-[0.98] ${
+              rosterFilterRole === 'guest'
+                ? 'bg-purple-950/40 text-purple-300 border border-purple-800/50 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 bg-slate-900/80 border border-slate-800'
+            }`}
+          >
+            Guests ({guestCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setRosterFilterRole('waitlist')}
+            className={`px-3.5 py-2 min-h-[38px] rounded-xl font-extrabold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0 touch-manipulation active:scale-[0.98] ${
+              rosterFilterRole === 'waitlist'
+                ? 'bg-amber-400 text-dark-bg border border-amber-400/50 shadow-sm font-black'
+                : 'text-amber-400 hover:text-amber-300 bg-slate-900/80 border border-slate-800'
+            }`}
+          >
+            <Hourglass className="w-3.5 h-3.5" />
+            <span>Waitlist ({waitlistAttendees.length})</span>
+          </button>
+        </div>
+
+        {/* 3. View Switcher & Bulk Attendance Controls Row */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-slate-800/60">
+          {/* View Switcher Pills */}
+          <div className="flex items-center gap-1 p-1 rounded-2xl bg-slate-900 border border-slate-800 shrink-0 self-start sm:self-auto overflow-x-auto no-scrollbar max-w-full">
+            <button
+              onClick={() => setRosterViewMode('cards')}
+              className={`px-3 py-1.5 min-h-[36px] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shrink-0 ${
+                rosterViewMode === 'cards'
+                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Cards View</span>
+            </button>
+            <button
+              onClick={() => setRosterViewMode('list')}
+              className={`px-3 py-1.5 min-h-[36px] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shrink-0 ${
+                rosterViewMode === 'list'
+                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>Attendance List</span>
+            </button>
+            <button
+              onClick={() => setRosterViewMode('table')}
+              className={`px-3 py-1.5 min-h-[36px] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer touch-manipulation shrink-0 ${
+                rosterViewMode === 'table'
+                  ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Bookings Table</span>
+            </button>
+          </div>
+
+          {/* Bulk Attendance Action Buttons */}
           <div className="flex items-center gap-2 flex-wrap">
-            {onOpenManualBookingModal && (
-              <button
-                type="button"
-                disabled={isAddPlayerDisabled}
-                onClick={() => onOpenManualBookingModal(event)}
-                className={`px-3.5 py-2 rounded-xl transition-all font-bold text-xs flex items-center gap-1.5 ${
-                  isAddPlayerDisabled
-                    ? 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed shadow-none'
-                    : hasAbsentPlayer
-                    ? 'bg-amber-400 hover:bg-amber-300 text-dark-bg font-extrabold shadow-lg ring-2 ring-amber-300/60 animate-pulse cursor-pointer'
-                    : 'bg-brand-lime hover:bg-[#a6e224] text-dark-bg cursor-pointer shadow-md'
-                }`}
-                title={
-                  isEventExpired || event.status === 'expired'
-                    ? "Cannot add player to an expired event session"
-                    : isAddPlayerDisabled
-                      ? "This Open Play session is fully booked"
-                      : hasAbsentPlayer
-                        ? `Replacement Adder Enabled (${absentAttendeesCount} player(s) marked Absent)`
-                        : "Manually add walk-in or cash player registration"
-                }
-              >
-                <UserPlus className={`w-4 h-4 ${isAddPlayerDisabled ? 'text-slate-500' : 'text-dark-bg'}`} />
-                <span>+ Add Player (Manual)</span>
-                {hasAbsentPlayer && (
-                  <span className="ml-1 px-1.5 py-0.5 rounded bg-dark-bg/20 text-dark-bg text-[10px] font-black uppercase">
-                    Replacement Ready
-                  </span>
-                )}
-              </button>
-            )}
-
             <button
               type="button"
               onClick={() => markAllAttendeesPresent(filteredAttendees.map((a) => a.id))}
-              className="px-3.5 py-2 rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all font-extrabold text-xs cursor-pointer shadow-sm flex items-center gap-1.5"
+              className="px-3 py-1.5 min-h-[36px] rounded-xl bg-brand-lime/10 border border-brand-lime/30 text-brand-lime hover:bg-brand-lime hover:text-dark-bg transition-all font-extrabold text-xs cursor-pointer shadow-sm flex items-center gap-1.5 touch-manipulation"
             >
-              <UserCheck className="w-4 h-4" />
+              <UserCheck className="w-3.5 h-3.5" />
               <span>Mark All Present ({filteredAttendees.length})</span>
             </button>
             <button
               type="button"
               onClick={() => clearAttendeesAttendance(filteredAttendees.map((a) => a.id))}
-              className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all font-bold text-xs cursor-pointer shadow-sm"
+              className="px-3 py-1.5 min-h-[36px] rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all font-bold text-xs cursor-pointer shadow-sm touch-manipulation"
             >
               <span>Clear Marks</span>
             </button>
-
             <button
               type="button"
               onClick={handleExportRosterJson}
-              className="px-3.5 py-2 rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 hover:text-white transition-all font-extrabold text-xs cursor-pointer shadow-sm flex items-center gap-1.5"
+              className="px-3 py-1.5 min-h-[36px] rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 hover:text-white transition-all font-extrabold text-xs cursor-pointer shadow-sm flex items-center gap-1.5 touch-manipulation"
               title="Export roster player name, DUPR ID, and rating in JSON format"
             >
-              <FileCode className="w-4 h-4 text-purple-400" />
-              <span>Export Roster JSON</span>
+              <FileCode className="w-3.5 h-3.5 text-purple-400" />
+              <span>JSON</span>
             </button>
-          </div>
-        </div>
-
-        {/* View Switcher & Search Bar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* View Switcher Pills */}
-            <div className="flex items-center gap-1 p-1 rounded-2xl bg-slate-900 border border-slate-800">
-              <button
-                onClick={() => setRosterViewMode('cards')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  rosterViewMode === 'cards'
-                    ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" /> Cards View
-              </button>
-              <button
-                onClick={() => setRosterViewMode('list')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  rosterViewMode === 'list'
-                    ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <List className="w-3.5 h-3.5" /> Attendance List
-              </button>
-              <button
-                onClick={() => setRosterViewMode('table')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  rosterViewMode === 'table'
-                    ? 'bg-brand-lime text-dark-bg font-black shadow-sm'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <FileText className="w-3.5 h-3.5" /> Bookings Table
-              </button>
-            </div>
-
-            {/* Role Filter Pills */}
-            <div className="flex items-center gap-1 p-1 rounded-2xl bg-slate-900 border border-slate-800 text-xs">
-              <button
-                onClick={() => setRosterFilterRole('all')}
-                className={`px-3 py-1.5 rounded-xl font-extrabold transition-all cursor-pointer ${
-                  rosterFilterRole === 'all'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                All ({allAttendees.length})
-              </button>
-              <button
-                onClick={() => setRosterFilterRole('primary')}
-                className={`px-3 py-1.5 rounded-xl font-extrabold transition-all cursor-pointer ${
-                  rosterFilterRole === 'primary'
-                    ? 'bg-brand-lime/20 text-brand-lime border border-brand-lime/30'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Primary ({primaryCount})
-              </button>
-              <button
-                onClick={() => setRosterFilterRole('guest')}
-                className={`px-3 py-1.5 rounded-xl font-extrabold transition-all cursor-pointer ${
-                  rosterFilterRole === 'guest'
-                    ? 'bg-purple-950/40 text-purple-300 border border-purple-800/50'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Guests ({guestCount})
-              </button>
-              <button
-                onClick={() => setRosterFilterRole('waitlist')}
-                className={`px-3 py-1.5 rounded-xl font-extrabold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  rosterFilterRole === 'waitlist'
-                    ? 'bg-amber-400 text-dark-bg border border-amber-400/50 shadow-sm'
-                    : 'text-amber-400 hover:text-amber-300'
-                }`}
-              >
-                <Hourglass className="w-3.5 h-3.5" />
-                <span>Waitlist ({waitlistAttendees.length})</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-1 max-w-md">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={rosterSearchQuery}
-                onChange={(e) => setRosterSearchQuery(e.target.value)}
-                placeholder="Search attendee by name, email, phone, or GCash ref..."
-                className="w-full pl-9 pr-4 py-2 bg-slate-900/90 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime"
-              />
-            </div>
           </div>
         </div>
 
@@ -2704,6 +2748,15 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                         <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
                           <button
                             type="button"
+                            onClick={() => handleOpenMessengerForAttendee(att)}
+                            className="py-1.5 px-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer shrink-0"
+                            title="Send Facebook Messenger Confirmation"
+                          >
+                            <MessageSquare className="w-3 h-3 text-blue-400" />
+                            <span>Messenger</span>
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => setMovingAttendee(att)}
                             className="py-1.5 px-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer shrink-0"
                             title="Move player to another published Open Play session"
@@ -2914,6 +2967,15 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
                     {!isWaitlisted && (
                       <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenMessengerForAttendee(att)}
+                          className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                          title="Send Facebook Messenger Confirmation"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="hidden md:inline">Messenger</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => setMovingAttendee(att)}
@@ -3163,6 +3225,14 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                               )}
                               {!isWaitlisted && (
                                 <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenMessengerForAttendee(att)}
+                                    className="p-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 transition-all cursor-pointer shrink-0"
+                                    title="Send Facebook Messenger Confirmation"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => setMovingAttendee(att)}
@@ -3664,6 +3734,14 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
           formatTime12h={formatTime12h}
         />
       )}
+
+      {/* Facebook Messenger Preview Modal */}
+      <AdminMessengerPreviewModal
+        isOpen={isMessengerModalOpen}
+        onClose={() => setIsMessengerModalOpen(false)}
+        bookingData={messengerBookingData}
+        customTemplate={localStorage.getItem('picklepoint_messenger_template') || undefined}
+      />
     </div>
   );
 };

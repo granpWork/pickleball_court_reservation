@@ -13,6 +13,7 @@ interface OpenPlayManualMatchModalProps {
   rosterPool: OpenPlayMatchRosterItem[];
   existingMatchesInRoundCount: number;
   lockedPartners?: Record<string, string>;
+  matches?: OpenPlayMatch[];
   onSaveManualMatch: (matchData: {
     matchName: string;
     round: number;
@@ -34,6 +35,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
   rosterPool,
   existingMatchesInRoundCount,
   lockedPartners = {},
+  matches = [],
   onSaveManualMatch,
 }) => {
   const [manualMatchName, setManualMatchName] = useState<string>('');
@@ -44,7 +46,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
   const [selectedRedPlayers, setSelectedRedPlayers] = useState<string[]>([]);
   const [selectedBluePlayers, setSelectedBluePlayers] = useState<string[]>([]);
   const [playerSearchQuery, setPlayerSearchQuery] = useState<string>('');
-  const [attendanceFilter, setAttendanceFilter] = useState<'present' | 'all'>('present');
+  const [attendanceFilter, setAttendanceFilter] = useState<'present' | 'all' | 'locked'>('present');
 
   const presentCount = useMemo(
     () => rosterPool.filter((p) => p.status !== 'absent' && (p.isPresent || p.attendanceStatus === 'present')).length,
@@ -54,6 +56,59 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
     () => rosterPool.filter((p) => p.status !== 'absent').length,
     [rosterPool]
   );
+
+  // Player map by ID for fast lookup
+  const playerMap = useMemo(() => {
+    const map = new Map<string, OpenPlayMatchRosterItem>();
+    rosterPool.forEach((p) => map.set(p.id, p));
+    return map;
+  }, [rosterPool]);
+
+  // Set of player IDs already playing in OTHER matches in this manualRound
+  const scheduledPlayerIdsInManualRound = useMemo(() => {
+    const busyIds = new Set<string>();
+    matches.forEach((m) => {
+      if (m.round === manualRound && m.id !== editingMatch?.id) {
+        m.teamRed?.players?.forEach((p) => busyIds.add(p.id));
+        m.teamBlue?.players?.forEach((p) => busyIds.add(p.id));
+      }
+    });
+    return busyIds;
+  }, [matches, manualRound, editingMatch]);
+
+  // All unique locked pairs configured in this event
+  const allLockedPairs = useMemo(() => {
+    const seen = new Set<string>();
+    const pairs: [OpenPlayMatchRosterItem, OpenPlayMatchRosterItem][] = [];
+    Object.entries(lockedPartners).forEach(([p1Id, p2Id]) => {
+      const pairKey = [p1Id, p2Id].sort().join(':::');
+      if (!seen.has(pairKey) && p1Id !== p2Id) {
+        seen.add(pairKey);
+        const p1 = playerMap.get(p1Id);
+        const p2 = playerMap.get(p2Id);
+        if (p1 && p2 && p1.status !== 'absent' && p2.status !== 'absent') {
+          pairs.push([p1, p2]);
+        }
+      }
+    });
+    return pairs;
+  }, [lockedPartners, playerMap]);
+
+  // Available locked pairs in Round N (neither is in another match in this round, and eligible by attendance)
+  const availableLockedPairs = useMemo(() => {
+    return allLockedPairs.filter(([p1, p2]) => {
+      const p1Busy = scheduledPlayerIdsInManualRound.has(p1.id);
+      const p2Busy = scheduledPlayerIdsInManualRound.has(p2.id);
+      if (p1Busy || p2Busy) return false;
+
+      if (attendanceFilter === 'present') {
+        const p1Present = p1.isPresent || p1.attendanceStatus === 'present';
+        const p2Present = p2.isPresent || p2.attendanceStatus === 'present';
+        if (!p1Present || !p2Present) return false;
+      }
+      return true;
+    });
+  }, [allLockedPairs, scheduledPlayerIdsInManualRound, attendanceFilter]);
 
   useEffect(() => {
     if (editingMatch) {
@@ -83,6 +138,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
     return rosterPool.filter((p) => {
       if (p.status === 'absent') return false;
       if (attendanceFilter === 'present' && !p.isPresent && p.attendanceStatus !== 'present') return false;
+      if (attendanceFilter === 'locked' && !lockedPartners[p.id]) return false;
       if (!q) return true;
 
       const nameMatch = p.name.toLowerCase().includes(q);
@@ -91,7 +147,7 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
 
       return nameMatch || duprIdMatch || ratingMatch;
     });
-  }, [rosterPool, playerSearchQuery, attendanceFilter]);
+  }, [rosterPool, playerSearchQuery, attendanceFilter, lockedPartners]);
 
   // Helper to resolve player information from roster pool or fallback to editingMatch
   const resolvePlayer = (id: string) => {
@@ -213,6 +269,46 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
     setSelectedBluePlayers((prev) => [...prev, p.id]);
   };
 
+  const handleAssignLockedPairToRed = (p1: OpenPlayMatchRosterItem, p2: OpenPlayMatchRosterItem) => {
+    if (selectedBluePlayers.includes(p1.id) || selectedBluePlayers.includes(p2.id)) {
+      alert(`One or both players in this pair (${p1.name} & ${p2.name}) are already assigned to Team Blue!`);
+      return;
+    }
+
+    if (selectedRedPlayers.includes(p1.id) && selectedRedPlayers.includes(p2.id)) {
+      return;
+    }
+
+    if (selectedRedPlayers.length > 0) {
+      const confirmReplace = window.confirm(
+        `Team Red already has player(s) selected. Replace Team Red lineup with ${p1.name} & ${p2.name}?`
+      );
+      if (!confirmReplace) return;
+    }
+
+    setSelectedRedPlayers([p1.id, p2.id]);
+  };
+
+  const handleAssignLockedPairToBlue = (p1: OpenPlayMatchRosterItem, p2: OpenPlayMatchRosterItem) => {
+    if (selectedRedPlayers.includes(p1.id) || selectedRedPlayers.includes(p2.id)) {
+      alert(`One or both players in this pair (${p1.name} & ${p2.name}) are already assigned to Team Red!`);
+      return;
+    }
+
+    if (selectedBluePlayers.includes(p1.id) && selectedBluePlayers.includes(p2.id)) {
+      return;
+    }
+
+    if (selectedBluePlayers.length > 0) {
+      const confirmReplace = window.confirm(
+        `Team Blue already has player(s) selected. Replace Team Blue lineup with ${p1.name} & ${p2.name}?`
+      );
+      if (!confirmReplace) return;
+    }
+
+    setSelectedBluePlayers([p1.id, p2.id]);
+  };
+
   if (!isOpen) return null;
 
   const handleSubmit = () => {
@@ -310,6 +406,131 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
             </div>
           </div>
 
+          {/* SECTION: AVAILABLE LOCKED PAIRS (ROUND N) - DOUBLES ONLY */}
+          {manualGameType === 'doubles' && allLockedPairs.length > 0 && (
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-purple-950/25 border border-purple-800/40 space-y-2.5 animate-fade-in">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-purple-900/60 border border-purple-500/40 flex items-center justify-center text-purple-300">
+                    <Lock className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-white text-xs flex items-center gap-1.5">
+                      <span>Available Locked Pairs (Round {manualRound})</span>
+                      <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-purple-900/80 text-purple-200 border border-purple-700/60 font-bold">
+                        {availableLockedPairs.length} Available
+                      </span>
+                    </h4>
+                    <p className="text-[10px] text-purple-300/80">
+                      Pre-set partner pairs not scheduled in other matches for Round {manualRound}
+                    </p>
+                  </div>
+                </div>
+
+                {availableLockedPairs.length < allLockedPairs.length && (
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {allLockedPairs.length - availableLockedPairs.length} locked pair(s) playing elsewhere in Round {manualRound}
+                  </span>
+                )}
+              </div>
+
+              {availableLockedPairs.length === 0 ? (
+                <div className="p-3 rounded-xl bg-purple-950/20 border border-purple-900/30 text-center text-purple-300/70 text-xs">
+                  All locked player pairs are currently scheduled in other matches for Round {manualRound} (or absent).
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {availableLockedPairs.map(([p1, p2]) => {
+                    const isRed = selectedRedPlayers.includes(p1.id) && selectedRedPlayers.includes(p2.id);
+                    const isBlue = selectedBluePlayers.includes(p1.id) && selectedBluePlayers.includes(p2.id);
+                    const isSplit =
+                      (selectedRedPlayers.includes(p1.id) && selectedBluePlayers.includes(p2.id)) ||
+                      (selectedBluePlayers.includes(p1.id) && selectedRedPlayers.includes(p2.id));
+
+                    const p1Rating = p1.adminDuprRating || p1.duprRating;
+                    const p2Rating = p2.adminDuprRating || p2.duprRating;
+                    const avgRating =
+                      p1Rating && p2Rating
+                        ? ((parseFloat(String(p1Rating)) + parseFloat(String(p2Rating))) / 2).toFixed(2)
+                        : null;
+
+                    return (
+                      <div
+                        key={`${p1.id}-${p2.id}`}
+                        className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 transition-all ${
+                          isRed
+                            ? 'bg-red-950/30 border-red-700/60'
+                            : isBlue
+                            ? 'bg-blue-950/30 border-blue-700/60'
+                            : isSplit
+                            ? 'bg-amber-950/30 border-amber-700/60'
+                            : 'bg-slate-950/60 border-purple-800/40 hover:border-purple-600/60'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {/* Overlapping Avatars */}
+                            <div className="flex -space-x-2 shrink-0">
+                              <img
+                                src={p1.photoUrl || `https://robohash.org/${encodeURIComponent(p1.name)}?set=set4`}
+                                alt={p1.name}
+                                className="w-7 h-7 rounded-full bg-slate-800 border-2 border-slate-900 object-cover"
+                              />
+                              <img
+                                src={p2.photoUrl || `https://robohash.org/${encodeURIComponent(p2.name)}?set=set4`}
+                                alt={p2.name}
+                                className="w-7 h-7 rounded-full bg-slate-800 border-2 border-slate-900 object-cover"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-extrabold text-white text-xs truncate">
+                                {p1.name} & {p2.name}
+                              </div>
+                              <div className="text-[10px] text-purple-300 font-mono flex items-center gap-1.5 flex-wrap">
+                                {avgRating && <span>Avg: ★ {avgRating}</span>}
+                                {p1.skillLevel && <span className="opacity-80">[{p1.skillLevel}]</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Status Badge or Assignment Buttons */}
+                          {isRed ? (
+                            <span className="px-2 py-1 rounded-lg bg-red-600/80 border border-red-500 text-white font-black text-[10px] flex items-center gap-1 shrink-0">
+                              <Check className="w-3 h-3" /> Team Red
+                            </span>
+                          ) : isBlue ? (
+                            <span className="px-2 py-1 rounded-lg bg-blue-600/80 border border-blue-500 text-white font-black text-[10px] flex items-center gap-1 shrink-0">
+                              <Check className="w-3 h-3" /> Team Blue
+                            </span>
+                          ) : (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleAssignLockedPairToRed(p1, p2)}
+                                className="px-2 py-1 rounded-lg bg-red-950/80 hover:bg-red-800 border border-red-700/60 text-red-200 hover:text-white font-bold text-[10px] transition-all cursor-pointer"
+                                title={`Assign ${p1.name} & ${p2.name} to Team Red`}
+                              >
+                                + Team Red
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleAssignLockedPairToBlue(p1, p2)}
+                                className="px-2 py-1 rounded-lg bg-blue-950/80 hover:bg-blue-800 border border-blue-700/60 text-blue-200 hover:text-white font-bold text-[10px] transition-all cursor-pointer"
+                                title={`Assign ${p1.name} & ${p2.name} to Team Blue`}
+                              >
+                                + Team Blue
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Player Search Bar & Attendance Filter */}
           <div className="space-y-2">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -348,6 +569,25 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                     {totalEligibleCount}
                   </span>
                 </button>
+                {allLockedPairs.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAttendanceFilter('locked')}
+                    className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                      attendanceFilter === 'locked'
+                        ? 'bg-purple-600 text-white font-black shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Lock className="w-3 h-3 text-purple-300 shrink-0" />
+                    <span>Locked Pairs</span>
+                    <span className={`px-1 py-0.2 rounded text-[9px] font-mono ${
+                      attendanceFilter === 'locked' ? 'bg-purple-800 text-white font-black' : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      {availableLockedPairs.length}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -505,6 +745,11 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                                 <span className="text-[9px] px-1 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0">
                                   <Lock className="w-2.5 h-2.5 text-purple-400" />
                                   <span>Locked: {partner.name}</span>
+                                </span>
+                              )}
+                              {scheduledPlayerIdsInManualRound.has(p.id) && (
+                                <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold shrink-0">
+                                  In Rd {manualRound}
                                 </span>
                               )}
                               {p.isPresent || p.attendanceStatus === 'present' ? (
@@ -682,6 +927,11 @@ export const OpenPlayManualMatchModal: React.FC<OpenPlayManualMatchModalProps> =
                                 <span className="text-[9px] px-1 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 font-bold flex items-center gap-0.5 shrink-0">
                                   <Lock className="w-2.5 h-2.5 text-purple-400" />
                                   <span>Locked: {partner.name}</span>
+                                </span>
+                              )}
+                              {scheduledPlayerIdsInManualRound.has(p.id) && (
+                                <span className="text-[9px] px-1 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 font-bold shrink-0">
+                                  In Rd {manualRound}
                                 </span>
                               )}
                               {p.isPresent || p.attendanceStatus === 'present' ? (

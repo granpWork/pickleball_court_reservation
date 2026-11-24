@@ -23,6 +23,7 @@ import {
   Calendar,
   Cpu,
   Grid3X3,
+  MessageSquare,
 } from 'lucide-react';
 import {
   type AdminTab,
@@ -771,6 +772,26 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                           AI
                         </span>
                       )}
+                    </button>
+                  )}
+
+                  {(isClientAdminRole || isManagerRole || isSuperAdmin) && (
+                    <button
+                      type="button"
+                      disabled={isTrialOrSubExpired}
+                      onClick={() => { if (!isTrialOrSubExpired) { setActiveTab('settings'); setSettingsSubTab('messenger'); setMobileMenuOpen(false); } }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                        isTrialOrSubExpired
+                          ? 'opacity-40 cursor-not-allowed text-slate-600'
+                          : activeTab === 'settings' && settingsSubTab === 'messenger'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Messenger Templates</span>
+                      </div>
                     </button>
                   )}
                 </div>

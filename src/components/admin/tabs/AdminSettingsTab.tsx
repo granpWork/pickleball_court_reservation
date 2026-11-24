@@ -30,10 +30,19 @@ import {
   AlertTriangle,
   ShieldCheck,
   Calendar,
+  MessageSquare,
 } from 'lucide-react';
 import { AdminPoliciesTab } from './AdminPoliciesTab';
 import { AdminGoogleAiSettings } from './AdminGoogleAiSettings';
 import { GcashAmountQrModal } from '../modals/GcashAmountQrModal';
+import {
+  DEFAULT_MESSENGER_TEMPLATE,
+  MESSENGER_TEMPLATE_VARIABLES,
+  formatMessengerMessage,
+  getSampleMessengerData,
+} from '../../../utils/messengerTemplateUtils';
+import { db, isFirebaseConfigured } from '../../../firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import {
   type AdminUser,
   type UserAccount,
@@ -449,6 +458,86 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
       console.error('Reminder settings save error:', err);
     } finally {
       setSavingReminder(false);
+    }
+  };
+
+  // Messenger Templates State
+  const [messengerTemplateInput, setMessengerTemplateInput] = useState<string>(() => {
+    return (
+      companyProfile?.messengerTemplate ||
+      (companyProfile?.id ? localStorage.getItem(`picklepoint_messenger_template_${companyProfile.id}`) : null) ||
+      localStorage.getItem('picklepoint_messenger_template') ||
+      DEFAULT_MESSENGER_TEMPLATE
+    );
+  });
+  const [savingMessengerTemplate, setSavingMessengerTemplate] = useState<boolean>(false);
+  const [messengerTemplateSaved, setMessengerTemplateSaved] = useState<boolean>(false);
+  const messengerTextareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (companyProfile?.messengerTemplate) {
+      setMessengerTemplateInput(companyProfile.messengerTemplate);
+    }
+  }, [companyProfile?.messengerTemplate]);
+
+  const handleInsertMessengerVariable = (varKey: string) => {
+    const textarea = messengerTextareaRef.current;
+    if (!textarea) {
+      setMessengerTemplateInput((prev) => prev + varKey);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const prevText = messengerTemplateInput;
+    const nextText = prevText.substring(0, start) + varKey + prevText.substring(end);
+    setMessengerTemplateInput(nextText);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + varKey.length, start + varKey.length);
+    }, 0);
+  };
+
+  const handleResetMessengerTemplate = () => {
+    if (window.confirm('Reset the Messenger confirmation template to the default layout?')) {
+      setMessengerTemplateInput(DEFAULT_MESSENGER_TEMPLATE);
+    }
+  };
+
+  const handleSaveMessengerTemplate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingMessengerTemplate(true);
+    try {
+      const cleanTemplate = messengerTemplateInput.trim() || DEFAULT_MESSENGER_TEMPLATE;
+      localStorage.setItem('picklepoint_messenger_template', cleanTemplate);
+
+      if (companyProfile?.id) {
+        localStorage.setItem(`picklepoint_messenger_template_${companyProfile.id}`, cleanTemplate);
+        try {
+          const compStr = localStorage.getItem('picklepoint_companies');
+          if (compStr) {
+            const comps = JSON.parse(compStr);
+            const idx = comps.findIndex((c: any) => c.id === companyProfile.id);
+            if (idx >= 0) {
+              comps[idx].messengerTemplate = cleanTemplate;
+              localStorage.setItem('picklepoint_companies', JSON.stringify(comps));
+            }
+          }
+        } catch (e) {}
+
+        if (isFirebaseConfigured && db) {
+          await updateDoc(doc(db, 'companies', companyProfile.id), {
+            messengerTemplate: cleanTemplate,
+          });
+        }
+      }
+
+      setMessengerTemplateSaved(true);
+      setTimeout(() => setMessengerTemplateSaved(false), 3000);
+    } catch (err) {
+      console.error('Error saving messenger template:', err);
+      alert('Failed to save template. Please check connection and try again.');
+    } finally {
+      setSavingMessengerTemplate(false);
     }
   };
 
@@ -2560,6 +2649,136 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
           user={user}
           companyProfile={companyProfile}
         />
+      )}
+
+      {/* ========================================================================= */}
+      {/* FACEBOOK MESSENGER CONFIRMATION TEMPLATES SUB-TAB                        */}
+      {/* ========================================================================= */}
+      {settingsSubTab === 'messenger' && (
+        <div className="space-y-6 animate-fade-in text-left">
+          {/* Header Card */}
+          <div className="p-5 sm:p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0">
+                <MessageSquare className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-white">
+                  Facebook Messenger Confirmation Template
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Customize the message generated when confirming reservations or Open Play participants.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleResetMessengerTemplate}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                title="Reset template to standard default layout"
+              >
+                <span>Reset to Default</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Success Save Banner */}
+          {messengerTemplateSaved && (
+            <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center gap-2 animate-fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Messenger confirmation template successfully saved and updated!</span>
+            </div>
+          )}
+
+          {/* Two-Column Editor & Live Preview */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column: Template Editor & Variable Chips (Lg spans 7) */}
+            <div className="lg:col-span-7 p-5 sm:p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Insert Placeholder Variables
+                </label>
+                <p className="text-[11px] text-slate-500 mb-2.5">
+                  Click any chip below to insert it at your cursor position in the template.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {MESSENGER_TEMPLATE_VARIABLES.map((v) => (
+                    <button
+                      key={v.key}
+                      type="button"
+                      onClick={() => handleInsertMessengerVariable(v.key)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-blue-950/60 border border-slate-800 hover:border-blue-500/40 text-[11px] font-mono text-blue-300 hover:text-white transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                      title={`Insert ${v.label} (e.g. ${v.example})`}
+                    >
+                      <span className="font-bold">{v.key}</span>
+                      <span className="text-[9px] text-slate-500 font-sans">({v.label})</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Message Template Text
+                </label>
+                <textarea
+                  ref={messengerTextareaRef}
+                  rows={14}
+                  value={messengerTemplateInput}
+                  onChange={(e) => setMessengerTemplateInput(e.target.value)}
+                  placeholder="Enter your message template..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-xs font-mono text-slate-200 leading-relaxed focus:outline-none focus:border-blue-500 transition-colors selection:bg-blue-600 selection:text-white resize-y"
+                />
+              </div>
+
+              <div className="flex items-center justify-end pt-2">
+                <button
+                  type="button"
+                  disabled={savingMessengerTemplate}
+                  onClick={handleSaveMessengerTemplate}
+                  className="px-6 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-slate-950 font-black text-xs transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-brand-lime/10 disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{savingMessengerTemplate ? 'Saving Changes...' : 'Save Template'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right Column: Live Messenger Preview (Lg spans 5) */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="p-5 sm:p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-3.5">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white font-black text-xs shadow-md">
+                      f
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-white">Live Messenger Preview</div>
+                      <div className="text-[10px] text-emerald-400 flex items-center gap-1 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span>Formatted for Player Inbox</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Simulated Messenger Chat Bubble */}
+                <div className="p-4 rounded-2xl bg-slate-950 border border-blue-900/40 text-xs font-sans text-slate-200 whitespace-pre-wrap leading-relaxed shadow-inner max-h-[460px] overflow-y-auto selection:bg-blue-600 selection:text-white">
+                  {formatMessengerMessage(messengerTemplateInput, getSampleMessengerData())}
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 text-[11px] text-slate-400 leading-normal flex items-start gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+                  <span>
+                    When you click the <strong>Messenger</strong> button on any booking or participant, this template is automatically filled with their real details and presented for 1-click copying.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* CLIENT ADMIN CANCEL SUBSCRIPTION MODAL */}
