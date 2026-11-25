@@ -38,13 +38,13 @@ const REGIONS_FALLBACK = [
 ];
 
 interface ClientAdminOnboardingProps {
-  user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean };
-  onComplete: (updatedUser: { uid?: string; name: string; email: string; role?: string; companyId?: string; companyName?: string; isAdmin?: boolean }) => void;
+  user: { uid?: string; name: string; email: string; role?: string; isAdmin?: boolean; companyId?: string; companyName?: string };
+  onComplete: (updatedUser: { uid?: string; name: string; email: string; role?: string; companyId?: string; companyName?: string; isAdmin?: boolean; needsOnboarding?: boolean }) => void;
 }
 
 export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminOnboardingProps) {
   // 1. Company Information States
-  const [companyName, setCompanyName] = useState('');
+  const [companyName, setCompanyName] = useState((user as any)?.companyName || '');
   const [phone, setPhone] = useState('');
   const [description, setDescription] = useState('');
   const [logoBase64, setLogoBase64] = useState<string>('');
@@ -99,8 +99,8 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
         const localInvites = JSON.parse(localStorage.getItem('picklepoint_invitations') || '[]');
         const invite = localInvites.find((i: any) => i.inviteeEmail?.trim().toLowerCase() === targetEmail || i.email?.trim().toLowerCase() === targetEmail);
         if (invite) {
-          if (!foundFacilityName && (invite.assignedFacilityName || invite.companyName)) {
-            foundFacilityName = invite.assignedFacilityName || invite.companyName;
+          if (!foundFacilityName && (invite.assignedFacilityName || invite.companyName || invite.company)) {
+            foundFacilityName = invite.assignedFacilityName || invite.companyName || invite.company;
           }
           if (!foundPhone && (invite.phone || invite.mobilePhone)) {
             foundPhone = invite.phone || invite.mobilePhone;
@@ -124,12 +124,12 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
 
           if (!foundFacilityName || !foundPhone) {
             const invRef = collection(db, 'invitations');
-            const qInv = query(invRef, where('inviteeEmail', '==', targetEmail));
+            const qInv = query(invRef, where('email', '==', targetEmail));
             const invSnap = await getDocs(qInv);
             if (!invSnap.empty) {
               const data = invSnap.docs[0].data();
-              if (!foundFacilityName && (data.assignedFacilityName || data.companyName)) {
-                foundFacilityName = data.assignedFacilityName || data.companyName;
+              if (!foundFacilityName && (data.assignedFacilityName || data.companyName || data.company)) {
+                foundFacilityName = data.assignedFacilityName || data.companyName || data.company;
               }
               if (!foundPhone && (data.phone || data.mobilePhone)) {
                 foundPhone = data.phone || data.mobilePhone;
@@ -142,10 +142,10 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
       }
 
       if (foundFacilityName) {
-        setCompanyName((prev) => (prev ? prev : foundFacilityName));
+        setCompanyName((prev: string) => (prev ? prev : foundFacilityName));
       }
       if (foundPhone) {
-        setPhone((prev) => (prev ? prev : foundPhone));
+        setPhone((prev: string) => (prev ? prev : foundPhone));
       }
     };
 
@@ -341,7 +341,7 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
     setLoading(true);
 
     try {
-      const compId = 'comp-' + Date.now();
+      const compId = (user as any)?.companyId || 'comp-' + Date.now();
       const formattedAddress = [
         addressLine1.trim(),
         addressLine2.trim(),
@@ -385,8 +385,8 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
       // 1. Save to Firestore (if configured)
       if (isFirebaseConfigured && db) {
         try {
-          // Save Company
-          await setDoc(doc(db, 'companies', compId), companyPayload);
+          // Save or merge Company profile
+          await setDoc(doc(db, 'companies', compId), companyPayload, { merge: true });
 
           // Save GCash Payment Settings for this user
           if (user.uid) {
@@ -396,7 +396,7 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
               { merge: true }
             );
 
-            // Update user record
+            // Update user record with permanent completed onboarding status
             await updateDoc(doc(db, 'users', user.uid), {
               companyId: compId,
               companyName: companyName.trim(),
@@ -414,7 +414,12 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
       // 2. Persist to LocalStorage
       const compStr = localStorage.getItem('picklepoint_companies');
       const localComps = compStr ? JSON.parse(compStr) : [];
-      localComps.push(companyPayload);
+      const existingCompIdx = localComps.findIndex((c: any) => c.id === compId);
+      if (existingCompIdx >= 0) {
+        localComps[existingCompIdx] = { ...localComps[existingCompIdx], ...companyPayload };
+      } else {
+        localComps.push(companyPayload);
+      }
       localStorage.setItem('picklepoint_companies', JSON.stringify(localComps));
 
       if (user.uid) {
@@ -448,6 +453,7 @@ export default function ClientAdminOnboarding({ user, onComplete }: ClientAdminO
         companyId: compId,
         companyName: companyName.trim(),
         role: 'client_admin',
+        needsOnboarding: false,
         isAdmin: true,
       };
 

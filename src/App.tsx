@@ -608,6 +608,8 @@ function App() {
               }
             }
             
+            const uData = userDocSnap.exists() ? userDocSnap.data() : {};
+
             // Auto-promote role to client_admin if user's email matches a company's designated clientAdminEmail
             let companyId: string | undefined;
             let companyName: string | undefined;
@@ -625,6 +627,34 @@ function App() {
                   }
                 }
 
+                // If not found by email, check direct company document if companyId exists on user record
+                if (!companyId && uData.companyId) {
+                  try {
+                    const compDirectSnap = await getDoc(doc(firestoreDb, 'companies', uData.companyId));
+                    if (compDirectSnap.exists()) {
+                      companyId = uData.companyId;
+                      companyName = compDirectSnap.data().name;
+                    }
+                  } catch (e) {
+                    console.warn('Direct company lookup error:', e);
+                  }
+                }
+
+                // Fallback: Check local companies in localStorage
+                if (!companyId) {
+                  try {
+                    const compStr = localStorage.getItem('picklepoint_companies');
+                    const localComps = compStr ? JSON.parse(compStr) : [];
+                    const matchedComp = localComps.find(
+                      (c: any) => c.clientAdminEmail?.toLowerCase() === userEmailLower || (uData.companyId && c.id === uData.companyId)
+                    );
+                    if (matchedComp) {
+                      companyId = matchedComp.id;
+                      companyName = matchedComp.name;
+                    }
+                  } catch {}
+                }
+
                 // Clean up any placeholder invited-* documents with the same email
                 const invQuery = query(collection(firestoreDb, 'users'), where('email', '==', userEmailLower));
                 const invSnap = await getDocs(invQuery);
@@ -639,9 +669,9 @@ function App() {
             }
             
             const isAdmin = role === 'super_admin' || role === 'client_admin' || role === 'manager' || role === 'editor' || firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
-            const needsOnboarding = role === 'client_admin' && !companyId;
+            const resolvedCompanyId = companyId || uData.companyId || (matchedInvite as any)?.companyId || '';
+            const needsOnboarding = role === 'client_admin' && (!resolvedCompanyId || uData.needsOnboarding === true);
 
-            const uData = userDocSnap.exists() ? userDocSnap.data() : {};
             const effectiveCompanyName = companyName || uData.companyName || matchedInvite?.company || '';
             const resolvedName =
               (firebaseUser.displayName && uData.name && effectiveCompanyName && uData.name.trim().toLowerCase() === effectiveCompanyName.trim().toLowerCase())
@@ -659,7 +689,7 @@ function App() {
               email: firebaseUser.email || '',
               role: role,
               status: status,
-              companyId: companyId || uData.companyId || (matchedInvite as any)?.companyId || '',
+              companyId: resolvedCompanyId,
               companyName: effectiveCompanyName,
               invitedBy: uData.invitedBy || (matchedInvite as any)?.invitedBy || '',
               permissions: uData.permissions || (matchedInvite as any)?.permissions,

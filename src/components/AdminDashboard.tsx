@@ -823,6 +823,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [emailTemplateType, setEmailTemplateType] = useState<'custom' | 'approval' | 'cancellation' | 'reminder'>('custom');
   const [emailSendLoading, setEmailSendLoading] = useState(false);
 
+
+  // Company States
+  const [companies, setCompanies] = useState<Company[]>([]);
+
   // User Invitation Modal States
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [_selectedInviteLeadId, setSelectedInviteLeadId] = useState<string | null>(null);
@@ -889,15 +893,62 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         ? inviteCompanyNameInput.trim()
         : (inviteCompanyNameInput.trim() || 'Global Platform');
 
+      let targetCompanyId = myCompany?.id || (user as any)?.companyId || '';
+
+      if (inviteRoleInput === 'client_admin') {
+        const assignedCompName = assignedCompany;
+        const existingComp = companies.find(
+          (c) => c.name?.trim().toLowerCase() === assignedCompName.toLowerCase()
+        );
+
+        if (existingComp) {
+          targetCompanyId = existingComp.id;
+          if (db) {
+            await setDoc(doc(db, 'companies', existingComp.id), {
+              clientAdminEmail: inviteEmailInput.toLowerCase().trim(),
+              subscriptionPlan: inviteSubscriptionPlan,
+              subscriptionStatus: 'active',
+              subscriptionExpiresAt: subscriptionExpiresAt || null,
+              isTrialClient: isTrialClient || false,
+              trialExpiresAt: trialExpiresAt || null,
+            }, { merge: true });
+          }
+        } else {
+          targetCompanyId = 'comp-' + Date.now();
+          const newCompanyPayload: Record<string, any> = {
+            id: targetCompanyId,
+            name: assignedCompName,
+            clientAdminEmail: inviteEmailInput.toLowerCase().trim(),
+            status: 'active',
+            subscriptionPlan: inviteSubscriptionPlan,
+            subscriptionStatus: 'active',
+            subscriptionExpiresAt: subscriptionExpiresAt || null,
+            isTrialClient: isTrialClient || false,
+            trialExpiresAt: trialExpiresAt || null,
+            createdAt: new Date().toISOString(),
+          };
+
+          if (db) {
+            await setDoc(doc(db, 'companies', targetCompanyId), newCompanyPayload, { merge: true });
+          }
+
+          const compStr = localStorage.getItem('picklepoint_companies');
+          const localComps = compStr ? JSON.parse(compStr) : [];
+          localComps.push(newCompanyPayload);
+          localStorage.setItem('picklepoint_companies', JSON.stringify(localComps));
+          setCompanies((prev) => [...prev, newCompanyPayload as any]);
+        }
+      }
+
       const companyParam = encodeURIComponent(assignedCompany);
-      const inviteUrl = `${baseUrl}/register?inviteToken=${inviteToken}&email=${encodeURIComponent(inviteEmailInput.trim())}&company=${companyParam}&role=${inviteRoleInput}`;
+      const inviteUrl = `${baseUrl}/register?inviteToken=${inviteToken}&email=${encodeURIComponent(inviteEmailInput.trim())}&company=${companyParam}&companyId=${encodeURIComponent(targetCompanyId || '')}&role=${inviteRoleInput}`;
 
       const rawInviteData = {
         token: inviteToken,
         email: inviteEmailInput.toLowerCase().trim(),
         name: inviteNameInput.trim(),
         company: assignedCompany,
-        companyId: myCompany?.id || (user as any)?.companyId || '',
+        companyId: targetCompanyId || myCompany?.id || (user as any)?.companyId || '',
         department: inviteRoleInput === 'super_admin' ? inviteDepartmentInput.trim() : '',
         role: inviteRoleInput,
         permissions: getUserEffectivePermissions({ role: inviteRoleInput }),
@@ -961,8 +1012,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  // Company States
-  const [companies, setCompanies] = useState<Company[]>([]);
 
   const [selectedSuperAdminCompanyId, setSelectedSuperAdminCompanyId] = useState<string | null>(null);
 

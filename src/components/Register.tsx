@@ -31,6 +31,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
   const inviteTokenParam = searchParams.get('inviteToken') || '';
   const urlEmail = invitationNotice?.email || searchParams.get('email') || '';
   const invitedCompany = invitationNotice?.company || searchParams.get('company') || '';
+  const urlCompanyId = searchParams.get('companyId') || '';
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState(urlEmail);
@@ -207,6 +208,9 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
     const finalRole = invitedRole || verifiedInviteData?.role || urlRole || (email.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player');
     const isClientAdminInvite = finalRole === 'client_admin';
 
+    const finalCompanyId = verifiedInviteData?.companyId || urlCompanyId || '';
+    const finalCompanyName = verifiedInviteData?.company || invitedCompany || '';
+
     if (isFirebaseConfigured && auth) {
       try {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -221,8 +225,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
               name: name,
               email: fbUser.email || '',
               role: finalRole,
-              companyId: verifiedInviteData?.companyId || '',
-              companyName: verifiedInviteData?.company || '',
+              companyId: finalCompanyId,
+              companyName: finalCompanyName,
               permissions: verifiedInviteData?.permissions || undefined,
               status: 'active',
               duprId: '',
@@ -235,6 +239,14 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
               trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
               createdAt: new Date().toISOString()
             });
+
+            // Ensure company doc has clientAdminEmail linked
+            if (finalCompanyId && isClientAdminInvite) {
+              await setDoc(doc(db, 'companies', finalCompanyId), {
+                clientAdminEmail: (fbUser.email || email).toLowerCase().trim(),
+                name: finalCompanyName || undefined,
+              }, { merge: true });
+            }
           } catch (e) {
             console.error('Error saving user to Firestore:', e);
           }
@@ -259,8 +271,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: name,
           email: fbUser.email || '',
           role: finalRole,
-          companyId: verifiedInviteData?.companyId || '',
-          companyName: verifiedInviteData?.company || '',
+          companyId: finalCompanyId,
+          companyName: finalCompanyName,
           permissions: verifiedInviteData?.permissions,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,
@@ -300,8 +312,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           email, 
           password, 
           role: finalRole, 
-          companyId: verifiedInviteData?.companyId || '',
-          companyName: verifiedInviteData?.company || '',
+          companyId: finalCompanyId,
+          companyName: finalCompanyName,
           needsOnboarding: isClientAdminInvite, 
           status: 'active',
           subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
@@ -312,6 +324,19 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
         };
         users.push(newUser);
         localStorage.setItem('picklepoint_users', JSON.stringify(users));
+
+        if (finalCompanyId && isClientAdminInvite) {
+          try {
+            const compStr = localStorage.getItem('picklepoint_companies');
+            const localComps = compStr ? JSON.parse(compStr) : [];
+            const compIdx = localComps.findIndex((c: any) => c.id === finalCompanyId);
+            if (compIdx >= 0) {
+              localComps[compIdx].clientAdminEmail = email.toLowerCase().trim();
+              if (finalCompanyName) localComps[compIdx].name = finalCompanyName;
+              localStorage.setItem('picklepoint_companies', JSON.stringify(localComps));
+            }
+          } catch {}
+        }
 
         if (inviteTokenParam) {
           await markInvitationUsed(inviteTokenParam);
@@ -330,8 +355,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: name,
           email: email,
           role: finalRole,
-          companyId: verifiedInviteData?.companyId || '',
-          companyName: verifiedInviteData?.company || '',
+          companyId: finalCompanyId,
+          companyName: finalCompanyName,
           permissions: verifiedInviteData?.permissions,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,

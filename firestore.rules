@@ -45,9 +45,9 @@ service cloud.firestore {
       return isSuperAdmin() || isClientAdmin() || isFacilityManager();
     }
 
-    // Helper: Identifies if a request attempts to modify subscription parameters
+    // Helper: Identifies if an update request attempts to modify subscription parameters
     function isModifyingSubscription() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      return resource != null && request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'subscriptionPlan',
         'subscriptionStatus',
         'subscriptionExpiresAt',
@@ -69,8 +69,8 @@ service cloud.firestore {
     match /companies/{companyId} {
       allow read: if true;
       
-      // Super Admins can edit anything; Client Admins can edit profile except subscription fields
-      allow create: if isSuperAdmin() || (!isModifyingSubscription() && (isAdmin() || isAuthenticated()));
+      // Super Admins can edit anything; Client Admins can create company & edit profile except subscription fields
+      allow create: if isSuperAdmin() || isAdmin() || isAuthenticated();
       allow update: if isSuperAdmin() || (!isModifyingSubscription() && (isAdmin() || isAuthenticated()));
       allow delete: if isSuperAdmin();
 
