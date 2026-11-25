@@ -57,6 +57,7 @@ interface Court {
   dayPrice: number;
   nightPrice: number;
   companyId?: string;
+  companyName?: string;
   ownerId?: string;
   ownerCompanyName?: string;
   companyAddress?: string;
@@ -245,17 +246,29 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
         let matchedUser: any = null;
         let matchedCompany: any = null;
 
-        if (isFirebaseConfigured && db && ownerId && ownerId !== 'system') {
-          // 1. Try fetching user account by UID
-          try {
-            const userDocSnap = await getDoc(doc(db, 'users', ownerId));
-            if (userDocSnap.exists()) {
-              matchedUser = userDocSnap.data();
-            }
-          } catch (e) {}
+        if (isFirebaseConfigured && db && (court.companyId || (ownerId && ownerId !== 'system'))) {
+          // 1. Try fetching company doc by court.companyId directly
+          if (court.companyId) {
+            try {
+              const compDocSnap = await getDoc(doc(db, 'companies', court.companyId));
+              if (compDocSnap.exists()) {
+                matchedCompany = { id: compDocSnap.id, ...compDocSnap.data() };
+              }
+            } catch (e) {}
+          }
 
-          // 2. Try fetching user by email
-          if (!matchedUser) {
+          // 2. Try fetching user account by UID
+          if (ownerId && ownerId !== 'system') {
+            try {
+              const userDocSnap = await getDoc(doc(db, 'users', ownerId));
+              if (userDocSnap.exists()) {
+                matchedUser = userDocSnap.data();
+              }
+            } catch (e) {}
+          }
+
+          // 3. Try fetching user by email
+          if (!matchedUser && ownerId && ownerId !== 'system') {
             try {
               const qUser = query(collection(db, 'users'), where('email', '==', ownerId));
               const qSnap = await getDocs(qUser);
@@ -265,14 +278,7 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
             } catch (e) {}
           }
 
-          // 3. Try fetching company doc by ownerId or user's companyId/email or company collection
-          try {
-            const compDocSnap = await getDoc(doc(db, 'companies', ownerId));
-            if (compDocSnap.exists()) {
-              matchedCompany = { id: compDocSnap.id, ...compDocSnap.data() };
-            }
-          } catch (e) {}
-
+          // 4. Try fetching company doc by user's companyId
           if (!matchedCompany && matchedUser?.companyId) {
             try {
               const compDocSnap = await getDoc(doc(db, 'companies', matchedUser.companyId));
@@ -282,31 +288,23 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
             } catch (e) {}
           }
 
-          if (!matchedCompany && (matchedUser?.email || ownerId)) {
-            try {
-              const targetEmail = matchedUser?.email || ownerId;
-              const qComp = query(collection(db, 'companies'), where('clientAdminEmail', '==', targetEmail));
-              const qSnap = await getDocs(qComp);
-              if (!qSnap.empty) {
-                matchedCompany = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
-              }
-            } catch (e) {}
-          }
-
+          // 5. Try fetching company by email or ownerCompanyName
           if (!matchedCompany) {
             try {
               const compDocs = await getDocs(collection(db, 'companies'));
               const compList = compDocs.docs.map(d => ({ id: d.id, ...d.data() }) as any);
-              matchedCompany = compList.find((c: any) =>
-                (matchedUser?.companyId && c.id === matchedUser.companyId) ||
-                c.id === ownerId ||
-                (matchedUser?.email && c.clientAdminEmail?.toLowerCase() === matchedUser.email.toLowerCase()) ||
-                (ownerId && c.clientAdminEmail?.toLowerCase() === ownerId.toLowerCase()) ||
-                (court.ownerCompanyName && c.name?.toLowerCase() === court.ownerCompanyName.toLowerCase())
-              );
-              if (!matchedCompany && compList.length > 0) {
-                matchedCompany = compList[0];
-              }
+              const isStub = (c: any) => !c?.name || c.name.toLowerCase() === 'picklepoint venue';
+              const ownerCompName = court.ownerCompanyName ? court.ownerCompanyName.toLowerCase() : null;
+              const courtOwnerEmail = court.ownerEmail ? court.ownerEmail.toLowerCase() : null;
+
+              matchedCompany =
+                (ownerCompName && compList.find((c: any) => c.name?.toLowerCase() === ownerCompName)) ||
+                (matchedUser?.companyId && compList.find((c: any) => c.id === matchedUser.companyId)) ||
+                (matchedUser?.email && compList.find((c: any) => c.clientAdminEmail?.toLowerCase() === matchedUser.email.toLowerCase() && !isStub(c))) ||
+                (courtOwnerEmail && compList.find((c: any) => c.clientAdminEmail?.toLowerCase() === courtOwnerEmail && !isStub(c))) ||
+                (ownerId && compList.find((c: any) => (c.id === ownerId || c.clientAdminEmail?.toLowerCase() === ownerId.toLowerCase()) && !isStub(c))) ||
+                compList.find((c: any) => !isStub(c)) ||
+                compList[0];
             } catch (e) {}
           }
         }
@@ -316,33 +314,49 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
         const localComps: any[] = compStr ? JSON.parse(compStr) : [];
         const usersStr = localStorage.getItem('picklepoint_users');
         const localUsers: any[] = usersStr ? JSON.parse(usersStr) : [];
+        const isStubLocal = (c: any) => !c?.name || c.name.toLowerCase() === 'picklepoint venue';
+        const ownerCompNameLocal = court.ownerCompanyName ? court.ownerCompanyName.toLowerCase() : null;
+        const courtOwnerEmailLocal = court.ownerEmail ? court.ownerEmail.toLowerCase() : null;
 
         if (!matchedUser && ownerId && ownerId !== 'system') {
           matchedUser = localUsers.find(u => u.uid === ownerId || u.email?.toLowerCase() === ownerId.toLowerCase());
         }
         if (!matchedCompany) {
-          matchedCompany = localComps.find(c => 
-            (ownerId && (c.id === ownerId || c.clientAdminEmail?.toLowerCase() === ownerId.toLowerCase())) ||
-            (matchedUser?.companyId && c.id === matchedUser.companyId) ||
-            (matchedUser?.email && c.clientAdminEmail?.toLowerCase() === matchedUser.email.toLowerCase()) ||
-            (court.ownerCompanyName && c.name?.toLowerCase() === court.ownerCompanyName.toLowerCase())
-          );
+          matchedCompany =
+            (ownerCompNameLocal && localComps.find(c => c.name?.toLowerCase() === ownerCompNameLocal)) ||
+            (court.companyId && localComps.find(c => c.id === court.companyId)) ||
+            (matchedUser?.companyId && localComps.find(c => c.id === matchedUser.companyId)) ||
+            (matchedUser?.email && localComps.find(c => c.clientAdminEmail?.toLowerCase() === matchedUser.email.toLowerCase() && !isStubLocal(c))) ||
+            (courtOwnerEmailLocal && localComps.find(c => c.clientAdminEmail?.toLowerCase() === courtOwnerEmailLocal && !isStubLocal(c))) ||
+            localComps.find(c => !isStubLocal(c)) ||
+            localComps[0];
         }
 
-        if (!matchedCompany && localComps.length > 0) {
-          matchedCompany = localComps[0];
-        }
-
-        // Construct Host Details - companyName MUST be companies.name
+        // Construct Host Details
         const defaultHostName = court.name.includes('Court')
           ? `${court.name.split('Court')[0].trim()} Facility Host`
           : `${court.name} Host`;
 
         const hostName = matchedUser?.name || matchedCompany?.clientAdminEmail?.split('@')[0] || defaultHostName;
         const hostRole = matchedUser?.role === 'super_admin' ? 'Super Administrator' : (matchedUser?.role === 'client_admin' ? 'Court Owner & Facility Host' : 'Verified Venue Host');
-        const hostEmail = matchedUser?.email || matchedCompany?.clientAdminEmail || 'support@picklepoint.com';
-        const hostPhone = matchedUser?.phone || matchedCompany?.phone || '+63 917 123 4567';
-        const companyName = matchedCompany?.name || matchedUser?.companyName || (court.ownerCompanyName && court.ownerCompanyName !== court.name ? court.ownerCompanyName : 'PicklePoint Venue');
+        const hostEmail = matchedUser?.email || matchedCompany?.clientAdminEmail || court.ownerEmail || 'support@picklepoint.com';
+        const hostPhone = matchedUser?.phone || matchedCompany?.phone || court.ownerPhone || '+63 917 123 4567';
+
+        const isStubName = (name?: string) =>
+          !name ||
+          name.trim().toLowerCase() === 'picklepoint venue' ||
+          name.trim().toLowerCase() === 'book picklecourt venue';
+
+        const companyName =
+          (!isStubName(matchedCompany?.name) ? matchedCompany.name : '') ||
+          (!isStubName(court.ownerCompanyName) ? court.ownerCompanyName : '') ||
+          (!isStubName(court.companyName) ? court.companyName : '') ||
+          (!isStubName(matchedUser?.companyName) ? matchedUser.companyName : '') ||
+          matchedCompany?.name ||
+          court.ownerCompanyName ||
+          court.companyName ||
+          court.name ||
+          'PickleZone1';
         const companyAddress = matchedCompany?.address || court.companyAddress || [court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || 'Camarines Sur, Philippines';
         const description = `Verified court host managing ${court.name}. Dedicated to maintaining high-performance surfaces, night lighting, and seamless reservations for pickleball players.`;
 
@@ -994,8 +1008,9 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
       companyId: court.companyId || (hostDetails as any)?.companyId || '',
       courtOwnerId: court.ownerId || '',
       gcashAccountId: court.gcashAccountId || '',
-      companyName: (hostDetails?.companyName && hostDetails.companyName !== court.name ? hostDetails.companyName : (court.ownerCompanyName && court.ownerCompanyName !== court.name ? court.ownerCompanyName : 'PicklePoint Venue')),
-      ownerCompanyName: (hostDetails?.companyName && hostDetails.companyName !== court.name ? hostDetails.companyName : (court.ownerCompanyName && court.ownerCompanyName !== court.name ? court.ownerCompanyName : 'PicklePoint Venue')),
+      companyName: hostDetails?.companyName || court.ownerCompanyName || court.companyName || court.name,
+      ownerCompanyName: hostDetails?.companyName || court.ownerCompanyName || court.companyName || court.name,
+      companyLogoUrl: hostDetails?.logoUrl || court.logoUrl || court.ownerCompanyLogo || '',
       companyAddress: hostDetails?.companyAddress || court.companyAddress || courtLocation,
       ownerCompanyAddress: hostDetails?.companyAddress || court.companyAddress || courtLocation,
       hostEmail: hostDetails?.email || (court as any).createdByEmail || '',

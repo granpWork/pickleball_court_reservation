@@ -350,6 +350,8 @@ interface Court {
   companyAddress?: string;
   ownerEmail?: string;
   ownerPhone?: string;
+  logoUrl?: string;
+  ownerCompanyLogo?: string;
   createdAt?: string;
   location?: string;
   mapUrl?: string;
@@ -1292,7 +1294,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const userObj = user as { companyId?: string; companyName?: string; invitedBy?: string; role?: string } | null;
-  const currentCompany = companies.find((c) => 
+  const isGenericStubComp = (c: any) =>
+    !c ||
+    !c.name ||
+    c.name.trim().toLowerCase() === 'picklepoint venue' ||
+    c.name.trim().toLowerCase() === 'book picklecourt venue';
+
+  const matchedCompanies = companies.filter((c) => 
     (c.clientAdminEmail && currentUserEmail && c.clientAdminEmail.toLowerCase() === currentUserEmail.toLowerCase()) ||
     (userObj?.companyId && c.id === userObj.companyId) ||
     (c.id && currentUserUid && c.id === currentUserUid) ||
@@ -1300,8 +1308,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     (c.clientAdminEmail && userObj?.invitedBy && c.clientAdminEmail.toLowerCase() === userObj.invitedBy.toLowerCase())
   );
 
+  const currentCompany =
+    matchedCompanies.find((c) => !isGenericStubComp(c) && c.logoUrl) ||
+    matchedCompanies.find((c) => !isGenericStubComp(c)) ||
+    matchedCompanies[0];
+
   const myCompany = currentCompany;
-  const effectiveOrgName = myCompany?.name || userObj?.companyName || 'PickleZone1';
+  const effectiveOrgName = (!isGenericStubComp(myCompany) ? myCompany?.name : '') || userObj?.companyName || myCompany?.name || 'PickleZone1';
 
   useEffect(() => {
     if (!isSuperAdmin && (isSubscriptionExpired(currentCompany) || isSubscriptionExpired(user as any))) {
@@ -6686,10 +6699,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         images: Array.isArray(r.images) ? r.images : []
       }));
 
-      const resolvedCourtCompanyName = effectiveOrgName || (editingCourt?.ownerCompanyName && editingCourt.ownerCompanyName !== editingCourt.name ? editingCourt.ownerCompanyName : (companies.length > 0 ? companies[0].name : 'PicklePoint Venue'));
+      const resolvedCourtCompanyName = effectiveOrgName || editingCourt?.ownerCompanyName || editingCourt?.companyName || (companies.length > 0 ? companies[0].name : 'PickleZone1');
       const resolvedCourtCompanyAddress = effectiveOrgAddress || editingCourt?.companyAddress || constructedLocation;
       const resolvedCourtEmail = myCompany?.clientAdminEmail || editingCourt?.ownerEmail || currentUserEmail || '';
       const resolvedCourtPhone = myCompany?.phone || editingCourt?.ownerPhone || '';
+      const resolvedCourtLogo = myCompany?.logoUrl || orgProfileLogoUrl || editingCourt?.logoUrl || editingCourt?.ownerCompanyLogo || '';
 
       const resolvedLat = courtLatitude !== null ? courtLatitude : (parsedCourtMap.coordinates ? parsedCourtMap.coordinates.lat : undefined);
       const resolvedLng = courtLongitude !== null ? courtLongitude : (parsedCourtMap.coordinates ? parsedCourtMap.coordinates.lng : undefined);
@@ -6714,6 +6728,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         country: courtCountry.trim() || 'Philippines',
         postalCode: courtPostalCode.trim() || '',
         rentals: sanitizedRentals,
+        companyId: myCompany?.id || editingCourt?.companyId || '',
+        companyName: resolvedCourtCompanyName,
+        logoUrl: resolvedCourtLogo,
+        ownerCompanyLogo: resolvedCourtLogo,
         ownerId: editingCourt ? (editingCourt.ownerId || ownerId) : ownerId,
         ownerCompanyName: resolvedCourtCompanyName,
         companyAddress: resolvedCourtCompanyAddress,

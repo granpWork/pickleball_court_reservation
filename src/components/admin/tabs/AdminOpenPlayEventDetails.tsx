@@ -53,6 +53,7 @@ import { db, isFirebaseConfigured } from '../../../firebase';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { type OpenPlayRegistrationItem } from './AdminOpenPlayTab';
 import { AdminMoveOpenPlayPlayerModal } from '../modals/AdminMoveOpenPlayPlayerModal';
+import { AdminModalAlert, type AdminModalAlertData } from '../modals/AdminModalAlert';
 import { AdminMessengerPreviewModal } from '../modals/AdminMessengerPreviewModal';
 import { type BookingMessengerData } from '../../../utils/messengerTemplateUtils';
 import {
@@ -222,6 +223,12 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   const [customRefundNotice, setCustomRefundNotice] = useState<string>('');
   const [isDispatchingEmails, setIsDispatchingEmails] = useState<boolean>(false);
   const [dispatchStatusToast, setDispatchStatusToast] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
+  const [modalAlert, setModalAlert] = useState<AdminModalAlertData>({
+    open: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
 
   // Mobile More Actions Collapsible State
   const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
@@ -1194,7 +1201,18 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
       setAttendeeAttendanceStatus(att.id, 'unmarked');
       onRefreshEvents?.();
-      alert(`✅ Successfully moved ${att.name} (1 player) to "${tgtEv.title}"!`);
+      setModalAlert({
+        open: true,
+        title: 'Player Moved Successfully',
+        message: `Successfully moved ${att.name} (1 player) from "${srcEv.title}" to "${tgtEv.title}". Any remaining guest(s) will stay registered in "${srcEv.title}".`,
+        type: 'success',
+        confirmText: 'Great, thanks!',
+      });
+      setDispatchStatusToast({
+        type: 'success',
+        message: `Successfully moved ${att.name} (1 player) to "${tgtEv.title}"!`,
+      });
+      setTimeout(() => setDispatchStatusToast(null), 5000);
     } catch (err: any) {
       console.error('Failed to move player between events:', err);
       throw err;
@@ -1761,20 +1779,29 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
       )}
 
       {dispatchStatusToast && (
-        <div className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between animate-fade-in shadow-md ${
-          dispatchStatusToast.type === 'error'
-            ? 'bg-red-500/15 border border-red-500/40 text-red-300'
-            : dispatchStatusToast.type === 'info'
-            ? 'bg-blue-500/15 border border-blue-500/40 text-blue-300'
-            : 'bg-brand-lime/15 border border-brand-lime/40 text-brand-lime'
-        }`}>
-          <div className="flex items-center gap-2">
-            {dispatchStatusToast.type === 'info' ? (
-              <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-brand-lime" />
-            )}
-            <span>{dispatchStatusToast.message}</span>
+        <div className="fixed top-5 right-5 z-[9999] max-w-md w-[calc(100vw-2.5rem)] animate-fade-in shadow-2xl">
+          <div className={`p-4 rounded-2xl text-xs font-bold flex items-center justify-between border backdrop-blur-xl shadow-2xl ${
+            dispatchStatusToast.type === 'error'
+              ? 'bg-slate-900/95 border-red-500/50 text-red-300'
+              : dispatchStatusToast.type === 'info'
+              ? 'bg-slate-900/95 border-blue-500/50 text-blue-300'
+              : 'bg-slate-900/95 border-brand-lime/60 text-brand-lime'
+          }`}>
+            <div className="flex items-center gap-2.5 min-w-0">
+              {dispatchStatusToast.type === 'info' ? (
+                <Loader2 className="w-5 h-5 animate-spin text-blue-400 shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-brand-lime shrink-0" />
+              )}
+              <span className="leading-snug text-white font-medium">{dispatchStatusToast.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDispatchStatusToast(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-2 shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
@@ -3884,6 +3911,12 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         onClose={() => setIsMessengerModalOpen(false)}
         bookingData={messengerBookingData}
         customTemplate={localStorage.getItem('picklepoint_messenger_template') || undefined}
+      />
+
+      {/* Admin Action Modal Alert Dialog */}
+      <AdminModalAlert
+        alert={modalAlert}
+        onClose={() => setModalAlert((prev) => ({ ...prev, open: false }))}
       />
     </div>
   );

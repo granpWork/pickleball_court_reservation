@@ -431,6 +431,8 @@ export interface Court {
   companyAddress?: string;
   ownerEmail?: string;
   ownerPhone?: string;
+  logoUrl?: string;
+  ownerCompanyLogo?: string;
   createdAt?: string;
   location?: string;
   streetAddress?: string;

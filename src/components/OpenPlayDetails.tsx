@@ -831,7 +831,12 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
         }
       } catch (e) {}
 
-      cachedCompInfo = { name: compName || 'PicklePoint Venue Host', logoUrl: compLogo };
+      const isGenericStubCompLocal = (n?: string) =>
+        !n || n.trim().toLowerCase() === 'picklepoint venue' || n.trim().toLowerCase() === 'picklepoint venue host';
+      cachedCompInfo = {
+        name: (!isGenericStubCompLocal(compName) ? compName : '') || cachedCourt?.name || 'PickleZone1',
+        logoUrl: compLogo || (cachedCourt as any)?.logoUrl || ''
+      };
     }
 
     try {
@@ -965,12 +970,17 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
           }
 
           let matchedCourt: AssignedCourtInfo | null = localData.cachedCourt;
+          let courtCompName = '';
+          let courtCompLogo = '';
+
           if (targetCourtId) {
             secondaryPromises.push(
               getDoc(doc(db!, 'courts', targetCourtId))
                 .then((snap) => {
                   if (snap.exists()) {
                     const cData = snap.data();
+                    courtCompName = cData.ownerCompanyName || cData.companyName || '';
+                    courtCompLogo = cData.logoUrl || cData.ownerCompanyLogo || '';
                     matchedCourt = {
                       id: snap.id,
                       name: cData.name || '',
@@ -990,7 +1000,17 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
 
           await Promise.allSettled(secondaryPromises);
 
-          setCompanyInfo({ name: compName || 'PicklePoint Venue Host', logoUrl: compLogo });
+          const isStub = (n?: string) =>
+            !n || n.trim().toLowerCase() === 'picklepoint venue' || n.trim().toLowerCase() === 'picklepoint venue host';
+
+          const resolvedName =
+            (!isStub(compName) ? compName : '') ||
+            (!isStub(courtCompName) ? courtCompName : '') ||
+            (matchedCourt?.name ? `${matchedCourt.name} Host` : '') ||
+            'PickleZone1';
+          const resolvedLogo = compLogo || courtCompLogo || '';
+
+          setCompanyInfo({ name: resolvedName, logoUrl: resolvedLogo });
           if (matchedCourt) setAssociatedCourt(matchedCourt);
         }
 
@@ -1190,7 +1210,13 @@ export default function OpenPlayDetails({ eventId, initialEvent, user, onNavigat
     }
   };
 
-  const displayCompanyName = event?.companyName || companyInfo.name || 'PicklePoint Venue Host';
+  const isStubCompDisplay = (n?: string) =>
+    !n || n.trim().toLowerCase() === 'picklepoint venue' || n.trim().toLowerCase() === 'picklepoint venue host';
+  const displayCompanyName =
+    (!isStubCompDisplay(event?.companyName) ? event?.companyName : '') ||
+    (!isStubCompDisplay(companyInfo.name) ? companyInfo.name : '') ||
+    (associatedCourt?.name ? `${associatedCourt.name} Facility` : '') ||
+    'PickleZone1';
   const displayCompanyLogo = companyInfo.logoUrl || event?.companyLogoUrl || '';
 
   const isDuprEvent = typeof event?.isDupr === 'boolean'

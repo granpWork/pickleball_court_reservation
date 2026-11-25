@@ -264,17 +264,72 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
           setCompanyLogosMap(logosRecord);
 
           const firebaseCourts: Court[] = [];
+          const isGenericStub = (c: any) =>
+            !c ||
+            !c.name ||
+            c.name.trim().toLowerCase() === 'picklepoint venue' ||
+            c.name.trim().toLowerCase() === 'book picklecourt venue';
+
           querySnapshot.forEach((docSnap) => {
             if (docSnap.id !== 'court-championship') {
               const data = docSnap.data();
-              const matchedCompany = companiesList.find((comp: any) =>
-                (data.companyId && comp.id === data.companyId) ||
-                (data.ownerCompanyName && comp.name?.toLowerCase() === data.ownerCompanyName.toLowerCase()) ||
-                (data.companyName && comp.name?.toLowerCase() === data.companyName.toLowerCase()) ||
-                (data.ownerId && (comp.id === data.ownerId || comp.clientAdminEmail?.toLowerCase() === data.ownerId.toLowerCase()))
-              );
-              const resolvedLogo = data.logoUrl || data.ownerCompanyLogo || matchedCompany?.logoUrl || '';
-              const resolvedCompName = matchedCompany?.name || data.ownerCompanyName || data.companyName || '';
+
+              // Priority 1: Direct match by companyId
+              let matchedCompany = data.companyId
+                ? companiesList.find((comp: any) => comp.id === data.companyId)
+                : null;
+
+              // Priority 2: Match by exact ownerCompanyName
+              if (!matchedCompany && data.ownerCompanyName) {
+                matchedCompany = companiesList.find(
+                  (comp: any) => comp.name?.toLowerCase() === data.ownerCompanyName.toLowerCase()
+                );
+              }
+
+              // Priority 3: Match by companyName
+              if (!matchedCompany && data.companyName) {
+                matchedCompany = companiesList.find(
+                  (comp: any) => comp.name?.toLowerCase() === data.companyName.toLowerCase()
+                );
+              }
+
+              // Priority 4: Match by clientAdminEmail or ownerId, prioritizing non-stub companies with a real logo
+              if (!matchedCompany) {
+                const candidates = companiesList.filter(
+                  (comp: any) =>
+                    (data.ownerEmail && comp.clientAdminEmail?.toLowerCase() === data.ownerEmail.toLowerCase()) ||
+                    (data.ownerId && (comp.id === data.ownerId || comp.clientAdminEmail?.toLowerCase() === data.ownerId.toLowerCase()))
+                );
+                matchedCompany =
+                  candidates.find((comp: any) => !isGenericStub(comp) && comp.logoUrl) ||
+                  candidates.find((comp: any) => !isGenericStub(comp)) ||
+                  candidates[0] ||
+                  null;
+              }
+
+              // Never let a generic stub company overwrite a valid court ownerCompanyName
+              let resolvedCompName = '';
+              if (matchedCompany && !isGenericStub(matchedCompany)) {
+                resolvedCompName = matchedCompany.name;
+              } else if (data.ownerCompanyName && !isGenericStub({ name: data.ownerCompanyName })) {
+                resolvedCompName = data.ownerCompanyName;
+              } else if (data.companyName && !isGenericStub({ name: data.companyName })) {
+                resolvedCompName = data.companyName;
+              } else if (matchedCompany?.name) {
+                resolvedCompName = matchedCompany.name;
+              } else {
+                resolvedCompName = data.name || 'PicklePoint Venue';
+              }
+
+              const compKey = matchedCompany?.id || data.companyId || '';
+              const resolvedLogo =
+                data.logoUrl ||
+                data.ownerCompanyLogo ||
+                matchedCompany?.logoUrl ||
+                logosRecord[compKey] ||
+                logosRecord[resolvedCompName.toLowerCase()] ||
+                '';
+
               const isExpired = matchedCompany ? isSubscriptionExpired(matchedCompany) : false;
 
               firebaseCourts.push({
@@ -296,6 +351,12 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
           setCourts(firebaseCourts);
 
           // Build Open Play Events (Merge Cloud + Local Storage for instant discovery)
+          const isStubEventHost = (n?: string) =>
+            !n ||
+            n.trim().toLowerCase() === 'picklepoint venue' ||
+            n.trim().toLowerCase() === 'picklepoint host' ||
+            n.trim().toLowerCase() === 'book picklecourt venue';
+
           const eventsMap = new Map<string, OpenPlayEvent>();
           if (eSnap) {
             eSnap.forEach((dSnap) => {
@@ -309,6 +370,27 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
               if (matchedComp && isSubscriptionExpired(matchedComp)) {
                 norm.status = 'draft';
               }
+
+              // Sanitize companyName and resolve logo if stub or missing
+              const resolvedEventHost =
+                (!isStubEventHost(norm.companyName) ? norm.companyName : '') ||
+                (matchedComp && !isGenericStub(matchedComp) ? matchedComp.name : '') ||
+                matchedCourt?.ownerCompanyName ||
+                matchedCourt?.companyName ||
+                'PickleZone1';
+
+              const resolvedEventLogo =
+                norm.companyLogoUrl ||
+                (matchedComp && !isGenericStub(matchedComp) ? matchedComp.logoUrl : '') ||
+                matchedCourt?.logoUrl ||
+                matchedCourt?.ownerCompanyLogo ||
+                logosRecord[norm.companyId || ''] ||
+                logosRecord[resolvedEventHost.toLowerCase()] ||
+                '';
+
+              norm.companyName = resolvedEventHost;
+              norm.companyLogoUrl = resolvedEventLogo;
+
               eventsMap.set(norm.id, norm);
             });
           }
@@ -328,6 +410,26 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 if (matchedComp && isSubscriptionExpired(matchedComp)) {
                   norm.status = 'draft';
                 }
+
+                const resolvedEventHost =
+                  (!isStubEventHost(norm.companyName) ? norm.companyName : '') ||
+                  (matchedComp && !isGenericStub(matchedComp) ? matchedComp.name : '') ||
+                  matchedCourt?.ownerCompanyName ||
+                  matchedCourt?.companyName ||
+                  'PickleZone1';
+
+                const resolvedEventLogo =
+                  norm.companyLogoUrl ||
+                  (matchedComp && !isGenericStub(matchedComp) ? matchedComp.logoUrl : '') ||
+                  matchedCourt?.logoUrl ||
+                  matchedCourt?.ownerCompanyLogo ||
+                  logosRecord[norm.companyId || ''] ||
+                  logosRecord[resolvedEventHost.toLowerCase()] ||
+                  '';
+
+                norm.companyName = resolvedEventHost;
+                norm.companyLogoUrl = resolvedEventLogo;
+
                 eventsMap.set(norm.id, norm);
               });
             } catch (err) {}
@@ -387,14 +489,62 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
           localCourts = localCourts
             .filter((c: Court) => c.id !== 'court-championship')
             .map((c: any) => {
-              const matchedComp = localComps.find((comp: any) =>
-                (c.companyId && comp.id === c.companyId) ||
-                (c.ownerCompanyName && comp.name?.toLowerCase() === c.ownerCompanyName.toLowerCase()) ||
-                (c.companyName && comp.name?.toLowerCase() === c.companyName.toLowerCase()) ||
-                (c.ownerId && (comp.id === c.ownerId || comp.clientAdminEmail?.toLowerCase() === c.ownerId.toLowerCase()))
-              );
-              const resolvedLogo = c.logoUrl || c.ownerCompanyLogo || matchedComp?.logoUrl || '';
-              const resolvedCompName = matchedComp?.name || c.ownerCompanyName || c.companyName || '';
+              const isGenericStubLocal = (comp: any) =>
+                !comp ||
+                !comp.name ||
+                comp.name.trim().toLowerCase() === 'picklepoint venue' ||
+                comp.name.trim().toLowerCase() === 'book picklecourt venue';
+
+              let matchedComp = c.companyId
+                ? localComps.find((comp: any) => comp.id === c.companyId)
+                : null;
+
+              if (!matchedComp && c.ownerCompanyName) {
+                matchedComp = localComps.find(
+                  (comp: any) => comp.name?.toLowerCase() === c.ownerCompanyName.toLowerCase()
+                );
+              }
+
+              if (!matchedComp && c.companyName) {
+                matchedComp = localComps.find(
+                  (comp: any) => comp.name?.toLowerCase() === c.companyName.toLowerCase()
+                );
+              }
+
+              if (!matchedComp) {
+                const candidates = localComps.filter(
+                  (comp: any) =>
+                    (c.ownerEmail && comp.clientAdminEmail?.toLowerCase() === c.ownerEmail.toLowerCase()) ||
+                    (c.ownerId && (comp.id === c.ownerId || comp.clientAdminEmail?.toLowerCase() === c.ownerId.toLowerCase()))
+                );
+                matchedComp =
+                  candidates.find((comp: any) => !isGenericStubLocal(comp) && comp.logoUrl) ||
+                  candidates.find((comp: any) => !isGenericStubLocal(comp)) ||
+                  candidates[0] ||
+                  null;
+              }
+
+              let resolvedCompName = '';
+              if (matchedComp && !isGenericStubLocal(matchedComp)) {
+                resolvedCompName = matchedComp.name;
+              } else if (c.ownerCompanyName && !isGenericStubLocal({ name: c.ownerCompanyName })) {
+                resolvedCompName = c.ownerCompanyName;
+              } else if (c.companyName && !isGenericStubLocal({ name: c.companyName })) {
+                resolvedCompName = c.companyName;
+              } else if (matchedComp?.name) {
+                resolvedCompName = matchedComp.name;
+              } else {
+                resolvedCompName = c.name || 'PicklePoint Venue';
+              }
+
+              const resolvedLogo =
+                c.logoUrl ||
+                c.ownerCompanyLogo ||
+                matchedComp?.logoUrl ||
+                companyLogosMap[c.companyId || ''] ||
+                companyLogosMap[resolvedCompName.toLowerCase()] ||
+                '';
+
               return {
                 ...c,
                 companyId: c.companyId || matchedComp?.id || '',
@@ -472,8 +622,24 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                   c.ownerId ||
                   c.id;
 
-      const resolvedVenueName = c.ownerCompanyName || c.companyName || c.name || 'PicklePoint Venue';
-      const resolvedLogo = c.logoUrl || c.ownerCompanyLogo || '';
+      const isGenericStubName = (name?: string) =>
+        !name ||
+        name.trim().toLowerCase() === 'picklepoint venue' ||
+        name.trim().toLowerCase() === 'book picklecourt venue';
+
+      const resolvedVenueName =
+        (!isGenericStubName(c.ownerCompanyName) ? c.ownerCompanyName : '') ||
+        (!isGenericStubName(c.companyName) ? c.companyName : '') ||
+        c.ownerCompanyName ||
+        c.companyName ||
+        c.name ||
+        'PicklePoint Venue';
+      const resolvedLogo =
+        c.logoUrl ||
+        c.ownerCompanyLogo ||
+        companyLogosMap[c.companyId || ''] ||
+        companyLogosMap[resolvedVenueName.toLowerCase()] ||
+        '';
 
       const existing = groupMap.get(key);
       if (!existing) {
@@ -1481,11 +1647,19 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                     const availableSlots = Math.max(0, event.maxParticipants - eventRegCount);
                     const isFull = availableSlots <= 0;
 
+                    const assignedCourts = courts.filter(c => event.courtIds?.includes(c.id));
+                    const isStubHost = (n?: string) => !n || n.trim().toLowerCase() === 'picklepoint venue' || n.trim().toLowerCase() === 'picklepoint host' || n.trim().toLowerCase() === 'book picklecourt venue';
+                    const displayHost = (!isStubHost(event.companyName) ? event.companyName : '') ||
+                      assignedCourts[0]?.ownerCompanyName ||
+                      'PickleZone1';
+
                     const companyLogo = event.companyLogoUrl ||
                       (event.companyId ? companyLogosMap[event.companyId] : undefined) ||
-                      (event.companyName ? companyLogosMap[event.companyName.toLowerCase()] : undefined);
+                      (event.companyName ? companyLogosMap[event.companyName.toLowerCase()] : undefined) ||
+                      (displayHost ? companyLogosMap[displayHost.toLowerCase()] : undefined) ||
+                      assignedCourts[0]?.logoUrl ||
+                      assignedCourts[0]?.ownerCompanyLogo;
 
-                    const assignedCourts = courts.filter(c => event.courtIds?.includes(c.id));
                     const courtCover = assignedCourts.find(c => Array.isArray(c.images) && c.images.length > 0)?.images?.[0];
                     const displayBanner = event.posterImageUrl || courtCover;
 
@@ -1520,11 +1694,11 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                               <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-slate-900 via-slate-950 to-dark-bg relative">
                                 <img
                                   src={companyLogo}
-                                  alt={event.companyName || event.title}
+                                  alt={displayHost}
                                   className="max-h-20 max-w-[70%] object-contain mb-1 drop-shadow-xl group-hover:scale-105 transition-transform duration-500"
                                 />
                                 <span className="text-[10px] font-extrabold text-brand-lime uppercase tracking-widest mt-1">
-                                  {event.companyName || 'Pickleball Open Play'}
+                                  {displayHost}
                                 </span>
                               </div>
                             ) : (
@@ -1553,7 +1727,7 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                             {/* Host Avatar Badge (When poster image is present) */}
                             {displayBanner && companyLogo && (
                               <div className="absolute bottom-2.5 right-2.5 w-9 h-9 rounded-xl bg-slate-950/90 border border-slate-700/80 p-1 backdrop-blur-md shadow-lg flex items-center justify-center overflow-hidden">
-                                <img src={companyLogo} alt={event.companyName} className="w-full h-full object-contain rounded-lg" />
+                                <img src={companyLogo} alt={displayHost} className="w-full h-full object-contain rounded-lg" />
                               </div>
                             )}
 
@@ -1580,12 +1754,12 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                             {/* Host info */}
                             <div className="flex items-center gap-2 min-w-0">
                               {companyLogo ? (
-                                <img src={companyLogo} alt={event.companyName || 'Host'} className="w-6 h-6 rounded-md object-cover bg-slate-900 border border-slate-800 shrink-0" />
+                                <img src={companyLogo} alt={displayHost} className="w-6 h-6 rounded-md object-cover bg-slate-900 border border-slate-800 shrink-0" />
                               ) : (
                                 <Building2 className="w-4 h-4 text-brand-lime shrink-0" />
                               )}
                               <span className="text-xs font-bold text-slate-300 truncate">
-                                {event.companyName || 'PicklePoint Host'}
+                                {displayHost}
                               </span>
                             </div>
 

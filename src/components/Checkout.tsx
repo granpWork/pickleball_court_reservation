@@ -693,9 +693,20 @@ export default function Checkout({
           } catch (e) {}
         }
 
-        const finalCompName = (resolvedCompName && resolvedCompName !== checkoutDetails.courtName)
-          ? resolvedCompName
-          : 'PicklePoint Venue';
+        const isGenericStub = (name?: string) =>
+          !name ||
+          name.trim().toLowerCase() === 'picklepoint venue' ||
+          name.trim().toLowerCase() === 'book picklecourt venue';
+
+        const finalCompName =
+          (!isGenericStub(resolvedCompName) ? resolvedCompName : '') ||
+          (!isGenericStub(checkoutDetails.companyName) ? checkoutDetails.companyName : '') ||
+          (!isGenericStub(checkoutDetails.ownerCompanyName) ? checkoutDetails.ownerCompanyName : '') ||
+          resolvedCompName ||
+          checkoutDetails.companyName ||
+          checkoutDetails.ownerCompanyName ||
+          checkoutDetails.courtName ||
+          'PickleZone1';
 
         setCourtOwnerId(ownerId || checkoutDetails.courtOwnerId || '');
         setCompanyId(resolvedCompId);
@@ -951,13 +962,20 @@ export default function Checkout({
 
     const refNum = `PP-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const resolvedOwnerCompanyName = (ownerCompanyName && ownerCompanyName !== checkoutDetails.courtName)
-      ? ownerCompanyName
-      : ((checkoutDetails.companyName && checkoutDetails.companyName !== checkoutDetails.courtName)
-          ? checkoutDetails.companyName
-          : ((checkoutDetails.ownerCompanyName && checkoutDetails.ownerCompanyName !== checkoutDetails.courtName)
-              ? checkoutDetails.ownerCompanyName
-              : 'PicklePoint Venue'));
+    const isGenericStubBooking = (name?: string) =>
+      !name ||
+      name.trim().toLowerCase() === 'picklepoint venue' ||
+      name.trim().toLowerCase() === 'book picklecourt venue';
+
+    const resolvedOwnerCompanyName =
+      (!isGenericStubBooking(ownerCompanyName) ? ownerCompanyName : '') ||
+      (!isGenericStubBooking(checkoutDetails.companyName) ? checkoutDetails.companyName : '') ||
+      (!isGenericStubBooking(checkoutDetails.ownerCompanyName) ? checkoutDetails.ownerCompanyName : '') ||
+      ownerCompanyName ||
+      checkoutDetails.companyName ||
+      checkoutDetails.ownerCompanyName ||
+      checkoutDetails.courtName ||
+      'PickleZone1';
     const resolvedOwnerCompanyAddress = ownerCompanyAddress || checkoutDetails.companyAddress || checkoutDetails.ownerCompanyAddress || checkoutDetails.courtLocation;
     const resolvedOwnerEmail = ownerEmail || checkoutDetails.hostEmail || '';
     const resolvedOwnerPhone = ownerPhone || checkoutDetails.hostPhone || '';
@@ -1310,7 +1328,18 @@ export default function Checkout({
   // RENDER SUCCESS STATE (Digital Receipt / Ticket)
   // ----------------------------------------------------
   if (success) {
-    const displayHostName = ownerCompanyName || checkoutDetails.companyName || checkoutDetails.ownerCompanyName || checkoutDetails.courtName || 'PicklePoint Venue Host';
+    const isGenericStubHost = (name?: string) =>
+      !name ||
+      name.trim().toLowerCase() === 'picklepoint venue' ||
+      name.trim().toLowerCase() === 'picklepoint venue host' ||
+      name.trim().toLowerCase() === 'book picklecourt venue';
+
+    const displayHostName =
+      (!isGenericStubHost(ownerCompanyName) ? ownerCompanyName : '') ||
+      (!isGenericStubHost(checkoutDetails.companyName) ? checkoutDetails.companyName : '') ||
+      (!isGenericStubHost(checkoutDetails.ownerCompanyName) ? checkoutDetails.ownerCompanyName : '') ||
+      checkoutDetails.courtName ||
+      'PickleZone1';
     const displayCompanyLogo = checkoutDetails.companyLogoUrl || checkoutDetails.courtImage || '';
     const displayHostAddress = ownerCompanyAddress || checkoutDetails.companyAddress || checkoutDetails.courtLocation || 'Pickleball Court Facility';
     const mapDirectionsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayHostAddress || checkoutDetails.courtName)}`;

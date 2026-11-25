@@ -205,16 +205,34 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
       }
     } catch (e) {}
 
-    // Check if company subscription is expired for each event
+    const isStubComp = (n?: string) =>
+      !n || n.trim().toLowerCase() === 'picklepoint venue' || n.trim().toLowerCase() === 'picklepoint venue host';
+
+    // Check if company subscription is expired for each event and resolve real company name/logo
     const finalEventsList = Array.from(eventsMap.values()).map((e) => {
       const matchedComp = companiesList.find((comp) =>
         (e.companyId && comp.id === e.companyId) ||
-        (comp.name && e.location?.toLowerCase().includes(comp.name.toLowerCase()))
-      );
+        (comp.name && !isStubComp(comp.name) && e.companyName?.toLowerCase() === comp.name.toLowerCase()) ||
+        (comp.name && !isStubComp(comp.name) && e.location?.toLowerCase().includes(comp.name.toLowerCase()))
+      ) || (!isStubComp(companiesList[0]?.name) ? companiesList[0] : null);
+
+      const resolvedCompanyName =
+        (!isStubComp(e.companyName) ? e.companyName : '') ||
+        (!isStubComp(matchedComp?.name) ? matchedComp?.name : '') ||
+        e.companyName ||
+        'PickleZone1';
+      const resolvedCompanyLogo = e.companyLogoUrl || matchedComp?.logoUrl || (matchedComp ? logosRecord[matchedComp.id] : '') || '';
+
+      const updatedEvent = {
+        ...e,
+        companyName: resolvedCompanyName,
+        companyLogoUrl: resolvedCompanyLogo,
+      };
+
       if (matchedComp && isSubscriptionExpired(matchedComp)) {
-        return { ...e, status: 'draft' as const };
+        return { ...updatedEvent, status: 'draft' as const };
       }
-      return e;
+      return updatedEvent;
     });
 
     setEvents(finalEventsList.filter((e) => !e.isMatchMatrix && e.status !== 'cancelled' && e.status !== 'draft'));
