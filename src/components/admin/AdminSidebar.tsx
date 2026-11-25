@@ -463,6 +463,27 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
               )}
             </button>
 
+            {(isClientAdminRole || canManageTeam || isSuperAdmin) && (
+              <button
+                onClick={() => handleTabClick('team')}
+                disabled={isTrialOrSubExpired}
+                title={isTrialOrSubExpired ? 'Subscription Expired - Access Locked' : undefined}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[14px] font-semibold transition-all text-left ${
+                  isTrialOrSubExpired
+                    ? 'opacity-40 cursor-not-allowed text-slate-600 bg-slate-900/20'
+                    : activeTab === 'team'
+                    ? 'bg-brand-lime text-dark-bg shadow-md shadow-brand-lime/10 font-bold cursor-pointer'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50 cursor-pointer'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Users className="w-4 h-4 text-brand-lime" />
+                  <span>Team & Staff</span>
+                </div>
+                {isTrialOrSubExpired && <Lock className="w-3.5 h-3.5 text-amber-400/80 ml-auto flex-shrink-0" />}
+              </button>
+            )}
+
             {canManageVouchers && (
               <button
                 onClick={() => handleTabClick('vouchers')}

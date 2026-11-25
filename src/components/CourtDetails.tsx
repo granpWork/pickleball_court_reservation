@@ -347,16 +347,15 @@ export default function CourtDetails({ courtId, initialSelectedDate, setView, us
           name.trim().toLowerCase() === 'picklepoint venue' ||
           name.trim().toLowerCase() === 'book picklecourt venue';
 
-        const companyName =
-          (!isStubName(matchedCompany?.name) ? matchedCompany.name : '') ||
-          (!isStubName(court.ownerCompanyName) ? court.ownerCompanyName : '') ||
-          (!isStubName(court.companyName) ? court.companyName : '') ||
-          (!isStubName(matchedUser?.companyName) ? matchedUser.companyName : '') ||
-          matchedCompany?.name ||
-          court.ownerCompanyName ||
-          court.companyName ||
-          court.name ||
-          'PickleZone1';
+        const candidateHostNames = [
+          matchedCompany?.name,
+          court.ownerCompanyName,
+          court.companyName,
+          matchedUser?.companyName,
+          court.name,
+        ].filter((n): n is string => Boolean(n && !isStubName(n)));
+
+        const companyName = candidateHostNames[0] || 'PickleZone1';
         const companyAddress = matchedCompany?.address || court.companyAddress || [court.barangay, court.municipality, court.province].filter(Boolean).join(', ') || court.location || 'Camarines Sur, Philippines';
         const description = `Verified court host managing ${court.name}. Dedicated to maintaining high-performance surfaces, night lighting, and seamless reservations for pickleball players.`;
 

@@ -1414,6 +1414,10 @@ export interface ClientAdminInvitationEmailParams {
   customMessage?: string;
   companyName?: string;
   role?: 'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player';
+  subscriptionPlan?: 'trial' | 'monthly' | 'yearly' | 'lifetime' | 'custom';
+  trialExpiresAt?: string;
+  subscriptionExpiresAt?: string;
+  isTrialClient?: boolean;
 }
 
 export interface UserInvitationEmailParams {
@@ -1557,13 +1561,13 @@ export interface RegistrationConfirmationEmailParams {
 }
 
 export const sendRegistrationConfirmationEmail = async (params: RegistrationConfirmationEmailParams): Promise<{ success: boolean; error?: string }> => {
-  const subject = `Welcome to PicklePoint - Account Registration Confirmed`;
+  const subject = `Welcome to Book Picklecourt - Account Registration Confirmed`;
   const isClientAdmin = params.role === 'client_admin';
 
   const bodyContent = `
     <div style="margin-bottom: 24px;">
       <p style="margin: 0 0 12px 0; font-size: 15px; color: #e2e8f0; line-height: 1.5;">
-        Welcome to PicklePoint, <strong style="color: #ffffff;">${params.toName}</strong>!
+        Welcome to Book Picklecourt, <strong style="color: #ffffff;">${params.toName}</strong>!
       </p>
       <p style="margin: 0 0 14px 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
         Your account registration has been successfully confirmed. You now have access as a <strong style="color: #a6e224;">${isClientAdmin ? 'Client Administrator' : 'Member'}</strong> on the platform.
@@ -1592,7 +1596,7 @@ export const sendRegistrationConfirmationEmail = async (params: RegistrationConf
 
   const htmlMessage = buildHtmlWrapper(
     'Registration Confirmed',
-    'Welcome to the PicklePoint Platform',
+    'Welcome to the Book Picklecourt Platform',
     bodyContent
   );
 

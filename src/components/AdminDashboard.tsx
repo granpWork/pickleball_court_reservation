@@ -17,7 +17,7 @@ import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
 import { AdminIntegrationsTab } from './admin/tabs/AdminIntegrationsTab';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, type Company, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -38,8 +38,6 @@ import {
   X,
   ArrowLeft,
   Loader2,
-  UserCheck,
-  UserX,
   Filter,
   AlertCircle,
   AlertTriangle,
@@ -66,19 +64,16 @@ import {
   Tag,
   RotateCcw,
   Bell,
-  Send,
   Repeat,
   CalendarCheck,
   MailPlus,
   Copy,
   Download,
-  ShieldCheck,
-  KeyRound,
   CheckCheck,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, onSnapshot } from 'firebase/firestore';
-import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendPaymentApprovalReceiptEmail, sendCompanyInvitationEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendClientAdminInvitationEmail, sendUserInvitationEmail, resolveVenueNotificationRecipients, sendBookingActionAdminAuditEmail } from '../services/emailService';
+import { sendCustomUserEmail, sendBookingStatusUpdateEmail, sendPaymentApprovalReceiptEmail, sendCompanyApprovalEmail, sendVoucherIssuedEmail, sendRefundConfirmationEmail, sendNonRefundableCancellationEmail, sendPendingPaymentsReminderEmail, sendUserInvitationEmail, resolveVenueNotificationRecipients, sendBookingActionAdminAuditEmail } from '../services/emailService';
 import { isEventExpired, formatTime12h, formatEventDateLong, normalizeOpenPlayEvent, type OpenPlayEvent, type OpenPlayRegistration } from './OpenPlayDetails';
 import { OpenPlayRulesPostersManager } from './admin/tabs/openplay/OpenPlayRulesPostersManager';
 import { safeFetchPsgcJson } from '../services/psgcService';
@@ -292,31 +287,6 @@ const isPastBookingDate = (dateStr: string): boolean => {
   return bookingEnd < todayStart;
 };
 
-interface Company {
-  id: string;
-  name: string;
-  address: string;
-  clientAdminEmail: string;
-  createdAt: string;
-  status?: 'pending' | 'active' | 'inactive';
-  phone?: string;
-  description?: string;
-  websiteUrl?: string;
-  facebookUrl?: string;
-  instagramUrl?: string;
-  logoUrl?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  barangay?: string;
-  municipality?: string;
-  province?: string;
-  region?: string;
-  country?: string;
-  postalCode?: string;
-  bookingLeadTimeMinutes?: number;
-  operatingHours?: DailyOperatingHoursMap;
-  subdomain?: string;
-}
 
 interface RentalItem {
   id: string;
@@ -850,7 +820,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // User Invitation Modal States
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
-  const [selectedInviteLeadId, setSelectedInviteLeadId] = useState<string | null>(null);
+  const [_selectedInviteLeadId, setSelectedInviteLeadId] = useState<string | null>(null);
   const [inviteRoleInput, setInviteRoleInput] = useState<'client_admin' | 'super_admin' | 'player' | 'manager' | 'editor'>('client_admin');
   const [inviteEmailInput, setInviteEmailInput] = useState('');
   const [inviteNameInput, setInviteNameInput] = useState('');
@@ -862,6 +832,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [inviteExpiryHours, setInviteExpiryHours] = useState<number>(48);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteSuccessInfo, setInviteSuccessInfo] = useState<{ email: string; token: string; link: string; expiresAt: string; role?: string } | null>(null);
+  const [inviteSuccessToastInfo, setInviteSuccessToastInfo] = useState<{ email: string; token: string; link: string; companyName: string } | null>(null);
+  const [hasCopiedToastInvite, setHasCopiedToastInvite] = useState(false);
   const [copiedInviteLink, setCopiedInviteLink] = useState(false);
 
   const handleSendInviteUser = async (e: React.FormEvent) => {
@@ -986,13 +958,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // Company States
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [companyModalOpen, setCompanyModalOpen] = useState(false);
-  const [editingCompany, setEditingCompany] = useState<Company | null>(null);
-  const [companyNameInput, setCompanyNameInput] = useState('');
-  const [companyAddressInput, setCompanyAddressInput] = useState('');
-  const [clientAdminEmailInput, setClientAdminEmailInput] = useState('');
-  const [companyPhoneInput, setCompanyPhoneInput] = useState('');
-  const [companyStatusInput, setCompanyStatusInput] = useState<'pending' | 'active' | 'inactive'>('pending');
+
+  const [selectedSuperAdminCompanyId, setSelectedSuperAdminCompanyId] = useState<string | null>(null);
 
 
   // Organization Profile Settings States
@@ -1368,6 +1335,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (isSuperAdmin && !currentCompany) return courts;
     return [];
   })();
+
+
 
   const handleSelectAllOpenPlayCourts = () => {
     const targetCourts = availableAdminCourts;
@@ -5609,15 +5578,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   // Client Admin Secure Invitation Handlers
-  const generateSecureInviteToken = (): string => {
-    if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
-      const array = new Uint8Array(32);
-      window.crypto.getRandomValues(array);
-      return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('');
-    }
-    return 'sec-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36) + Math.random().toString(36).substring(2, 15);
-  };
-
   const handleOpenInviteClientAdmin = () => {
     setSelectedInviteLeadId(null);
     setInviteEmailInput('');
@@ -5629,157 +5589,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setInviteModalOpen(true);
   };
 
-  const handleSendClientAdminInvite = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const targetEmail = inviteEmailInput.trim().toLowerCase();
-    if (!targetEmail) {
-      showModalAlert('Invalid Email', 'Please enter a valid email address.', 'warning');
-      return;
-    }
-
-    const assignedRole = inviteRoleInput || (isSuperAdmin ? 'client_admin' : 'manager');
-    const assignedCompany = inviteCompanyNameInput.trim() || effectiveOrgName || myCompany?.name || userObj?.companyName || 'Facility';
-    const assignedCompanyId = myCompany?.id || (user as any)?.companyId || '';
-
-    setInviteLoading(true);
-    try {
-      const token = generateSecureInviteToken();
-      const expiresAt = new Date(Date.now() + inviteExpiryHours * 60 * 60 * 1000).toISOString();
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173';
-      const companyParam = encodeURIComponent(assignedCompany);
-      const inviteUrl = `${origin}/?view=register&inviteToken=${token}&email=${encodeURIComponent(targetEmail)}&company=${companyParam}&role=${assignedRole}`;
-
-      const inviteRecord: Record<string, any> = {
-        token,
-        email: targetEmail,
-        role: assignedRole,
-        company: assignedCompany,
-        companyId: assignedCompanyId,
-        status: 'pending',
-        invitedBy: currentUserEmail || user?.email || 'admin@picklepoint.com',
-        createdAt: new Date().toISOString(),
-        expiresAt,
-      };
-
-      if (inviteNameInput.trim()) {
-        inviteRecord.name = inviteNameInput.trim();
-      }
-      if (inviteCustomMessage.trim()) {
-        inviteRecord.customMessage = inviteCustomMessage.trim();
-      }
-
-      const cleanInviteRecord = Object.fromEntries(
-        Object.entries(inviteRecord).filter(([_, value]) => value !== undefined)
-      );
-
-      if (isFirebaseConfigured && db) {
-        try {
-          await setDoc(doc(db, 'invitations', token), cleanInviteRecord);
-        } catch (fErr) {
-          console.error('Error saving invitation to Firestore:', fErr);
-          throw fErr;
-        }
-      }
-
-      const invStr = localStorage.getItem('picklepoint_invitations');
-      const localInvs = invStr ? JSON.parse(invStr) : [];
-      localInvs.push(inviteRecord);
-      localStorage.setItem('picklepoint_invitations', JSON.stringify(localInvs));
-
-      // Send automated email notification
-      await sendClientAdminInvitationEmail({
-        toEmail: targetEmail,
-        toName: inviteNameInput.trim() || undefined,
-        inviteUrl,
-        expiresAt,
-        invitedBy: currentUserEmail || user?.email || 'Administrator',
-        customMessage: inviteCustomMessage.trim() || undefined,
-      });
-
-      // Mark matching lead in client_leads as invited upon successful invitation dispatch
-      if (isFirebaseConfigured && db) {
-        try {
-          const leadsSnap = await getDocs(collection(db, 'client_leads'));
-          for (const dSnap of leadsSnap.docs) {
-            const data = dSnap.data();
-            const leadEmail = (data.email || data.applicantEmail || data.clientAdminEmail || '').trim().toLowerCase();
-            const isMatch =
-              dSnap.id === selectedInviteLeadId ||
-              (data.id && data.id === selectedInviteLeadId) ||
-              (leadEmail && leadEmail === targetEmail);
-
-            if (isMatch) {
-              await updateDoc(doc(db, 'client_leads', dSnap.id), {
-                status: 'invited',
-                invitedAt: new Date().toISOString(),
-              });
-            }
-          }
-        } catch (lErr) {
-          console.warn('Error updating matching client_leads status:', lErr);
-        }
-      }
-
-      try {
-        const localLeadsStr = localStorage.getItem('picklepoint_venue_leads');
-        if (localLeadsStr) {
-          const localLeads = JSON.parse(localLeadsStr);
-          if (Array.isArray(localLeads)) {
-            const updated = localLeads.map((l: any) => {
-              const lEmail = (l.email || l.applicantEmail || l.clientAdminEmail || '').trim().toLowerCase();
-              const isMatch =
-                l.id === selectedInviteLeadId ||
-                (l.id && l.id === selectedInviteLeadId) ||
-                (lEmail && lEmail === targetEmail);
-              return isMatch
-                ? { ...l, status: 'invited', invitedAt: new Date().toISOString() }
-                : l;
-            });
-            localStorage.setItem('picklepoint_venue_leads', JSON.stringify(updated));
-          }
-        }
-      } catch (e) {}
-
-      // Dispatch custom event with lead details to refresh venue application lists in real-time
-      window.dispatchEvent(
-        new CustomEvent('picklepoint_lead_updated', {
-          detail: { leadId: selectedInviteLeadId, email: targetEmail, status: 'invited' },
-        })
-      );
-
-      setInviteSuccessInfo({
-        email: targetEmail,
-        token,
-        link: inviteUrl,
-        expiresAt,
-        role: assignedRole,
-      });
-
-      // Refresh users list immediately so the pending invitation appears
-      await fetchData();
-    } catch (err) {
-      console.error('Failed to send invitation:', err);
-      showModalAlert('Invitation Error', 'Failed to send invitation: ' + (err as Error).message, 'error');
-    } finally {
-      setInviteLoading(false);
-    }
-  };
-
-
-
   // Company Management Handlers
-  const handleOpenCreateCompany = (initialData?: any) => {
-    setEditingCompany(null);
-    setCompanyNameInput(initialData?.facilityName || initialData?.name || initialData?.companyName || '');
-    setCompanyAddressInput(initialData?.cityLocation || initialData?.address || initialData?.location || '');
-    setClientAdminEmailInput(initialData?.email || initialData?.clientAdminEmail || '');
-    setCompanyPhoneInput(initialData?.phone || initialData?.mobilePhone || initialData?.contactPhone || '');
-    setCompanyStatusInput('pending');
-    setCompanyModalOpen(true);
-  };
-
-
-
   const handleQuickUpdateCompanyStatus = async (companyId: string, newStatus: 'pending' | 'active' | 'inactive') => {
     const targetCompany = companies.find((c) => c.id === companyId);
     if (!targetCompany) return;
@@ -5842,201 +5652,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     } catch (err) {
       console.error('Failed to update company status:', err);
       alert('Failed to update company status: ' + (err as Error).message);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleSaveCompany = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!companyNameInput.trim() || !companyAddressInput.trim() || !clientAdminEmailInput.trim()) {
-      alert("Please complete all company fields.");
-      return;
-    }
-
-    const compId = editingCompany ? editingCompany.id : 'comp-' + Date.now();
-    const finalStatus = companyStatusInput || 'pending';
-    const payload: Company = {
-      id: compId,
-      name: companyNameInput.trim(),
-      address: companyAddressInput.trim(),
-      clientAdminEmail: clientAdminEmailInput.trim().toLowerCase(),
-      status: finalStatus,
-      phone: companyPhoneInput.trim() || undefined,
-      createdAt: editingCompany ? editingCompany.createdAt : new Date().toISOString(),
-    };
-
-    setActionLoading(compId);
-    try {
-      if (isFirebaseConfigured && db) {
-        try {
-          await setDoc(doc(db, 'companies', compId), payload);
-        } catch (cloudErr) {
-          console.warn('Firestore save company failed (check security rules), persisting locally:', cloudErr);
-          const compStr = localStorage.getItem('picklepoint_companies');
-          let localComps = (compStr ? JSON.parse(compStr) : []) as Company[];
-          if (editingCompany) {
-            localComps = localComps.map((c) => (c.id === compId ? payload : c));
-          } else {
-            localComps.push(payload);
-          }
-          localStorage.setItem('picklepoint_companies', JSON.stringify(localComps));
-        }
-      } else {
-        const compStr = localStorage.getItem('picklepoint_companies');
-        let localComps = (compStr ? JSON.parse(compStr) : []) as Company[];
-        if (editingCompany) {
-          localComps = localComps.map((c) => (c.id === compId ? payload : c));
-        } else {
-          localComps.push(payload);
-        }
-        localStorage.setItem('picklepoint_companies', JSON.stringify(localComps));
-      }
-
-      // Associate user in users collection (promote existing account or create pending user doc)
-      const targetEmail = clientAdminEmailInput.trim().toLowerCase();
-      let existingUser = users.find((u) => u.email.toLowerCase() === targetEmail);
-      let targetUid = existingUser?.uid;
-
-      if (isFirebaseConfigured && db) {
-        try {
-          const qSnap = await getDocs(collection(db, 'users'));
-          let matchedRealDoc: any = null;
-          let matchedInvitedDoc: any = null;
-          const duplicateIdsToDelete: string[] = [];
-
-          qSnap.forEach((dSnap) => {
-            if (dSnap.data().email?.toLowerCase() === targetEmail) {
-              if (dSnap.id.startsWith('invited-')) {
-                if (!matchedInvitedDoc) {
-                  matchedInvitedDoc = dSnap;
-                } else {
-                  duplicateIdsToDelete.push(dSnap.id);
-                }
-              } else {
-                if (!matchedRealDoc) {
-                  matchedRealDoc = dSnap;
-                } else {
-                  duplicateIdsToDelete.push(dSnap.id);
-                }
-              }
-            }
-          });
-
-          // Delete any extra duplicate documents
-          for (const dId of duplicateIdsToDelete) {
-            deleteDoc(doc(db, 'users', dId)).catch(() => {});
-          }
-
-          if (matchedRealDoc) {
-            targetUid = matchedRealDoc.id;
-            const rData = matchedRealDoc.data();
-            existingUser = {
-              uid: matchedRealDoc.id,
-              ...rData,
-            } as UserAccount;
-            if (matchedInvitedDoc) {
-              deleteDoc(doc(db, 'users', matchedInvitedDoc.id)).catch(() => {});
-            }
-          } else if (matchedInvitedDoc) {
-            targetUid = matchedInvitedDoc.id;
-            const iData = matchedInvitedDoc.data();
-            existingUser = {
-              uid: matchedInvitedDoc.id,
-              ...iData,
-            } as UserAccount;
-          }
-        } catch (e) {
-          console.warn('Error querying existing user in Firestore:', e);
-        }
-      }
-
-      if (existingUser && targetUid) {
-        const newRole = existingUser.role === 'super_admin' ? 'super_admin' : 'client_admin';
-        const newStatus = finalStatus === 'active' ? 'active' : finalStatus === 'inactive' ? 'inactive' : 'pending';
-        const updatedUserPayload: UserAccount = {
-          ...existingUser,
-          role: newRole,
-          status: newStatus,
-          companyId: compId,
-          companyName: payload.name,
-          isInvitedPending: newStatus === 'pending',
-        };
-
-        if (isFirebaseConfigured && db) {
-          try {
-            await updateDoc(doc(db, 'users', targetUid), {
-              role: newRole,
-              status: newStatus,
-              companyId: compId,
-              companyName: payload.name,
-              isInvitedPending: newStatus === 'pending',
-            });
-          } catch (e) {
-            console.warn('Could not update user company link in Firestore:', e);
-          }
-        }
-
-        const usersStr = localStorage.getItem('picklepoint_users');
-        const localUsers = (usersStr ? JSON.parse(usersStr) : []) as any[];
-        const updatedLocal = localUsers.map((u: any) => u.email?.toLowerCase() === targetEmail ? { ...u, role: newRole, status: newStatus, companyId: compId, companyName: payload.name } : u);
-        localStorage.setItem('picklepoint_users', JSON.stringify(updatedLocal));
-
-        setUsers((prev) => prev.map((u) => u.email?.toLowerCase() === targetEmail ? updatedUserPayload : u));
-      } else {
-        // Create pending/active client admin record in users collection
-        const pendingUid = 'invited-' + Date.now();
-        const initialUserStatus = finalStatus === 'active' ? 'active' : 'pending';
-        const pendingUserPayload = {
-          uid: pendingUid,
-          name: payload.name + ' Admin',
-          email: targetEmail,
-          role: 'client_admin',
-          status: initialUserStatus,
-          companyId: compId,
-          companyName: payload.name,
-          isInvitedPending: initialUserStatus === 'pending',
-          createdAt: new Date().toISOString(),
-        };
-
-        if (isFirebaseConfigured && db) {
-          try {
-            await setDoc(doc(db, 'users', pendingUid), pendingUserPayload);
-          } catch (e) {
-            console.warn('Could not save pending user to Firestore:', e);
-          }
-        }
-
-        const usersStr = localStorage.getItem('picklepoint_users');
-        const localUsers = usersStr ? JSON.parse(usersStr) : [];
-        if (!localUsers.some((u: any) => u.email?.toLowerCase() === targetEmail)) {
-          localUsers.push(pendingUserPayload);
-          localStorage.setItem('picklepoint_users', JSON.stringify(localUsers));
-        }
-
-        setUsers((prev) => [...prev, pendingUserPayload as UserAccount]);
-      }
-
-      if (!editingCompany) {
-        sendCompanyInvitationEmail({
-          companyName: payload.name,
-          companyAddress: payload.address,
-          clientAdminEmail: payload.clientAdminEmail,
-          status: payload.status,
-        }).catch((err) => console.warn('Automated company invitation email failed:', err));
-      }
-
-      if (editingCompany) {
-        setCompanies((prev) => prev.map((c) => (c.id === compId ? payload : c)));
-      } else {
-        setCompanies((prev) => [...prev, payload]);
-      }
-
-      setCompanyModalOpen(false);
-      setEditingCompany(null);
-    } catch (err) {
-      console.error('Failed to save company:', err);
-      alert('Failed to save company: ' + (err as Error).message);
     } finally {
       setActionLoading(null);
     }
@@ -7298,71 +6913,109 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full pb-24 text-left">
           {/* Top Title Banner */}
           <div className="mb-8">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white">
-              {activeTab === 'dashboard'
-                ? 'Analytics & Overview'
-                : activeTab === 'bookings' 
-                ? 'Reservations Management' 
-                : activeTab === 'courts' 
-                ? 'Courts Management' 
-                : activeTab === 'users' 
-                ? 'Registered Users' 
-                : activeTab === 'companies'
-                ? 'Company & Client Management'
-                : activeTab === 'checkouts'
-                ? 'Checkouts & Payments'
-                : activeTab === 'openplay'
-                ? 'Open Play Management'
-                : activeTab === 'match_matrix'
-                ? 'Match Matrix Orchestrator'
-                : activeTab === 'policies'
-                ? 'Court Policies & Guidelines'
-                : activeTab === 'vouchers'
-                ? 'Discounts & Vouchers'
-                : activeTab === 'service_fee'
-                ? 'Service Fee Configuration'
-                : activeTab === 'shortener'
-                ? 'Short URL Link Generator'
-                : activeTab === 'support'
-                ? 'Technical Support & Helpdesk'
-                : activeTab === 'image_converter'
-                ? 'WebP Image Converter'
-                : activeTab === 'integrations'
-                ? 'External API & System Integrations'
-                : 'Facility Operations & Settings'}
-            </h2>
-            <p className="text-sm text-slate-400 mt-1">
-              {activeTab === 'dashboard'
-                ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
-                : activeTab === 'integrations'
-                ? 'Configure credentials, API environments, and automated synchronizations for external sports systems like DUPR.'
-                : activeTab === 'support'
-                ? 'Inspect, manage, and resolve support ticket concerns submitted by Client Administrators & Facility Managers.'
-                : activeTab === 'image_converter'
-                ? 'Convert camera RAW photos (DNG), WEBP, and high-res images to web-optimized formats right in your browser.'
-                : activeTab === 'service_fee'
-                ? 'Configure global convenience & service fee per checkout, inspect fee earnings, and view revenue breakdown.'
-                : activeTab === 'openplay'
-                ? 'Create Open Play sessions, collect GCash entry fees, manage player rosters, and share direct event links.'
-                : activeTab === 'match_matrix'
-                ? 'Configure tournament match boards, set court capacities, and pull player rosters from Open Play sessions.'
-                : activeTab === 'policies'
-                ? 'Configure court rules, cancellation policies, weather terms, and venue guidelines.'
-                : activeTab === 'vouchers'
-                ? 'Create and manage promotional discount vouchers for court bookings.'
-                : activeTab === 'settings'
-                ? 'Configure centralized GCash QR code, Account Name, and Phone Number for venue payments.'
-                : activeTab === 'checkouts'
-                ? 'Inspect reference numbers, review uploaded receipts, and approve or reject user bookings.'
-                : activeTab === 'companies'
-                ? 'Manage corporate pickleball clients, venue companies, and assign client admin managers.'
-                : isSuperAdmin 
-                ? 'Manage reservations, view reports, assign roles, and monitor PicklePoint system status.'
-                : 'Manage your pickleball courts, view reservations, and track business reports.'}
-            </p>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-bold text-white">
+                  {activeTab === 'dashboard'
+                    ? 'Analytics & Overview'
+                    : activeTab === 'bookings' 
+                    ? 'Reservations Management' 
+                    : activeTab === 'courts' 
+                    ? 'Courts Management' 
+                    : activeTab === 'users' 
+                    ? 'Registered Users' 
+                    : activeTab === 'companies'
+                    ? 'Company & Client Management'
+                    : activeTab === 'checkouts'
+                    ? 'Checkouts & Payments'
+                    : activeTab === 'team'
+                    ? 'Team & Staff Management'
+                    : activeTab === 'openplay'
+                    ? 'Open Play Management'
+                    : activeTab === 'match_matrix'
+                    ? 'Match Matrix Orchestrator'
+                    : activeTab === 'policies'
+                    ? 'Court Policies & Guidelines'
+                    : activeTab === 'vouchers'
+                    ? 'Discounts & Vouchers'
+                    : activeTab === 'service_fee'
+                    ? 'Service Fee Configuration'
+                    : activeTab === 'shortener'
+                    ? 'Short URL Link Generator'
+                    : activeTab === 'support'
+                    ? 'Technical Support & Helpdesk'
+                    : activeTab === 'image_converter'
+                    ? 'WebP Image Converter'
+                    : activeTab === 'integrations'
+                    ? 'External API & System Integrations'
+                    : 'Facility Operations & Settings'}
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  {activeTab === 'dashboard'
+                    ? 'Real-time financial metrics, court revenue leaderboards, peak-hour distributions, and category breakdowns.'
+                    : activeTab === 'team'
+                    ? 'Invite and manage your facility managers, staff editors, and administrative permissions.'
+                    : activeTab === 'integrations'
+                    ? 'Configure credentials, API environments, and automated synchronizations for external sports systems like DUPR.'
+                    : activeTab === 'support'
+                    ? 'Inspect, manage, and resolve support ticket concerns submitted by Client Administrators & Facility Managers.'
+                    : activeTab === 'image_converter'
+                    ? 'Convert camera RAW photos (DNG), WEBP, and high-res images to web-optimized formats right in your browser.'
+                    : activeTab === 'service_fee'
+                    ? 'Configure global convenience & service fee per checkout, inspect fee earnings, and view revenue breakdown.'
+                    : activeTab === 'openplay'
+                    ? 'Create Open Play sessions, collect GCash entry fees, manage player rosters, and share direct event links.'
+                    : activeTab === 'match_matrix'
+                    ? 'Configure tournament match boards, set court capacities, and pull player rosters from Open Play sessions.'
+                    : activeTab === 'policies'
+                    ? 'Configure court rules, cancellation policies, weather terms, and venue guidelines.'
+                    : activeTab === 'vouchers'
+                    ? 'Create and manage promotional discount vouchers for court bookings.'
+                    : activeTab === 'settings'
+                    ? 'Configure centralized GCash QR code, Account Name, and Phone Number for venue payments.'
+                    : activeTab === 'checkouts'
+                    ? 'Inspect reference numbers, review uploaded receipts, and approve or reject user bookings.'
+                    : activeTab === 'companies'
+                    ? 'Manage corporate pickleball clients, venue companies, and assign client admin managers.'
+                    : isSuperAdmin 
+                    ? 'Manage reservations, view reports, assign roles, and monitor PicklePoint system status.'
+                    : 'Manage your pickleball courts, view reservations, and track business reports.'}
+                </p>
+              </div>
+
+              {isSuperAdmin && activeTab !== 'companies' && (
+                <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-2 rounded-2xl shadow-lg shrink-0">
+                  <span className="text-xs font-bold text-slate-400 pl-1 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-brand-lime" /> Company Filter:
+                  </span>
+                  <select
+                    value={selectedSuperAdminCompanyId || 'all'}
+                    onChange={(e) => setSelectedSuperAdminCompanyId(e.target.value === 'all' ? null : e.target.value)}
+                    className="bg-slate-950 border border-slate-700/80 text-white rounded-xl text-xs font-semibold px-3 py-1.5 focus:outline-none focus:border-brand-lime cursor-pointer"
+                  >
+                    <option value="all">🌐 All Companies (Global)</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        🏢 {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedSuperAdminCompanyId && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSuperAdminCompanyId(null)}
+                      title="Clear Filter"
+                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg text-xs cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Organization Identifier Badge */}
-            {effectiveOrgName ? (
+            {!isSuperAdmin && effectiveOrgName ? (
               <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-xs text-slate-200 shadow-sm animate-fade-in">
                 <Building2 className="w-4 h-4 text-brand-lime flex-shrink-0" />
                 <span>
@@ -7370,21 +7023,21 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   {effectiveOrgShortLocation && <span className="text-slate-400 font-normal text-xs"> — {effectiveOrgShortLocation}</span>}
                 </span>
               </div>
-            ) : isSuperAdmin ? (
+            ) : isSuperAdmin && activeTab !== 'companies' ? (
               <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-xs text-slate-200 shadow-sm animate-fade-in">
                 <Shield className="w-4 h-4 text-brand-emerald flex-shrink-0" />
                 <span>
                   Role: <strong className="text-brand-emerald font-extrabold text-xs">Super Admin (All Organizations)</strong>
                 </span>
               </div>
-            ) : (
+            ) : !isSuperAdmin ? (
               <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-300 shadow-sm animate-fade-in">
                 <Building2 className="w-4 h-4 text-yellow-400 flex-shrink-0" />
                 <span>
                   Organization: <strong className="text-yellow-400 font-extrabold text-xs">Pending Organization Assignment</strong>
                 </span>
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* SUBSCRIPTION EXPIRED LOCKOUT BANNER */}
@@ -7488,7 +7141,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               courts={courts}
               users={users}
               companiesSubTab={companiesSubTab}
-              onOpenOnboardModal={handleOpenCreateCompany}
               onOpenInviteModal={(comp: any) => {
                 setInviteModalOpen(true);
                 if (comp) {
@@ -7704,11 +7356,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             />
           )}
 
-          {activeTab === 'settings' && (
+          {(activeTab === 'settings' || activeTab === 'team') && (
             <AdminSettingsTab
               user={user}
-              settingsSubTab={settingsSubTab}
-              setSettingsSubTab={setSettingsSubTab}
+              settingsSubTab={activeTab === 'team' ? 'team' : settingsSubTab}
+              setSettingsSubTab={activeTab === 'team' ? () => {} : setSettingsSubTab}
               adminDisplayName={adminDisplayName}
               setAdminDisplayName={setAdminDisplayName}
               adminPhone={adminPhone}
@@ -10554,161 +10206,48 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       )}
 
       {/* CREATE / EDIT COMPANY MODAL */}
-      {companyModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-fade-in">
-          <div className="glass-panel border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative">
-            <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-brand-lime" />
-                {editingCompany ? 'Edit Company Profile' : 'Create New Company'}
-              </h3>
+      {/* ONBOARD SUCCESS FLOATING TOAST NOTIFICATION */}
+      {inviteSuccessToastInfo && (
+        <div className="fixed top-5 right-5 z-[9999] max-w-lg w-[calc(100vw-2.5rem)] animate-fade-in shadow-2xl">
+          <div className="p-4 rounded-2xl bg-slate-900/95 border border-brand-lime/60 backdrop-blur-xl shadow-2xl text-left space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-brand-lime shrink-0" />
+                <span className="text-xs font-bold text-white">
+                  Company Onboarded & Invite Dispatched!
+                </span>
+              </div>
               <button
-                onClick={() => { setCompanyModalOpen(false); setEditingCompany(null); }}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                type="button"
+                onClick={() => setInviteSuccessToastInfo(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-
-            <form onSubmit={handleSaveCompany} className="space-y-4">
-              {/* Company Name */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Company / Organization Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Metro Pickleball Club"
-                  value={companyNameInput}
-                  onChange={(e) => setCompanyNameInput(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20"
-                />
-              </div>
-
-              {/* Address */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Physical Address / Location
-                </label>
-                <textarea
-                  required
-                  rows={3}
-                  placeholder="e.g. 123 Sports Complex Way, Quezon City, Metro Manila"
-                  value={companyAddressInput}
-                  onChange={(e) => setCompanyAddressInput(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 resize-none"
-                />
-              </div>
-
-              {/* Contact Phone Number */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Contact Phone Number
-                </label>
-                <input
-                  type="tel"
-                  placeholder="e.g. 0917-123-4567"
-                  value={companyPhoneInput}
-                  onChange={(e) => setCompanyPhoneInput(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20"
-                />
-              </div>
-
-              {/* Client Admin Email */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Client Admin Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="e.g. owner@metropickle.com"
-                  value={clientAdminEmailInput}
-                  onChange={(e) => setClientAdminEmailInput(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20"
-                />
-                <p className="text-[10px] text-slate-500 mt-1">
-                  Assigning this email will grant Client Admin permissions to manage this company's courts & bookings.
-                </p>
-              </div>
-
-              {/* Company Account Status */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                  Company Account Status
-                </label>
-                <div className="grid grid-cols-3 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setCompanyStatusInput('pending')}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                      companyStatusInput === 'pending'
-                        ? 'bg-yellow-500/20 border-yellow-500 text-yellow-400 shadow-sm shadow-yellow-500/10'
-                        : 'bg-slate-900 border-dark-border text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    <Clock className="w-4 h-4" />
-                    <span>Pending</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCompanyStatusInput('active')}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                      companyStatusInput === 'active'
-                        ? 'bg-brand-emerald/20 border-brand-emerald text-brand-emerald shadow-sm shadow-brand-emerald/10'
-                        : 'bg-slate-900 border-dark-border text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    <UserCheck className="w-4 h-4" />
-                    <span>Active</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setCompanyStatusInput('inactive')}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition-all flex flex-col items-center gap-1 cursor-pointer ${
-                      companyStatusInput === 'inactive'
-                        ? 'bg-red-500/20 border-red-500 text-red-400 shadow-sm shadow-red-500/10'
-                        : 'bg-slate-900 border-dark-border text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    <UserX className="w-4 h-4" />
-                    <span>Inactive</span>
-                  </button>
-                </div>
-                <p className="text-[10px] text-slate-500 mt-2">
-                  {companyStatusInput === 'pending'
-                    ? '🟡 Pending: Organization requires review / onboarding before going fully live.'
-                    : companyStatusInput === 'active'
-                    ? '🟢 Active: Organization is approved and fully operational on PicklePoint.'
-                    : '🔴 Inactive: Organization is paused or temporarily deactivated.'}
-                </p>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-3 pt-4 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => { setCompanyModalOpen(false); setEditingCompany(null); }}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 border border-slate-800 hover:bg-slate-900 transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={actionLoading !== null}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  {actionLoading !== null ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    editingCompany ? 'Save Changes' : 'Create Company'
-                  )}
-                </button>
-              </div>
-            </form>
+            <p className="text-xs text-slate-300">
+              Successfully registered <strong className="text-white">{inviteSuccessToastInfo.companyName}</strong> and dispatched Client Admin credentials to <span className="text-brand-lime font-mono">{inviteSuccessToastInfo.email}</span>.
+            </p>
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800">
+              <input
+                type="text"
+                readOnly
+                value={inviteSuccessToastInfo.link}
+                className="bg-transparent text-[11px] font-mono text-slate-300 w-full outline-none select-all"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(inviteSuccessToastInfo.link);
+                  setHasCopiedToastInvite(true);
+                  setTimeout(() => setHasCopiedToastInvite(false), 3000);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-brand-lime text-slate-950 text-xs font-black shrink-0 hover:bg-[#a6e224] transition-all flex items-center gap-1 cursor-pointer"
+              >
+                {hasCopiedToastInvite ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{hasCopiedToastInvite ? 'Copied!' : 'Copy Link'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -10826,201 +10365,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* INVITE CLIENT ADMIN MODAL */}
-      {inviteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-fade-in">
-          <div className="glass-panel border border-brand-lime/30 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative text-left">
-            <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <MailPlus className="w-5 h-5 text-brand-lime" />
-                {inviteRoleInput === 'manager' ? 'Invite Facility Manager' : inviteRoleInput === 'client_admin' ? 'Invite New Client Admin' : 'Invite User'}
-              </h3>
-              <button
-                onClick={() => {
-                  setInviteModalOpen(false);
-                  setInviteSuccessInfo(null);
-                }}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {inviteSuccessInfo ? (
-              <div className="space-y-4">
-                <div className="bg-brand-emerald/10 border border-brand-emerald/30 rounded-2xl p-4 flex items-start gap-3">
-                  <CheckCircle2 className="w-5 h-5 text-brand-emerald flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-bold text-white mb-1">Invitation Sent & Generated!</h4>
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      An official invitation email has been dispatched to <strong className="text-brand-lime">{inviteSuccessInfo.email}</strong>.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 space-y-2">
-                  <div className="text-[11px] uppercase tracking-wider font-extrabold text-slate-400 flex items-center gap-1.5">
-                    <KeyRound className="w-3.5 h-3.5 text-brand-lime" /> Secure Single-Use Registration Link
-                  </div>
-                  <div className="p-2.5 bg-black/40 border border-slate-800 rounded-lg text-xs font-mono text-slate-300 break-all select-all">
-                    {inviteSuccessInfo.link}
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Expires: {new Date(inviteSuccessInfo.expiresAt).toLocaleString()}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(inviteSuccessInfo.link);
-                        setCopiedInviteLink(true);
-                        setTimeout(() => setCopiedInviteLink(false), 3000);
-                        showModalAlert('Link Copied', 'Invite link copied to clipboard!', 'success');
-                      }}
-                      className="inline-flex items-center gap-1 text-xs font-bold text-brand-lime hover:underline cursor-pointer"
-                    >
-                      {copiedInviteLink ? (
-                        <>
-                          <CheckCheck className="w-3.5 h-3.5 text-brand-emerald" /> Copied!
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" /> Copy Link
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900/50 border border-slate-800/80 rounded-xl p-3 text-[11px] text-slate-400 flex items-start gap-2">
-                  <ShieldCheck className="w-4 h-4 text-brand-lime flex-shrink-0 mt-0.5" />
-                  <span>
-                    When the invitee opens the link, their email will be locked and verified against this single-use cryptographic token.
-                  </span>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInviteModalOpen(false);
-                      setInviteSuccessInfo(null);
-                    }}
-                    className="w-full py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-md shadow-brand-lime/10"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleSendClientAdminInvite} className="space-y-4">
-                {/* Invitee Email */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Client Admin Email Address <span className="text-red-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                      <Mail className="w-4 h-4" />
-                    </span>
-                    <input
-                      type="email"
-                      placeholder="facility.host@example.com"
-                      value={inviteEmailInput}
-                      onChange={(e) => setInviteEmailInput(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 font-medium"
-                    />
-                  </div>
-                </div>
-
-                {/* Invitee Name */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Invitee Name / Facility Contact <span className="text-slate-500 font-normal">(Optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. John Doe"
-                    value={inviteNameInput}
-                    onChange={(e) => setInviteNameInput(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 font-medium"
-                  />
-                </div>
-
-                {/* Assigned Facility / Company Name */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Assigned Facility / Company Name <span className="text-red-400">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                      <Building2 className="w-4 h-4" />
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Metro Pickleball Club"
-                      value={inviteCompanyNameInput}
-                      onChange={(e) => setInviteCompanyNameInput(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 font-medium"
-                    />
-                  </div>
-                </div>
-
-                {/* Token Expiration Window */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                    Invitation Expiry Window
-                  </label>
-                  <select
-                    value={inviteExpiryHours}
-                    onChange={(e) => setInviteExpiryHours(Number(e.target.value))}
-                    className="w-full px-4 py-2.5 bg-slate-900 border border-dark-border text-white rounded-xl text-xs focus:outline-none focus:border-brand-lime focus:ring-1 focus:ring-brand-lime/20 cursor-pointer"
-                  >
-                    <option value={24}>24 Hours (1 Day)</option>
-                    <option value={48}>48 Hours (2 Days - Recommended)</option>
-                    <option value={72}>72 Hours (3 Days)</option>
-                    <option value={168}>7 Days (1 Week)</option>
-                  </select>
-                </div>
-
-
-                {/* Security Note */}
-                <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-[11px] text-slate-400 flex items-start gap-2">
-                  <ShieldCheck className="w-4 h-4 text-brand-lime flex-shrink-0 mt-0.5" />
-                  <span>
-                    A secure, single-use 64-character token will be generated and tied exclusively to this email address to prevent unauthorized registrations.
-                  </span>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex gap-3 pt-4 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setInviteModalOpen(false)}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-400 border border-slate-800 hover:bg-slate-900 transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={inviteLoading}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-brand-lime/10"
-                  >
-                    {inviteLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <Send className="w-4 h-4" />
-                        Send Invitation
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            )}
           </div>
         </div>
       )}

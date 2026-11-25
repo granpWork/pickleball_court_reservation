@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2,
-  Plus,
   MailPlus,
   Check,
   X,
@@ -28,6 +27,7 @@ import {
   MessageSquare,
   XCircle,
   Search,
+  Pencil,
 } from 'lucide-react';
 import { db, isFirebaseConfigured } from '../../../firebase';
 import { collection, getDocs, doc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
@@ -46,7 +46,6 @@ interface AdminCompaniesTabProps {
   courts?: any[];
   users?: any[];
   companiesSubTab?: AdminCompaniesSubTab;
-  onOpenOnboardModal: (data?: any) => void;
   onOpenInviteModal?: (company?: Company) => void;
   onApproveCompany?: (companyId: string) => void;
   onRejectCompany?: (companyId: string) => void;
@@ -81,7 +80,6 @@ export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
   courts = [],
   users = [],
   companiesSubTab = 'all',
-  onOpenOnboardModal,
   onOpenInviteModal,
   onApproveCompany,
   onRejectCompany,
@@ -649,6 +647,13 @@ export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
           </button>
 
           <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setActiveSubTab('profile')}
+              className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs hover:bg-slate-700 transition-all cursor-pointer"
+            >
+              <Pencil className="w-4 h-4 text-brand-lime" />
+              <span>Edit Profile</span>
+            </button>
             {onOpenInviteModal && (
               <button
                 onClick={() => onOpenInviteModal(selectedCompanyForView)}
@@ -1228,66 +1233,53 @@ export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
   // =========================================================================
   return (
     <div className="space-y-8 animate-fade-in">
-      {/* Top Header & Actions */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 glass-panel p-5 rounded-2xl border border-slate-800">
-        <div>
-          <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-brand-lime" /> Company & Client Onboarding
-          </h3>
-          <p className="text-xs text-slate-400">Onboard venue partners, manage subscriptions, view details pages, and invite Client Admins.</p>
-        </div>
-        <div className="flex items-center space-x-3 w-full sm:w-auto">
-          {onOpenInviteModal && (
-            <button
-              onClick={() => onOpenInviteModal()}
-              className="flex-1 sm:flex-initial flex items-center justify-center space-x-2 px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-bold text-xs hover:bg-slate-700 transition-all cursor-pointer"
-            >
-              <MailPlus className="w-4 h-4 text-brand-lime" />
-              <span>Invite Client Admin</span>
-            </button>
-          )}
+      {/* Sub-navigation Tabs & Invite Client Admin CTA Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+        {/* Sub-navigation Tabs: All Companies vs For Review (Pill Segmented Bar) */}
+        <div className="p-1.5 bg-slate-950/80 border border-slate-800/80 rounded-2xl flex items-center gap-2 backdrop-blur-xl shadow-lg max-w-fit">
           <button
-            onClick={onOpenOnboardModal}
-            className="flex-1 sm:flex-initial flex items-center justify-center space-x-2 px-5 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-lime-400 shadow-lg shadow-brand-lime/20 transition-all cursor-pointer"
+            type="button"
+            onClick={() => setActiveRosterViewTab('all')}
+            className={`py-2.5 px-4 text-xs font-normal rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+              activeRosterViewTab === 'all'
+                ? 'bg-slate-800 text-brand-lime shadow-md border border-brand-lime/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
+            }`}
           >
-            <Plus className="w-4 h-4" />
-            <span>Onboard Company</span>
+            <Building2 className="w-4 h-4" />
+            <span>All Companies ({companies.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveRosterViewTab('reviews')}
+            className={`py-2.5 px-4 text-xs font-normal rounded-xl transition-all flex items-center gap-2 cursor-pointer relative ${
+              activeRosterViewTab === 'reviews'
+                ? 'bg-slate-800 text-brand-lime shadow-md border border-brand-lime/30'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
+            }`}
+          >
+            <Clock className="w-4 h-4 text-brand-lime" />
+            <span>For Review</span>
+            {clientLeads.filter(l => l.status !== 'invited' && l.status !== 'rejected').length > 0 && (
+              <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-rose-500 text-white shadow-sm shadow-rose-500/40 animate-pulse">
+                {clientLeads.filter(l => l.status !== 'invited' && l.status !== 'rejected').length}
+              </span>
+            )}
           </button>
         </div>
-      </div>
 
-      {/* Sub-navigation Tabs: All Companies vs For Review (Pill Segmented Bar) */}
-      <div className="p-1.5 bg-slate-950/80 border border-slate-800/80 rounded-2xl flex items-center gap-2 backdrop-blur-xl shadow-lg max-w-fit">
-        <button
-          type="button"
-          onClick={() => setActiveRosterViewTab('all')}
-          className={`py-2.5 px-4 text-xs font-normal rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
-            activeRosterViewTab === 'all'
-              ? 'bg-slate-800 text-brand-lime shadow-md border border-brand-lime/30'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
-          }`}
-        >
-          <Building2 className="w-4 h-4" />
-          <span>All Companies ({companies.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveRosterViewTab('reviews')}
-          className={`py-2.5 px-4 text-xs font-normal rounded-xl transition-all flex items-center gap-2 cursor-pointer relative ${
-            activeRosterViewTab === 'reviews'
-              ? 'bg-slate-800 text-brand-lime shadow-md border border-brand-lime/30'
-              : 'text-slate-400 hover:text-white hover:bg-slate-900/60 border border-transparent'
-          }`}
-        >
-          <Clock className="w-4 h-4 text-brand-lime" />
-          <span>For Review</span>
-          {clientLeads.filter(l => l.status !== 'invited' && l.status !== 'rejected').length > 0 && (
-            <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-rose-500 text-white shadow-sm shadow-rose-500/40 animate-pulse">
-              {clientLeads.filter(l => l.status !== 'invited' && l.status !== 'rejected').length}
-            </span>
-          )}
-        </button>
+        {/* Right CTA: Invite Client Admin */}
+        {onOpenInviteModal && (
+          <button
+            type="button"
+            onClick={() => onOpenInviteModal()}
+            className="flex items-center justify-center space-x-2 px-5 py-2.5 rounded-xl bg-brand-lime text-slate-950 font-extrabold text-xs hover:bg-[#a6e224] transition-all shadow-lg shadow-brand-lime/20 cursor-pointer shrink-0"
+          >
+            <MailPlus className="w-4 h-4 text-slate-950" />
+            <span>Invite Client Admin</span>
+          </button>
+        )}
       </div>
 
       {/* VIEW SUB-TAB 1: FOR REVIEW (PENDING APPLICATIONS & LEADS) */}
@@ -1717,7 +1709,20 @@ export const AdminCompaniesTab: React.FC<AdminCompaniesTabProps> = ({
                         <td className="py-4 px-6">{renderSubscriptionBadge(comp)}</td>
 
                         <td className="py-4 px-6 text-right">
-                          {renderStatusToggleSwitch(comp)}
+                          <div className="flex items-center justify-end gap-2.5">
+                            {renderStatusToggleSwitch(comp)}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenCompanyPage(comp, 'profile');
+                              }}
+                              title="Edit Company Profile"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))

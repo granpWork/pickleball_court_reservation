@@ -219,7 +219,6 @@ export default function OpenPlayPage({ onSelectEvent, setView }: OpenPlayPagePro
       const resolvedCompanyName =
         (!isStubComp(e.companyName) ? e.companyName : '') ||
         (!isStubComp(matchedComp?.name) ? matchedComp?.name : '') ||
-        e.companyName ||
         'PickleZone1';
       const resolvedCompanyLogo = e.companyLogoUrl || matchedComp?.logoUrl || (matchedComp ? logosRecord[matchedComp.id] : '') || '';
 

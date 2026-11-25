@@ -315,10 +315,10 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 resolvedCompName = data.ownerCompanyName;
               } else if (data.companyName && !isGenericStub({ name: data.companyName })) {
                 resolvedCompName = data.companyName;
-              } else if (matchedCompany?.name) {
+              } else if (matchedCompany?.name && !isGenericStub(matchedCompany)) {
                 resolvedCompName = matchedCompany.name;
               } else {
-                resolvedCompName = data.name || 'PicklePoint Venue';
+                resolvedCompName = (data.name && !isGenericStub({ name: data.name }) ? data.name : '') || 'PickleZone1';
               }
 
               const compKey = matchedCompany?.id || data.companyId || '';
@@ -372,11 +372,13 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
               }
 
               // Sanitize companyName and resolve logo if stub or missing
+              const courtOwner = matchedCourt?.ownerCompanyName && !isStubEventHost(matchedCourt.ownerCompanyName) ? matchedCourt.ownerCompanyName : '';
+              const courtComp = matchedCourt?.companyName && !isStubEventHost(matchedCourt.companyName) ? matchedCourt.companyName : '';
               const resolvedEventHost =
                 (!isStubEventHost(norm.companyName) ? norm.companyName : '') ||
                 (matchedComp && !isGenericStub(matchedComp) ? matchedComp.name : '') ||
-                matchedCourt?.ownerCompanyName ||
-                matchedCourt?.companyName ||
+                courtOwner ||
+                courtComp ||
                 'PickleZone1';
 
               const resolvedEventLogo =
@@ -411,11 +413,13 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                   norm.status = 'draft';
                 }
 
+                const courtOwner = matchedCourt?.ownerCompanyName && !isStubEventHost(matchedCourt.ownerCompanyName) ? matchedCourt.ownerCompanyName : '';
+                const courtComp = matchedCourt?.companyName && !isStubEventHost(matchedCourt.companyName) ? matchedCourt.companyName : '';
                 const resolvedEventHost =
                   (!isStubEventHost(norm.companyName) ? norm.companyName : '') ||
                   (matchedComp && !isGenericStub(matchedComp) ? matchedComp.name : '') ||
-                  matchedCourt?.ownerCompanyName ||
-                  matchedCourt?.companyName ||
+                  courtOwner ||
+                  courtComp ||
                   'PickleZone1';
 
                 const resolvedEventLogo =
@@ -531,10 +535,10 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
                 resolvedCompName = c.ownerCompanyName;
               } else if (c.companyName && !isGenericStubLocal({ name: c.companyName })) {
                 resolvedCompName = c.companyName;
-              } else if (matchedComp?.name) {
+              } else if (matchedComp?.name && !isGenericStubLocal(matchedComp)) {
                 resolvedCompName = matchedComp.name;
               } else {
-                resolvedCompName = c.name || 'PicklePoint Venue';
+                resolvedCompName = (c.name && !isGenericStubLocal({ name: c.name }) ? c.name : '') || 'PickleZone1';
               }
 
               const resolvedLogo =
@@ -627,13 +631,13 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
         name.trim().toLowerCase() === 'picklepoint venue' ||
         name.trim().toLowerCase() === 'book picklecourt venue';
 
-      const resolvedVenueName =
-        (!isGenericStubName(c.ownerCompanyName) ? c.ownerCompanyName : '') ||
-        (!isGenericStubName(c.companyName) ? c.companyName : '') ||
-        c.ownerCompanyName ||
-        c.companyName ||
-        c.name ||
-        'PicklePoint Venue';
+      const candidateNames = [
+        c.ownerCompanyName,
+        c.companyName,
+        c.name,
+      ].filter((n): n is string => Boolean(n && !isGenericStubName(n)));
+
+      const resolvedVenueName = candidateNames[0] || 'PickleZone1';
       const resolvedLogo =
         c.logoUrl ||
         c.ownerCompanyLogo ||
@@ -1649,8 +1653,9 @@ export default function Hero({ setView, setSelectedCourtId, searchDate, setSearc
 
                     const assignedCourts = courts.filter(c => event.courtIds?.includes(c.id));
                     const isStubHost = (n?: string) => !n || n.trim().toLowerCase() === 'picklepoint venue' || n.trim().toLowerCase() === 'picklepoint host' || n.trim().toLowerCase() === 'book picklecourt venue';
+                    const courtHostName = assignedCourts[0]?.ownerCompanyName && !isStubHost(assignedCourts[0].ownerCompanyName) ? assignedCourts[0].ownerCompanyName : '';
                     const displayHost = (!isStubHost(event.companyName) ? event.companyName : '') ||
-                      assignedCourts[0]?.ownerCompanyName ||
+                      courtHostName ||
                       'PickleZone1';
 
                     const companyLogo = event.companyLogoUrl ||
