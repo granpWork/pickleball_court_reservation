@@ -1101,6 +1101,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     } catch { return []; }
   });
   const [openPlayModalOpen, setOpenPlayModalOpen] = useState(false);
+  const isSavingOpenPlayRef = useRef<boolean>(false);
+  const pendingCreateEventIdRef = useRef<string | null>(null);
+  const [isSubmittingOpenPlay, setIsSubmittingOpenPlay] = useState<boolean>(false);
   const [editingOpenPlay, setEditingOpenPlay] = useState<OpenPlayEvent | null>(null);
   const [registrationsModalOpen, setRegistrationsModalOpen] = useState(false);
   const [selectedEventForRegs, setSelectedEventForRegs] = useState<OpenPlayEvent | null>(null);
@@ -1401,6 +1404,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const currentDayName = dayNames[today.getDay()];
     const ownerHostPhone = myCompany?.phone || (myCompany as any)?.hostPhone || (user as any)?.phone || '';
 
+    // Assign stable event ID for this modal session to guarantee submission idempotency
+    pendingCreateEventIdRef.current = `op-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    isSavingOpenPlayRef.current = false;
+    setIsSubmittingOpenPlay(false);
+
     setEditingOpenPlay(null);
     setOpenPlayTitle('');
     // Automatically select court only if 1 court is available; if > 1 court, leave empty for explicit host selection
@@ -1428,6 +1436,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleOpenEditOpenPlay = (event: OpenPlayEvent) => {
+    isSavingOpenPlayRef.current = false;
+    setIsSubmittingOpenPlay(false);
+    pendingCreateEventIdRef.current = null;
     const targetCourts = availableAdminCourts;
     const eventDay = event.eventDate ? new Date(event.eventDate + 'T00:00:00').getDay() : 0;
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -1474,8 +1485,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   const handleSaveOpenPlayEvent = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSavingOpenPlayRef.current) {
+      console.warn('⚠️ [OpenPlay Save] Event save already in progress. Ignoring duplicate submission.');
+      return;
+    }
+    isSavingOpenPlayRef.current = true;
+    setIsSubmittingOpenPlay(true);
+
     if (!openPlayTitle.trim() || !openPlayDate) {
       alert("Please fill in event title and date.");
+      isSavingOpenPlayRef.current = false;
+      setIsSubmittingOpenPlay(false);
       return;
     }
 
@@ -1572,12 +1592,17 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         alert('Failed to save recurring events: ' + (err as Error).message);
       } finally {
         setActionLoading(null);
+        isSavingOpenPlayRef.current = false;
+        setIsSubmittingOpenPlay(false);
       }
       return;
     }
 
     // CASE B: SINGLE EVENT SAVE (Create or Edit)
-    const eventId = editingOpenPlay ? editingOpenPlay.id : 'op-' + Date.now();
+    // Use pre-assigned pendingCreateEventIdRef to guarantee idempotency across rapid submits
+    const eventId = editingOpenPlay
+      ? editingOpenPlay.id
+      : (pendingCreateEventIdRef.current || `op-${Date.now()}`);
     const isPast = isEventExpired(openPlayDate, openPlayEndTime);
 
     // Conflict Check: Alert admin if private court bookings exist during proposed Open Play hours
@@ -1619,6 +1644,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (existingConflicts.length > 0) {
       const conflictMsg = `Notice: ${existingConflicts.length} existing private court reservation(s) overlap with this Open Play schedule on ${openPlayDate} (${openPlayStartTime} - ${openPlayEndTime}).\n\nThose overlapping hours will be reserved for Open Play. Do you wish to proceed?`;
       if (!confirm(conflictMsg)) {
+        isSavingOpenPlayRef.current = false;
+        setIsSubmittingOpenPlay(false);
         return;
       }
     }
@@ -1683,11 +1710,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       try { sessionStorage.setItem('picklepoint_openplay_events', JSON.stringify(localEvents)); } catch (e) {}
       try { window.dispatchEvent(new Event('openplay_updated')); } catch (e) {}
 
-      if (editingOpenPlay) {
-        setOpenPlayEvents(prev => prev.map(e => e.id === eventId ? payload : e));
-      } else {
-        setOpenPlayEvents(prev => [...prev, payload]);
-      }
+      // Deduplicate state: update in-place if existing, otherwise append
+      setOpenPlayEvents(prev => {
+        const exists = prev.some(e => e.id === eventId);
+        if (exists) {
+          return prev.map(e => e.id === eventId ? payload : e);
+        }
+        return [...prev, payload];
+      });
       if (selectedEventForRegs && selectedEventForRegs.id === eventId) {
         setSelectedEventForRegs(payload);
       }
@@ -1698,6 +1728,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       alert('Failed to save event: ' + (err as Error).message);
     } finally {
       setActionLoading(null);
+      isSavingOpenPlayRef.current = false;
+      setIsSubmittingOpenPlay(false);
     }
   };
 
@@ -1776,6 +1808,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleDuplicateOpenPlayEvent = (event: OpenPlayEvent) => {
+    pendingCreateEventIdRef.current = `op-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    isSavingOpenPlayRef.current = false;
+    setIsSubmittingOpenPlay(false);
     setEditingOpenPlay(null);
     setOpenPlayTitle(`${event.title} (Copy)`);
     setOpenPlayCategory(event.category);
@@ -12244,10 +12279,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   </button>
                   <button
                     type="submit"
-                    disabled={actionLoading !== null}
+                    disabled={isSubmittingOpenPlay || actionLoading !== null}
                     className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-brand-lime/10 active:scale-95 disabled:opacity-50"
                   >
-                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin text-dark-bg" /> : <Check className="w-4 h-4" />}
+                    {isSubmittingOpenPlay || actionLoading ? <Loader2 className="w-4 h-4 animate-spin text-dark-bg" /> : <Check className="w-4 h-4" />}
                     <span>{editingOpenPlay ? 'Save Changes' : 'Create Session'}</span>
                   </button>
                 </div>

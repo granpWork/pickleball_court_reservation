@@ -2745,50 +2745,50 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                       )}
 
                       {!isWaitlisted && (
-                        <div className="flex items-center gap-2 pt-1 border-t border-slate-800/60">
+                        <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-800/60">
                           <button
                             type="button"
                             onClick={() => handleOpenMessengerForAttendee(att)}
-                            className="py-1.5 px-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer shrink-0"
+                            className="w-full py-2 px-2.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
                             title="Send Facebook Messenger Confirmation"
                           >
-                            <MessageSquare className="w-3 h-3 text-blue-400" />
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                             <span>Messenger</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => setMovingAttendee(att)}
-                            className="py-1.5 px-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer shrink-0"
+                            className="w-full py-2 px-2.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
                             title="Move player to another published Open Play session"
                           >
-                            <ArrowRightLeft className="w-3 h-3 text-purple-400" />
+                            <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                             <span>Move</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => handleMoveToWaitlist(att)}
                             disabled={isMovingToWaitlist === att.id}
-                            className="flex-1 py-1.5 px-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer"
+                            className="w-full py-2 px-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
                             title="Move player to waitlist (frees up 1 roster slot)"
                           >
                             {isMovingToWaitlist === att.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
                             ) : (
-                              <Hourglass className="w-3 h-3 text-amber-400" />
+                              <Hourglass className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                             )}
-                            <span>Move to Waitlist</span>
+                            <span>Waitlist</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => handleRemoveFromRoster(att)}
                             disabled={isRemovingFromRoster === att.id}
-                            className="py-1.5 px-2.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 transition-all cursor-pointer"
+                            className="w-full py-2 px-2.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-extrabold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-[0.98]"
                             title="Remove player from roster"
                           >
                             {isRemovingFromRoster === att.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin text-red-400" />
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400 shrink-0" />
                             ) : (
-                              <Trash2 className="w-3 h-3 text-red-400" />
+                              <Trash2 className="w-3.5 h-3.5 text-red-400 shrink-0" />
                             )}
                             <span>Remove</span>
                           </button>
@@ -2966,51 +2966,52 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     </span>
 
                     {!isWaitlisted && (
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap">
                         <button
                           type="button"
                           onClick={() => handleOpenMessengerForAttendee(att)}
-                          className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                          className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
                           title="Send Facebook Messenger Confirmation"
                         >
-                          <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
-                          <span className="hidden md:inline">Messenger</span>
+                          <MessageSquare className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                          <span className="hidden sm:inline">Messenger</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setMovingAttendee(att)}
-                          className="px-2.5 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                          className="px-2.5 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
                           title="Move player to another published Open Play session"
                         >
-                          <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400" />
-                          <span className="hidden md:inline">Move</span>
+                          <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                          <span className="hidden sm:inline">Move</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleMoveToWaitlist(att)}
                           disabled={isMovingToWaitlist === att.id}
-                          className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer"
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
                           title="Move player to waitlist (frees up 1 roster slot)"
                         >
                           {isMovingToWaitlist === att.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
                           ) : (
-                            <Hourglass className="w-3.5 h-3.5 text-amber-400" />
+                            <Hourglass className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                           )}
-                          <span className="hidden md:inline">Waitlist</span>
+                          <span className="hidden sm:inline">Waitlist</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleRemoveFromRoster(att)}
                           disabled={isRemovingFromRoster === att.id}
-                          className="p-1.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 transition-all cursor-pointer"
+                          className="px-2.5 py-1.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
                           title="Remove player from roster"
                         >
                           {isRemovingFromRoster === att.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400 shrink-0" />
                           ) : (
-                            <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                            <Trash2 className="w-3.5 h-3.5 text-red-400 shrink-0" />
                           )}
+                          <span className="hidden sm:inline">Remove</span>
                         </button>
                       </div>
                     )}
@@ -3224,14 +3225,15 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                 </button>
                               )}
                               {!isWaitlisted && (
-                                <>
+                                <div className="flex items-center gap-1.5 shrink-0">
                                   <button
                                     type="button"
                                     onClick={() => handleOpenMessengerForAttendee(att)}
-                                    className="p-1.5 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 transition-all cursor-pointer shrink-0"
+                                    className="px-2 py-1 rounded-xl bg-blue-500/10 border border-blue-500/30 hover:bg-blue-500/20 text-blue-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
                                     title="Send Facebook Messenger Confirmation"
                                   >
-                                    <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                                    <MessageSquare className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                    <span className="hidden xl:inline">Messenger</span>
                                   </button>
                                   <button
                                     type="button"
@@ -3239,8 +3241,8 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                     className="px-2 py-1 rounded-xl bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
                                     title="Move player to another published Open Play session"
                                   >
-                                    <ArrowRightLeft className="w-3 h-3 text-purple-400" />
-                                    <span className="hidden lg:inline">Move</span>
+                                    <ArrowRightLeft className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                    <span className="hidden xl:inline">Move</span>
                                   </button>
                                   <button
                                     type="button"
@@ -3250,26 +3252,27 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                                     title="Move player to waitlist (frees up 1 roster slot)"
                                   >
                                     {isMovingToWaitlist === att.id ? (
-                                      <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
                                     ) : (
-                                      <Hourglass className="w-3 h-3 text-amber-400" />
+                                      <Hourglass className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                                     )}
-                                    <span className="hidden lg:inline">Waitlist</span>
+                                    <span className="hidden xl:inline">Waitlist</span>
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveFromRoster(att)}
                                     disabled={isRemovingFromRoster === att.id}
-                                    className="p-1.5 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 transition-all cursor-pointer shrink-0"
+                                    className="px-2 py-1 rounded-xl bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 font-extrabold text-[10px] uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer shrink-0"
                                     title="Remove player from roster"
                                   >
                                     {isRemovingFromRoster === att.id ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400 shrink-0" />
                                     ) : (
-                                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                                      <Trash2 className="w-3.5 h-3.5 text-red-400 shrink-0" />
                                     )}
+                                    <span className="hidden xl:inline">Remove</span>
                                   </button>
-                                </>
+                                </div>
                               )}
                               {att.type === 'guest' && (
                                 <button
