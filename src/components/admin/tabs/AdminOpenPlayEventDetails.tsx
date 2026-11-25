@@ -927,59 +927,177 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
     adminNotes: string;
   }) => {
     try {
-      if (att.type === 'primary') {
-        const updatePayload: Record<string, any> = {
-          eventId: tgtEv.id,
-          openPlayEventId: tgtEv.id,
-          eventTitle: tgtEv.title,
-          openPlayTitle: tgtEv.title,
-          openPlayCategory: tgtEv.category || 'Open Play',
-          adminNotes: note,
-          transferredAt: new Date().toISOString(),
-          transferredFromEventId: srcEv.id,
-          courtIds: tgtEv.courtIds || [],
-          courtNames: tgtEv.courtNames || [],
-        };
-        if (tgtEv.eventDate) {
-          updatePayload.date = tgtEv.eventDate;
-        }
+      const rawReg = registrations.find((r) => r.id === att.registrationId);
+      const targetReg = localRegOverrides[att.registrationId]
+        ? { ...rawReg, ...localRegOverrides[att.registrationId] }
+        : rawReg;
 
-        if (isFirebaseConfigured && db) {
-          try {
-            await setDoc(doc(db, 'openplay_registrations', att.registrationId), updatePayload, { merge: true });
-          } catch (e) {
-            console.warn('Firestore move player openplay_registrations error:', e);
-          }
-          try {
-            await setDoc(doc(db, 'bookings', att.registrationId), updatePayload, { merge: true });
-          } catch (e) {
-            console.warn('Firestore move player bookings error:', e);
-          }
-        }
-
-        updateLocalBookingRecord(att.registrationId, updatePayload);
-        setLocalRegOverrides((prev) => ({
-          ...prev,
-          [att.registrationId]: {
-            ...(prev[att.registrationId] || {}),
-            ...updatePayload,
-          },
+      let existingGuests = Array.isArray(targetReg?.guests) ? [...targetReg.guests] : [];
+      if (existingGuests.length === 0 && Array.isArray(targetReg?.guestNames)) {
+        existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
+          name,
+          email: targetReg.guestEmails?.[i] || '',
         }));
-      } else {
-        // Guest move: detach from source host registration, create new standalone registration in target event
-        const rawReg = registrations.find((r) => r.id === att.registrationId);
-        const targetReg = localRegOverrides[att.registrationId]
-          ? { ...rawReg, ...localRegOverrides[att.registrationId] }
-          : rawReg;
+      }
 
-        const gIndex = (att.guestIndex || 1) - 1;
-        let existingGuests = Array.isArray(targetReg?.guests) ? [...targetReg.guests] : [];
-        if (existingGuests.length === 0 && Array.isArray(targetReg?.guestNames)) {
-          existingGuests = targetReg.guestNames.map((name: string, i: number) => ({
-            name,
-            email: targetReg.guestEmails?.[i] || '',
+      if (att.type === 'primary') {
+        const hasGuests = existingGuests.length > 0 || ((targetReg?.playerCount || 1) > 1);
+
+        if (hasGuests) {
+          // MULTI-PERSON BOOKING: Move ONLY the primary player (1 spot).
+          // Promote the first remaining guest to become primary registrant in source session.
+          const promotedGuest = existingGuests[0] || { name: 'Guest', email: '' };
+          const remainingGuestsAfterPromotion = existingGuests.slice(1);
+          const newSourcePlayerCount = Math.max(1, (targetReg?.playerCount || 2) - 1);
+          const newSourceGuestCount = Math.max(0, (targetReg?.guestCount || existingGuests.length) - 1);
+
+          const updateSourcePayload: Record<string, any> = {
+            playerName: promotedGuest.name || 'Guest',
+            playerEmail: promotedGuest.email || targetReg?.playerEmail || '',
+            playerPhone: promotedGuest.phone || targetReg?.playerPhone || '',
+            duprId: promotedGuest.duprId || '',
+            adminDuprId: promotedGuest.adminDuprId || '',
+            duprRating: promotedGuest.duprRating || '',
+            adminDuprRating: promotedGuest.adminDuprRating || '',
+            guests: remainingGuestsAfterPromotion,
+            guestNames: remainingGuestsAfterPromotion.map((g: any) => g.name).filter(Boolean),
+            guestEmails: remainingGuestsAfterPromotion.map((g: any) => g.email).filter(Boolean),
+            playerCount: newSourcePlayerCount,
+            guestCount: newSourceGuestCount,
+          };
+
+          const newTargetRegId = `reg_transferred_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+          const newTargetReg: any = {
+            id: newTargetRegId,
+            eventId: tgtEv.id,
+            openPlayEventId: tgtEv.id,
+            eventTitle: tgtEv.title,
+            openPlayTitle: tgtEv.title,
+            openPlayCategory: tgtEv.category || 'Open Play',
+            playerName: att.name,
+            playerEmail: att.email || '',
+            playerPhone: att.phone || '',
+            playerUid: att.playerUid || targetReg?.playerUid || '',
+            duprId: att.duprId || '',
+            adminDuprId: att.adminDuprId || '',
+            duprRating: att.duprRating || '',
+            adminDuprRating: att.adminDuprRating || '',
+            playerCount: 1,
+            guestCount: 0,
+            guests: [],
+            guestNames: [],
+            guestEmails: [],
+            status: 'approved',
+            paymentStatus: (att.paymentStatus as any) || targetReg?.paymentStatus || 'paid',
+            gcashReferenceNumber: att.gcashReferenceNumber || targetReg?.gcashReferenceNumber || '',
+            receiptImageUrl: att.receiptImageUrl || targetReg?.receiptImageUrl || '',
+            adminNotes: note,
+            transferredAt: new Date().toISOString(),
+            transferredFromEventId: srcEv.id,
+            courtIds: tgtEv.courtIds || [],
+            courtNames: tgtEv.courtNames || [],
+            createdAt: targetReg?.createdAt || new Date().toISOString(),
+          };
+          if (tgtEv.eventDate) {
+            newTargetReg.date = tgtEv.eventDate;
+          }
+
+          if (isFirebaseConfigured && db) {
+            try {
+              await setDoc(doc(db, 'openplay_registrations', att.registrationId), updateSourcePayload, { merge: true });
+            } catch (e) {
+              console.warn('Firestore update source openplay_registrations error:', e);
+            }
+            try {
+              await setDoc(doc(db, 'bookings', att.registrationId), updateSourcePayload, { merge: true });
+            } catch (e) {
+              console.warn('Firestore update source bookings error:', e);
+            }
+            try {
+              await setDoc(doc(db, 'openplay_registrations', newTargetRegId), newTargetReg);
+            } catch (e) {
+              console.warn('Firestore create target openplay_registrations error:', e);
+            }
+            try {
+              await setDoc(doc(db, 'bookings', newTargetRegId), newTargetReg);
+            } catch (e) {
+              console.warn('Firestore create target bookings error:', e);
+            }
+          }
+
+          updateLocalBookingRecord(att.registrationId, updateSourcePayload);
+          ['picklepoint_openplay_registrations', 'picklepoint_bookings'].forEach((key) => {
+            ['localStorage', 'sessionStorage'].forEach((st) => {
+              try {
+                const storage = st === 'localStorage' ? localStorage : sessionStorage;
+                const str = storage.getItem(key);
+                const list = str ? JSON.parse(str) : [];
+                const existingIdx = list.findIndex((item: any) => item.id === att.registrationId || item.bookingReference === att.registrationId);
+                if (existingIdx >= 0) {
+                  list[existingIdx] = { ...list[existingIdx], ...updateSourcePayload };
+                }
+                list.push(newTargetReg);
+                storage.setItem(key, JSON.stringify(list));
+              } catch (e) {}
+            });
+          });
+
+          setLocalRegOverrides((prev) => ({
+            ...prev,
+            [att.registrationId]: {
+              ...(prev[att.registrationId] || {}),
+              ...updateSourcePayload,
+            },
+            [newTargetRegId]: newTargetReg,
+          }));
+        } else {
+          // SINGLE-PERSON BOOKING: Move the registration record directly as 1 spot
+          const updatePayload: Record<string, any> = {
+            eventId: tgtEv.id,
+            openPlayEventId: tgtEv.id,
+            eventTitle: tgtEv.title,
+            openPlayTitle: tgtEv.title,
+            openPlayCategory: tgtEv.category || 'Open Play',
+            adminNotes: note,
+            transferredAt: new Date().toISOString(),
+            transferredFromEventId: srcEv.id,
+            courtIds: tgtEv.courtIds || [],
+            courtNames: tgtEv.courtNames || [],
+            playerCount: 1,
+            guestCount: 0,
+            guests: [],
+            guestNames: [],
+            guestEmails: [],
+          };
+          if (tgtEv.eventDate) {
+            updatePayload.date = tgtEv.eventDate;
+          }
+
+          if (isFirebaseConfigured && db) {
+            try {
+              await setDoc(doc(db, 'openplay_registrations', att.registrationId), updatePayload, { merge: true });
+            } catch (e) {
+              console.warn('Firestore move player openplay_registrations error:', e);
+            }
+            try {
+              await setDoc(doc(db, 'bookings', att.registrationId), updatePayload, { merge: true });
+            } catch (e) {
+              console.warn('Firestore move player bookings error:', e);
+            }
+          }
+
+          updateLocalBookingRecord(att.registrationId, updatePayload);
+          setLocalRegOverrides((prev) => ({
+            ...prev,
+            [att.registrationId]: {
+              ...(prev[att.registrationId] || {}),
+              ...updatePayload,
+            },
           }));
         }
+      } else {
+        // Guest move: detach from source host registration, create new standalone registration in target event
+        const gIndex = (att.guestIndex || 1) - 1;
         if (gIndex >= 0 && gIndex < existingGuests.length) {
           existingGuests.splice(gIndex, 1);
         } else {
@@ -1001,21 +1119,36 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
         const newTargetReg: any = {
           id: newTargetRegId,
           eventId: tgtEv.id,
+          openPlayEventId: tgtEv.id,
           eventTitle: tgtEv.title,
+          openPlayTitle: tgtEv.title,
+          openPlayCategory: tgtEv.category || 'Open Play',
           playerName: att.name,
           playerEmail: att.email || '',
           playerPhone: att.phone || '',
           playerCount: 1,
           guestCount: 0,
+          guests: [],
+          guestNames: [],
+          guestEmails: [],
           status: 'approved',
-          paymentStatus: (att.paymentStatus as any) || 'paid',
+          paymentStatus: (att.paymentStatus as any) || targetReg?.paymentStatus || 'paid',
+          gcashReferenceNumber: att.gcashReferenceNumber || targetReg?.gcashReferenceNumber || '',
+          receiptImageUrl: att.receiptImageUrl || targetReg?.receiptImageUrl || '',
           createdAt: new Date().toISOString(),
           duprId: att.duprId || '',
           adminDuprId: att.adminDuprId || '',
           duprRating: att.duprRating || '',
           adminDuprRating: att.adminDuprRating || '',
           adminNotes: note,
+          transferredAt: new Date().toISOString(),
+          transferredFromEventId: srcEv.id,
+          courtIds: tgtEv.courtIds || [],
+          courtNames: tgtEv.courtNames || [],
         };
+        if (tgtEv.eventDate) {
+          newTargetReg.date = tgtEv.eventDate;
+        }
 
         if (isFirebaseConfigured && db) {
           try {
@@ -1027,15 +1160,22 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
           try {
             await setDoc(doc(db, 'openplay_registrations', newTargetRegId), newTargetReg);
           } catch (e) {}
+          try {
+            await setDoc(doc(db, 'bookings', newTargetRegId), newTargetReg);
+          } catch (e) {}
         }
 
         updateLocalBookingRecord(att.registrationId, updateHostPayload);
-        ['picklepoint_openplay_registrations'].forEach((key) => {
+        ['picklepoint_openplay_registrations', 'picklepoint_bookings'].forEach((key) => {
           ['localStorage', 'sessionStorage'].forEach((st) => {
             try {
               const storage = st === 'localStorage' ? localStorage : sessionStorage;
               const str = storage.getItem(key);
               const list = str ? JSON.parse(str) : [];
+              const existingIdx = list.findIndex((item: any) => item.id === att.registrationId || item.bookingReference === att.registrationId);
+              if (existingIdx >= 0) {
+                list[existingIdx] = { ...list[existingIdx], ...updateHostPayload };
+              }
               list.push(newTargetReg);
               storage.setItem(key, JSON.stringify(list));
             } catch (e) {}
@@ -1054,7 +1194,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
 
       setAttendeeAttendanceStatus(att.id, 'unmarked');
       onRefreshEvents?.();
-      alert(`✅ Successfully moved ${att.name} to "${tgtEv.title}"!`);
+      alert(`✅ Successfully moved ${att.name} (1 player) to "${tgtEv.title}"!`);
     } catch (err: any) {
       console.error('Failed to move player between events:', err);
       throw err;

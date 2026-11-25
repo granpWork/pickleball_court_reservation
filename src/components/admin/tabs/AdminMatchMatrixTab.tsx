@@ -674,7 +674,16 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
             return (
               <div
                 key={matrix.id}
-                className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 transition-all space-y-4 shadow-xl flex flex-col justify-between group"
+                onClick={() => setActiveMatrix(matrix)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setActiveMatrix(matrix);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                className="p-5 rounded-3xl bg-slate-900/80 border border-slate-800 hover:border-purple-500/60 hover:bg-slate-900 hover:shadow-2xl hover:shadow-purple-500/10 transition-all space-y-4 shadow-xl flex flex-col justify-between group cursor-pointer"
               >
                 <div className="space-y-3">
                   {/* Top Badges */}
@@ -748,7 +757,10 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                 <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
                   <button
                     type="button"
-                    onClick={() => setMatrixToDelete(matrix)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMatrixToDelete(matrix);
+                    }}
                     title="Delete Matrix"
                     className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-all cursor-pointer"
                   >
@@ -757,7 +769,10 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setActiveMatrix(matrix)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveMatrix(matrix);
+                    }}
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/25 transition-all cursor-pointer hover:scale-[1.02]"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />

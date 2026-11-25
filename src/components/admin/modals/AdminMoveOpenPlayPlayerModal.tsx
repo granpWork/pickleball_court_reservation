@@ -56,6 +56,19 @@ export const AdminMoveOpenPlayPlayerModal: React.FC<AdminMoveOpenPlayPlayerModal
 
   const selectedTargetEvent = candidateEvents.find((e) => e.id === selectedTargetEventId) || null;
 
+  // Check if primary attendee has guests attached to their registration
+  const matchedReg = allRegistrations.find(
+    (r) => r.id === attendee.registrationId || (r as any).bookingReference === attendee.registrationId
+  );
+  const existingGuests = Array.isArray(matchedReg?.guests)
+    ? matchedReg.guests
+    : Array.isArray(matchedReg?.guestNames)
+    ? matchedReg.guestNames
+    : [];
+  const hasGuests =
+    attendee.type === 'primary' &&
+    (existingGuests.length > 0 || (matchedReg?.playerCount && matchedReg.playerCount > 1));
+
   // Compute spot availability for candidate events
   const getEventCapacityInfo = (ev: OpenPlayEvent) => {
     const activeRegs = allRegistrations.filter(
@@ -123,7 +136,7 @@ export const AdminMoveOpenPlayPlayerModal: React.FC<AdminMoveOpenPlayPlayerModal
                   <span>Move Player Between Sessions</span>
                 </h3>
                 <p className="text-[11px] sm:text-xs text-slate-400 truncate">
-                  Transfer <strong className="text-white">{attendee.name}</strong> from current roster to another session
+                  Transfer <strong className="text-white">{attendee.name}</strong> (1 player spot) to another session
                 </p>
               </div>
             </div>
@@ -188,6 +201,15 @@ export const AdminMoveOpenPlayPlayerModal: React.FC<AdminMoveOpenPlayPlayerModal
               </div>
             )}
           </div>
+
+          {hasGuests && (
+            <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/25 text-purple-300 text-xs flex items-center gap-2.5">
+              <ArrowRightLeft className="w-4 h-4 shrink-0 text-purple-400" />
+              <span>
+                Moving <strong>{attendee.name}</strong> will transfer <strong>1 player spot</strong> only. The remaining guest(s) will stay registered in <strong>"{sourceEvent.title}"</strong>.
+              </span>
+            </div>
+          )}
 
           {/* 2. Source Event Summary */}
           <div className="space-y-1.5">
@@ -396,7 +418,7 @@ export const AdminMoveOpenPlayPlayerModal: React.FC<AdminMoveOpenPlayPlayerModal
               ) : (
                 <>
                   <ArrowRightLeft className="w-4 h-4 text-white" />
-                  <span>Confirm Move Player</span>
+                  <span>Confirm Move (1 Player)</span>
                 </>
               )}
             </button>
