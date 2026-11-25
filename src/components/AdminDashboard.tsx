@@ -1429,7 +1429,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     });
 
     if (matched.length > 0) return matched;
-    if (!isSuperAdmin) return courts;
+    if (!isSuperAdmin) return [];
     if (isSuperAdmin && !currentCompany) return courts;
     return [];
   })();
@@ -3460,7 +3460,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           });
 
           if (matched.length > 0) return matched;
-          if (!isSuperAdmin) return loadedCourts;
+          if (!isSuperAdmin) return [];
           if (isSuperAdmin && !myActiveCompany) return loadedCourts;
           return [];
         })();
@@ -6877,25 +6877,43 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
-  // Super Admin Selected Company Scope
-  const targetSuperAdminComp = isSuperAdmin && selectedSuperAdminCompanyId
-    ? companies.find((c) => c.id === selectedSuperAdminCompanyId) || null
-    : null;
+  // Active Scoped Company for filtering:
+  // - For Super Admin: the company selected in the sidebar company filter (or null if "All Companies")
+  // - For Client Admin / Staff: ALWAYS their assigned company (currentCompany / userObj company)
+  const targetScopedCompany: Company | null = useMemo(() => {
+    if (isSuperAdmin) {
+      return selectedSuperAdminCompanyId ? companies.find((c) => c.id === selectedSuperAdminCompanyId) || null : null;
+    }
+    if (currentCompany) return currentCompany;
+    if (userObj?.companyId || userObj?.companyName) {
+      return {
+        id: userObj.companyId || '',
+        name: userObj.companyName || '',
+        clientAdminEmail: currentUserEmail,
+        status: 'active',
+      } as Company;
+    }
+    return null;
+  }, [isSuperAdmin, selectedSuperAdminCompanyId, companies, currentCompany, userObj, currentUserEmail]);
+
+  // Keep targetSuperAdminComp alias for subcomponents expecting this prop
+  const targetSuperAdminComp = targetScopedCompany;
 
   // 1. Scoped Courts & Court IDs
   const effectiveAdminCourts = isSuperAdmin
-    ? (targetSuperAdminComp ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetSuperAdminComp)) : courts)
-    : availableAdminCourts;
+    ? (targetScopedCompany ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetScopedCompany)) : courts)
+    : (targetScopedCompany ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetScopedCompany)) : availableAdminCourts);
   const effectiveAdminCourtIds = new Set(effectiveAdminCourts.map((c) => c.id));
 
-  // Helper to verify if an open play / matrix event belongs to targetSuperAdminComp
+  // Helper to verify if an open play / matrix event belongs to targetScopedCompany
   const isEventInTargetCompany = (ev: OpenPlayEvent) => {
-    if (!targetSuperAdminComp) return true;
-    if (ev.companyId && ev.companyId === targetSuperAdminComp.id) return true;
+    if (isSuperAdmin && !targetScopedCompany) return true;
+    if (!targetScopedCompany) return false;
+    if (ev.companyId && ev.companyId === targetScopedCompany.id) return true;
     const evEmail = ev.createdByEmail || (ev as any).hostEmail;
-    if (evEmail && targetSuperAdminComp.clientAdminEmail && evEmail.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
+    if (evEmail && targetScopedCompany.clientAdminEmail && evEmail.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase()) return true;
     if (ev.courtIds && ev.courtIds.some((id) => effectiveAdminCourtIds.has(id))) return true;
-    if (ev.companyName && targetSuperAdminComp.name && ev.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
+    if (ev.companyName && targetScopedCompany.name && ev.companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
     return false;
   };
 
@@ -6912,23 +6930,27 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // 2c. Scoped Open Play Registrations
   const effectiveAdminOpenPlayRegistrations = useMemo(() => {
-    if (!targetSuperAdminComp) return openPlayRegistrations;
+    if (isSuperAdmin && !targetScopedCompany) return openPlayRegistrations;
+    if (!targetScopedCompany) return [];
     const scopedEventIds = new Set(effectiveAdminMatrixEvents.map((e) => e.id));
     return openPlayRegistrations.filter((r) => {
       if (r.eventId && scopedEventIds.has(r.eventId)) return true;
       const regCompId = (r as any).companyId;
-      if (regCompId && regCompId === targetSuperAdminComp.id) return true;
+      if (regCompId && regCompId === targetScopedCompany.id) return true;
       return false;
     });
-  }, [openPlayRegistrations, targetSuperAdminComp, effectiveAdminMatrixEvents]);
+  }, [openPlayRegistrations, isSuperAdmin, targetScopedCompany, effectiveAdminMatrixEvents]);
 
-  // Helper to check if a booking or checkout belongs to targetSuperAdminComp
+  // Helper to check if a booking or checkout belongs to targetScopedCompany
   const isBookingInTargetCompany = (b: Booking) => {
-    if (!targetSuperAdminComp) return true;
-    if (b.companyId && b.companyId === targetSuperAdminComp.id) return true;
+    if (isSuperAdmin && !targetScopedCompany) return true;
+    if (!targetScopedCompany) return false;
+    if (b.companyId && b.companyId === targetScopedCompany.id) return true;
     if (effectiveAdminCourtIds.has(b.courtId)) return true;
     if (b.openPlayEventId && effectiveAdminMatrixEvents.some((e) => e.id === b.openPlayEventId)) return true;
     if (b.courtName && effectiveAdminCourts.some((c) => c.name.toLowerCase() === b.courtName?.toLowerCase())) return true;
+    if (b.ownerCompanyName && targetScopedCompany.name && b.ownerCompanyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
+    if (b.ownerEmail && targetScopedCompany.clientAdminEmail && b.ownerEmail.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase()) return true;
     return false;
   };
 
@@ -6992,9 +7014,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // 4. Scoped Vouchers (Company-specific + Truly Global)
   const effectiveAdminVouchers = vouchers.filter((v) => {
-    if (!targetSuperAdminComp) return true;
-    if (v.companyId && v.companyId === targetSuperAdminComp.id) return true;
-    if (v.companyName && targetSuperAdminComp.name && v.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
+    if (isSuperAdmin && !targetScopedCompany) return true;
+    if (!targetScopedCompany) return false;
+    if (v.companyId && v.companyId === targetScopedCompany.id) return true;
+    if (v.companyName && targetScopedCompany.name && v.companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
     // Only truly global vouchers with NO companyId and NO companyName set
     if (!v.companyId && !v.companyName) return true;
     return false;
@@ -7002,23 +7025,25 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // 5. Scoped Short Links (Matching companyId, creator email, or venue URL path)
   const effectiveAdminShortLinks = shortLinks.filter((link) => {
-    if (!targetSuperAdminComp) return true;
-    if ((link as any).companyId === targetSuperAdminComp.id) return true;
-    if ((link as any).companyName && targetSuperAdminComp.name && (link as any).companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
-    if (link.createdByEmail && targetSuperAdminComp.clientAdminEmail && link.createdByEmail.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
-    const compNameSlug = targetSuperAdminComp.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (link.originalUrl && (link.originalUrl.includes(targetSuperAdminComp.id) || (compNameSlug && link.originalUrl.toLowerCase().includes(compNameSlug)))) return true;
+    if (isSuperAdmin && !targetScopedCompany) return true;
+    if (!targetScopedCompany) return false;
+    if ((link as any).companyId === targetScopedCompany.id) return true;
+    if ((link as any).companyName && targetScopedCompany.name && (link as any).companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
+    if (link.createdByEmail && targetScopedCompany.clientAdminEmail && link.createdByEmail.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase()) return true;
+    const compNameSlug = targetScopedCompany.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (link.originalUrl && (link.originalUrl.includes(targetScopedCompany.id) || (compNameSlug && link.originalUrl.toLowerCase().includes(compNameSlug)))) return true;
     return false;
   });
 
   // 6. Scoped Users (When company filter is active: facility staff and team members only)
   const effectiveAdminUsers = filteredUsers.filter((u) => {
-    if (!targetSuperAdminComp) return true;
+    if (isSuperAdmin && !targetScopedCompany) return true;
+    if (!targetScopedCompany) return false;
     const isStaff = u.role === 'client_admin' || u.role === 'manager' || u.role === 'editor';
     if (!isStaff) return false;
-    if (u.companyId && u.companyId === targetSuperAdminComp.id) return true;
-    if (u.email && targetSuperAdminComp.clientAdminEmail && u.email.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
-    if (u.companyName && targetSuperAdminComp.name && u.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
+    if (u.companyId && u.companyId === targetScopedCompany.id) return true;
+    if (u.email && targetScopedCompany.clientAdminEmail && u.email.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase()) return true;
+    if (u.companyName && targetScopedCompany.name && u.companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
     return false;
   });
 
@@ -7217,10 +7242,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {/* Subcomponents Rendering */}
           {activeTab === 'dashboard' && (
             <AdminDashboardTab
-              bookings={bookings}
-              courts={courts}
-              users={users}
-              openPlayEvents={openPlayEvents}
+              bookings={effectiveAdminBookings}
+              courts={effectiveAdminCourts}
+              users={effectiveAdminUsers}
+              openPlayEvents={effectiveAdminOpenPlayEvents}
               onNavigateTab={(tab) => setActiveTab(tab as AdminTab)}
               userPermissions={getUserEffectivePermissions(user as any)}
             />
