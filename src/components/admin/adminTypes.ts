@@ -806,4 +806,37 @@ export interface PlayerMatchStats {
   courtsBreakdown: Record<string, number>;
 }
 
+/**
+ * Robustly matches whether a court belongs to a given company / facility
+ * by checking company ID, company name, client admin email, creator email, and owner ID.
+ */
+export function isCourtAssociatedWithCompany(court: Court | any, company: Company | any): boolean {
+  if (!court || !company) return false;
+
+  // 1. Direct companyId match
+  if (court.companyId && court.companyId === company.id) return true;
+
+  // 2. Company Name match (case-insensitive, ignoring generic placeholders)
+  const compName = (company.name || '').trim().toLowerCase();
+  const isGeneric = !compName || compName === 'picklepoint venue' || compName === 'book picklecourt venue';
+  if (!isGeneric) {
+    if (court.ownerCompanyName && court.ownerCompanyName.trim().toLowerCase() === compName) return true;
+    if (court.companyName && court.companyName.trim().toLowerCase() === compName) return true;
+  }
+
+  // 3. Client Admin Email / Creator Email match
+  const adminEmail = (company.clientAdminEmail || '').trim().toLowerCase();
+  if (adminEmail) {
+    if (court.ownerEmail && court.ownerEmail.trim().toLowerCase() === adminEmail) return true;
+    if (court.createdByEmail && court.createdByEmail.trim().toLowerCase() === adminEmail) return true;
+    if (court.ownerId && court.ownerId.trim().toLowerCase() === adminEmail) return true;
+  }
+
+  // 4. Owner ID match with company ID
+  if (court.ownerId && court.ownerId === company.id) return true;
+
+  return false;
+}
+
+
 

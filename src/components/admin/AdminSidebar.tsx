@@ -24,6 +24,7 @@ import {
   Cpu,
   Grid3X3,
   MessageSquare,
+  X,
 } from 'lucide-react';
 import {
   type AdminTab,
@@ -31,6 +32,7 @@ import {
   type AdminCourtsSubTab,
   type AdminBookingsSubTab,
   type AdminIntegrationsSubTab,
+  type Company,
   getUserEffectivePermissions,
   isSubscriptionExpired,
 } from './adminTypes';
@@ -39,6 +41,9 @@ interface AdminSidebarProps {
   activeTab: AdminTab;
   setActiveTab: (tab: AdminTab) => void;
   isSuperAdmin: boolean;
+  companies?: Company[];
+  selectedCompanyFilter?: string | null;
+  onSelectCompanyFilter?: (companyId: string | null) => void;
   courtsSubTab?: AdminCourtsSubTab;
   setCourtsSubTab?: (subTab: AdminCourtsSubTab) => void;
   bookingsSubTab?: AdminBookingsSubTab;
@@ -72,6 +77,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   activeTab,
   setActiveTab,
   isSuperAdmin,
+  companies = [],
+  selectedCompanyFilter = null,
+  onSelectCompanyFilter,
   courtsSubTab = 'list',
   setCourtsSubTab = () => {},
   bookingsSubTab = 'list',
@@ -183,7 +191,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
               window.history.pushState({}, '', '/');
               if (setView) setView('landing');
             }}
-            className="mb-4 w-full py-2 px-3 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-300 hover:text-white transition-all text-[13px] font-semibold flex items-center justify-between cursor-pointer group"
+            className="mb-3 w-full py-2 px-3 rounded-xl border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-300 hover:text-white transition-all text-[13px] font-semibold flex items-center justify-between cursor-pointer group"
           >
             <span className="flex items-center gap-2">
               <Globe className="w-3.5 h-3.5 text-brand-lime group-hover:rotate-12 transition-transform" />
@@ -191,6 +199,42 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
             </span>
             <ArrowLeft className="w-3 h-3 text-slate-500 rotate-180 group-hover:translate-x-0.5 transition-transform" />
           </button>
+
+          {/* Super Admin Company Filter in Sidebar */}
+          {isSuperAdmin && companies.length > 0 && (
+            <div className="mb-4 p-2.5 rounded-xl border border-slate-800/80 bg-slate-900/80 shadow-md">
+              <div className="flex items-center justify-between mb-1.5 px-0.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-brand-lime" /> Company Filter
+                </span>
+                {selectedCompanyFilter && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectCompanyFilter?.(null)}
+                    title="Clear Company Filter"
+                    className="text-[10px] text-slate-400 hover:text-white flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <X className="w-3 h-3" /> Clear
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <select
+                  value={selectedCompanyFilter || 'all'}
+                  onChange={(e) => onSelectCompanyFilter?.(e.target.value === 'all' ? null : e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700/80 text-white rounded-lg text-xs font-semibold px-2.5 py-2 focus:outline-none focus:border-brand-lime cursor-pointer appearance-none pr-7 transition-colors"
+                >
+                  <option value="all" className="bg-slate-950 text-white">🌐 All Companies (Global)</option>
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id} className="bg-slate-950 text-white">
+                      🏢 {c.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+          )}
 
           {/* Navigation Links */}
           <nav className="space-y-1">
@@ -269,30 +313,32 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                     {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
                   </button>
 
-                  <button
-                    type="button"
-                    disabled={isTrialOrSubExpired}
-                    onClick={() => {
-                      if (!isTrialOrSubExpired) {
-                        setActiveTab('courts');
-                        setCourtsSubTab('manual_booking');
-                        setMobileMenuOpen(false);
-                      }
-                    }}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
-                      isTrialOrSubExpired
-                        ? 'opacity-40 cursor-not-allowed text-slate-600'
-                        : activeTab === 'courts' && courtsSubTab === 'manual_booking'
-                        ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
-                        : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5 text-brand-lime" />
-                      <span>Manual Booking</span>
-                    </div>
-                    {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
-                  </button>
+                  {!isSuperAdmin && (
+                    <button
+                      type="button"
+                      disabled={isTrialOrSubExpired}
+                      onClick={() => {
+                        if (!isTrialOrSubExpired) {
+                          setActiveTab('courts');
+                          setCourtsSubTab('manual_booking');
+                          setMobileMenuOpen(false);
+                        }
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-semibold transition-all text-left ${
+                        isTrialOrSubExpired
+                          ? 'opacity-40 cursor-not-allowed text-slate-600'
+                          : activeTab === 'courts' && courtsSubTab === 'manual_booking'
+                          ? 'text-brand-lime bg-brand-lime/10 font-bold cursor-pointer'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40 cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-3.5 h-3.5 text-brand-lime" />
+                        <span>Manual Booking</span>
+                      </div>
+                      {isTrialOrSubExpired && <Lock className="w-3 h-3 text-amber-400/80 ml-auto flex-shrink-0" />}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

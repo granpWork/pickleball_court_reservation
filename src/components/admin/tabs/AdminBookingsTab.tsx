@@ -42,6 +42,7 @@ import {
   getBookingScheduleState,
   SLOTS,
   parseTimeStringToHour,
+  isCourtAssociatedWithCompany,
 } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { getOpenPlayTimeSlots } from '../../../utils/timeSlotUtils';
@@ -76,6 +77,9 @@ interface AdminBookingsTabProps {
   userPermissions?: UserPermissions;
   currentAdminEmail?: string;
   currentAdminName?: string;
+  isSuperAdmin?: boolean;
+  selectedCompanyFilter?: string | null;
+  onSelectCompanyFilter?: (companyId: string | null) => void;
 }
 
 export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
@@ -105,6 +109,9 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   userPermissions: _userPermissions,
   currentAdminEmail = '',
   currentAdminName = '',
+  isSuperAdmin = false,
+  selectedCompanyFilter = null,
+  onSelectCompanyFilter: _onSelectCompanyFilter,
 }) => {
   // Calendar View State
   const [internalViewMode, setInternalViewMode] = useState<'table' | 'calendar'>('table');
@@ -125,6 +132,20 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
   const [selectedCalendarCourtId, setSelectedCalendarCourtId] = useState<string>('all');
+  const [selectedOrgFilter, setSelectedOrgFilter] = useState<string>(() => selectedCompanyFilter || 'all');
+
+  // Synchronize internal org filter with external selectedCompanyFilter
+  React.useEffect(() => {
+    if (selectedCompanyFilter !== undefined) {
+      setSelectedOrgFilter(selectedCompanyFilter || 'all');
+      setSelectedCalendarCourtId('all');
+    }
+  }, [selectedCompanyFilter]);
+
+  const effectiveFilter = selectedCompanyFilter !== undefined && selectedCompanyFilter !== null
+    ? (selectedCompanyFilter || 'all')
+    : selectedOrgFilter;
+
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(getTodayString());
   const [calendarDayViewMode, setCalendarDayViewMode] = useState<'list' | 'timeline'>('list');
   const [timeGridCourtId, setTimeGridCourtId] = useState<string>('');
@@ -140,6 +161,16 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
   // Messenger Modal State
   const [messengerBookingData, setMessengerBookingData] = useState<BookingMessengerData | null>(null);
+
+  // Filtered courts & court IDs for Super Admin organization filter
+  const targetComp = companies.find((c) => c.id === effectiveFilter);
+  const orgFilteredCourts = courts.filter((c: any) => {
+    if (isSuperAdmin && effectiveFilter !== 'all') {
+      return targetComp ? isCourtAssociatedWithCompany(c, targetComp) : false;
+    }
+    return true;
+  });
+  const orgCourtIds = new Set(orgFilteredCourts.map((c: any) => c.id));
   const [isMessengerModalOpen, setIsMessengerModalOpen] = useState<boolean>(false);
 
   const handleOpenMessengerModal = (b: Booking) => {
@@ -255,6 +286,10 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
   };
 
   const displayBookings = filteredBookings.filter((b) => {
+    if (isSuperAdmin && effectiveFilter !== 'all') {
+      const matchesOrg = b.companyId === effectiveFilter || orgCourtIds.has(b.courtId);
+      if (!matchesOrg) return false;
+    }
     if (selectedBookingDate && b.date !== selectedBookingDate) {
       return false;
     }
@@ -1175,9 +1210,14 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
           </div>
         </div>
       ) : (() => {
-        const calendarFilteredBookings = bookings.filter(
-          (b) => b.status !== 'cancelled' && (selectedCalendarCourtId === 'all' || b.courtId === selectedCalendarCourtId)
-        );
+        const calendarFilteredBookings = bookings.filter((b) => {
+          if (b.status === 'cancelled') return false;
+          if (isSuperAdmin && effectiveFilter !== 'all') {
+            const matchesOrg = b.companyId === effectiveFilter || orgCourtIds.has(b.courtId);
+            if (!matchesOrg) return false;
+          }
+          return selectedCalendarCourtId === 'all' || b.courtId === selectedCalendarCourtId;
+        });
         const calendarFilteredOpenPlay = (openPlayEvents || []).filter((ev) => {
           if (ev.status === 'cancelled') return false;
           if (selectedCalendarCourtId === 'all') return true;
@@ -1195,17 +1235,17 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
         const selectedDayOpenPlay = calendarFilteredOpenPlay.filter(
           (ev) => normalizeDateStr(ev.eventDate || (ev as any).date) === normalizeDateStr(selectedCalendarDate)
         );
-        const selectedCourtObj = courts.find((c) => c.id === selectedCalendarCourtId);
+        const selectedCourtObj = orgFilteredCourts.find((c: any) => c.id === selectedCalendarCourtId);
 
         // Effective court for the hourly time grid
         const effectiveTimelineCourt = (() => {
           if (selectedCalendarCourtId !== 'all') {
-            return courts.find((c) => c.id === selectedCalendarCourtId) || courts[0];
+            return orgFilteredCourts.find((c: any) => c.id === selectedCalendarCourtId) || orgFilteredCourts[0];
           }
-          if (timeGridCourtId && courts.some((c) => c.id === timeGridCourtId)) {
-            return courts.find((c) => c.id === timeGridCourtId) || courts[0];
+          if (timeGridCourtId && orgFilteredCourts.some((c: any) => c.id === timeGridCourtId)) {
+            return orgFilteredCourts.find((c: any) => c.id === timeGridCourtId) || orgFilteredCourts[0];
           }
-          return courts[0] || null;
+          return orgFilteredCourts[0] || null;
         })();
         const effectiveTimelineCourtId = effectiveTimelineCourt?.id || '';
 
@@ -1351,14 +1391,14 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
               </div>
 
               <div className="flex flex-wrap items-center gap-2.5 self-stretch sm:self-auto justify-end">
-                {courts.length > 0 && (
+                {orgFilteredCourts.length > 0 && (
                   <select
                     value={selectedCalendarCourtId}
                     onChange={(e) => setSelectedCalendarCourtId(e.target.value)}
                     className="w-full sm:w-auto bg-slate-900 border border-slate-800 text-white rounded-xl px-3 py-2.5 text-xs font-bold focus:outline-none focus:border-brand-lime transition-all cursor-pointer"
                   >
-                    <option value="all">🏟️ All Courts ({courts.length})</option>
-                    {courts.map((c) => (
+                    <option value="all">🏟️ All Courts ({orgFilteredCourts.length})</option>
+                    {orgFilteredCourts.map((c: any) => (
                       <option key={c.id} value={c.id}>
                         Court: {c.name}
                       </option>
@@ -1883,7 +1923,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           {formatNiceDate(selectedCalendarDate)}.
                         </p>
                       </div>
-                      {onOpenManualBookingModal && (
+                      {!isSuperAdmin && onOpenManualBookingModal && (
                         <button
                           type="button"
                           onClick={() => onOpenManualBookingModal()}
@@ -2096,7 +2136,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                 type="button"
                                 onClick={() => {
                                   if (isAvail) {
-                                    if (onOpenManualBookingModal) {
+                                    if (!isSuperAdmin && onOpenManualBookingModal) {
                                       onOpenManualBookingModal({
                                         courtId: effectiveTimelineCourtId,
                                         date: selectedCalendarDate,

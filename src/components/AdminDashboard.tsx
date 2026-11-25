@@ -17,7 +17,7 @@ import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
 import { AdminIntegrationsTab } from './admin/tabs/AdminIntegrationsTab';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, type Company, getUserEffectivePermissions, isSubscriptionExpired } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, type Company, getUserEffectivePermissions, isSubscriptionExpired, isCourtAssociatedWithCompany } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -6846,6 +6846,65 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
   };
 
+  // Super Admin Selected Company Scope
+  const targetSuperAdminComp = isSuperAdmin && selectedSuperAdminCompanyId
+    ? companies.find((c) => c.id === selectedSuperAdminCompanyId) || null
+    : null;
+
+  // 1. Scoped Courts & Court IDs
+  const effectiveAdminCourts = isSuperAdmin
+    ? (targetSuperAdminComp ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetSuperAdminComp)) : courts)
+    : availableAdminCourts;
+  const effectiveAdminCourtIds = new Set(effectiveAdminCourts.map((c) => c.id));
+
+  // 2. Scoped Open Play Events
+  const effectiveAdminOpenPlayEvents = openPlayEvents.filter((ev) => {
+    if (ev.isMatchMatrix) return false;
+    if (!targetSuperAdminComp) return true;
+    if (ev.companyId && ev.companyId === targetSuperAdminComp.id) return true;
+    const evEmail = ev.createdByEmail || (ev as any).hostEmail;
+    if (evEmail && targetSuperAdminComp.clientAdminEmail && evEmail.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
+    if (ev.courtIds && ev.courtIds.some((id) => effectiveAdminCourtIds.has(id))) return true;
+    if (ev.companyName && targetSuperAdminComp.name && ev.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
+    return false;
+  });
+
+  // 3. Scoped Bookings & Checkouts
+  const effectiveAdminBookings = bookings.filter((b) => {
+    if (!targetSuperAdminComp) return true;
+    return b.companyId === targetSuperAdminComp.id || effectiveAdminCourtIds.has(b.courtId);
+  });
+
+  const effectiveAdminFilteredCheckouts = filteredCheckouts.filter((b) => {
+    if (!targetSuperAdminComp) return true;
+    return b.companyId === targetSuperAdminComp.id || effectiveAdminCourtIds.has(b.courtId);
+  });
+
+  // 4. Scoped Vouchers (Company-specific + Global)
+  const effectiveAdminVouchers = vouchers.filter((v) => {
+    if (!targetSuperAdminComp) return true;
+    return v.companyId === targetSuperAdminComp.id || !v.companyId;
+  });
+
+  // 5. Scoped Short Links (Matching companyId, creator email, or venue URL path)
+  const effectiveAdminShortLinks = shortLinks.filter((link) => {
+    if (!targetSuperAdminComp) return true;
+    if ((link as any).companyId === targetSuperAdminComp.id) return true;
+    if (link.createdByEmail && targetSuperAdminComp.clientAdminEmail && link.createdByEmail.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
+    const compNameSlug = targetSuperAdminComp.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (link.originalUrl && (link.originalUrl.includes(targetSuperAdminComp.id) || (compNameSlug && link.originalUrl.toLowerCase().includes(compNameSlug)))) return true;
+    return false;
+  });
+
+  // 6. Scoped Users (Direct affiliation: companyId, client admin email, or companyName)
+  const effectiveAdminUsers = filteredUsers.filter((u) => {
+    if (!targetSuperAdminComp) return true;
+    if (u.companyId && u.companyId === targetSuperAdminComp.id) return true;
+    if (u.email && targetSuperAdminComp.clientAdminEmail && u.email.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
+    if (u.companyName && targetSuperAdminComp.name && u.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
+    return false;
+  });
+
   return (
     <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col font-sans relative overflow-hidden">
       {/* Background Decorative Gradients */}
@@ -6857,6 +6916,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         activeTab={activeTab}
         setActiveTab={handleTabChange}
         isSuperAdmin={isSuperAdmin}
+        companies={companies}
+        selectedCompanyFilter={selectedSuperAdminCompanyId}
+        onSelectCompanyFilter={setSelectedSuperAdminCompanyId}
         courtsSubTab={courtsSubTab}
         setCourtsSubTab={setCourtsSubTab}
         bookingsSubTab={bookingsSubTab}
@@ -6875,9 +6937,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         onLogout={onLogout}
         onOpenSupportModal={() => setIsSupportModalOpen(true)}
         onOpenClientTicketsModal={() => setIsClientTicketsModalOpen(true)}
-        courtsCount={(isSuperAdmin ? courts : availableAdminCourts).length}
-        bookingsCount={bookings.length}
-        pendingBookingsCount={pendingBookings.length}
+        courtsCount={effectiveAdminCourts.length}
+        bookingsCount={effectiveAdminBookings.length}
+        pendingBookingsCount={effectiveAdminBookings.filter(b => b.status === 'pending').length}
         companiesCount={companies.length}
         pendingCompaniesCount={(() => {
           const pendingCompCount = companies.filter((c) => c.status === 'pending').length;
@@ -6894,7 +6956,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           return pendingCompCount + pendingLeadsCount;
         })()}
         pendingVerificationCount={pendingVerificationCount}
-        openPlayCount={openPlayEvents.filter((e) => !e.isMatchMatrix).length}
+        openPlayCount={effectiveAdminOpenPlayEvents.length}
         personalAccountsCount={personalAccounts.length}
         bookingLeadTimeMinutes={bookingLeadTimeMinutes}
       />
@@ -6982,62 +7044,34 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     : 'Manage your pickleball courts, view reservations, and track business reports.'}
                 </p>
               </div>
-
-              {isSuperAdmin && activeTab !== 'companies' && (
-                <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 p-2 rounded-2xl shadow-lg shrink-0">
-                  <span className="text-xs font-bold text-slate-400 pl-1 flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4 text-brand-lime" /> Company Filter:
-                  </span>
-                  <select
-                    value={selectedSuperAdminCompanyId || 'all'}
-                    onChange={(e) => setSelectedSuperAdminCompanyId(e.target.value === 'all' ? null : e.target.value)}
-                    className="bg-slate-950 border border-slate-700/80 text-white rounded-xl text-xs font-semibold px-3 py-1.5 focus:outline-none focus:border-brand-lime cursor-pointer"
-                  >
-                    <option value="all">🌐 All Companies (Global)</option>
-                    {companies.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        🏢 {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  {selectedSuperAdminCompanyId && (
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSuperAdminCompanyId(null)}
-                      title="Clear Filter"
-                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg text-xs cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
 
-            {/* Organization Identifier Badge */}
-            {!isSuperAdmin && effectiveOrgName ? (
-              <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-xs text-slate-200 shadow-sm animate-fade-in">
-                <Building2 className="w-4 h-4 text-brand-lime flex-shrink-0" />
-                <span>
-                  <strong className="text-brand-lime font-extrabold text-xs">{effectiveOrgName}</strong>
-                  {effectiveOrgShortLocation && <span className="text-slate-400 font-normal text-xs"> — {effectiveOrgShortLocation}</span>}
-                </span>
-              </div>
-            ) : isSuperAdmin && activeTab !== 'companies' ? (
-              <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-xs text-slate-200 shadow-sm animate-fade-in">
-                <Shield className="w-4 h-4 text-brand-emerald flex-shrink-0" />
-                <span>
-                  Role: <strong className="text-brand-emerald font-extrabold text-xs">Super Admin (All Organizations)</strong>
-                </span>
-              </div>
-            ) : !isSuperAdmin ? (
-              <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-300 shadow-sm animate-fade-in">
-                <Building2 className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                <span>
-                  Organization: <strong className="text-yellow-400 font-extrabold text-xs">Pending Organization Assignment</strong>
-                </span>
-              </div>
-            ) : null}
+            {/* Organization Identifier Badge - hidden on companies management tab */}
+            {activeTab !== 'companies' && (
+              !isSuperAdmin && effectiveOrgName ? (
+                <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-xs text-slate-200 shadow-sm animate-fade-in">
+                  <Building2 className="w-4 h-4 text-brand-lime flex-shrink-0" />
+                  <span>
+                    <strong className="text-brand-lime font-extrabold text-xs">{effectiveOrgName}</strong>
+                    {effectiveOrgShortLocation && <span className="text-slate-400 font-normal text-xs"> — {effectiveOrgShortLocation}</span>}
+                  </span>
+                </div>
+              ) : isSuperAdmin ? (
+                <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-brand-emerald/10 border border-brand-emerald/30 text-xs text-slate-200 shadow-sm animate-fade-in">
+                  <Shield className="w-4 h-4 text-brand-emerald flex-shrink-0" />
+                  <span>
+                    Role: <strong className="text-brand-emerald font-extrabold text-xs">Super Admin (All Organizations)</strong>
+                  </span>
+                </div>
+              ) : !isSuperAdmin ? (
+                <div className="mt-3 inline-flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-300 shadow-sm animate-fade-in">
+                  <Building2 className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                  <span>
+                    Organization: <strong className="text-yellow-400 font-extrabold text-xs">Pending Organization Assignment</strong>
+                  </span>
+                </div>
+              ) : null
+            )}
           </div>
 
           {/* SUBSCRIPTION EXPIRED LOCKOUT BANNER */}
@@ -7079,7 +7113,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             <AdminBookingsTab
               bookingsSubTab={bookingsSubTab}
               setBookingsSubTab={setBookingsSubTab}
-              bookings={bookings}
+              bookings={effectiveAdminBookings}
               filteredBookings={filteredBookings}
               totalRevenue={totalRevenue}
               pendingBookings={pendingBookings}
@@ -7092,15 +7126,18 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onOpenCancelModal={handlePromptCancelBooking}
               onViewReceipt={(b) => setReceiptLightboxImage(b.receiptImageUrl || null)}
               onDeleteBooking={(id) => { const b = bookings.find(x => x.id === id); if (b) handleOpenDeleteBooking(b); }}
-              courts={isSuperAdmin ? courts : availableAdminCourts}
-              myCompany={myCompany}
+              courts={effectiveAdminCourts}
+              myCompany={targetSuperAdminComp || myCompany}
               companies={companies}
-              openPlayEvents={openPlayEvents}
+              openPlayEvents={effectiveAdminOpenPlayEvents}
               users={users}
               userPermissions={getUserEffectivePermissions(user as any)}
+              isSuperAdmin={isSuperAdmin}
+              selectedCompanyFilter={selectedSuperAdminCompanyId}
+              onSelectCompanyFilter={setSelectedSuperAdminCompanyId}
               currentAdminEmail={user?.email || currentUserEmail}
               currentAdminName={user?.name || adminDisplayName || 'Admin'}
-              onOpenManualBookingModal={handleOpenManualBookingWithParams}
+              onOpenManualBookingModal={isSuperAdmin ? undefined : handleOpenManualBookingWithParams}
               onUpdateManualBooking={handleUpdateManualBookingDetails}
               onRefundBooking={(booking) => {
                 setRefundModalBooking(booking);
@@ -7117,18 +7154,22 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'courts' && (
             <AdminCourtsTab
               key={courtsResetKey}
-              courts={isSuperAdmin ? courts : availableAdminCourts}
-              bookings={bookings}
-              openPlayEvents={openPlayEvents}
-              myCompany={currentCompany}
+              courts={effectiveAdminCourts}
+              bookings={effectiveAdminBookings}
+              openPlayEvents={effectiveAdminOpenPlayEvents}
+              myCompany={targetSuperAdminComp || currentCompany}
+              companies={companies}
+              isSuperAdmin={isSuperAdmin}
+              selectedCompanyFilter={selectedSuperAdminCompanyId}
+              onSelectCompanyFilter={setSelectedSuperAdminCompanyId}
               courtsSubTab={courtsSubTab}
               onSaveManualBooking={handleCreateManualBooking}
               isSubmittingManualBooking={isSubmittingManualBooking}
               onOpenCreateCourtModal={handleOpenCreateCourt}
-              onOpenEditCourtModal={handleOpenEditCourt}
-              onDeleteCourt={(id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); }}
-              onTogglePublishCourt={(courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); }}
-              onOpenManualBookingModal={() => setIsManualBookingModalOpen(true)}
+              onOpenEditCourtModal={isSuperAdmin ? undefined : handleOpenEditCourt}
+              onDeleteCourt={isSuperAdmin ? undefined : ((id) => { const c = courts.find(x => x.id === id); if (c) handleOpenDeleteCourt(c); })}
+              onTogglePublishCourt={isSuperAdmin ? undefined : ((courtId) => { const c = courts.find(x => x.id === courtId); if (c) handleTogglePublishCourt(c); })}
+              onOpenManualBookingModal={isSuperAdmin ? undefined : () => setIsManualBookingModalOpen(true)}
               gcashAccounts={personalAccounts}
               userPermissions={getUserEffectivePermissions(user as any)}
             />
@@ -7162,10 +7203,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'checkouts' && (
             <AdminCheckoutsTab
               users={users}
-              courts={isSuperAdmin ? courts : availableAdminCourts}
-              openPlayEvents={openPlayEvents}
-              checkouts={bookings}
-              filteredCheckouts={filteredCheckouts}
+              courts={effectiveAdminCourts}
+              openPlayEvents={effectiveAdminOpenPlayEvents}
+              checkouts={effectiveAdminBookings}
+              filteredCheckouts={effectiveAdminFilteredCheckouts}
               checkoutCategoryFilter={checkoutCategoryFilter}
               setCheckoutCategoryFilter={setCheckoutCategoryFilter}
               checkoutStatusFilter={checkoutStatusFilter}
@@ -7215,7 +7256,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'openplay' && (
             <AdminOpenPlayTab
               key={openPlayResetKey}
-              events={openPlayEvents.filter((e) => !e.isMatchMatrix)}
+              events={effectiveAdminOpenPlayEvents}
               openPlayRegistrations={openPlayRegistrations}
               selectedEventForRegs={selectedEventForRegs}
               setSelectedEventForRegs={handleSetSelectedEventForRegs}
@@ -7239,20 +7280,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'match_matrix' && (
             <AdminMatchMatrixTab
               key={matchMatrixResetKey}
-              courts={isSuperAdmin ? courts : availableAdminCourts}
-              openPlayEvents={openPlayEvents}
+              courts={effectiveAdminCourts}
+              openPlayEvents={effectiveAdminOpenPlayEvents}
               openPlayRegistrations={openPlayRegistrations}
               onRefreshEvents={fetchData}
               userPermissions={getUserEffectivePermissions(user as any)}
               currentAdminEmail={user?.email || currentUserEmail}
               currentAdminName={user?.name || adminDisplayName || 'Admin'}
-              myCompany={currentCompany}
+              myCompany={targetSuperAdminComp || currentCompany}
             />
           )}
 
           {activeTab === 'vouchers' && (
             <AdminVouchersTab
-              vouchers={vouchers}
+              vouchers={effectiveAdminVouchers}
               onOpenCreateVoucherModal={handleOpenCreateVoucher}
               onDeleteVoucher={handleRevokeVoucher}
               onCopyVoucherCode={(code) => { navigator.clipboard.writeText(code); }}
@@ -7261,7 +7302,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'shortener' && (
             <AdminShortenerTab
-              shortLinks={shortLinks}
+              shortLinks={effectiveAdminShortLinks}
               loading={loading}
               onCreateShortLink={async (data) => {
                 const baseAppUrl = import.meta.env.VITE_APP_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://bookpicklecourt.com');
@@ -7344,7 +7385,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'users' && (
             <AdminUsersTab
-              users={filteredUsers}
+              users={effectiveAdminUsers}
               isSuperAdmin={isSuperAdmin}
               onEditUser={(u) => handleOpenEditUser(u)}
               onToggleStatus={(uid, currentStatus) => handleQuickToggleUserStatus(uid, currentStatus)}
@@ -7366,7 +7407,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               adminPhone={adminPhone}
               setAdminPhone={setAdminPhone}
               onSaveAdminProfile={handleSaveAdminPersonalProfile}
-              companyProfile={currentCompany}
+              companyProfile={targetSuperAdminComp || currentCompany}
               onUpdateCompanySubscription={handleUpdateCompanySubscription}
               orgProfileName={orgProfileName}
               setOrgProfileName={setOrgProfileName}

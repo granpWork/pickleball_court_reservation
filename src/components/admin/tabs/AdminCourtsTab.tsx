@@ -16,7 +16,7 @@ import {
   Check,
   Share2,
 } from 'lucide-react';
-import { type Court, type Booking, type UserPermissions, type GcashAccount, type AdminCourtsSubTab, type Company } from '../adminTypes';
+import { type Court, type Booking, type UserPermissions, type GcashAccount, type AdminCourtsSubTab, type Company, isCourtAssociatedWithCompany } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { AdminCourtDetails } from './AdminCourtDetails';
 import { CourtQrModal } from '../modals/CourtQrModal';
@@ -27,12 +27,16 @@ interface AdminCourtsTabProps {
   bookings?: Booking[];
   openPlayEvents?: OpenPlayEvent[];
   myCompany?: Company | null;
+  companies?: Company[];
+  isSuperAdmin?: boolean;
+  selectedCompanyFilter?: string | null;
+  onSelectCompanyFilter?: (companyId: string | null) => void;
   courtsSubTab?: AdminCourtsSubTab;
   onSaveManualBooking?: (booking: Partial<Booking>) => Promise<void> | void;
   isSubmittingManualBooking?: boolean;
   onOpenCreateCourtModal: () => void;
-  onOpenEditCourtModal: (court: Court) => void;
-  onDeleteCourt: (courtId: string) => void;
+  onOpenEditCourtModal?: (court: Court) => void;
+  onDeleteCourt?: (courtId: string) => void;
   onTogglePublishCourt?: (courtId: string, currentPublished: boolean) => void;
   onSelectCourtDetails?: (courtId: string) => void;
   onOpenManualBookingModal?: () => void;
@@ -45,6 +49,10 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   bookings = [],
   openPlayEvents = [],
   myCompany = null,
+  companies = [],
+  isSuperAdmin = false,
+  selectedCompanyFilter = null,
+  onSelectCompanyFilter: _onSelectCompanyFilter,
   courtsSubTab = 'list',
   onSaveManualBooking,
   isSubmittingManualBooking = false,
@@ -58,10 +66,18 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
   userPermissions,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedOrgFilter, setSelectedOrgFilter] = useState<string>(() => selectedCompanyFilter || 'all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [selectedCourtForDetails, setSelectedCourtForDetails] = useState<Court | null>(null);
   const [qrModalState, setQrModalState] = useState<{ isOpen: boolean; court: Court | null }>({ isOpen: false, court: null });
   const [copiedCourtId, setCopiedCourtId] = useState<string | null>(null);
+
+  // Sync internal filter state when external selectedCompanyFilter changes
+  useEffect(() => {
+    if (selectedCompanyFilter !== undefined) {
+      setSelectedOrgFilter(selectedCompanyFilter || 'all');
+    }
+  }, [selectedCompanyFilter]);
 
   // Restore selected court details view on initial load ONLY if court_id is in URL, and handle popstate back button
   useEffect(() => {
@@ -170,9 +186,9 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
           openPlayEvents={openPlayEvents}
           company={myCompany}
           onBack={() => handleSetSelectedCourt(null)}
-          onOpenEditCourtModal={onOpenEditCourtModal}
-          onDeleteCourt={onDeleteCourt}
-          onTogglePublishCourt={onTogglePublishCourt}
+          onOpenEditCourtModal={isSuperAdmin ? undefined : onOpenEditCourtModal}
+          onDeleteCourt={isSuperAdmin ? undefined : onDeleteCourt}
+          onTogglePublishCourt={isSuperAdmin ? undefined : onTogglePublishCourt}
           onOpenManualBookingModal={onOpenManualBookingModal}
           onCopyShareLink={(courtId) => handleCopyShareLink(courtId)}
           onOpenQrModal={(court) => handleOpenQrModal(court)}
@@ -188,13 +204,27 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
     );
   }
 
+  const effectiveFilter = selectedCompanyFilter !== undefined && selectedCompanyFilter !== null
+    ? (selectedCompanyFilter || 'all')
+    : selectedOrgFilter;
+
   const filteredCourts = courts.filter((c) => {
+    if (isSuperAdmin && effectiveFilter !== 'all') {
+      const targetComp = companies.find((comp) => comp.id === effectiveFilter);
+      if (!targetComp || !isCourtAssociatedWithCompany(c, targetComp)) {
+        return false;
+      }
+    }
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
       c.name.toLowerCase().includes(q) ||
       (c.type && c.type.toLowerCase().includes(q)) ||
-      (c.location && c.location.toLowerCase().includes(q))
+      (c.location && c.location.toLowerCase().includes(q)) ||
+      (c.municipality && c.municipality.toLowerCase().includes(q)) ||
+      (c.province && c.province.toLowerCase().includes(q)) ||
+      (c.ownerCompanyName && c.ownerCompanyName.toLowerCase().includes(q)) ||
+      (c.companyName && c.companyName.toLowerCase().includes(q))
     );
   });
 
@@ -224,7 +254,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-3 self-end md:self-auto">
+        <div className="flex items-center gap-3 self-end md:self-auto flex-wrap">
           {/* LIST vs GRID View Mode Toggle Buttons */}
           <div className="flex gap-1 bg-slate-900/90 border border-slate-800 p-1 rounded-xl">
             <button
@@ -254,7 +284,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
           </div>
 
           {/* Lime Green Create Court Button */}
-          {userPermissions?.canManageCourts !== false && (
+          {userPermissions?.canManageCourts !== false && !isSuperAdmin && (
             <button
               onClick={onOpenCreateCourtModal}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/10"
@@ -403,7 +433,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                     </button>
 
                     {/* Eye / EyeOff Toggle Publish Button */}
-                    {onTogglePublishCourt && (
+                    {!isSuperAdmin && onTogglePublishCourt && (
                       <button
                         type="button"
                         onClick={() => onTogglePublishCourt(c.id, isPublished)}
@@ -415,24 +445,28 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                     )}
 
                     {/* Edit Button */}
-                    <button
-                      type="button"
-                      onClick={() => onOpenEditCourtModal(c)}
-                      className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-all cursor-pointer"
-                      title="Edit Court"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
+                    {!isSuperAdmin && onOpenEditCourtModal && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenEditCourtModal(c)}
+                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition-all cursor-pointer"
+                        title="Edit Court"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                    )}
 
                     {/* Delete Button */}
-                    <button
-                      type="button"
-                      onClick={() => onDeleteCourt(c.id)}
-                      className="p-2 rounded-xl bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white transition-all cursor-pointer"
-                      title="Delete Court"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {!isSuperAdmin && onDeleteCourt && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteCourt(c.id)}
+                        className="p-2 rounded-xl bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white transition-all cursor-pointer"
+                        title="Delete Court"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -522,7 +556,7 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                           >
                             <ExternalLink className="w-4 h-4" />
                           </button>
-                          {onTogglePublishCourt && (
+                          {!isSuperAdmin && onTogglePublishCourt && (
                             <button
                               type="button"
                               onClick={() => onTogglePublishCourt(c.id, isPublished)}
@@ -532,22 +566,26 @@ export const AdminCourtsTab: React.FC<AdminCourtsTabProps> = ({
                               {isPublished ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4 text-emerald-400" />}
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => onOpenEditCourtModal(c)}
-                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer"
-                            title="Edit Court"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeleteCourt(c.id)}
-                            className="p-2 rounded-xl bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white transition-all cursor-pointer"
-                            title="Delete Court"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {!isSuperAdmin && onOpenEditCourtModal && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenEditCourtModal(c)}
+                              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition-all cursor-pointer"
+                              title="Edit Court"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {!isSuperAdmin && onDeleteCourt && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteCourt(c.id)}
+                              className="p-2 rounded-xl bg-red-950/20 border border-red-900/30 text-red-400 hover:bg-red-900 hover:text-white transition-all cursor-pointer"
+                              title="Delete Court"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
