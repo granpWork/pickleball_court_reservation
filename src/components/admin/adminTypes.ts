@@ -490,6 +490,7 @@ export interface ShortLink {
   shortUrl: string;
   originalUrl: string;
   companyId?: string;
+  companyName?: string;
   createdByEmail?: string;
   createdAt: string;
   clickCount: number;

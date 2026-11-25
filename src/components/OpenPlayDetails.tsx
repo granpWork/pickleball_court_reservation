@@ -134,6 +134,7 @@ export {
 
 export interface OpenPlayRegistration {
   id: string;
+  companyId?: string;
   eventId: string;
   eventTitle?: string;
   eventDate?: string;

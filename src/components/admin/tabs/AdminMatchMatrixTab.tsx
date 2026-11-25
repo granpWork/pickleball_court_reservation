@@ -58,12 +58,31 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
           const localList: OpenPlayEvent[] = savedMatricesStr ? JSON.parse(savedMatricesStr) : [];
           const combined = [...openPlayEvents, ...localList];
           const found = combined.find((m) => m.id === savedId);
-          if (found) return found;
+          if (found) {
+            // Guard: ensure found matrix belongs to myCompany if company is selected
+            if (myCompany?.id && found.companyId && found.companyId !== myCompany.id) {
+              return null;
+            }
+            return found;
+          }
         }
       }
     } catch (e) {}
     return null;
   });
+
+  // Reset activeMatrix if the selected company changes and matrix does not belong to it
+  useEffect(() => {
+    if (activeMatrix && myCompany?.id) {
+      const belongs =
+        activeMatrix.companyId === myCompany.id ||
+        (!activeMatrix.companyId && activeMatrix.companyName?.toLowerCase() === myCompany.name?.toLowerCase()) ||
+        openPlayEvents.some((e) => e.id === activeMatrix.id);
+      if (!belongs) {
+        setActiveMatrix(null);
+      }
+    }
+  }, [myCompany?.id, myCompany?.name, activeMatrix, openPlayEvents]);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -97,15 +116,40 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Local fallback matrix events
+  // Local fallback matrix events (scoped to myCompany when specified)
   const [localMatrices, setLocalMatrices] = useState<OpenPlayEvent[]>(() => {
     try {
       const saved = localStorage.getItem('picklepoint_match_matrices');
-      return saved ? JSON.parse(saved) : [];
+      const list: OpenPlayEvent[] = saved ? JSON.parse(saved) : [];
+      if (myCompany?.id) {
+        return list.filter(
+          (m) => m.companyId === myCompany.id || (!m.companyId && m.companyName?.toLowerCase() === myCompany.name?.toLowerCase())
+        );
+      }
+      return list;
     } catch {
       return [];
     }
   });
+
+  // Keep localMatrices synchronized when company filter changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('picklepoint_match_matrices');
+      const list: OpenPlayEvent[] = saved ? JSON.parse(saved) : [];
+      if (myCompany?.id) {
+        setLocalMatrices(
+          list.filter(
+            (m) => m.companyId === myCompany.id || (!m.companyId && m.companyName?.toLowerCase() === myCompany.name?.toLowerCase())
+          )
+        );
+      } else {
+        setLocalMatrices(list);
+      }
+    } catch {
+      setLocalMatrices([]);
+    }
+  }, [myCompany?.id, myCompany?.name]);
 
   // Delete matrix confirmation modal states
   const [matrixToDelete, setMatrixToDelete] = useState<OpenPlayEvent | null>(null);
@@ -426,6 +470,8 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
     const newMatrixEvent: OpenPlayEvent = {
       id: matrixId,
+      companyId: myCompany?.id || undefined,
+      companyName: myCompany?.name || undefined,
       title: matrixTitle.trim(),
       eventDate: matrixDate,
       startTime: matrixStartTime,

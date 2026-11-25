@@ -495,6 +495,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [companiesResetKey, setCompaniesResetKey] = useState<number>(0);
   const [openPlayResetKey, setOpenPlayResetKey] = useState<number>(0);
   const [matchMatrixResetKey, setMatchMatrixResetKey] = useState<number>(0);
+  const [bookingsResetKey, setBookingsResetKey] = useState<number>(0);
+  const [checkoutsResetKey, setCheckoutsResetKey] = useState<number>(0);
+  const [vouchersResetKey, setVouchersResetKey] = useState<number>(0);
+  const [shortenerResetKey, setShortenerResetKey] = useState<number>(0);
+  const [usersResetKey, setUsersResetKey] = useState<number>(0);
 
   useEffect(() => {
     try {
@@ -960,6 +965,50 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [companies, setCompanies] = useState<Company[]>([]);
 
   const [selectedSuperAdminCompanyId, setSelectedSuperAdminCompanyId] = useState<string | null>(null);
+
+  // Clear stale session/matrix/view states when Super Admin changes company filter
+  const isInitialCompanyMount = useRef(true);
+  useEffect(() => {
+    if (isInitialCompanyMount.current) {
+      isInitialCompanyMount.current = false;
+      return;
+    }
+    setSelectedEventForRegs(null);
+    setOpenPlayResetKey((prev) => prev + 1);
+    setMatchMatrixResetKey((prev) => prev + 1);
+    setCourtsResetKey((prev) => prev + 1);
+    setBookingsResetKey((prev) => prev + 1);
+    setCheckoutsResetKey((prev) => prev + 1);
+    setVouchersResetKey((prev) => prev + 1);
+    setShortenerResetKey((prev) => prev + 1);
+    setUsersResetKey((prev) => prev + 1);
+
+    // Clear active modal and selection states
+    setReceiptLightboxImage(null);
+    setBookingToCancel(null);
+    setBookingToDelete(null);
+    setDeleteBookingModalOpen(false);
+    setRefundModalBooking(null);
+    setIsManualBookingModalOpen(false);
+    setVoucherModalOpen(false);
+    setUserModalOpen(false);
+
+    try {
+      sessionStorage.removeItem('picklepoint_matrix_event_id');
+      sessionStorage.removeItem('picklepoint_selected_openplay_event_id');
+      sessionStorage.removeItem('picklepoint_active_matrix_id');
+    } catch (e) {}
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('eventId');
+      url.searchParams.delete('openplay');
+      url.searchParams.delete('openplay_event');
+      url.searchParams.delete('matrixId');
+      url.searchParams.delete('matrix');
+      url.searchParams.delete('view');
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) {}
+  }, [selectedSuperAdminCompanyId]);
 
 
   // Organization Profile Settings States
@@ -2060,8 +2109,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     expiryDate.setDate(expiryDate.getDate() + Number(voucherExpiryDays || 30));
 
     const targetCourt = voucherCourtId !== 'all' ? courts.find(c => c.id === voucherCourtId) : courts[0];
-    const resolvedCompanyId = targetCourt?.companyId || '';
-    const resolvedCompanyName = targetCourt?.ownerCompanyName || orgProfileName || 'PicklePoint Venue';
+    const resolvedCompanyId = targetSuperAdminComp?.id || targetCourt?.companyId || '';
+    const resolvedCompanyName = targetSuperAdminComp?.name || targetCourt?.ownerCompanyName || orgProfileName || 'PicklePoint Venue';
 
     const payload: Voucher = {
       id: vId,
@@ -6628,29 +6677,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     });
   };
 
-  // Metrics Calculations
-  const approvedBookings = bookings.filter((b) => b.status === 'approved');
-  const pendingBookings = bookings.filter((b) => b.status === 'pending');
-  
-  const totalRevenue = approvedBookings.reduce((sum, b) => sum + (b.totalCost || 0), 0);
-  
-
-
-
-  // Filter and Search Bookings
-  const filteredBookings = bookings.filter((b) => {
-    const matchesSearch =
-      (b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
-      (b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
-      (b.date?.includes(searchQuery) ?? false);
-
-    const matchesStatus = statusFilter === 'all' ? true : b.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
-
-
-
   const associatedPlayerEmails = new Set([
     ...bookings.map((b) => b.user?.email?.toLowerCase()).filter(Boolean),
     ...openPlayRegistrations.map((r) => (r.playerEmail || r.userEmail || r.primaryPlayerEmail)?.toLowerCase()).filter(Boolean)
@@ -6687,50 +6713,6 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     }
 
     return matchesSearch && matchesStatus;
-  });
-
-
-
-  const pendingVerificationCount = bookings.filter(
-    (b) => b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending'
-  ).length;
-
-  const checkoutBookings = bookings.filter(
-    (b) => b.paymentMethod !== undefined && b.paymentMethod !== ''
-  );
-
-  const filteredCheckouts = checkoutBookings.filter((b) => {
-    const matchesSearch =
-      b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (b.userName && b.userName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (b.userEmail && b.userEmail.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      b.gcashReferenceNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.bookingReference?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.courtName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (b.openPlayTitle && b.openPlayTitle.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    const isOpenPlay = b.type === 'openplay' || !!b.openPlayEventId || !!(b as any).isOpenPlay;
-    const matchesCategory =
-      checkoutCategoryFilter === 'all'
-        ? true
-        : checkoutCategoryFilter === 'openplay'
-        ? isOpenPlay
-        : !isOpenPlay;
-
-    const isPending = b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending';
-    const isPaid = b.paymentStatus === 'paid' || b.paymentStatus === 'completed' || b.status === 'approved';
-
-    const matchesStatus =
-      checkoutStatusFilter === 'all'
-        ? true
-        : checkoutStatusFilter === 'pending'
-        ? isPending
-        : checkoutStatusFilter === 'paid'
-        ? isPaid
-        : (b.paymentStatus === 'refunded' || b.paymentStatus === 'cancelled_no_refund' || b.paymentStatus === 'failed' || b.paymentStatus === 'rebooking_credit' || b.status === 'cancelled');
-
-    return matchesSearch && matchesCategory && matchesStatus;
   });
 
   const formatDateLabel = (dateStr: string) => {
@@ -6857,9 +6839,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     : availableAdminCourts;
   const effectiveAdminCourtIds = new Set(effectiveAdminCourts.map((c) => c.id));
 
-  // 2. Scoped Open Play Events
-  const effectiveAdminOpenPlayEvents = openPlayEvents.filter((ev) => {
-    if (ev.isMatchMatrix) return false;
+  // Helper to verify if an open play / matrix event belongs to targetSuperAdminComp
+  const isEventInTargetCompany = (ev: OpenPlayEvent) => {
     if (!targetSuperAdminComp) return true;
     if (ev.companyId && ev.companyId === targetSuperAdminComp.id) return true;
     const evEmail = ev.createdByEmail || (ev as any).hostEmail;
@@ -6867,38 +6848,125 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (ev.courtIds && ev.courtIds.some((id) => effectiveAdminCourtIds.has(id))) return true;
     if (ev.companyName && targetSuperAdminComp.name && ev.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
     return false;
+  };
+
+  // 2. Scoped Open Play Events (excludes dedicated match matrices for Open Play tab)
+  const effectiveAdminOpenPlayEvents = openPlayEvents.filter((ev) => {
+    if (ev.isMatchMatrix) return false;
+    return isEventInTargetCompany(ev);
   });
+
+  // 2b. Scoped Match Matrix Events (includes both dedicated match matrices & open play events for this company)
+  const effectiveAdminMatrixEvents = openPlayEvents.filter((ev) => {
+    return isEventInTargetCompany(ev);
+  });
+
+  // 2c. Scoped Open Play Registrations
+  const effectiveAdminOpenPlayRegistrations = useMemo(() => {
+    if (!targetSuperAdminComp) return openPlayRegistrations;
+    const scopedEventIds = new Set(effectiveAdminMatrixEvents.map((e) => e.id));
+    return openPlayRegistrations.filter((r) => {
+      if (r.eventId && scopedEventIds.has(r.eventId)) return true;
+      const regCompId = (r as any).companyId;
+      if (regCompId && regCompId === targetSuperAdminComp.id) return true;
+      return false;
+    });
+  }, [openPlayRegistrations, targetSuperAdminComp, effectiveAdminMatrixEvents]);
+
+  // Helper to check if a booking or checkout belongs to targetSuperAdminComp
+  const isBookingInTargetCompany = (b: Booking) => {
+    if (!targetSuperAdminComp) return true;
+    if (b.companyId && b.companyId === targetSuperAdminComp.id) return true;
+    if (effectiveAdminCourtIds.has(b.courtId)) return true;
+    if (b.openPlayEventId && effectiveAdminMatrixEvents.some((e) => e.id === b.openPlayEventId)) return true;
+    if (b.courtName && effectiveAdminCourts.some((c) => c.name.toLowerCase() === b.courtName?.toLowerCase())) return true;
+    return false;
+  };
 
   // 3. Scoped Bookings & Checkouts
-  const effectiveAdminBookings = bookings.filter((b) => {
-    if (!targetSuperAdminComp) return true;
-    return b.companyId === targetSuperAdminComp.id || effectiveAdminCourtIds.has(b.courtId);
+  const effectiveAdminBookings = bookings.filter(isBookingInTargetCompany);
+
+  // 3b. Scoped Booking Metrics & Filtered List
+  const effectiveApprovedBookings = effectiveAdminBookings.filter((b) => b.status === 'approved');
+  const effectivePendingBookings = effectiveAdminBookings.filter((b) => b.status === 'pending');
+  const effectiveTotalRevenue = effectiveApprovedBookings.reduce((sum, b) => sum + (b.totalCost || 0), 0);
+  const pendingVerificationCount = effectiveAdminBookings.filter(
+    (b) => b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending'
+  ).length;
+  const effectiveFilteredBookings = effectiveAdminBookings.filter((b) => {
+    const matchesSearch =
+      (b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+      (b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
+      (b.date?.includes(searchQuery) ?? false);
+
+    const matchesStatus = statusFilter === 'all' ? true : b.status === statusFilter;
+    return matchesSearch && matchesStatus;
   });
 
-  const effectiveAdminFilteredCheckouts = filteredCheckouts.filter((b) => {
-    if (!targetSuperAdminComp) return true;
-    return b.companyId === targetSuperAdminComp.id || effectiveAdminCourtIds.has(b.courtId);
+  // 3c. Scoped Checkouts
+  const effectiveAdminCheckouts = effectiveAdminBookings.filter(
+    (b) => b.paymentMethod !== undefined && b.paymentMethod !== ''
+  );
+  const effectiveAdminFilteredCheckouts = effectiveAdminCheckouts.filter((b) => {
+    const matchesSearch =
+      b.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      b.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.userName && b.userName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (b.userEmail && b.userEmail.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      b.gcashReferenceNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      b.bookingReference?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      b.courtName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.openPlayTitle && b.openPlayTitle.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const isOpenPlay = b.type === 'openplay' || !!b.openPlayEventId || !!(b as any).isOpenPlay;
+    const matchesCategory =
+      checkoutCategoryFilter === 'all'
+        ? true
+        : checkoutCategoryFilter === 'openplay'
+        ? isOpenPlay
+        : !isOpenPlay;
+
+    const isPending = b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending';
+    const isPaid = b.paymentStatus === 'paid' || b.paymentStatus === 'completed' || b.status === 'approved';
+
+    const matchesStatus =
+      checkoutStatusFilter === 'all'
+        ? true
+        : checkoutStatusFilter === 'pending'
+        ? isPending
+        : checkoutStatusFilter === 'paid'
+        ? isPaid
+        : (b.paymentStatus === 'refunded' || b.paymentStatus === 'cancelled_no_refund' || b.paymentStatus === 'failed' || b.paymentStatus === 'rebooking_credit' || b.status === 'cancelled');
+
+    return matchesSearch && matchesCategory && matchesStatus;
   });
 
-  // 4. Scoped Vouchers (Company-specific + Global)
+  // 4. Scoped Vouchers (Company-specific + Truly Global)
   const effectiveAdminVouchers = vouchers.filter((v) => {
     if (!targetSuperAdminComp) return true;
-    return v.companyId === targetSuperAdminComp.id || !v.companyId;
+    if (v.companyId && v.companyId === targetSuperAdminComp.id) return true;
+    if (v.companyName && targetSuperAdminComp.name && v.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
+    // Only truly global vouchers with NO companyId and NO companyName set
+    if (!v.companyId && !v.companyName) return true;
+    return false;
   });
 
   // 5. Scoped Short Links (Matching companyId, creator email, or venue URL path)
   const effectiveAdminShortLinks = shortLinks.filter((link) => {
     if (!targetSuperAdminComp) return true;
     if ((link as any).companyId === targetSuperAdminComp.id) return true;
+    if ((link as any).companyName && targetSuperAdminComp.name && (link as any).companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
     if (link.createdByEmail && targetSuperAdminComp.clientAdminEmail && link.createdByEmail.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
     const compNameSlug = targetSuperAdminComp.name.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (link.originalUrl && (link.originalUrl.includes(targetSuperAdminComp.id) || (compNameSlug && link.originalUrl.toLowerCase().includes(compNameSlug)))) return true;
     return false;
   });
 
-  // 6. Scoped Users (Direct affiliation: companyId, client admin email, or companyName)
+  // 6. Scoped Users (When company filter is active: facility staff and team members only)
   const effectiveAdminUsers = filteredUsers.filter((u) => {
     if (!targetSuperAdminComp) return true;
+    const isStaff = u.role === 'client_admin' || u.role === 'manager' || u.role === 'editor';
+    if (!isStaff) return false;
     if (u.companyId && u.companyId === targetSuperAdminComp.id) return true;
     if (u.email && targetSuperAdminComp.clientAdminEmail && u.email.toLowerCase() === targetSuperAdminComp.clientAdminEmail.toLowerCase()) return true;
     if (u.companyName && targetSuperAdminComp.name && u.companyName.toLowerCase() === targetSuperAdminComp.name.toLowerCase()) return true;
@@ -7111,12 +7179,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'bookings' && (
             <AdminBookingsTab
+              key={bookingsResetKey}
               bookingsSubTab={bookingsSubTab}
               setBookingsSubTab={setBookingsSubTab}
               bookings={effectiveAdminBookings}
-              filteredBookings={filteredBookings}
-              totalRevenue={totalRevenue}
-              pendingBookings={pendingBookings}
+              filteredBookings={effectiveFilteredBookings}
+              totalRevenue={effectiveTotalRevenue}
+              pendingBookings={effectivePendingBookings}
               bookingSearch={searchQuery}
               setBookingSearch={setSearchQuery}
               bookingStatusFilter={statusFilter}
@@ -7202,10 +7271,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'checkouts' && (
             <AdminCheckoutsTab
+              key={checkoutsResetKey}
               users={users}
               courts={effectiveAdminCourts}
               openPlayEvents={effectiveAdminOpenPlayEvents}
-              checkouts={effectiveAdminBookings}
+              checkouts={effectiveAdminCheckouts}
               filteredCheckouts={effectiveAdminFilteredCheckouts}
               checkoutCategoryFilter={checkoutCategoryFilter}
               setCheckoutCategoryFilter={setCheckoutCategoryFilter}
@@ -7257,7 +7327,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             <AdminOpenPlayTab
               key={openPlayResetKey}
               events={effectiveAdminOpenPlayEvents}
-              openPlayRegistrations={openPlayRegistrations}
+              openPlayRegistrations={effectiveAdminOpenPlayRegistrations}
               selectedEventForRegs={selectedEventForRegs}
               setSelectedEventForRegs={handleSetSelectedEventForRegs}
               onOpenCreateModal={handleOpenCreateOpenPlay}
@@ -7281,8 +7351,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             <AdminMatchMatrixTab
               key={matchMatrixResetKey}
               courts={effectiveAdminCourts}
-              openPlayEvents={effectiveAdminOpenPlayEvents}
-              openPlayRegistrations={openPlayRegistrations}
+              openPlayEvents={effectiveAdminMatrixEvents}
+              openPlayRegistrations={effectiveAdminOpenPlayRegistrations}
               onRefreshEvents={fetchData}
               userPermissions={getUserEffectivePermissions(user as any)}
               currentAdminEmail={user?.email || currentUserEmail}
@@ -7293,6 +7363,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'vouchers' && (
             <AdminVouchersTab
+              key={vouchersResetKey}
               vouchers={effectiveAdminVouchers}
               onOpenCreateVoucherModal={handleOpenCreateVoucher}
               onDeleteVoucher={handleRevokeVoucher}
@@ -7302,6 +7373,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'shortener' && (
             <AdminShortenerTab
+              key={shortenerResetKey}
               shortLinks={effectiveAdminShortLinks}
               loading={loading}
               onCreateShortLink={async (data) => {
@@ -7316,6 +7388,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   shortSlug: slugToUse,
                   shortUrl,
                   originalUrl: data.originalUrl,
+                  companyId: targetSuperAdminComp?.id || currentCompany?.id || undefined,
+                  companyName: targetSuperAdminComp?.name || currentCompany?.name || undefined,
                   createdByEmail: user?.email || '',
                   createdAt: new Date().toISOString(),
                   clickCount: 0,
@@ -7385,6 +7459,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
           {activeTab === 'users' && (
             <AdminUsersTab
+              key={usersResetKey}
               users={effectiveAdminUsers}
               isSuperAdmin={isSuperAdmin}
               onEditUser={(u) => handleOpenEditUser(u)}
@@ -7479,7 +7554,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               }}
               teamMembers={users.filter(u =>
                 (u.role === 'manager' || u.role === 'editor' || u.role === 'client_admin') &&
-                (!isSuperAdmin || (myCompany?.id && u.companyId === myCompany.id))
+                (!targetSuperAdminComp && !myCompany?.id ? true : u.companyId === (targetSuperAdminComp?.id || myCompany?.id))
               )}
               onSaveManager={handleSaveManager}
               onDeleteManager={handleDeleteManager}

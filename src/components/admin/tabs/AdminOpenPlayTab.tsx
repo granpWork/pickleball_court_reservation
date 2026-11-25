@@ -225,12 +225,22 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
     return () => window.removeEventListener('popstate', handlePopState);
   }, [events]);
 
+  // Synchronize and guard: clear selected event if it does not belong to currently scoped events
+  useEffect(() => {
+    if (selectedEventForRegs && !events.some((e) => e.id === selectedEventForRegs.id)) {
+      setSelectedEventForRegs(null);
+      setMatchManagementEvent(null);
+    }
+  }, [events, selectedEventForRegs, setSelectedEventForRegs]);
+
   // Synchronize internal matchManagementEvent when selectedEventForRegs is cleared externally (e.g. sidebar navigation)
   useEffect(() => {
     if (!selectedEventForRegs) {
       setMatchManagementEvent(null);
+    } else if (matchManagementEvent && !events.some((e) => e.id === matchManagementEvent.id)) {
+      setMatchManagementEvent(null);
     }
-  }, [selectedEventForRegs]);
+  }, [selectedEventForRegs, matchManagementEvent, events]);
 
   const handleOpenMatchManagement = (evt: OpenPlayEvent, initialView: 'matrix' | 'leaderboard' = 'matrix') => {
     setMatchManagementInitialView(initialView);
