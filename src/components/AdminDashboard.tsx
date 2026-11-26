@@ -1527,6 +1527,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleOpenCreateOpenPlay = () => {
+    if (isSuperAdmin) {
+      showModalAlert('Access Restricted', 'Super Administrators have read-only monitoring access to Open Play events and cannot create sessions.', 'warning');
+      return;
+    }
+
     const targetCourts = availableAdminCourts;
     if (targetCourts.length === 0) {
       showModalAlert('Court Required', "You must create at least 1 court for your venue before creating an Open Play session. Please add a court in the Courts tab first.", 'warning');
@@ -1571,6 +1576,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleOpenEditOpenPlay = (event: OpenPlayEvent) => {
+    if (isSuperAdmin) {
+      showModalAlert('Access Restricted', 'Super Administrators have read-only monitoring access to Open Play events and cannot edit sessions.', 'warning');
+      return;
+    }
+
     isSavingOpenPlayRef.current = false;
     setIsSubmittingOpenPlay(false);
     pendingCreateEventIdRef.current = null;
@@ -1874,6 +1884,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleToggleEventStatus = async (event: OpenPlayEvent) => {
+    if (isSuperAdmin) {
+      showModalAlert('Access Restricted', 'Super Administrators have read-only monitoring access to Open Play events and cannot modify session status.', 'warning');
+      return;
+    }
     const newStatus = event.status === 'draft' ? 'active' : 'draft';
     const updatedPayload: OpenPlayEvent = {
       ...event,
@@ -1943,6 +1957,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   const handleDuplicateOpenPlayEvent = (event: OpenPlayEvent) => {
+    if (isSuperAdmin) {
+      showModalAlert('Access Restricted', 'Super Administrators have read-only monitoring access to Open Play events and cannot duplicate sessions.', 'warning');
+      return;
+    }
     pendingCreateEventIdRef.current = `op-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     isSavingOpenPlayRef.current = false;
     setIsSubmittingOpenPlay(false);
@@ -7596,7 +7614,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               setSelectedEventForRegs={handleSetSelectedEventForRegs}
               onOpenCreateModal={handleOpenCreateOpenPlay}
               onOpenEditModal={handleOpenEditOpenPlay}
-              onDeleteEvent={(id) => { const ev = openPlayEvents.find(x => x.id === id); if (ev) setDeletingOpenPlayEvent(ev); }}
+              onDeleteEvent={(id) => {
+                if (isSuperAdmin) {
+                  showModalAlert('Access Restricted', 'Super Administrators have read-only monitoring access to Open Play events and cannot delete sessions.', 'warning');
+                  return;
+                }
+                const ev = openPlayEvents.find(x => x.id === id);
+                if (ev) setDeletingOpenPlayEvent(ev);
+              }}
               onCopyShareLink={handleCopyShareableLink}
               onDuplicateEvent={handleDuplicateOpenPlayEvent}
               onToggleStatus={handleToggleEventStatus}
@@ -7608,6 +7633,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               formatEventDateLong={formatEventDateLong}
               formatTime12h={formatTime12h}
               userPermissions={getUserEffectivePermissions(user as any)}
+              isSuperAdmin={isSuperAdmin}
+              companies={companies}
             />
           )}
 

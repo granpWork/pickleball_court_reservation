@@ -91,6 +91,8 @@ interface AdminOpenPlayEventDetailsProps {
   onRefreshEvents?: () => void;
   formatEventDateLong?: (dateStr: string) => string;
   formatTime12h?: (time24h: string) => string;
+  isSuperAdmin?: boolean;
+  companies?: Array<{ id: string; name: string; logoUrl?: string; [key: string]: any }>;
 }
 
 export interface RosterAttendee {
@@ -136,12 +138,21 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
   onRefreshEvents,
   formatEventDateLong = (d) => d,
   formatTime12h = (t) => t,
+  isSuperAdmin = false,
+  companies = [],
 }) => {
   // Roster View state
   const [rosterViewMode, setRosterViewMode] = useState<'cards' | 'list' | 'table'>('cards');
   const [rosterSearchQuery, setRosterSearchQuery] = useState('');
   const [rosterFilterRole, setRosterFilterRole] = useState<'all' | 'primary' | 'guest' | 'waitlist'>('all');
   const [copiedShareLink, setCopiedShareLink] = useState<boolean>(false);
+
+  // Resolved Company Branding
+  const matchedCompany = companies.find(
+    (c: any) => c.id === event.companyId || (event.companyName && c.name?.trim().toLowerCase() === event.companyName.trim().toLowerCase())
+  );
+  const companyName = event.companyName || matchedCompany?.name || 'Pickleball Facility';
+  const companyLogo = event.companyLogoUrl || matchedCompany?.logoUrl;
 
   // Messenger Modal State
   const [messengerBookingData, setMessengerBookingData] = useState<BookingMessengerData | null>(null);
@@ -2002,6 +2013,19 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
             {/* Header: Title & Entry Fee Box */}
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4 pb-3 border-b border-slate-800/80 min-w-0">
               <div className="min-w-0 flex-1">
+                {/* Facility / Venue Branding Badge */}
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 mb-2.5 shadow-sm">
+                  {companyLogo ? (
+                    <img src={companyLogo} alt={companyName} className="w-5 h-5 rounded-md object-cover border border-brand-lime/30 flex-shrink-0" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-md bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0">
+                      <Building2 className="w-3 h-3" />
+                    </div>
+                  )}
+                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">ORGANIZING VENUE:</span>
+                  <span className="text-xs font-bold text-white truncate max-w-[200px] sm:max-w-xs">{companyName}</span>
+                </div>
+
                 <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white leading-tight break-words">
                   {event.title}
                 </h2>
@@ -2156,7 +2180,7 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                 </>
               )}
 
-              {onOpenManualBookingModal && (
+              {!isSuperAdmin && onOpenManualBookingModal && (
                 <button
                   type="button"
                   disabled={isAddPlayerDisabled}
@@ -2258,46 +2282,57 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                   </button>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => onOpenEditModal(event)}
-                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-800 hover:bg-slate-700 text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
-                >
-                  <Edit2 className="w-4 h-4" />
-                  <span>Edit</span>
-                </button>
-
-                {onDuplicateEvent && (
-                  <button
-                    type="button"
-                    onClick={() => onDuplicateEvent(event)}
-                    className="py-2 px-3.5 min-h-[40px] rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
-                    title="Duplicate Session"
-                  >
-                    <Copy className="w-4 h-4" />
-                    <span>Duplicate</span>
-                  </button>
+                {isSuperAdmin && (
+                  <div className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-900 border border-slate-700/80 text-slate-400 text-xs font-bold flex items-center gap-1.5 shadow-sm">
+                    <Eye className="w-4 h-4 text-brand-lime" />
+                    <span>Super Admin Monitoring (Read-Only)</span>
+                  </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={() => setIsCancelModalOpen(true)}
-                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-red-950/40 border border-red-800/60 text-red-300 hover:bg-red-900/60 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
-                  title="Cancel Session & Notify Registered Roster"
-                >
-                  <Ban className="w-4 h-4 text-red-400" />
-                  <span>Cancel Event</span>
-                </button>
+                {!isSuperAdmin && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => onOpenEditModal(event)}
+                      className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-800 hover:bg-slate-700 text-white transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                      <span>Edit</span>
+                    </button>
 
-                <button
-                  type="button"
-                  onClick={() => onDeleteEvent(event.id)}
-                  className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 hover:border-red-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
-                  title="Delete Session"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Delete</span>
-                </button>
+                    {onDuplicateEvent && (
+                      <button
+                        type="button"
+                        onClick={() => onDuplicateEvent(event)}
+                        className="py-2 px-3.5 min-h-[40px] rounded-xl bg-purple-950/40 border border-purple-800/50 text-purple-300 hover:bg-purple-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                        title="Duplicate Session"
+                      >
+                        <Copy className="w-4 h-4" />
+                        <span>Duplicate</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setIsCancelModalOpen(true)}
+                      className="py-2 px-3.5 min-h-[40px] rounded-xl bg-red-950/40 border border-red-800/60 text-red-300 hover:bg-red-900/60 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                      title="Cancel Session & Notify Registered Roster"
+                    >
+                      <Ban className="w-4 h-4 text-red-400" />
+                      <span>Cancel Event</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onDeleteEvent(event.id)}
+                      className="py-2 px-3.5 min-h-[40px] rounded-xl bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 hover:border-red-900 transition-all text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm touch-manipulation"
+                      title="Delete Session"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

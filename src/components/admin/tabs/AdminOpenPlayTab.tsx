@@ -20,6 +20,7 @@ import {
   QrCode,
   ExternalLink,
   UserPlus,
+  Building2,
 } from 'lucide-react';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
 import { OpenPlayJsonModal } from '../modals/OpenPlayJsonModal';
@@ -103,6 +104,8 @@ interface AdminOpenPlayTabProps {
   formatEventDateLong?: (dateStr: string) => string;
   formatTime12h?: (timeStr: string) => string;
   userPermissions?: UserPermissions;
+  isSuperAdmin?: boolean;
+  companies?: Array<{ id: string; name: string; logoUrl?: string; [key: string]: any }>;
 }
 
 export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
@@ -124,6 +127,8 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
   formatEventDateLong = (d) => d,
   formatTime12h = (t) => t,
   userPermissions: _userPermissions,
+  isSuperAdmin = false,
+  companies = [],
 }) => {
   // Session List Filter & View Mode state
   const [adminOpenPlayFilter, setAdminOpenPlayFilter] = useState<'upcoming' | 'all' | 'expired'>('upcoming');
@@ -465,6 +470,8 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           onRefreshEvents={onRefreshEvents}
           formatEventDateLong={formatEventDateLong}
           formatTime12h={formatTime12h}
+          isSuperAdmin={isSuperAdmin}
+          companies={companies}
         />
       ) : (
         /* ========================================================================= */
@@ -551,13 +558,15 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                 </button>
               )}
 
-              {/* Create Open Play Event CTA */}
-              <button
-                onClick={onOpenCreateModal}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" /> Create Open Play Event
-              </button>
+              {/* Create Open Play Event CTA - Hidden for Super Admin */}
+              {!isSuperAdmin && (
+                <button
+                  onClick={onOpenCreateModal}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Create Open Play Event
+                </button>
+              )}
             </div>
           </div>
 
@@ -588,6 +597,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                   <thead>
                     <tr className="border-b border-slate-800 bg-slate-900/60 text-slate-400 text-xs font-extrabold uppercase tracking-wider">
                       <th className="py-4 px-4">Event Date & Time</th>
+                      <th className="py-4 px-4">Facility / Club</th>
                       <th className="py-4 px-4">Session Title</th>
                       <th className="py-4 px-4">Category</th>
                       <th className="py-4 px-4 text-center">Turnout / Capacity</th>
@@ -601,11 +611,31 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                       const headcount = eventRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
                       const isExpired = isEventConcluded(event);
 
+                      const matchedCompany = companies.find(
+                        c => c.id === event.companyId || (event.companyName && c.name?.trim().toLowerCase() === event.companyName.trim().toLowerCase())
+                      );
+                      const companyName = event.companyName || matchedCompany?.name || 'Pickleball Facility';
+                      const companyLogo = event.companyLogoUrl || matchedCompany?.logoUrl;
+
                       return (
                         <tr key={event.id} className="hover:bg-slate-900/40 transition-colors">
                           <td className="py-3.5 px-4 font-mono text-slate-300">
                             <div>{formatEventDateLong(event.eventDate)}</div>
                             <div className="text-[11px] text-slate-500 font-normal">{formatTime12h(event.startTime)} - {formatTime12h(event.endTime)}</div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2">
+                              {companyLogo ? (
+                                <img src={companyLogo} alt={companyName} className="w-6 h-6 rounded-lg object-cover border border-slate-700 flex-shrink-0" />
+                              ) : (
+                                <div className="w-6 h-6 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-400 flex-shrink-0">
+                                  <Building2 className="w-3.5 h-3.5" />
+                                </div>
+                              )}
+                              <span className="font-semibold text-slate-300 text-xs truncate max-w-[130px]" title={companyName}>
+                                {companyName}
+                              </span>
+                            </div>
                           </td>
                           <td className="py-3.5 px-4 font-bold text-white">
                             <div
@@ -672,20 +702,24 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                               >
                                 <Copy className="w-4 h-4" />
                               </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); onOpenEditModal(event); }}
-                                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
-                                title="Edit Event"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}
-                                className="p-1.5 rounded-xl bg-slate-900 hover:bg-red-950/40 text-slate-500 hover:text-red-400 transition-all cursor-pointer"
-                                title="Delete Event"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {!isSuperAdmin && (
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); onOpenEditModal(event); }}
+                                    className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer"
+                                    title="Edit Event"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}
+                                    className="p-1.5 rounded-xl bg-slate-900 hover:bg-red-950/40 text-slate-500 hover:text-red-400 transition-all cursor-pointer"
+                                    title="Delete Event"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -704,6 +738,12 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                 const totalSpots = eventRegs.reduce((sum, r) => sum + (r.playerCount || 1), 0);
                 const maxCap = event.maxParticipants || 16;
                 const isFull = totalSpots >= maxCap;
+
+                const matchedCompany = companies.find(
+                  c => c.id === event.companyId || (event.companyName && c.name?.trim().toLowerCase() === event.companyName.trim().toLowerCase())
+                );
+                const companyName = event.companyName || matchedCompany?.name || 'Pickleball Facility';
+                const companyLogo = event.companyLogoUrl || matchedCompany?.logoUrl;
                 
                 return (
                   <div
@@ -727,21 +767,54 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Open Play Event</span>
                           </div>
                         )}
+                        {companyLogo && (
+                          <div className="absolute bottom-2 right-2 flex items-center gap-1.5 px-2 py-1 rounded-xl bg-slate-950/85 backdrop-blur-md border border-slate-700/60 shadow-lg">
+                            <img src={companyLogo} alt={companyName} className="w-4 h-4 rounded-md object-cover" />
+                            <span className="text-[10px] font-bold text-white max-w-[120px] truncate">{companyName}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Facility / Club Branding Section */}
+                      <div className="flex items-center gap-2.5 px-3 py-2 rounded-2xl bg-slate-900/90 border border-slate-800/80 mb-3 shadow-inner">
+                        {companyLogo ? (
+                          <img
+                            src={companyLogo}
+                            alt={companyName}
+                            className="w-7 h-7 rounded-xl object-cover border border-brand-lime/40 flex-shrink-0 shadow-sm"
+                            onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0">
+                            <Building2 className="w-4 h-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block leading-tight">FACILITY / VENUE</span>
+                          <span className="text-xs font-bold text-white truncate block">{companyName}</span>
+                        </div>
                       </div>
 
                       {/* Clean High-Contrast Tags Row Above Title Header */}
                       <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
                         {/* Status Tag */}
                         {event.status === 'draft' ? (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); onToggleStatus && onToggleStatus(event); }}
-                            title="Click to Publish Event Live for Public Bookings"
-                            className="px-2.5 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm cursor-pointer transition-all"
-                          >
-                            <EyeOff className="w-3 h-3 text-amber-400" />
-                            <h2 className="text-[10px] font-black uppercase tracking-wider text-amber-300 inline">DRAFT</h2>
-                          </button>
+                          isSuperAdmin ? (
+                            <div className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                              <EyeOff className="w-3 h-3 text-amber-400" />
+                              <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 inline">DRAFT</span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onToggleStatus && onToggleStatus(event); }}
+                              title="Click to Publish Event Live for Public Bookings"
+                              className="px-2.5 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm cursor-pointer transition-all"
+                            >
+                              <EyeOff className="w-3 h-3 text-amber-400" />
+                              <h2 className="text-[10px] font-black uppercase tracking-wider text-amber-300 inline">DRAFT</h2>
+                            </button>
+                          )
                         ) : event.status === 'completed' ? (
                           <div className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
                             <span>🏁 CONCLUDED</span>
@@ -749,6 +822,11 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                         ) : isExpired ? (
                           <div className="px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-400 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
                             <span>⏰ EXPIRED</span>
+                          </div>
+                        ) : isSuperAdmin ? (
+                          <div className="px-2.5 py-0.5 rounded-full bg-brand-lime/20 border border-brand-lime/40 text-brand-lime text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm">
+                            <Globe className="w-3 h-3 text-brand-lime" />
+                            <span className="text-[10px] font-black uppercase tracking-wider text-brand-lime inline">LIVE</span>
                           </div>
                         ) : (
                           <button
@@ -840,7 +918,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
 
                     <div className="pt-3 border-t border-dark-border/40 flex flex-col gap-2 mt-auto">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {onOpenManualBookingModal && (
+                        {!isSuperAdmin && onOpenManualBookingModal && (
                           <button
                             type="button"
                             disabled={isExpired || event.status === 'expired' || isFull}
@@ -888,14 +966,16 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                           <QrCode className="w-3.5 h-3.5" />
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onDuplicateEvent ? onDuplicateEvent(event) : onOpenEditModal(event); }}
-                          title="Duplicate session"
-                          className="py-2 px-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 text-purple-300 hover:bg-purple-900 transition-all cursor-pointer"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
+                        {!isSuperAdmin && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); onDuplicateEvent ? onDuplicateEvent(event) : onOpenEditModal(event); }}
+                            title="Duplicate session"
+                            className="py-2 px-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 text-purple-300 hover:bg-purple-900 transition-all cursor-pointer"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/40">
@@ -909,22 +989,28 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                           <span>Generate JSON</span>
                         </button>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); onOpenEditModal(event); }}
-                            className="py-1.5 px-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition-all text-xs font-bold flex items-center gap-1 cursor-pointer"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" /> Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}
-                            className="py-1.5 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 hover:border-red-900 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> Delete
-                          </button>
-                        </div>
+                        {isSuperAdmin ? (
+                          <span className="text-[11px] font-semibold text-slate-500 italic px-2">
+                            Super Admin (Read-Only)
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onOpenEditModal(event); }}
+                              className="py-1.5 px-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white transition-all text-xs font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" /> Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}
+                              className="py-1.5 px-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 hover:border-red-900 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" /> Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
