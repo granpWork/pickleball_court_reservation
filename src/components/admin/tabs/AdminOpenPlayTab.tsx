@@ -448,6 +448,7 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
           registrations={openPlayRegistrations}
           initialView={matchManagementInitialView}
           onBack={handleCloseMatchManagement}
+          isSuperAdmin={isSuperAdmin}
         />
       ) : selectedEventForRegs ? (
         <AdminOpenPlayEventDetails

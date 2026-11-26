@@ -18,6 +18,7 @@ import {
   Lock,
   Flag,
   Unlock,
+  Eye,
 } from 'lucide-react';
 import {
   collection,
@@ -109,6 +110,7 @@ interface AdminOpenPlayMatchManagementProps {
   initialView?: 'matrix' | 'leaderboard';
   backLabel?: string;
   onBack: () => void;
+  isSuperAdmin?: boolean;
 }
 
 export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagementProps> = ({
@@ -117,6 +119,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
   initialView = 'matrix',
   backLabel = 'Back to Session Details',
   onBack,
+  isSuperAdmin = false,
 }) => {
   // Assigned courts fallback
   const assignedCourts = useMemo(() => {
@@ -207,6 +210,8 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
     eventStatus === 'completed' ||
     eventStatus === 'expired' ||
     isEventExpired(event.eventDate, event.endTime);
+
+  const isEffectiveReadOnly = isConcluded || isSuperAdmin;
 
   const handleConcludeSession = async (options: { markUnfinishedCompleted: boolean }) => {
     setIsConcluding(true);
@@ -3386,7 +3391,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-2 w-full xl:w-auto">
           {activeView === 'matrix' && (
             <>
-              {!isConcluded && (
+              {!isEffectiveReadOnly && (
                 <>
                   <button
                     type="button"
@@ -3473,7 +3478,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             )}
           </button>
 
-          {!isConcluded && (
+          {!isEffectiveReadOnly && (
             <button
               type="button"
               onClick={() => setIsLockedPartnersModalOpen(true)}
@@ -3496,7 +3501,12 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           </button>
 
           {/* Conclude Session / Reopen Session Button */}
-          {isConcluded ? (
+          {isSuperAdmin ? (
+            <div className="py-2.5 px-3 sm:px-4 rounded-xl sm:rounded-2xl bg-slate-800/90 border border-slate-700 text-slate-300 font-extrabold text-[11px] sm:text-xs flex items-center justify-center gap-1.5 sm:gap-2 shadow-sm text-center">
+              <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-lime shrink-0" />
+              <span className="leading-tight">Super Admin (View Only)</span>
+            </div>
+          ) : isConcluded ? (
             <button
               type="button"
               onClick={handleReopenSession}
@@ -3518,7 +3528,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
             </button>
           )}
 
-          {isNonProductionEnvironment() && !isConcluded && (
+          {isNonProductionEnvironment() && !isEffectiveReadOnly && (
             <button
               type="button"
               disabled={isSeedingQuickDummy}
@@ -3532,7 +3542,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
           )}
         </div>
 
-        {matches.length > 0 && !isConcluded && (
+        {matches.length > 0 && !isEffectiveReadOnly && (
           <button
             type="button"
             onClick={clearAllMatches}
@@ -3786,19 +3796,23 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                 No matches have been generated yet for this session. Click 'Add New Round', 'Auto-Generate Round Robin' or 'Create Manual Match' to get started.
               </p>
             </div>
-            {isConcluded ? (
+            {isEffectiveReadOnly ? (
               <div className="max-w-md mx-auto p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-2">
                 <p className="text-xs text-amber-300 font-semibold">
-                  🏁 This session was concluded without scheduled matches.
+                  {isSuperAdmin
+                    ? 'Super Administrators have view-only monitoring access to Match Matrices.'
+                    : '🏁 This session was concluded without scheduled matches.'}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleReopenSession}
-                  className="px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
-                >
-                  <Unlock className="w-3.5 h-3.5" />
-                  Reopen Session
-                </button>
+                {!isSuperAdmin && isConcluded && (
+                  <button
+                    type="button"
+                    onClick={handleReopenSession}
+                    className="px-4 py-2 rounded-xl bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500 hover:text-dark-bg text-amber-300 font-extrabold text-xs inline-flex items-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Unlock className="w-3.5 h-3.5" />
+                    Reopen Session
+                  </button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 flex-wrap">
@@ -3819,7 +3833,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
               </div>
             )}
 
-            {isNonProductionEnvironment() && !isConcluded && rosterPool.length < 4 && (
+            {isNonProductionEnvironment() && !isEffectiveReadOnly && rosterPool.length < 4 && (
               <div className="max-w-md mx-auto p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center space-y-2 mt-2">
                 <div className="flex items-center justify-center gap-1.5 text-amber-300 font-bold text-xs">
                   <Sparkles className="w-4 h-4 text-amber-400" />
@@ -3901,7 +3915,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                       assignedCourts={assignedCourts}
                       roundTitle={getRoundTitle(m.round)}
                       lockedPartners={lockedPartners}
-                      isReadOnly={isConcluded}
+                      isReadOnly={isEffectiveReadOnly}
                       onInlineCourtChange={handleInlineCourtChange}
                       onStartMatch={handleStartMatch}
                       onCompleteMatch={handleCompleteMatch}
@@ -3987,7 +4001,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                           assignedCourts={assignedCourts}
                           roundTitle={getRoundTitle(m.round)}
                           lockedPartners={lockedPartners}
-                          isReadOnly={isConcluded}
+                          isReadOnly={isEffectiveReadOnly}
                           onInlineCourtChange={handleInlineCourtChange}
                           onStartMatch={handleStartMatch}
                           onCompleteMatch={handleCompleteMatch}
@@ -4047,7 +4061,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                     isCollapsed={collapsedRounds.has(roundNum)}
                     isEditingTitle={editingRoundNum === roundNum}
                     tempRoundTitle={tempRoundTitle}
-                    isReadOnly={isConcluded}
+                    isReadOnly={isEffectiveReadOnly}
                     onToggleCollapse={toggleRoundCollapse}
                     onStartEditTitle={startEditingRoundTitle}
                     onSaveTitle={handleSaveRoundTitle}
@@ -4071,7 +4085,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
                           assignedCourts={assignedCourts}
                           roundTitle={getRoundTitle(roundNum)}
                           lockedPartners={lockedPartners}
-                          isReadOnly={isConcluded}
+                          isReadOnly={isEffectiveReadOnly}
                           onInlineCourtChange={handleInlineCourtChange}
                           onStartMatch={handleStartMatch}
                           onCompleteMatch={handleCompleteMatch}
@@ -4130,6 +4144,7 @@ export const AdminOpenPlayMatchManagement: React.FC<AdminOpenPlayMatchManagement
       <OpenPlayRosterModal
         isOpen={isRosterModalOpen}
         onClose={() => setIsRosterModalOpen(false)}
+        isReadOnly={isSuperAdmin}
         maxParticipants={event.maxParticipants || 16}
         absentCount={absentCount}
         newPlayerName={newPlayerName}

@@ -7649,6 +7649,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               currentAdminEmail={user?.email || currentUserEmail}
               currentAdminName={user?.name || adminDisplayName || 'Admin'}
               myCompany={targetSuperAdminComp || currentCompany}
+              isSuperAdmin={isSuperAdmin}
+              companies={companies}
             />
           )}
 

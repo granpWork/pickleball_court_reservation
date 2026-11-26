@@ -24,6 +24,7 @@ import { DuprRatingBadge } from '../../../../utils/duprColorUtils';
 export interface OpenPlayRosterModalProps {
   isOpen: boolean;
   onClose: () => void;
+  isReadOnly?: boolean;
   maxParticipants?: number;
   absentCount: number;
   newPlayerName: string;
@@ -65,6 +66,7 @@ const isoToHHMM = (isoStr?: string): string => {
 export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
   isOpen,
   onClose,
+  isReadOnly = false,
   maxParticipants,
   absentCount: _externalAbsentCount,
   newPlayerName,
@@ -207,6 +209,11 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-sm sm:text-lg font-black text-white">Match Roster Pool Management</h3>
+                {isReadOnly && (
+                  <span className="text-[10px] sm:text-[11px] font-mono px-2 py-0.5 rounded-lg border font-bold bg-slate-800 text-slate-300 border-slate-700">
+                    View Only
+                  </span>
+                )}
                 <span
                   className={`text-[10px] sm:text-[11px] font-mono px-2 py-0.5 rounded-lg border font-bold ${
                     isMaxCapacityReached
@@ -250,106 +257,108 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
         )}
 
         {/* Quick Add Custom / Walk-in Player Form */}
-        <div
-          className={`p-4 rounded-2xl border transition-all space-y-3 flex-shrink-0 ${
-            isMaxCapacityReached
-              ? 'bg-slate-950/40 border-slate-800/80 opacity-80'
-              : absentCount > 0
-              ? 'bg-amber-950/20 border-amber-500/50 ring-1 ring-amber-500/20'
-              : 'bg-slate-950/70 border-slate-800'
-          }`}
-        >
-          {isMaxCapacityReached && (
-            <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-2 animate-fade-in">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>
-                Maximum session capacity of <strong>{maxParticipants} players</strong> reached. Adding new players is disabled.
+        {!isReadOnly && (
+          <div
+            className={`p-4 rounded-2xl border transition-all space-y-3 flex-shrink-0 ${
+              isMaxCapacityReached
+                ? 'bg-slate-950/40 border-slate-800/80 opacity-80'
+                : absentCount > 0
+                ? 'bg-amber-950/20 border-amber-500/50 ring-1 ring-amber-500/20'
+                : 'bg-slate-950/70 border-slate-800'
+            }`}
+          >
+            {isMaxCapacityReached && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-2 animate-fade-in">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>
+                  Maximum session capacity of <strong>{maxParticipants} players</strong> reached. Adding new players is disabled.
+                </span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-brand-lime" />
+                <span>Add Custom / Walk-in Replacement Player</span>
+                {!isMaxCapacityReached && absentCount > 0 && (
+                  <span className="text-[10px] text-amber-400 font-black animate-pulse">
+                    (Replacement Form Active)
+                  </span>
+                )}
+              </span>
+              <span className="text-[10px] text-slate-500 hidden sm:inline">
+                {isMaxCapacityReached
+                  ? 'Session roster is full'
+                  : 'Press Enter in any field to add quickly'}
               </span>
             </div>
-          )}
 
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-brand-lime" />
-              <span>Add Custom / Walk-in Replacement Player</span>
-              {!isMaxCapacityReached && absentCount > 0 && (
-                <span className="text-[10px] text-amber-400 font-black animate-pulse">
-                  (Replacement Form Active)
-                </span>
-              )}
-            </span>
-            <span className="text-[10px] text-slate-500 hidden sm:inline">
-              {isMaxCapacityReached
-                ? 'Session roster is full'
-                : 'Press Enter in any field to add quickly'}
-            </span>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+              {/* Player Name */}
+              <div className="sm:col-span-5">
+                <input
+                  type="text"
+                  placeholder={isMaxCapacityReached ? 'Capacity full - adding disabled' : 'Full Name (e.g. Juan dela Cruz)'}
+                  value={newPlayerName}
+                  disabled={isMaxCapacityReached}
+                  onChange={(e) => setNewPlayerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (!isMaxCapacityReached) onAddCustomPlayer();
+                    }
+                  }}
+                  className="w-full bg-slate-900 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime font-medium transition-all"
+                />
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-            {/* Player Name */}
-            <div className="sm:col-span-5">
-              <input
-                type="text"
-                placeholder={isMaxCapacityReached ? 'Capacity full - adding disabled' : 'Full Name (e.g. Juan dela Cruz)'}
-                value={newPlayerName}
-                disabled={isMaxCapacityReached}
-                onChange={(e) => setNewPlayerName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!isMaxCapacityReached) onAddCustomPlayer();
-                  }
-                }}
-                className="w-full bg-slate-900 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-lime font-medium transition-all"
-              />
-            </div>
+              {/* DUPR ID */}
+              <div className="sm:col-span-3">
+                <input
+                  type="text"
+                  placeholder="DUPR (e.g. RGDK2E)"
+                  value={newPlayerDuprId}
+                  disabled={isMaxCapacityReached}
+                  onChange={(e) => setNewPlayerDuprId(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (!isMaxCapacityReached) onAddCustomPlayer();
+                    }
+                  }}
+                  className="w-full bg-slate-900 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-3 py-2 text-xs text-amber-300 font-mono placeholder-slate-500 focus:outline-none focus:border-amber-400 uppercase transition-all"
+                />
+              </div>
 
-            {/* DUPR ID */}
-            <div className="sm:col-span-3">
-              <input
-                type="text"
-                placeholder="DUPR (e.g. RGDK2E)"
-                value={newPlayerDuprId}
-                disabled={isMaxCapacityReached}
-                onChange={(e) => setNewPlayerDuprId(e.target.value.toUpperCase())}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (!isMaxCapacityReached) onAddCustomPlayer();
-                  }
-                }}
-                className="w-full bg-slate-900 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-3 py-2 text-xs text-amber-300 font-mono placeholder-slate-500 focus:outline-none focus:border-amber-400 uppercase transition-all"
-              />
-            </div>
+              {/* Skill Level Dropdown */}
+              <div className="sm:col-span-2">
+                <select
+                  value={newPlayerSkill}
+                  disabled={isMaxCapacityReached}
+                  onChange={(e) => setNewPlayerSkill(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-400 cursor-pointer font-medium transition-all"
+                >
+                  <option value="Beginner">Beginner</option>
+                  <option value="Intermediate">Intermediate</option>
+                  <option value="Advanced">Advanced</option>
+                </select>
+              </div>
 
-            {/* Skill Level Dropdown */}
-            <div className="sm:col-span-2">
-              <select
-                value={newPlayerSkill}
-                disabled={isMaxCapacityReached}
-                onChange={(e) => setNewPlayerSkill(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-purple-400 cursor-pointer font-medium transition-all"
-              >
-                <option value="Beginner">Beginner</option>
-                <option value="Intermediate">Intermediate</option>
-                <option value="Advanced">Advanced</option>
-              </select>
-            </div>
-
-            {/* Submit Button */}
-            <div className="sm:col-span-2">
-              <button
-                type="button"
-                onClick={onAddCustomPlayer}
-                disabled={isMaxCapacityReached || !newPlayerName.trim()}
-                className="w-full h-full py-2 px-3 rounded-xl bg-brand-lime hover:bg-lime-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-md transition-all flex items-center justify-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                <span>{isMaxCapacityReached ? 'Full' : 'Add'}</span>
-              </button>
+              {/* Submit Button */}
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  onClick={onAddCustomPlayer}
+                  disabled={isMaxCapacityReached || !newPlayerName.trim()}
+                  className="w-full h-full py-2 px-3 rounded-xl bg-brand-lime hover:bg-lime-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black text-xs uppercase tracking-wider cursor-pointer shadow-md transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>{isMaxCapacityReached ? 'Full' : 'Add'}</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Filter & Search Bar - Responsive for Mobile & Tablet/Desktop */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 flex-shrink-0">
@@ -592,36 +601,57 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
 
                   {/* Status Toggle & Delete Buttons */}
                   <div className="w-full sm:w-auto shrink-0 flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/60 flex-wrap">
-                    {/* 1-Click Attendance Check-In Button */}
-                    {onToggleAttendanceStatus && (
-                      <button
-                        type="button"
-                        onClick={() => onToggleAttendanceStatus(p.id)}
-                        className={`flex-1 sm:flex-initial justify-center px-2.5 py-2 sm:py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border shrink-0 ${
+                    {/* Attendance Check-In Button / Read-only Display */}
+                    {isReadOnly ? (
+                      <div
+                        className={`flex-1 sm:flex-initial justify-center px-2.5 py-2 sm:py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border shrink-0 ${
                           p.isPresent || p.attendanceStatus === 'present'
-                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-xs'
-                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/30'
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                            : 'bg-slate-900 border-slate-800 text-slate-500'
                         }`}
-                        title={
-                          p.isPresent || p.attendanceStatus === 'present'
-                            ? 'Player is checked in (Present). Click to toggle attendance'
-                            : 'Click to check in player as Present'
-                        }
                       >
                         <UserCheck
                           className={`w-3.5 h-3.5 ${
                             p.isPresent || p.attendanceStatus === 'present'
                               ? 'text-emerald-400'
-                              : 'text-slate-500'
+                              : 'text-slate-600'
                           }`}
                         />
                         <span>
-                          {p.isPresent || p.attendanceStatus === 'present' ? 'Present' : 'Check In'}
+                          {p.isPresent || p.attendanceStatus === 'present' ? 'Present' : 'Not Checked In'}
                         </span>
-                      </button>
+                      </div>
+                    ) : (
+                      onToggleAttendanceStatus && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleAttendanceStatus(p.id)}
+                          className={`flex-1 sm:flex-initial justify-center px-2.5 py-2 sm:py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border shrink-0 ${
+                            p.isPresent || p.attendanceStatus === 'present'
+                              ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-xs'
+                              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-emerald-300 hover:border-emerald-500/30'
+                          }`}
+                          title={
+                            p.isPresent || p.attendanceStatus === 'present'
+                              ? 'Player is checked in (Present). Click to toggle attendance'
+                              : 'Click to check in player as Present'
+                          }
+                        >
+                          <UserCheck
+                            className={`w-3.5 h-3.5 ${
+                              p.isPresent || p.attendanceStatus === 'present'
+                                ? 'text-emerald-400'
+                                : 'text-slate-500'
+                            }`}
+                          />
+                          <span>
+                            {p.isPresent || p.attendanceStatus === 'present' ? 'Present' : 'Check In'}
+                          </span>
+                        </button>
+                      )
                     )}
 
-                    {onOpenLockedPartnersModal && (
+                    {!isReadOnly && onOpenLockedPartnersModal && (
                       <button
                         type="button"
                         onClick={partner && onRemoveLockedPartner ? () => onRemoveLockedPartner(p.id) : onOpenLockedPartnersModal}
@@ -636,67 +666,95 @@ export const OpenPlayRosterModal: React.FC<OpenPlayRosterModalProps> = ({
                       </button>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={() => onTogglePlayerStatus(p.id)}
-                      className={`flex-1 sm:flex-initial justify-center px-3 py-2 sm:py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border ${
-                        isActive
-                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950'
-                          : isResting
-                          ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950'
-                          : 'bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500 hover:text-white'
-                      }`}
-                      title="Click to cycle status: Active -> Bench -> Absent"
-                    >
-                      {isActive && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-                      {isResting && <Clock className="w-3.5 h-3.5 text-amber-400" />}
-                      {isAbsent && <AlertCircle className="w-3.5 h-3.5 text-rose-400" />}
-                      <span className="hidden sm:inline">
-                        {isActive
-                          ? 'Active'
-                          : isResting
-                          ? 'Bench / Resting'
-                          : 'Absent / Canceled'}
-                      </span>
-                      <span className="sm:hidden">
-                        {isActive ? 'Active' : isResting ? 'Bench' : 'Absent'}
-                      </span>
-                    </button>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                    {onUpdatePlayer && (
+                    {isReadOnly ? (
+                      <div
+                        className={`flex-1 sm:flex-initial justify-center px-3 py-2 sm:py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border shrink-0 ${
+                          isActive
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                            : isResting
+                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                            : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                        }`}
+                      >
+                        {isActive && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                        {isResting && <Clock className="w-3.5 h-3.5 text-amber-400" />}
+                        {isAbsent && <AlertCircle className="w-3.5 h-3.5 text-rose-400" />}
+                        <span className="hidden sm:inline">
+                          {isActive
+                            ? 'Active'
+                            : isResting
+                            ? 'Bench / Resting'
+                            : 'Absent / Canceled'}
+                        </span>
+                        <span className="sm:hidden">
+                          {isActive ? 'Active' : isResting ? 'Bench' : 'Absent'}
+                        </span>
+                      </div>
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => handleOpenEdit(p)}
-                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/40 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all cursor-pointer shrink-0"
-                        title={`Edit ${p.name}'s info & DUPR`}
+                        onClick={() => onTogglePlayerStatus(p.id)}
+                        className={`flex-1 sm:flex-initial justify-center px-3 py-2 sm:py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 border ${
+                          isActive
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500 hover:text-slate-950'
+                            : isResting
+                            ? 'bg-amber-500/15 border-amber-500/40 text-amber-300 hover:bg-amber-500 hover:text-slate-950'
+                            : 'bg-rose-500/15 border-rose-500/40 text-rose-300 hover:bg-rose-500 hover:text-white'
+                        }`}
+                        title="Click to cycle status: Active -> Bench -> Absent"
                       >
-                        <Edit2 className="w-3.5 h-3.5" />
+                        {isActive && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                        {isResting && <Clock className="w-3.5 h-3.5 text-amber-400" />}
+                        {isAbsent && <AlertCircle className="w-3.5 h-3.5 text-rose-400" />}
+                        <span className="hidden sm:inline">
+                          {isActive
+                            ? 'Active'
+                            : isResting
+                            ? 'Bench / Resting'
+                            : 'Absent / Canceled'}
+                        </span>
+                        <span className="sm:hidden">
+                          {isActive ? 'Active' : isResting ? 'Bench' : 'Absent'}
+                        </span>
                       </button>
                     )}
 
-                    {onMoveToWaitlist && (
-                      <button
-                        type="button"
-                        onClick={() => onMoveToWaitlist(p.id)}
-                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all cursor-pointer shrink-0"
-                        title={`Move ${p.name} to waitlist (frees up 1 roster slot)`}
-                      >
-                        <Clock className="w-3.5 h-3.5 text-amber-400" />
-                      </button>
-                    )}
+                    {!isReadOnly && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {onUpdatePlayer && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(p)}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-purple-500/40 text-slate-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all cursor-pointer shrink-0"
+                            title={`Edit ${p.name}'s info & DUPR`}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
 
-                    {onDeletePlayer && (
-                      <button
-                        type="button"
-                        onClick={() => setPlayerToDelete(p)}
-                        className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer shrink-0"
-                        title={`Delete ${p.name} from roster`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        {onMoveToWaitlist && (
+                          <button
+                            type="button"
+                            onClick={() => onMoveToWaitlist(p.id)}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all cursor-pointer shrink-0"
+                            title={`Move ${p.name} to waitlist (frees up 1 roster slot)`}
+                          >
+                            <Clock className="w-3.5 h-3.5 text-amber-400" />
+                          </button>
+                        )}
+
+                        {onDeletePlayer && (
+                          <button
+                            type="button"
+                            onClick={() => setPlayerToDelete(p)}
+                            className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer shrink-0"
+                            title={`Delete ${p.name} from roster`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     )}
-                    </div>
                   </div>
                 </div>
               );

@@ -19,6 +19,7 @@ import {
   User,
   Star,
   AlertCircle,
+  Building2,
 } from 'lucide-react';
 import { type Court, type UserPermissions, type OpenPlayMatchRosterItem } from '../adminTypes';
 import { type OpenPlayEvent, normalizeOpenPlayEvent } from '../../OpenPlayDetails';
@@ -36,6 +37,8 @@ export interface AdminMatchMatrixTabProps {
   currentAdminEmail?: string;
   currentAdminName?: string;
   myCompany?: any;
+  isSuperAdmin?: boolean;
+  companies?: Array<{ id: string; name: string; logoUrl?: string; [key: string]: any }>;
 }
 
 export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
@@ -45,6 +48,8 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
   onRefreshEvents,
   currentAdminEmail = 'admin@picklepoint.com',
   myCompany,
+  isSuperAdmin = false,
+  companies = [],
 }) => {
   // Active Running Matrix
   const [activeMatrix, setActiveMatrix] = useState<OpenPlayEvent | null>(() => {
@@ -352,6 +357,10 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
   // Open Create Modal & reset states
   const handleOpenCreateModal = () => {
+    if (isSuperAdmin) {
+      alert("Super Administrators have read-only view access to Match Matrices and cannot create sessions.");
+      return;
+    }
     setMatrixTitle('');
     setMatrixDate(new Date().toISOString().split('T')[0]);
     setMatrixStartTime('06:00 PM');
@@ -441,6 +450,10 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
   // Submit and create new Match Matrix
   const handleCreateMatrix = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSuperAdmin) {
+      alert("Super Administrators have read-only view access to Match Matrices and cannot create sessions.");
+      return;
+    }
     if (!matrixTitle.trim()) {
       setErrorMessage('Please enter a Match Matrix title.');
       return;
@@ -534,6 +547,10 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
   // Delete Match Matrix Confirmation Handler
   const handleConfirmDeleteMatrix = async () => {
+    if (isSuperAdmin) {
+      alert("Super Administrators have read-only view access to Match Matrices and cannot delete sessions.");
+      return;
+    }
     if (!matrixToDelete) return;
     const matrixId = matrixToDelete.id;
     setIsDeletingMatrix(true);
@@ -575,6 +592,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
           registrations={openPlayRegistrations}
           backLabel="Back to Match Matrices"
           onBack={() => setActiveMatrix(null)}
+          isSuperAdmin={isSuperAdmin}
         />
       </div>
     );
@@ -682,14 +700,16 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={handleOpenCreateModal}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-lime hover:bg-lime-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-brand-lime/20 cursor-pointer hover:scale-[1.02] shrink-0"
-          >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>Create Match Matrix</span>
-          </button>
+          {!isSuperAdmin && (
+            <button
+              type="button"
+              onClick={handleOpenCreateModal}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-lime hover:bg-lime-400 text-slate-950 font-black text-xs uppercase tracking-wider transition-all shadow-lg shadow-brand-lime/20 cursor-pointer hover:scale-[1.02] shrink-0"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span>Create Match Matrix</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -717,6 +737,12 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredMatrices.map((matrix) => {
+            const matchedCompany = companies.find(
+              (c: any) => c.id === matrix.companyId || (matrix.companyName && c.name?.trim().toLowerCase() === matrix.companyName.trim().toLowerCase())
+            );
+            const companyName = matrix.companyName || matchedCompany?.name || 'Pickleball Facility';
+            const companyLogo = matrix.companyLogoUrl || matchedCompany?.logoUrl;
+
             return (
               <div
                 key={matrix.id}
@@ -756,6 +782,23 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                     }`}>
                       {matrix.status}
                     </span>
+                  </div>
+
+                  {/* Facility Branding Pill */}
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800/80 mb-2.5 shadow-inner">
+                    {companyLogo ? (
+                      <img
+                        src={companyLogo}
+                        alt={companyName}
+                        className="w-4 h-4 rounded-md object-cover border border-purple-500/40 flex-shrink-0 shadow-sm"
+                        onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div className="w-4 h-4 rounded-md bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 flex-shrink-0">
+                        <Building2 className="w-2.5 h-2.5" />
+                      </div>
+                    )}
+                    <span className="text-[11px] font-bold text-slate-300 truncate">{companyName}</span>
                   </div>
 
                   {/* Title & Info */}
@@ -801,17 +844,19 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
 
                 {/* Actions */}
                 <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMatrixToDelete(matrix);
-                    }}
-                    title="Delete Matrix"
-                    className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-all cursor-pointer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {!isSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMatrixToDelete(matrix);
+                      }}
+                      title="Delete Matrix"
+                      className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-all cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -822,7 +867,7 @@ export const AdminMatchMatrixTab: React.FC<AdminMatchMatrixTabProps> = ({
                     className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-purple-600/25 transition-all cursor-pointer hover:scale-[1.02]"
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Open Matrix</span>
+                    <span>{isSuperAdmin ? 'View Matrix' : 'Open Matrix'}</span>
                   </button>
                 </div>
               </div>
