@@ -1,13 +1,31 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, CheckCircle2 } from 'lucide-react';
-import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
+import {
+  auth,
+  db,
+  googleProvider,
+  isFirebaseConfigured,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from '../firebase';
 import { signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
 interface LoginProps {
   setView: (view: 'landing' | 'login' | 'register' | 'client_onboarding') => void;
-  onLoginSuccess: (user: { uid?: string; name: string; email: string; role?: string; status?: string; isAdmin?: boolean; needsOnboarding?: boolean }) => void;
+  onLoginSuccess: (user: {
+    uid?: string;
+    name: string;
+    email: string;
+    role?: string;
+    status?: string;
+    isAdmin?: boolean;
+    needsOnboarding?: boolean;
+    sessionExpiresAt?: string;
+    rememberMe?: boolean;
+  }) => void;
   invitationNotice?: { email: string; company?: string } | null;
 }
 
@@ -20,8 +38,14 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
   const [email, setEmail] = useState(invitedEmail);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const getSessionExpiresAt = (remember: boolean) => {
+    const durationMs = remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    return new Date(Date.now() + durationMs).toISOString();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,8 +60,16 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
 
     if (isFirebaseConfigured && auth) {
       try {
+        try {
+          await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+        } catch (pErr) {
+          console.warn('Could not set persistence:', pErr);
+        }
+
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const fbUser = userCredential.user;
+        const sessionExpiresAt = getSessionExpiresAt(rememberMe);
+        localStorage.setItem('picklepoint_remember_me', rememberMe ? 'true' : 'false');
         
         let role: string = 'player';
         let status: string = 'active';
@@ -76,6 +108,8 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
           status: status,
           isAdmin: role === 'super_admin' || role === 'client_admin' || role === 'manager',
           needsOnboarding,
+          sessionExpiresAt,
+          rememberMe,
         });
         setLoading(false);
       } catch (err) {
@@ -102,6 +136,8 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
           const role = (matchedUser as any).role || ((matchedUser as any).email.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player');
           const status = (matchedUser as any).status || 'active';
           const needsOnboarding = matchedUser.needsOnboarding || (role === 'client_admin' && !matchedUser.companyId);
+          const sessionExpiresAt = getSessionExpiresAt(rememberMe);
+          localStorage.setItem('picklepoint_remember_me', rememberMe ? 'true' : 'false');
           onLoginSuccess({
             name: matchedUser.name,
             email: matchedUser.email,
@@ -109,23 +145,31 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
             status: status,
             isAdmin: role === 'super_admin' || role === 'client_admin' || role === 'manager',
             needsOnboarding,
+            sessionExpiresAt,
+            rememberMe,
           });
           setLoading(false);
         } else {
           // Fallback demo accounts
+          const sessionExpiresAt = getSessionExpiresAt(rememberMe);
+          localStorage.setItem('picklepoint_remember_me', rememberMe ? 'true' : 'false');
           if (email.toLowerCase() === 'demo@picklepoint.com' && password === 'password123') {
             onLoginSuccess({
               name: 'Demo Player',
               email: 'demo@picklepoint.com',
               role: 'player',
-              isAdmin: false
+              isAdmin: false,
+              sessionExpiresAt,
+              rememberMe,
             });
           } else if (email.toLowerCase() === 'admin@picklepoint.com' && password === 'admin123') {
             onLoginSuccess({
               name: 'Admin User',
               email: 'admin@picklepoint.com',
               role: 'super_admin',
-              isAdmin: true
+              isAdmin: true,
+              sessionExpiresAt,
+              rememberMe,
             });
           } else {
             setError('Invalid email or password.');
@@ -142,8 +186,16 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
 
     if (isFirebaseConfigured && auth) {
       try {
+        try {
+          await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+        } catch (pErr) {
+          console.warn('Could not set persistence:', pErr);
+        }
+
         const result = await signInWithPopup(auth, googleProvider);
         const fbUser = result.user;
+        const sessionExpiresAt = getSessionExpiresAt(rememberMe);
+        localStorage.setItem('picklepoint_remember_me', rememberMe ? 'true' : 'false');
         
         let role: string = 'player';
         let status: string = 'active';
@@ -189,6 +241,8 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
           role: role,
           status: status,
           isAdmin: role === 'super_admin' || role === 'client_admin' || role === 'manager',
+          sessionExpiresAt,
+          rememberMe,
         });
         setLoading(false);
       } catch (err) {
@@ -210,12 +264,16 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
       }
     } else {
       // Fallback in simulated mode
+      const sessionExpiresAt = getSessionExpiresAt(rememberMe);
+      localStorage.setItem('picklepoint_remember_me', rememberMe ? 'true' : 'false');
       setTimeout(() => {
         onLoginSuccess({
           name: 'Google Player (Demo)',
           email: 'google.demo@picklepoint.com',
           role: 'player',
-          isAdmin: false
+          isAdmin: false,
+          sessionExpiresAt,
+          rememberMe,
         });
         setLoading(false);
       }, 800);
@@ -403,6 +461,21 @@ export default function Login({ setView, onLoginSuccess, invitationNotice }: Log
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+          </div>
+
+          {/* Remember Me */}
+          <div className="flex items-center justify-between pt-0.5 pb-1">
+            <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-brand-lime focus:ring-0 focus:ring-offset-0 cursor-pointer accent-[#a3e635]"
+              />
+              <span className="text-xs font-semibold text-slate-300 group-hover:text-white transition-colors">
+                Remember me <span className="text-slate-400 font-normal">({rememberMe ? 'keep logged in for 30 days' : '24 hours only'})</span>
+              </span>
+            </label>
           </div>
 
           {/* Sign In Button */}

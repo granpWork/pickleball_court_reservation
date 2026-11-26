@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, ShieldCheck, Loader2 } from 'lucide-react';
-import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
+import {
+  auth,
+  db,
+  googleProvider,
+  isFirebaseConfigured,
+  setPersistence,
+  browserLocalPersistence,
+} from '../firebase';
 import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut, signInWithRedirect } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
@@ -24,6 +31,8 @@ interface RegisterProps {
     subscriptionExpiresAt?: string;
     isTrialClient?: boolean;
     trialExpiresAt?: string;
+    sessionExpiresAt?: string;
+    rememberMe?: boolean;
   }) => void;
   invitationNotice?: { email: string; company?: string } | null;
 }
@@ -223,9 +232,17 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
     if (isFirebaseConfigured && auth) {
       try {
+        try {
+          await setPersistence(auth, browserLocalPersistence);
+        } catch (pErr) {
+          console.warn('Could not set persistence during register:', pErr);
+        }
+
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const fbUser = userCredential.user;
         await updateProfile(fbUser, { displayName: name });
+        const sessionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        localStorage.setItem('picklepoint_remember_me', 'true');
         
         if (db) {
           try {
@@ -295,6 +312,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
           isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
           trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
+          sessionExpiresAt,
+          rememberMe: true,
         });
         setLoading(false);
       } catch (err) {
@@ -367,6 +386,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           loginUrl,
         }).catch((e) => console.warn('Confirmation email error:', e));
 
+        const sessionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        localStorage.setItem('picklepoint_remember_me', 'true');
         onLoginSuccess({
           name: name,
           email: email,
@@ -383,6 +404,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
           isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
           trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
+          sessionExpiresAt,
+          rememberMe: true,
         });
         setLoading(false);
       }, 1000);
@@ -397,10 +420,18 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
     if (isFirebaseConfigured && auth) {
       try {
+        try {
+          await setPersistence(auth, browserLocalPersistence);
+        } catch (pErr) {
+          console.warn('Could not set persistence during google register:', pErr);
+        }
+
         const result = await signInWithPopup(auth, googleProvider);
         const fbUser = result.user;
         const googleEmail = (fbUser.email || '').trim().toLowerCase();
         const expectedEmail = (email || urlEmail).trim().toLowerCase();
+        const sessionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        localStorage.setItem('picklepoint_remember_me', 'true');
 
         // If this invitation was sent to a specific email, check match or handle gracefully
         if (isClientAdminInvite && expectedEmail && googleEmail !== expectedEmail) {
@@ -499,6 +530,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
           isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
           trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
+          sessionExpiresAt,
+          rememberMe: true,
         });
         setLoading(false);
       } catch (err) {

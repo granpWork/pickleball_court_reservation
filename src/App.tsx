@@ -245,10 +245,30 @@ function App() {
     }
     return null;
   });
-  const [user, setUser] = useState<{ uid?: string; name: string; email: string; role?: string; isAdmin?: boolean } | null>(() => {
+  const [user, setUser] = useState<{
+    uid?: string;
+    name: string;
+    email: string;
+    role?: string;
+    isAdmin?: boolean;
+    sessionExpiresAt?: string;
+    rememberMe?: boolean;
+  } | null>(() => {
     try {
       const saved = localStorage.getItem('picklepoint_session');
-      return saved ? JSON.parse(saved) : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.sessionExpiresAt) {
+          const expiresTime = new Date(parsed.sessionExpiresAt).getTime();
+          if (Date.now() > expiresTime) {
+            localStorage.removeItem('picklepoint_session');
+            localStorage.removeItem('picklepoint_remember_me');
+            return null;
+          }
+        }
+        return parsed;
+      }
+      return null;
     } catch (err) {
       console.warn('Failed to parse user session from localStorage:', err);
       return null;
@@ -683,6 +703,19 @@ function App() {
               updateDoc(userDocRef, { name: firebaseUser.displayName }).catch(() => {});
             }
 
+            const existingSessionStr = localStorage.getItem('picklepoint_session');
+            let existingExpiresAt: string | undefined;
+            if (existingSessionStr) {
+              try {
+                existingExpiresAt = JSON.parse(existingSessionStr).sessionExpiresAt;
+              } catch (_) {}
+            }
+            const rememberMePref = localStorage.getItem('picklepoint_remember_me') !== 'false';
+            const effectiveExpiresAt =
+              existingExpiresAt && new Date(existingExpiresAt).getTime() > Date.now()
+                ? existingExpiresAt
+                : new Date(Date.now() + (rememberMePref ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000)).toISOString();
+
             const loadedUser = {
               uid: firebaseUser.uid,
               name: resolvedName,
@@ -695,6 +728,8 @@ function App() {
               permissions: uData.permissions || (matchedInvite as any)?.permissions,
               isAdmin: isAdmin,
               needsOnboarding: needsOnboarding,
+              sessionExpiresAt: effectiveExpiresAt,
+              rememberMe: rememberMePref,
             };
 
             setUser(loadedUser);
@@ -725,23 +760,44 @@ function App() {
           } catch (err) {
             console.error('Error fetching user role from Firestore:', err);
             const isDefaultAdmin = firebaseUser.email?.toLowerCase() === 'admin@picklepoint.com';
+            const rememberMePref = localStorage.getItem('picklepoint_remember_me') !== 'false';
             const fallbackUser = {
               uid: firebaseUser.uid,
               name: firebaseUser.displayName || 'Player',
               email: firebaseUser.email || '',
               role: isDefaultAdmin ? 'super_admin' : 'player',
               isAdmin: isDefaultAdmin,
+              sessionExpiresAt: new Date(Date.now() + (rememberMePref ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000)).toISOString(),
+              rememberMe: rememberMePref,
             };
             setUser(fallbackUser);
             restoreSessionView();
           }
         } else {
-          setUser(null);
-          localStorage.removeItem('picklepoint_session');
-          if (window.location.pathname === '/pickle-admin') {
-            setView('login');
-          } else if (currentView === 'admin' || currentView === 'profile' || currentView === 'checkout') {
-            setView('landing');
+          // Check if there is an unexpired session in localStorage before wiping
+          const cachedSession = localStorage.getItem('picklepoint_session');
+          let hasValidCachedSession = false;
+          if (cachedSession) {
+            try {
+              const parsed = JSON.parse(cachedSession);
+              if (parsed?.sessionExpiresAt && new Date(parsed.sessionExpiresAt).getTime() > Date.now()) {
+                hasValidCachedSession = true;
+                setUser(parsed);
+              }
+            } catch (_) {}
+          }
+
+          if (!hasValidCachedSession) {
+            setUser(null);
+            localStorage.removeItem('picklepoint_session');
+            localStorage.removeItem('picklepoint_remember_me');
+            if (window.location.pathname === '/pickle-admin') {
+              setView('login');
+            } else if (currentView === 'admin' || currentView === 'profile' || currentView === 'checkout') {
+              setView('landing');
+            } else {
+              restoreSessionView();
+            }
           } else {
             restoreSessionView();
           }
@@ -754,8 +810,13 @@ function App() {
       const savedUser = localStorage.getItem('picklepoint_session');
       setTimeout(() => {
         if (savedUser) {
-          const parsed = JSON.parse(savedUser) as { uid?: string; name: string; email: string; role?: string; status?: string; companyId?: string; companyName?: string; isAdmin?: boolean };
-          if (parsed.status === 'inactive' || parsed.status === 'deleted') {
+          const parsed = JSON.parse(savedUser) as { uid?: string; name: string; email: string; role?: string; status?: string; companyId?: string; companyName?: string; isAdmin?: boolean; sessionExpiresAt?: string; rememberMe?: boolean };
+          if (parsed.sessionExpiresAt && Date.now() > new Date(parsed.sessionExpiresAt).getTime()) {
+            localStorage.removeItem('picklepoint_session');
+            localStorage.removeItem('picklepoint_remember_me');
+            setUser(null);
+            setView('login');
+          } else if (parsed.status === 'inactive' || parsed.status === 'deleted') {
             localStorage.removeItem('picklepoint_session');
             setUser(null);
             setView('login');
@@ -915,11 +976,18 @@ function App() {
       }
     }
 
+    const rememberMePref = (loggedInUser as any).rememberMe ?? (localStorage.getItem('picklepoint_remember_me') !== 'false');
+    const sessionExpiresAt =
+      (loggedInUser as any).sessionExpiresAt ||
+      new Date(Date.now() + (rememberMePref ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000)).toISOString();
+
     const updatedUser = {
       ...loggedInUser,
       role: finalRole,
       status: userStatus,
       isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
+      sessionExpiresAt,
+      rememberMe: rememberMePref,
     };
 
     setUser(updatedUser);
@@ -962,6 +1030,7 @@ function App() {
     setSelectedCourtId('');
     localStorage.removeItem('picklepoint_session');
     localStorage.removeItem('picklepoint_pending_court_id');
+    localStorage.removeItem('picklepoint_remember_me');
     sessionStorage.removeItem('picklepoint_active_court_id');
     sessionStorage.removeItem('picklepoint_checkout_details');
     sessionStorage.clear();

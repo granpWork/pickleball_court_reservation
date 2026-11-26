@@ -1,5 +1,12 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, FacebookAuthProvider } from 'firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  FacebookAuthProvider,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getAnalytics, isSupported, logEvent, type Analytics } from 'firebase/analytics';
 
@@ -31,7 +38,10 @@ if (isFirebaseConfigured) {
     auth = getAuth(app);
     db = getFirestore(app);
 
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && auth) {
+      setPersistence(auth, browserLocalPersistence).catch((err) => {
+        console.warn('Could not set default browserLocalPersistence:', err);
+      });
       isSupported().then((supported) => {
         if (supported && app) {
           analytics = getAnalytics(app);
@@ -61,5 +71,12 @@ export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 export const facebookProvider = new FacebookAuthProvider();
 
-export { auth, db, analytics };
+export {
+  auth,
+  db,
+  analytics,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+};
 export default auth;
