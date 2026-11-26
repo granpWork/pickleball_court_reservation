@@ -197,6 +197,7 @@ interface AdminSettingsTabProps {
   setIntegrationsSubTab?: (subTab: AdminIntegrationsSubTab) => void;
 
   isSuperAdmin: boolean;
+  companies?: Company[];
 }
 
 export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
@@ -207,6 +208,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   setIntegrationsSubTab: _setIntegrationsSubTab,
   onOpenInviteManagerModal,
   teamMembers = [],
+  companies = [],
   onSaveManager,
   onDeleteManager,
   policies,
@@ -600,7 +602,9 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                 <span className="text-[10px] font-extrabold uppercase text-slate-400 block mb-0.5">Primary Owner</span>
                 <span className="text-xs font-extrabold text-white flex items-center gap-1">🎾 Client Admin</span>
               </div>
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-brand-lime/20 text-brand-lime">1 Owner</span>
+              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-brand-lime/20 text-brand-lime">
+                {isSuperAdmin ? `${teamMembers.filter(m => m.role === 'client_admin').length} Client Admins` : '1 Owner'}
+              </span>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between">
@@ -632,6 +636,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                   <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 font-bold uppercase tracking-wider">
                     <th className="py-3 px-4">Staff Name</th>
                     <th className="py-3 px-4">Email Address</th>
+                    <th className="py-3 px-4">Facility / Club</th>
                     <th className="py-3 px-4">Assigned Role</th>
                     <th className="py-3 px-4">Access Permissions</th>
                     <th className="py-3 px-4">Status</th>
@@ -641,7 +646,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                 <tbody className="divide-y divide-slate-800/60">
                   {teamMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-500">
+                      <td colSpan={7} className="py-8 text-center text-slate-500">
                         <Users className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                         <p className="font-semibold text-slate-400">No facility team members found.</p>
                         <p className="text-[11px] text-slate-500 mt-1">Click <strong>Invite Staff Member</strong> above to issue a registration link.</p>
@@ -653,6 +658,18 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                       const isEditorRole = m.role === 'editor';
                       const perms = getUserEffectivePermissions(m);
                       const isPending = m.status === 'pending' || m.isInvitedPending;
+                      const matchedComp = companies.find(
+                        (c) =>
+                          (m.companyId && c.id === m.companyId) ||
+                          (m.invitedBy && c.clientAdminEmail && c.clientAdminEmail.toLowerCase() === m.invitedBy.toLowerCase()) ||
+                          (m.email && c.clientAdminEmail && c.clientAdminEmail.toLowerCase() === m.email.toLowerCase())
+                      );
+                      const orgName =
+                        m.companyName ||
+                        matchedComp?.name ||
+                        companyProfile?.name ||
+                        orgProfileName ||
+                        (isSuperAdmin ? 'Global Platform' : 'Facility');
 
                       return (
                         <tr key={m.uid || m.email || idx} className="hover:bg-slate-800/40 transition-colors">
@@ -668,6 +685,14 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                           </td>
                           <td className="py-3.5 px-4 font-mono text-slate-300">
                             {m.email}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-1.5">
+                              <Building2 className="w-3.5 h-3.5 text-brand-lime/80 shrink-0" />
+                              <span className="font-semibold text-slate-200 truncate max-w-[170px]" title={orgName}>
+                                {orgName}
+                              </span>
+                            </div>
                           </td>
                           <td className="py-3.5 px-4">
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${

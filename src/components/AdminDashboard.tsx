@@ -3721,6 +3721,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               const invEmail = (invData.email || '').trim().toLowerCase();
               if (!invEmail) return;
 
+              // Strictly ignore revoked or deleted invitations
+              if (invData.status === 'revoked' || invData.status === 'deleted') {
+                return;
+              }
+
               const isPending = invData.status === 'pending';
               const existingUser = userMap.get(invEmail);
 
@@ -3747,46 +3752,43 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   });
                 }
               } else {
-                // Backfill missing invitation & company metadata on existing registered users
+                // If existing user has been removed/demoted to 'player', do not re-promote or re-affiliate
                 const invCompId = invData.companyId || '';
                 const invCompName = invData.company || invData.companyName || '';
                 const invBy = invData.invitedBy || '';
-                const invRole = invData.role;
 
-                if (!existingUser.invitedBy && invBy) {
-                  existingUser.invitedBy = invBy;
-                }
-                if (!existingUser.companyId && invCompId) {
-                  existingUser.companyId = invCompId;
-                }
-                if (!existingUser.companyName && invCompName) {
-                  existingUser.companyName = invCompName;
-                }
-                if (!existingUser.inviteToken) {
-                  existingUser.inviteToken = invDoc.id;
-                }
-                if (invRole && (existingUser.role === 'player' || !existingUser.role)) {
-                  existingUser.role = invRole;
-                }
-                if (!existingUser.permissions && invData.permissions) {
-                  existingUser.permissions = invData.permissions;
-                }
+                if (existingUser.role !== 'player') {
+                  if (!existingUser.invitedBy && invBy) {
+                    existingUser.invitedBy = invBy;
+                  }
+                  if (!existingUser.companyId && invCompId) {
+                    existingUser.companyId = invCompId;
+                  }
+                  if (!existingUser.companyName && invCompName) {
+                    existingUser.companyName = invCompName;
+                  }
+                  if (!existingUser.inviteToken) {
+                    existingUser.inviteToken = invDoc.id;
+                  }
+                  if (!existingUser.permissions && invData.permissions) {
+                    existingUser.permissions = invData.permissions;
+                  }
 
-                // Self-heal Firestore document if it was missing companyId or invitedBy
-                if (
-                  db &&
-                  existingUser.uid &&
-                  !existingUser.uid.startsWith('invite-') &&
-                  !existingUser.uid.startsWith('invited-') &&
-                  (invCompId || invBy)
-                ) {
-                  const healPayload: Record<string, any> = {};
-                  if (!existingUser.companyId && invCompId) healPayload.companyId = invCompId;
-                  if (!existingUser.companyName && invCompName) healPayload.companyName = invCompName;
-                  if (!existingUser.invitedBy && invBy) healPayload.invitedBy = invBy;
-                  if (invRole && existingUser.role === 'player') healPayload.role = invRole;
-                  if (Object.keys(healPayload).length > 0) {
-                    updateDoc(doc(db, 'users', existingUser.uid), healPayload).catch(() => {});
+                  // Self-heal Firestore document if it was missing companyId or invitedBy
+                  if (
+                    db &&
+                    existingUser.uid &&
+                    !existingUser.uid.startsWith('invite-') &&
+                    !existingUser.uid.startsWith('invited-') &&
+                    (invCompId || invBy)
+                  ) {
+                    const healPayload: Record<string, any> = {};
+                    if (!existingUser.companyId && invCompId) healPayload.companyId = invCompId;
+                    if (!existingUser.companyName && invCompName) healPayload.companyName = invCompName;
+                    if (!existingUser.invitedBy && invBy) healPayload.invitedBy = invBy;
+                    if (Object.keys(healPayload).length > 0) {
+                      updateDoc(doc(db, 'users', existingUser.uid), healPayload).catch(() => {});
+                    }
                   }
                 }
 
@@ -5746,6 +5748,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   role: 'player',
                   companyId: '',
                   companyName: '',
+                  invitedBy: '',
+                  inviteToken: '',
                   permissions: {},
                   isInvitedPending: false,
                   updatedAt: new Date().toISOString()
@@ -5770,6 +5774,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               status: 'active',
               companyId: '',
               companyName: '',
+              invitedBy: '',
+              inviteToken: '',
               permissions: {},
               isInvitedPending: false,
               createdAt: new Date().toISOString()
@@ -5777,36 +5783,39 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           );
         }
 
-        // 2. Mark matching invitations in /invitations as 'revoked' (preserve audit record in Firestore)
+        // 2. Permanently delete matching invitations from /invitations so they can never revive staff roles
         const invQuery = query(collection(currentDb, 'invitations'), where('email', '==', targetEmailLower));
         const invSnap = await getDocs(invQuery).catch(() => null);
         if (invSnap && !invSnap.empty) {
           invSnap.forEach((invDoc) => {
-            deletePromises.push(
-              updateDoc(doc(currentDb, 'invitations', invDoc.id), {
-                status: 'revoked',
-                revokedAt: new Date().toISOString()
-              }).catch(() => {})
-            );
+            deletePromises.push(deleteDoc(doc(currentDb, 'invitations', invDoc.id)).catch(() => {}));
           });
         }
 
         if (managerToDelete.inviteToken || managerToDelete.isInvitedPending) {
           const invToken = managerToDelete.inviteToken || managerToDelete.uid?.replace('invite-', '').replace('invited-', '');
           if (invToken) {
-            deletePromises.push(
-              updateDoc(doc(currentDb, 'invitations', invToken), {
-                status: 'revoked',
-                revokedAt: new Date().toISOString()
-              }).catch(() => {})
-            );
+            deletePromises.push(deleteDoc(doc(currentDb, 'invitations', invToken)).catch(() => {}));
           }
         }
 
         await Promise.all(deletePromises);
       }
 
-      setUsers((prev) => prev.filter((u) => u.email.toLowerCase() !== targetEmailLower));
+      try {
+        const usersStr = localStorage.getItem('picklepoint_users');
+        if (usersStr) {
+          const localUsers = JSON.parse(usersStr) as any[];
+          const updated = localUsers.map((u: any) =>
+            (u.email || '').toLowerCase() === targetEmailLower
+              ? { ...u, role: 'player', companyId: '', companyName: '', invitedBy: '', inviteToken: '', permissions: {} }
+              : u
+          );
+          localStorage.setItem('picklepoint_users', JSON.stringify(updated));
+        }
+      } catch {}
+
+      setUsers((prev) => prev.filter((u) => u.email.toLowerCase() !== targetEmailLower && u.uid !== managerToDelete.uid));
       const wasPending = managerToDelete.status === 'pending' || managerToDelete.isInvitedPending;
       showModalAlert(
         wasPending ? 'Staff Invitation Revoked' : 'Staff Member Removed',
@@ -7826,6 +7835,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               integrationsSubTab={integrationsSubTab}
               setIntegrationsSubTab={setIntegrationsSubTab}
               isSuperAdmin={isSuperAdmin}
+              companies={validAdminCompanies}
             />
           )}
 
