@@ -14,6 +14,8 @@ interface RegisterProps {
     role?: string;
     companyId?: string;
     companyName?: string;
+    invitedBy?: string;
+    inviteToken?: string;
     permissions?: any;
     isAdmin?: boolean;
     needsOnboarding?: boolean;
@@ -216,6 +218,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
     const finalCompanyId = verifiedInviteData?.companyId || urlCompanyId || '';
     const finalCompanyName = verifiedInviteData?.company || invitedCompany || '';
+    const finalInvitedBy = verifiedInviteData?.invitedBy || '';
+    const finalInviteToken = inviteTokenParam || verifiedInviteData?.token || '';
 
     if (isFirebaseConfigured && auth) {
       try {
@@ -233,6 +237,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
               role: finalRole,
               companyId: finalCompanyId,
               companyName: finalCompanyName,
+              invitedBy: finalInvitedBy,
+              inviteToken: finalInviteToken,
               permissions: verifiedInviteData?.permissions || undefined,
               status: 'active',
               duprId: '',
@@ -279,6 +285,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           role: finalRole,
           companyId: finalCompanyId,
           companyName: finalCompanyName,
+          invitedBy: finalInvitedBy,
+          inviteToken: finalInviteToken,
           permissions: verifiedInviteData?.permissions,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,
@@ -320,6 +328,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           role: finalRole, 
           companyId: finalCompanyId,
           companyName: finalCompanyName,
+          invitedBy: finalInvitedBy,
+          inviteToken: finalInviteToken,
           needsOnboarding: isClientAdminInvite, 
           status: 'active',
           subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
@@ -363,6 +373,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           role: finalRole,
           companyId: finalCompanyId,
           companyName: finalCompanyName,
+          invitedBy: finalInvitedBy,
+          inviteToken: finalInviteToken,
           permissions: verifiedInviteData?.permissions,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminInvite,
@@ -413,6 +425,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
         const isClientAdminFinal = finalRole === 'client_admin';
         const finalCompanyId = verifiedInviteData?.companyId || urlCompanyId || '';
         const finalCompanyName = verifiedInviteData?.company || invitedCompany || '';
+        const finalInvitedBy = verifiedInviteData?.invitedBy || '';
+        const finalInviteToken = inviteTokenParam || verifiedInviteData?.token || '';
         const displayName = fbUser.displayName || name || (finalRole === 'editor' ? 'Staff Editor' : finalRole === 'manager' ? 'Facility Manager' : finalRole === 'client_admin' ? 'Client Admin' : 'Member');
 
         if (db) {
@@ -427,6 +441,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
                 role: finalRole,
                 companyId: finalCompanyId,
                 companyName: finalCompanyName,
+                invitedBy: finalInvitedBy,
+                inviteToken: finalInviteToken,
                 permissions: verifiedInviteData?.permissions || undefined,
                 status: 'active',
                 needsOnboarding: isClientAdminFinal,
@@ -473,6 +489,8 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           role: finalRole,
           companyId: finalCompanyId,
           companyName: finalCompanyName,
+          invitedBy: finalInvitedBy,
+          inviteToken: finalInviteToken,
           permissions: verifiedInviteData?.permissions,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
           needsOnboarding: isClientAdminFinal,

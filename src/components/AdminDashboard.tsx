@@ -914,7 +914,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         : (inviteCompanyNameInput.trim() || 'Global Platform');
 
       let targetCompanyId = isClientAdmin
-        ? (myCompany?.id || (user as any)?.companyId || companies.find(c => c.clientAdminEmail?.toLowerCase() === (user?.email || '').toLowerCase())?.id || '')
+        ? (myCompany?.id || (user as any)?.companyId || companies.find(c => c.clientAdminEmail?.toLowerCase() === (user?.email || '').toLowerCase())?.id || courts.find(c => c.companyId && (c.ownerEmail?.toLowerCase() === (user?.email || '').toLowerCase() || c.ownerId === currentUserUid))?.companyId || (currentUserUid ? `comp_${currentUserUid}` : ''))
         : (myCompany?.id || (user as any)?.companyId || '');
 
       if (inviteRoleInput === 'client_admin') {
@@ -1643,7 +1643,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     const selectedCourtObjects = courts.filter(c => finalCourtIds.includes(c.id));
     const selectedCourtNames = selectedCourtObjects.map(c => c.name);
 
-    let selectedGcashName = globalGcashNameSetting || 'PicklePoint Venue';
+    let selectedGcashName = globalGcashNameSetting || effectiveOrgName || 'Facility';
     let selectedGcashNumber = globalGcashNumberSetting || '';
     let selectedGcashQr = globalGcashQrSetting || '';
 
@@ -2214,7 +2214,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     const targetCourt = voucherCourtId !== 'all' ? courts.find(c => c.id === voucherCourtId) : courts[0];
     const resolvedCompanyId = targetSuperAdminComp?.id || targetCourt?.companyId || '';
-    const resolvedCompanyName = targetSuperAdminComp?.name || targetCourt?.ownerCompanyName || orgProfileName || 'PicklePoint Venue';
+    const resolvedCompanyName = targetSuperAdminComp?.name || targetCourt?.ownerCompanyName || orgProfileName || effectiveOrgName || 'Facility';
 
     const payload: Voucher = {
       id: vId,
@@ -2325,7 +2325,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     const targetCourt = courts.find(c => c.id === bookingToCancel.courtId);
     const resolvedCompanyId = bookingToCancel.companyId || targetCourt?.companyId || '';
-    const resolvedCompanyName = bookingToCancel.ownerCompanyName || targetCourt?.ownerCompanyName || bookingToCancel.courtName || 'PicklePoint Venue';
+    const resolvedCompanyName = bookingToCancel.ownerCompanyName || targetCourt?.ownerCompanyName || bookingToCancel.courtName || effectiveOrgName || 'Facility';
 
     const voucherPayload: Voucher = {
       id: vId,
@@ -2879,7 +2879,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     const targetCourt = courts.find(c => c.id === weatherBooking.courtId);
     const resolvedCompanyId = weatherBooking.companyId || targetCourt?.companyId || '';
-    const resolvedCompanyName = weatherBooking.ownerCompanyName || targetCourt?.ownerCompanyName || weatherBooking.courtName || 'PicklePoint Venue';
+    const resolvedCompanyName = weatherBooking.ownerCompanyName || targetCourt?.ownerCompanyName || weatherBooking.courtName || effectiveOrgName || 'Facility';
 
     const voucherPayload: Voucher = {
       id: vId,
@@ -3329,7 +3329,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
     const updatedCompany: Company = {
       id: companyDocId,
-      name: orgProfileName.trim() || myCompany?.name || 'PicklePoint Venue',
+      name: orgProfileName.trim() || myCompany?.name || 'Facility',
       address: constructedAddress || myCompany?.address || '',
       clientAdminEmail: currentUserEmail || myCompany?.clientAdminEmail || '',
       status: myCompany?.status || 'active',
@@ -3452,15 +3452,28 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
         // 1. Process Companies
         let loadedCompanies: Company[] = [];
+        const stubCompanyDocIdsToDelete: string[] = [];
         if (compRes.status === 'fulfilled' && compRes.value) {
           compRes.value.forEach((docSnap) => {
-            loadedCompanies.push({ id: docSnap.id, ...docSnap.data() } as Company);
+            const cData = { id: docSnap.id, ...docSnap.data() } as Company;
+            if (isGenericStubComp(cData)) {
+              stubCompanyDocIdsToDelete.push(docSnap.id);
+            } else {
+              loadedCompanies.push(cData);
+            }
           });
         }
         if (loadedCompanies.length === 0) {
           const compStr = localStorage.getItem('picklepoint_companies');
-          loadedCompanies = compStr ? JSON.parse(compStr) : [];
+          const rawLocal: Company[] = compStr ? JSON.parse(compStr) : [];
+          loadedCompanies = rawLocal.filter(c => !isGenericStubComp(c));
         }
+
+        // Auto-purge legacy stub company documents in Firestore so they never re-emerge
+        for (const stubId of stubCompanyDocIdsToDelete) {
+          deleteDoc(doc(db, 'companies', stubId)).catch(() => {});
+        }
+
         setCompanies(loadedCompanies);
         try { localStorage.setItem('picklepoint_companies', JSON.stringify(loadedCompanies)); } catch (e) {}
 
@@ -3734,6 +3747,49 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   });
                 }
               } else {
+                // Backfill missing invitation & company metadata on existing registered users
+                const invCompId = invData.companyId || '';
+                const invCompName = invData.company || invData.companyName || '';
+                const invBy = invData.invitedBy || '';
+                const invRole = invData.role;
+
+                if (!existingUser.invitedBy && invBy) {
+                  existingUser.invitedBy = invBy;
+                }
+                if (!existingUser.companyId && invCompId) {
+                  existingUser.companyId = invCompId;
+                }
+                if (!existingUser.companyName && invCompName) {
+                  existingUser.companyName = invCompName;
+                }
+                if (!existingUser.inviteToken) {
+                  existingUser.inviteToken = invDoc.id;
+                }
+                if (invRole && (existingUser.role === 'player' || !existingUser.role)) {
+                  existingUser.role = invRole;
+                }
+                if (!existingUser.permissions && invData.permissions) {
+                  existingUser.permissions = invData.permissions;
+                }
+
+                // Self-heal Firestore document if it was missing companyId or invitedBy
+                if (
+                  db &&
+                  existingUser.uid &&
+                  !existingUser.uid.startsWith('invite-') &&
+                  !existingUser.uid.startsWith('invited-') &&
+                  (invCompId || invBy)
+                ) {
+                  const healPayload: Record<string, any> = {};
+                  if (!existingUser.companyId && invCompId) healPayload.companyId = invCompId;
+                  if (!existingUser.companyName && invCompName) healPayload.companyName = invCompName;
+                  if (!existingUser.invitedBy && invBy) healPayload.invitedBy = invBy;
+                  if (invRole && existingUser.role === 'player') healPayload.role = invRole;
+                  if (Object.keys(healPayload).length > 0) {
+                    updateDoc(doc(db, 'users', existingUser.uid), healPayload).catch(() => {});
+                  }
+                }
+
                 if (isPending) {
                   existingUser.status = 'pending';
                   existingUser.isInvitedPending = true;
@@ -4017,11 +4073,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           if (document.hidden) return; // Skip background processing when tab is hidden
           const loadedCompanies: Company[] = [];
           snapshot.forEach((docSnap) => {
-            loadedCompanies.push({ id: docSnap.id, ...docSnap.data() } as Company);
+            const cData = { id: docSnap.id, ...docSnap.data() } as Company;
+            if (isGenericStubComp(cData)) {
+              deleteDoc(doc(db!, 'companies', docSnap.id)).catch(() => {});
+            } else {
+              loadedCompanies.push(cData);
+            }
           });
-          if (loadedCompanies.length > 0) {
-            setCompanies(loadedCompanies);
-          }
+          setCompanies(loadedCompanies);
         }, (err) => {
           console.warn('Failed to initialize real-time companies listener:', err);
         });
@@ -4883,7 +4942,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
         const targetCourt = courts.find(c => c.id === refundModalBooking.courtId);
         const resolvedCompanyId = refundModalBooking.companyId || targetCourt?.companyId || '';
-        const resolvedCompanyName = ownerCompanyName || targetCourt?.ownerCompanyName || refundModalBooking.courtName || 'PicklePoint Venue';
+        const resolvedCompanyName = ownerCompanyName || targetCourt?.ownerCompanyName || refundModalBooking.courtName || effectiveOrgName || 'Facility';
 
         const voucherPayload: Voucher = {
           id: 'v-' + Date.now(),
@@ -5054,7 +5113,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           targetCourt?.ownerCompanyName ||
           (targetBooking as any).ownerCompanyName ||
           myCompany?.name ||
-          'PicklePoint Venue';
+          effectiveOrgName ||
+          'Facility';
         const ownerCompanyAddress =
           targetCourt?.companyAddress ||
           targetCourt?.location ||
@@ -7126,17 +7186,47 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     return false;
   });
 
-  // 6. Scoped Users (When company filter is active: facility staff and team members only)
-  const effectiveAdminUsers = filteredUsers.filter((u) => {
-    if (isSuperAdmin && !targetScopedCompany) return true;
-    if (!targetScopedCompany) return false;
+  // Helper to verify if a staff member belongs to the active scoped company or current admin
+  const isStaffMemberInTargetCompany = (u: UserAccount) => {
     const isStaff = u.role === 'client_admin' || u.role === 'manager' || u.role === 'editor';
     if (!isStaff) return false;
-    if (u.companyId && u.companyId === targetScopedCompany.id) return true;
-    if (u.email && targetScopedCompany.clientAdminEmail && u.email.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase()) return true;
-    if (u.companyName && targetScopedCompany.name && u.companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
+
+    // Super Admin with "All Companies" filter sees all staff
+    if (isSuperAdmin && !targetScopedCompany) return true;
+
+    const compId = targetScopedCompany?.id || myCompany?.id || (user as any)?.companyId;
+    const adminEmailLower = (
+      targetScopedCompany?.clientAdminEmail ||
+      currentUserEmail ||
+      myCompany?.clientAdminEmail ||
+      ''
+    ).trim().toLowerCase();
+    const compNameLower = (
+      targetScopedCompany?.name ||
+      myCompany?.name ||
+      effectiveOrgName ||
+      ''
+    ).trim().toLowerCase();
+
+    // 1. Direct Inviter match (staff invited by this Client Admin / facility owner)
+    if (u.invitedBy && adminEmailLower && u.invitedBy.trim().toLowerCase() === adminEmailLower) return true;
+
+    // 2. Client Admin self-match
+    if (u.email && adminEmailLower && u.email.trim().toLowerCase() === adminEmailLower) return true;
+
+    // 3. Explicit Company ID match
+    if (compId && u.companyId && u.companyId === compId) return true;
+
+    // 4. Company Name match (case-insensitive)
+    if (compNameLower && u.companyName && u.companyName.trim().toLowerCase() === compNameLower) return true;
+
     return false;
-  });
+  };
+
+  // 6. Scoped Users (When company filter is active: facility staff and team members only)
+  const effectiveAdminUsers = filteredUsers.filter(isStaffMemberInTargetCompany);
+
+  const validAdminCompanies = companies.filter((c) => !isGenericStubComp(c));
 
   return (
     <div className="min-h-screen bg-dark-bg text-slate-100 flex flex-col font-sans relative overflow-hidden">
@@ -7149,7 +7239,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         activeTab={activeTab}
         setActiveTab={handleTabChange}
         isSuperAdmin={isSuperAdmin}
-        companies={companies}
+        companies={validAdminCompanies}
         selectedCompanyFilter={selectedSuperAdminCompanyId}
         onSelectCompanyFilter={setSelectedSuperAdminCompanyId}
         courtsSubTab={courtsSubTab}
@@ -7412,7 +7502,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           {activeTab === 'companies' && isSuperAdmin && (
             <AdminCompaniesTab
               key={companiesResetKey}
-              companies={companies}
+              companies={validAdminCompanies}
               courts={courts}
               users={users}
               companiesSubTab={companiesSubTab}
@@ -7717,14 +7807,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 setInviteSuccessInfo(null);
                 setInviteModalOpen(true);
               }}
-              teamMembers={users.filter(u =>
-                (u.role === 'manager' || u.role === 'editor' || u.role === 'client_admin') &&
-                (isSuperAdmin && !targetScopedCompany ? true : targetScopedCompany ? (
-                  u.companyId === targetScopedCompany.id ||
-                  (u.companyName && targetScopedCompany.name && u.companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) ||
-                  (u.email && targetScopedCompany.clientAdminEmail && u.email.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase())
-                ) : myCompany?.id ? u.companyId === myCompany.id : true)
-              )}
+              teamMembers={users.filter(isStaffMemberInTargetCompany)}
               onSaveManager={handleSaveManager}
               onDeleteManager={handleDeleteManager}
               policies={{
@@ -13134,7 +13217,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 <UserPlus className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">
+                <h3 className="text-[22px] font-semibold text-white">
                   {isSuperAdmin ? 'Invite Platform User' : `Invite Facility Staff`}
                 </h3>
                 <p className="text-xs text-slate-400">

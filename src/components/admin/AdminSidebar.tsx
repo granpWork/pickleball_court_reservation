@@ -225,7 +225,9 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
                   className="w-full bg-slate-950 border border-slate-700/80 text-white rounded-lg text-xs font-semibold px-2.5 py-2 focus:outline-none focus:border-brand-lime cursor-pointer appearance-none pr-7 transition-colors"
                 >
                   <option value="all" className="bg-slate-950 text-white">🌐 All Companies (Global)</option>
-                  {companies.map((c) => (
+                  {companies
+                    .filter((c) => c && c.name && c.name.trim().toLowerCase() !== 'picklepoint venue' && c.name.trim().toLowerCase() !== 'book picklecourt venue')
+                    .map((c) => (
                     <option key={c.id} value={c.id} className="bg-slate-950 text-white">
                       🏢 {c.name}
                     </option>

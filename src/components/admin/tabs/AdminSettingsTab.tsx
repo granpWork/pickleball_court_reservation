@@ -585,7 +585,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
               <button
                 type="button"
                 onClick={onOpenInviteManagerModal}
-                className="px-4 py-2.5 rounded-xl text-xs font-bold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl text-sm font-semibold text-dark-bg bg-brand-lime hover:bg-[#a6e224] transition-all flex items-center gap-1.5 shadow-md shadow-brand-lime/10 cursor-pointer"
               >
                 <UserPlus className="w-4 h-4" />
                 <span>Invite Staff Member</span>
