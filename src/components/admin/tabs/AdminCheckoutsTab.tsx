@@ -69,6 +69,8 @@ interface AdminCheckoutsTabProps {
   userPermissions?: UserPermissions;
   currentAdminEmail?: string;
   currentAdminName?: string;
+  isSuperAdmin?: boolean;
+  companies?: Array<{ id: string; name: string; logoUrl?: string; [key: string]: any }>;
 }
 
 export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
@@ -95,6 +97,8 @@ export const AdminCheckoutsTab: React.FC<AdminCheckoutsTabProps> = ({
   userPermissions: _userPermissions,
   currentAdminEmail = '',
   currentAdminName = '',
+  isSuperAdmin = false,
+  companies = [],
 }) => {
   const [expandedCheckoutId, setExpandedCheckoutId] = useState<string | null>(null);
   const [expandedMessageCheckoutIds, setExpandedMessageCheckoutIds] = useState<Record<string, boolean>>({});
@@ -735,45 +739,63 @@ Thank you!`;
                       </div>
 
                       {/* 2. Court, Schedule & Status Badge */}
-                      <div className="min-w-0 lg:w-[28%] space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-extrabold text-white text-xs sm:text-sm truncate">
-                            {booking.courtName || 'Court Facility'}
-                          </span>
-                          {/* Status Badge */}
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
-                              booking.paymentStatus === 'paid'
-                                ? booking.refundRequested
-                                  ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 animate-pulse'
-                                  : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                                : booking.paymentStatus === 'refunded'
-                                ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
-                                : booking.paymentStatus === 'rebooking_credit'
-                                ? 'bg-brand-lime/15 border-brand-lime/40 text-brand-lime'
-                                : booking.paymentStatus === 'cancelled_no_refund' || booking.paymentStatus === 'failed'
-                                ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
-                                : 'bg-amber-500/15 border-amber-500/40 text-amber-300 animate-pulse'
-                            }`}
-                          >
-                            {booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending'
-                              ? 'Pending Review'
-                              : booking.paymentStatus === 'refunded'
-                              ? 'Refunded'
-                              : booking.refundRequested
-                              ? 'Refund Requested'
-                              : booking.paymentStatus || 'Unpaid'}
-                          </span>
-                        </div>
-                        <div className="text-slate-300 flex items-center gap-1.5 text-xs truncate">
-                          <Calendar className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                          <span>{formatEventDateLong(booking.date) || formatDateLabel(booking.date)}</span>
-                        </div>
-                        <div className="text-slate-400 flex items-center gap-1.5 text-[11px] truncate">
-                          <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <span>{booking.slots?.join(', ') || 'N/A'}</span>
-                        </div>
-                      </div>
+                      {(() => {
+                        const compId = booking.companyId || courts.find((c: any) => c.id === booking.courtId)?.companyId || openPlayEvents.find((e: any) => e.id === booking.openPlayEventId)?.companyId;
+                        const matchedCompany = companies.find((c: any) => c.id === compId || (compId && c.name?.trim().toLowerCase() === compId?.trim().toLowerCase()));
+                        const companyName = matchedCompany?.name || (booking as any).companyName || 'Pickleball Facility';
+                        const companyLogo = matchedCompany?.logoUrl;
+
+                        return (
+                          <div className="min-w-0 lg:w-[28%] space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-extrabold text-white text-xs sm:text-sm truncate">
+                                {booking.courtName || 'Court Facility'}
+                              </span>
+                              {/* Facility Branding Pill */}
+                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-300 max-w-[170px] truncate">
+                                {companyLogo ? (
+                                  <img src={companyLogo} alt={companyName} className="w-3.5 h-3.5 rounded-sm object-cover shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                                ) : (
+                                  <Building2 className="w-3 h-3 text-brand-lime shrink-0" />
+                                )}
+                                <span className="truncate">{companyName}</span>
+                              </div>
+                              {/* Status Badge */}
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                  booking.paymentStatus === 'paid'
+                                    ? booking.refundRequested
+                                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 animate-pulse'
+                                      : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                                    : booking.paymentStatus === 'refunded'
+                                    ? 'bg-purple-500/15 border-purple-500/40 text-purple-300'
+                                    : booking.paymentStatus === 'rebooking_credit'
+                                    ? 'bg-brand-lime/15 border-brand-lime/40 text-brand-lime'
+                                    : booking.paymentStatus === 'cancelled_no_refund' || booking.paymentStatus === 'failed'
+                                    ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                                    : 'bg-amber-500/15 border-amber-500/40 text-amber-300 animate-pulse'
+                                }`}
+                              >
+                                {booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending'
+                                  ? 'Pending Review'
+                                  : booking.paymentStatus === 'refunded'
+                                  ? 'Refunded'
+                                  : booking.refundRequested
+                                  ? 'Refund Requested'
+                                  : booking.paymentStatus || 'Unpaid'}
+                              </span>
+                            </div>
+                            <div className="text-slate-300 flex items-center gap-1.5 text-xs truncate">
+                              <Calendar className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                              <span>{formatEventDateLong(booking.date) || formatDateLabel(booking.date)}</span>
+                            </div>
+                            <div className="text-slate-400 flex items-center gap-1.5 text-[11px] truncate">
+                              <Clock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              <span>{booking.slots?.join(', ') || 'N/A'}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* 3. Amount & GCash Reference Number */}
                       <div className="min-w-0 lg:w-[18%] space-y-1">
@@ -851,7 +873,7 @@ Thank you!`;
                         ) : (
                           <>
                             {/* Check icon (Approve Payment) */}
-                            {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
+                            {!isSuperAdmin && (booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
                               <button
                                 type="button"
                                 onClick={() => onApproveBooking(booking)}
@@ -864,7 +886,7 @@ Thank you!`;
                             )}
 
                             {/* X icon (Reject Payment) */}
-                            {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
+                            {!isSuperAdmin && (booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
                               <button
                                 type="button"
                                 onClick={() => onRejectBooking(booking)}
@@ -876,8 +898,16 @@ Thank you!`;
                               </button>
                             )}
 
+                            {/* Super Admin View-Only Status Indicator */}
+                            {isSuperAdmin && (booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
+                              <span className="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700/80 text-slate-400 font-bold text-xs shrink-0 flex items-center gap-1.5 shadow-sm">
+                                <Eye className="w-3.5 h-3.5 text-brand-lime" />
+                                <span>View Only</span>
+                              </span>
+                            )}
+
                             {/* Pencil icon (Edit Details) */}
-                            {(isManual || (booking.type !== 'open_play' && booking.type !== 'openplay')) && onUpdateManualBooking && (
+                            {!isSuperAdmin && (isManual || (booking.type !== 'open_play' && booking.type !== 'openplay')) && onUpdateManualBooking && (
                               <button
                                 type="button"
                                 onClick={() => handleOpenEditManualModal(booking)}
@@ -923,7 +953,7 @@ Thank you!`;
                     {isExpanded && (
                       <div className="space-y-3 pt-3 border-t border-slate-800/80 animate-fade-in text-xs">
                         {/* Refund option (if booking is already paid) */}
-                        {(booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
+                        {!isSuperAdmin && (booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
                           <div className="flex items-center justify-between p-3 rounded-xl bg-purple-950/20 border border-purple-500/30">
                             <div>
                               <div className="font-bold text-white text-xs">Payment Approved & Active</div>
@@ -1171,6 +1201,22 @@ Thank you!`;
 
                           {/* Reservation Schedule */}
                           <td className="py-4.5 px-6">
+                            {(() => {
+                              const compId = booking.companyId || courts.find((c: any) => c.id === booking.courtId)?.companyId || openPlayEvents.find((e: any) => e.id === booking.openPlayEventId)?.companyId;
+                              const matchedCompany = companies.find((c: any) => c.id === compId || (compId && c.name?.trim().toLowerCase() === compId?.trim().toLowerCase()));
+                              const companyName = matchedCompany?.name || (booking as any).companyName || 'Pickleball Facility';
+                              const companyLogo = matchedCompany?.logoUrl;
+                              return (
+                                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-300 mb-1 max-w-[190px] truncate">
+                                  {companyLogo ? (
+                                    <img src={companyLogo} alt={companyName} className="w-3.5 h-3.5 rounded-sm object-cover shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                                  ) : (
+                                    <Building2 className="w-3 h-3 text-brand-lime shrink-0" />
+                                  )}
+                                  <span className="truncate">{companyName} • {booking.courtName || 'Court'}</span>
+                                </div>
+                              );
+                            })()}
                             <div className="flex items-center gap-1.5 text-white font-medium text-xs">
                               <Calendar className="w-3.5 h-3.5 text-brand-lime shrink-0" />
                               <span>{formatEventDateLong(booking.date) || formatDateLabel(booking.date)}</span>
@@ -1228,7 +1274,7 @@ Thank you!`;
                                 <Loader2 className="w-4 h-4 text-brand-lime animate-spin" />
                               ) : (
                                 <>
-                                  {(isManual || (booking.type !== 'open_play' && booking.type !== 'openplay')) && onUpdateManualBooking && (
+                                  {!isSuperAdmin && (isManual || (booking.type !== 'open_play' && booking.type !== 'openplay')) && onUpdateManualBooking && (
                                     <button
                                       type="button"
                                       onClick={() => handleOpenEditManualModal(booking)}
@@ -1250,7 +1296,14 @@ Thank you!`;
                                     </button>
                                   )}
 
-                                  {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
+                                  {/* Super Admin View-Only Status Indicator */}
+                                  {isSuperAdmin && (booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
+                                    <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold">
+                                      View Only
+                                    </span>
+                                  )}
+
+                                  {!isSuperAdmin && (booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
                                     <>
                                       <button
                                         type="button"
@@ -1270,7 +1323,7 @@ Thank you!`;
                                       </button>
                                     </>
                                   )}
-                                  {(booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
+                                  {!isSuperAdmin && (booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
                                     <button
                                       onClick={() => onRefundBooking(booking)}
                                       title="Issue Refund & Upload Receipt"

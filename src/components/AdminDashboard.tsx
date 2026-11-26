@@ -7473,10 +7473,29 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               bookingStatusFilter={statusFilter}
               setBookingStatusFilter={setStatusFilter}
               actionLoading={actionLoading}
-              onApproveBooking={(id) => handleUpdateStatus(id, 'approved')}
-              onOpenCancelModal={handlePromptCancelBooking}
+              onApproveBooking={(id) => {
+                if (isSuperAdmin) {
+                  alert('Super Admins have view-only monitoring access and cannot approve reservations.');
+                  return;
+                }
+                handleUpdateStatus(id, 'approved');
+              }}
+              onOpenCancelModal={(b) => {
+                if (isSuperAdmin) {
+                  alert('Super Admins have view-only monitoring access and cannot cancel reservations.');
+                  return;
+                }
+                handlePromptCancelBooking(b);
+              }}
               onViewReceipt={(b) => setReceiptLightboxImage(b.receiptImageUrl || null)}
-              onDeleteBooking={(id) => { const b = bookings.find(x => x.id === id); if (b) handleOpenDeleteBooking(b); }}
+              onDeleteBooking={(id) => {
+                if (isSuperAdmin) {
+                  alert('Super Admins have view-only monitoring access and cannot delete reservations.');
+                  return;
+                }
+                const b = bookings.find(x => x.id === id);
+                if (b) handleOpenDeleteBooking(b);
+              }}
               courts={effectiveAdminCourts}
               myCompany={targetSuperAdminComp || myCompany}
               companies={companies}
@@ -7489,8 +7508,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               currentAdminEmail={user?.email || currentUserEmail}
               currentAdminName={user?.name || adminDisplayName || 'Admin'}
               onOpenManualBookingModal={isSuperAdmin ? undefined : handleOpenManualBookingWithParams}
-              onUpdateManualBooking={handleUpdateManualBookingDetails}
+              onUpdateManualBooking={isSuperAdmin ? undefined : handleUpdateManualBookingDetails}
               onRefundBooking={(booking) => {
+                if (isSuperAdmin) {
+                  alert('Super Admins have view-only monitoring access and cannot refund reservations.');
+                  return;
+                }
                 setRefundModalBooking(booking);
                 setRefundAmountInput(booking.totalCost.toString());
                 setRefundReasonInput(booking.refundRequestReason ? `Player Requested: ${booking.refundRequestReason}` : '');
@@ -7556,6 +7579,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               key={checkoutsResetKey}
               users={users}
               courts={effectiveAdminCourts}
+              companies={companies}
+              isSuperAdmin={isSuperAdmin}
               openPlayEvents={effectiveAdminOpenPlayEvents}
               checkouts={effectiveAdminCheckouts}
               filteredCheckouts={effectiveAdminFilteredCheckouts}
@@ -7567,8 +7592,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               userPermissions={getUserEffectivePermissions(user as any)}
               currentAdminEmail={user?.email || currentUserEmail}
               currentAdminName={user?.name || adminDisplayName || 'Admin'}
-              onUpdateManualBooking={handleUpdateManualBookingDetails}
+              onUpdateManualBooking={isSuperAdmin ? undefined : handleUpdateManualBookingDetails}
               onApproveBooking={(booking) => {
+                if (isSuperAdmin) {
+                  alert('Super Admins have view-only monitoring access and cannot approve checkouts.');
+                  return;
+                }
                 setApproveCheckoutModalBooking(booking);
                 setApproveGcashRef(booking.gcashReferenceNumber || '');
                 setApproveReceiptBase64(booking.receiptImageUrl || (booking as any).receiptUrl || (booking as any).paymentReceiptUrl || '');
@@ -7576,12 +7605,20 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 setApproveError(null);
               }}
               onRejectBooking={(booking) => {
+                if (isSuperAdmin) {
+                  alert('Super Admins have view-only monitoring access and cannot reject checkouts.');
+                  return;
+                }
                 setRejectCheckoutModalBooking(booking);
                 setRejectReasonOption('invalid_ref');
                 setRejectCustomReason('');
                 setRejectSendEmail(true);
               }}
               onRefundBooking={(booking) => {
+                if (isSuperAdmin) {
+                  alert('Super Admins have view-only monitoring access and cannot refund checkouts.');
+                  return;
+                }
                 setRefundModalBooking(booking);
                 setRefundAmountInput(booking.totalCost.toString());
                 setRefundReasonInput(booking.refundRequestReason ? `Player Requested: ${booking.refundRequestReason}` : '');

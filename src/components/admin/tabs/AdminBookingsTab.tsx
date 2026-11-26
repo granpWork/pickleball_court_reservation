@@ -617,7 +617,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
             </button>
           </div>
 
-          {onOpenManualBookingModal && (
+          {!isSuperAdmin && onOpenManualBookingModal && (
             <button
               type="button"
               onClick={() => onOpenManualBookingModal()}
@@ -742,16 +742,32 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     })()}
 
                     {/* Schedule & Court Info */}
-                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
-                      <div>
-                        <div className="text-slate-500 font-medium">Court</div>
-                        <div className="font-bold text-slate-200">{b.courtName || 'Standard Court'}</div>
-                      </div>
-                      <div>
-                        <div className="text-slate-500 font-medium">Date & Time</div>
-                        <div className="font-bold text-slate-200">{formatBookingDate(b.date)}</div>
-                      </div>
-                    </div>
+                    {(() => {
+                      const compId = b.companyId || courts.find((c: any) => c.id === b.courtId)?.companyId;
+                      const matchedCompany = companies.find((c: any) => c.id === compId || (compId && c.name?.trim().toLowerCase() === compId?.trim().toLowerCase()));
+                      const companyName = matchedCompany?.name || (b as any).companyName || 'Pickleball Facility';
+                      const companyLogo = matchedCompany?.logoUrl;
+                      return (
+                        <div className="grid grid-cols-2 gap-2 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/60">
+                          <div>
+                            <div className="text-slate-500 font-medium">Court & Facility</div>
+                            <div className="font-bold text-slate-200">{b.courtName || 'Standard Court'}</div>
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5 truncate">
+                              {companyLogo ? (
+                                <img src={companyLogo} alt={companyName} className="w-3.5 h-3.5 rounded object-cover shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                              ) : (
+                                <Building2 className="w-3 h-3 text-brand-lime shrink-0" />
+                              )}
+                              <span className="truncate">{companyName}</span>
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-slate-500 font-medium">Date & Time</div>
+                            <div className="font-bold text-slate-200">{formatBookingDate(b.date)}</div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Total & Payment */}
                     <div className="flex items-center justify-between text-xs pt-1">
@@ -768,7 +784,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           <Eye className="w-3.5 h-3.5" /> Proof
                         </button>
                       )}
-                      {onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
+                      {!isSuperAdmin && onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
                         <button
                           onClick={() => onRefundBooking(b)}
                           title="Issue Refund & Upload Receipt"
@@ -852,14 +868,32 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                               <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform shrink-0 ${isExpanded ? 'rotate-180 text-brand-lime' : ''}`} />
                               <div>
                                 <div className="font-bold text-white font-mono text-xs">{b.bookingReference || b.id.substring(0, 8).toUpperCase()}</div>
-                                {(() => {
-                                  const cat = getBookingCategoryInfo(b);
-                                  return (
-                                    <span className={`inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border mt-1 ${cat.badgeBg} ${cat.badgeText} ${cat.badgeBorder}`}>
-                                      {cat.label}
-                                    </span>
-                                  );
-                                })()}
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  {(() => {
+                                    const cat = getBookingCategoryInfo(b);
+                                    return (
+                                      <span className={`inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md border ${cat.badgeBg} ${cat.badgeText} ${cat.badgeBorder}`}>
+                                        {cat.label}
+                                      </span>
+                                    );
+                                  })()}
+                                  {(() => {
+                                    const compId = b.companyId || courts.find((c: any) => c.id === b.courtId)?.companyId;
+                                    const matchedCompany = companies.find((c: any) => c.id === compId || (compId && c.name?.trim().toLowerCase() === compId?.trim().toLowerCase()));
+                                    const companyName = matchedCompany?.name || (b as any).companyName || 'Pickleball Facility';
+                                    const companyLogo = matchedCompany?.logoUrl;
+                                    return (
+                                      <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-300 max-w-[140px] truncate">
+                                        {companyLogo ? (
+                                          <img src={companyLogo} alt={companyName} className="w-3 h-3 rounded-sm object-cover shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                                        ) : (
+                                          <Building2 className="w-2.5 h-2.5 text-brand-lime shrink-0" />
+                                        )}
+                                        <span className="truncate">{companyName}</span>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -886,6 +920,9 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                               <Clock className="w-3.5 h-3.5 text-brand-lime shrink-0" />
                               <span>{formatBookingDate(b.date)}</span>
                             </div>
+                            <div className="text-[11px] text-slate-400 font-medium mt-0.5">
+                              {b.courtName || 'Standard Court'}
+                            </div>
                           </td>
                           <td className="py-4 px-6">
                             <div className="font-medium text-white">₱{(b.totalCost || 0).toLocaleString()}</div>
@@ -896,7 +933,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           </td>
                           <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end space-x-2">
-                              {isManual && onUpdateManualBooking && (
+                              {isManual && !isSuperAdmin && onUpdateManualBooking && (
                                 <button
                                   type="button"
                                   onClick={() => handleOpenEditManualModal(b)}
@@ -912,7 +949,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                   <Eye className="w-4 h-4" />
                                 </button>
                               )}
-                              {onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
+                              {!isSuperAdmin && onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
                                 <button
                                   onClick={() => onRefundBooking(b)}
                                   title="Issue Refund & Upload Receipt"
@@ -1175,7 +1212,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
                                   {/* Actions */}
                                   <div className="space-y-2 pt-2 border-t border-slate-800/60">
-                                    {onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
+                                    {!isSuperAdmin && onRefundBooking && !isCompleted && (b.status === 'approved' || b.paymentStatus === 'paid' || b.refundRequested) && b.paymentStatus !== 'refunded' && (
                                       <button
                                         onClick={() => onRefundBooking(b)}
                                         className={`w-full py-2 px-3 rounded-xl border text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow hover:scale-[1.01] ${
@@ -1407,7 +1444,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                   </select>
                 )}
 
-                {onOpenManualBookingModal && (
+                {!isSuperAdmin && onOpenManualBookingModal && (
                   <button
                     type="button"
                     onClick={() => onOpenManualBookingModal()}
@@ -1429,7 +1466,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     Your facility <strong className="text-white">{myCompany?.name || 'Venue'}</strong> has no reservations recorded yet. New public customer bookings and manual entries for your courts will appear here in real time.
                   </span>
                 </div>
-                {onOpenManualBookingModal && (
+                {!isSuperAdmin && onOpenManualBookingModal && (
                   <button
                     type="button"
                     onClick={() => onOpenManualBookingModal()}
@@ -1745,6 +1782,11 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           (b as any).playerPhotoUrl ||
                           (b as any).userPhotoUrl;
 
+                        const compId = b.companyId || courts.find((c: any) => c.id === b.courtId)?.companyId;
+                        const matchedCompany = companies.find((c: any) => c.id === compId || (compId && c.name?.trim().toLowerCase() === compId?.trim().toLowerCase()));
+                        const companyName = matchedCompany?.name || (b as any).companyName || 'Pickleball Facility';
+                        const companyLogo = matchedCompany?.logoUrl;
+
                         return (
                           <div
                             key={b.id || index}
@@ -1752,10 +1794,20 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                           >
                             {/* Top Court & Category Row */}
                             <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-slate-900/80">
-                              <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-slate-200">
-                                <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
-                                <span>{b.courtName || 'Pickleball Court'}</span>
-                              </span>
+                              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-slate-200">
+                                  <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                                  <span>{b.courtName || 'Pickleball Court'}</span>
+                                </span>
+                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-[10px] font-bold text-slate-300 max-w-[170px] truncate">
+                                  {companyLogo ? (
+                                    <img src={companyLogo} alt={companyName} className="w-3 h-3 rounded-sm object-cover shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                                  ) : (
+                                    <Building2 className="w-2.5 h-2.5 text-brand-lime shrink-0" />
+                                  )}
+                                  <span className="truncate">{companyName}</span>
+                                </div>
+                              </div>
                               <span
                                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black uppercase border ${catInfo.badgeBg} ${catInfo.badgeText} ${catInfo.badgeBorder}`}
                               >
@@ -1883,7 +1935,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                 </div>
 
                                 <div className="flex items-center gap-2 ml-auto">
-                                  {!isApproved && onApproveBooking && (
+                                  {!isApproved && !isSuperAdmin && onApproveBooking && (
                                     <button
                                       type="button"
                                       onClick={() => onApproveBooking(b.id)}
@@ -1894,7 +1946,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                                       <span>Approve</span>
                                     </button>
                                   )}
-                                  {manualFlag && onUpdateManualBooking && (
+                                  {manualFlag && !isSuperAdmin && onUpdateManualBooking && (
                                     <button
                                       type="button"
                                       onClick={() => handleOpenEditManualModal(b)}
@@ -2279,6 +2331,10 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
               const custPhone = b.userPhone || b.user?.phone || '';
               const bCat = b.bookingCategory || (b as any).category;
               const isBlockCategory = bCat === 'maintenance' || bCat === 'company_block';
+              const compId = b.companyId || courts.find((c: any) => c.id === b.courtId)?.companyId;
+              const matchedCompany = companies.find((c: any) => c.id === compId || (compId && c.name?.trim().toLowerCase() === compId?.trim().toLowerCase()));
+              const companyName = matchedCompany?.name || (b as any).companyName || 'Pickleball Facility';
+              const companyLogo = matchedCompany?.logoUrl;
 
               return (
                 <div className="space-y-3.5 text-xs">
@@ -2298,6 +2354,19 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                     >
                       {isBlockCategory ? (bCat === 'maintenance' ? 'Maintenance' : 'Company Block') : (b.status || 'Reserved')}
                     </span>
+                  </div>
+
+                  {/* Facility & Court Info */}
+                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
+                    <span className="text-slate-400 font-semibold text-[11px]">Facility & Court</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {companyLogo ? (
+                        <img src={companyLogo} alt={companyName} className="w-3.5 h-3.5 rounded object-cover shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                      ) : (
+                        <Building2 className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+                      )}
+                      <span className="font-bold text-slate-200 text-xs truncate max-w-[160px]">{companyName} • {b.courtName || 'Court'}</span>
+                    </div>
                   </div>
 
                   {/* Customer Information */}
@@ -2356,7 +2425,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
 
                   {/* Actions */}
                   <div className="space-y-2 pt-1">
-                    {isPending && onApproveBooking && (
+                    {isPending && !isSuperAdmin && onApproveBooking && (
                       <button
                         type="button"
                         onClick={() => {
@@ -2395,7 +2464,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                       <span>Send Messenger Confirmation</span>
                     </button>
 
-                    {_userPermissions?.canManageBookings && (
+                    {!isSuperAdmin && _userPermissions?.canManageBookings && (
                       <button
                         type="button"
                         onClick={() => {
@@ -2409,7 +2478,7 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                       </button>
                     )}
 
-                    {_onOpenCancelModal && (
+                    {!isSuperAdmin && _onOpenCancelModal && (
                       <button
                         type="button"
                         onClick={() => {
