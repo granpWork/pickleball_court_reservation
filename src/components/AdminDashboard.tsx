@@ -911,11 +911,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         ? (effectiveOrgName || myCompany?.name || 'Facility')
         : inviteRoleInput === 'client_admin'
         ? inviteCompanyNameInput.trim()
-        : (inviteCompanyNameInput.trim() || 'Global Platform');
+        : (targetSuperAdminComp?.name || inviteCompanyNameInput.trim() || 'Global Platform');
 
       let targetCompanyId = isClientAdmin
         ? (myCompany?.id || (user as any)?.companyId || companies.find(c => c.clientAdminEmail?.toLowerCase() === (user?.email || '').toLowerCase())?.id || courts.find(c => c.companyId && (c.ownerEmail?.toLowerCase() === (user?.email || '').toLowerCase() || c.ownerId === currentUserUid))?.companyId || (currentUserUid ? `comp_${currentUserUid}` : ''))
-        : (myCompany?.id || (user as any)?.companyId || '');
+        : (targetSuperAdminComp?.id || myCompany?.id || (user as any)?.companyId || '');
 
       if (inviteRoleInput === 'client_admin') {
         const assignedCompName = assignedCompany;

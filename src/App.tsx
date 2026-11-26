@@ -506,7 +506,7 @@ function App() {
                 if (inviteTokenParam) {
                   const invRef = doc(firestoreDb, 'invitations', inviteTokenParam);
                   const invSnap = await getDoc(invRef);
-                  if (invSnap.exists() && invSnap.data().status !== 'used') {
+                  if (invSnap.exists()) {
                     matchedInvite = invSnap.data();
                     inviteDocId = inviteTokenParam;
                   }
@@ -578,6 +578,7 @@ function App() {
                   name: firebaseUser.displayName || 'Player',
                   email: firebaseUser.email || '',
                   role: role,
+                  companyId: (matchedInvite as any)?.companyId || '',
                   companyName: matchedInvite?.company || '',
                   status: 'active',
                   createdAt: new Date().toISOString()
@@ -631,9 +632,10 @@ function App() {
             const uData = userDocSnap.exists() ? userDocSnap.data() : {};
 
             // Auto-promote role to client_admin if user's email matches a company's designated clientAdminEmail
+            // Guard: Never auto-promote facility managers or staff editors to client_admin
             let companyId: string | undefined;
             let companyName: string | undefined;
-            if (userEmailLower && role !== 'super_admin') {
+            if (userEmailLower && role !== 'super_admin' && role !== 'manager' && role !== 'editor') {
               try {
                 const compQuery = query(collection(firestoreDb, 'companies'), where('clientAdminEmail', '==', userEmailLower));
                 const compSnap = await getDocs(compQuery);
@@ -953,7 +955,8 @@ function App() {
     const emailLower = loggedInUser.email.toLowerCase();
 
     // Verify company association for client_admin role
-    if (emailLower !== 'admin@picklepoint.com' && finalRole !== 'super_admin') {
+    // Guard: Never auto-promote facility managers or staff editors to client_admin
+    if (emailLower !== 'admin@picklepoint.com' && finalRole !== 'super_admin' && finalRole !== 'manager' && finalRole !== 'editor') {
       if (isFirebaseConfigured && db) {
         try {
           const compQuery = query(collection(db, 'companies'), where('clientAdminEmail', '==', emailLower));

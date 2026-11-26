@@ -416,7 +416,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
     setError('');
     setLoading(true);
 
-    const isClientAdminInvite = isVerifiedInvite || !!inviteTokenParam;
+    const isRestrictedInvite = isVerifiedInvite || !!inviteTokenParam;
 
     if (isFirebaseConfigured && auth) {
       try {
@@ -434,21 +434,19 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
         localStorage.setItem('picklepoint_remember_me', 'true');
 
         // If this invitation was sent to a specific email, check match or handle gracefully
-        if (isClientAdminInvite && expectedEmail && googleEmail !== expectedEmail) {
+        if (isRestrictedInvite && expectedEmail && googleEmail !== expectedEmail) {
           await signOut(auth).catch(() => {});
           setError(`Security Notice: You logged in as "${googleEmail}", but this invitation was sent to "${expectedEmail}". Please log in with "${expectedEmail}" or use a matching Google account.`);
           setLoading(false);
           return;
         }
 
-        const finalRole = invitedRole
-          ? invitedRole
-          : verifiedInviteData?.role
-          ? (verifiedInviteData.role as any)
-          : urlRole
-          ? (urlRole as any)
-          : isClientAdminInvite
-          ? 'client_admin'
+        const candidateRole =
+          invitedRole ||
+          verifiedInviteData?.role ||
+          urlRole;
+        const finalRole = candidateRole
+          ? (candidateRole as any)
           : googleEmail === 'admin@picklepoint.com'
           ? 'super_admin'
           : 'player';
@@ -555,8 +553,15 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
       }
     } else {
       setTimeout(async () => {
-        const displayName = name || 'Google Client Admin';
-        const finalRole: string = isClientAdminInvite ? 'client_admin' : 'player';
+        const candidateRole =
+          invitedRole ||
+          verifiedInviteData?.role ||
+          urlRole;
+        const finalRole: string = candidateRole
+          ? (candidateRole as any)
+          : (email.toLowerCase() === 'admin@picklepoint.com' ? 'super_admin' : 'player');
+        const isClientAdminFinal = finalRole === 'client_admin';
+        const displayName = name || (finalRole === 'editor' ? 'Staff Editor' : finalRole === 'manager' ? 'Facility Manager' : finalRole === 'client_admin' ? 'Google Client Admin' : 'Member');
 
         if (inviteTokenParam) {
           await markInvitationUsed(inviteTokenParam);
@@ -567,7 +572,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           email: email || 'google.admin@picklepoint.com',
           role: finalRole,
           isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
-          needsOnboarding: isClientAdminInvite,
+          needsOnboarding: isClientAdminFinal,
         });
         setLoading(false);
       }, 800);
