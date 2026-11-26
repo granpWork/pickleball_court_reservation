@@ -776,23 +776,20 @@ export const AdminOpenPlayTab: React.FC<AdminOpenPlayTabProps> = ({
                       </div>
 
                       {/* Facility / Club Branding Section */}
-                      <div className="flex items-center gap-2.5 px-3 py-2 rounded-2xl bg-slate-900/90 border border-slate-800/80 mb-3 shadow-inner">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/90 border border-slate-800/80 mb-3 shadow-inner">
                         {companyLogo ? (
                           <img
                             src={companyLogo}
                             alt={companyName}
-                            className="w-7 h-7 rounded-xl object-cover border border-brand-lime/40 flex-shrink-0 shadow-sm"
+                            className="w-5 h-5 rounded-lg object-cover border border-brand-lime/40 flex-shrink-0 shadow-sm"
                             onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
                           />
                         ) : (
-                          <div className="w-7 h-7 rounded-xl bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0">
-                            <Building2 className="w-4 h-4" />
+                          <div className="w-5 h-5 rounded-lg bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0">
+                            <Building2 className="w-3 h-3" />
                           </div>
                         )}
-                        <div className="min-w-0 flex-1">
-                          <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block leading-tight">FACILITY / VENUE</span>
-                          <span className="text-xs font-bold text-white truncate block">{companyName}</span>
-                        </div>
+                        <span className="text-xs font-bold text-white truncate">{companyName}</span>
                       </div>
 
                       {/* Clean High-Contrast Tags Row Above Title Header */}

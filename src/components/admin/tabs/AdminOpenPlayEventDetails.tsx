@@ -2019,10 +2019,9 @@ export const AdminOpenPlayEventDetails: React.FC<AdminOpenPlayEventDetailsProps>
                     <img src={companyLogo} alt={companyName} className="w-5 h-5 rounded-md object-cover border border-brand-lime/30 flex-shrink-0" />
                   ) : (
                     <div className="w-5 h-5 rounded-md bg-brand-lime/10 border border-brand-lime/30 flex items-center justify-center text-brand-lime flex-shrink-0">
-                      <Building2 className="w-3 h-3" />
+                      <Building2 className="w-3.5 h-3.5" />
                     </div>
                   )}
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">ORGANIZING VENUE:</span>
                   <span className="text-xs font-bold text-white truncate max-w-[200px] sm:max-w-xs">{companyName}</span>
                 </div>
 
