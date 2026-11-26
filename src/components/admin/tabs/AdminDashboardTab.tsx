@@ -264,6 +264,18 @@ export const AdminDashboardTab: React.FC<AdminDashboardTabProps> = ({
         </div>
       </div>
 
+      {/* Scoped Empty State Notification for New Facilities */}
+      {bookings.length === 0 && (
+        <div className="p-4 rounded-2xl bg-brand-lime/5 border border-brand-lime/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-4 h-4 text-brand-lime shrink-0" />
+            <span className="text-slate-300">
+              Welcome to your facility analytics! No player reservations have been completed for your venue yet. As players book your courts, revenue metrics, category breakdowns, and court leaderboards will update here in real time.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 1. TOP PERFORMANCE METRIC CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Total Revenue */}

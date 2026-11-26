@@ -321,6 +321,17 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   });
   const [isEditStatusDropdownOpen, setIsEditStatusDropdownOpen] = useState(false);
   const [managerActionLoading, setManagerActionLoading] = useState(false);
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
+
+  const handleCopyInviteLink = (m: UserAccount) => {
+    const inviteToken = m.inviteToken || m.uid?.replace('invited-', '').replace('invite-', '');
+    if (!inviteToken) return;
+    const baseUrl = window.location.origin;
+    const inviteLink = `${baseUrl}/register?inviteToken=${inviteToken}&email=${encodeURIComponent(m.email)}&company=${encodeURIComponent(m.companyName || '')}&companyId=${encodeURIComponent(m.companyId || '')}&role=${m.role}`;
+    navigator.clipboard.writeText(inviteLink);
+    setCopiedInviteId(m.uid || m.email);
+    setTimeout(() => setCopiedInviteId(null), 3000);
+  };
 
   const handleStartEditManager = (m: UserAccount) => {
     setEditingManager(m);
@@ -641,11 +652,19 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                       const isOwner = m.role === 'client_admin';
                       const isEditorRole = m.role === 'editor';
                       const perms = getUserEffectivePermissions(m);
+                      const isPending = m.status === 'pending' || m.isInvitedPending;
 
                       return (
                         <tr key={m.uid || m.email || idx} className="hover:bg-slate-800/40 transition-colors">
                           <td className="py-3.5 px-4 font-extrabold text-white">
-                            {m.name || 'Pending Invitee'}
+                            <div className="flex items-center gap-2">
+                              <span>{m.name || (isPending ? (isEditorRole ? 'Invited Editor' : 'Invited Manager') : 'Staff Member')}</span>
+                              {isPending && (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  Pending Invite
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3.5 px-4 font-mono text-slate-300">
                             {m.email}
@@ -658,7 +677,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                                 : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
                             }`}>
-                              {isOwner ? '🎾 Client Admin' : isEditorRole ? '✏️ Editor' : '📋 Facility Manager'}
+                              {isOwner ? '🎾 Client Admin' : isEditorRole ? '✏️ Staff Editor' : '📋 Facility Manager'}
                             </span>
                           </td>
                           <td className="py-3.5 px-4">
@@ -702,34 +721,57 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
-                              m.status === 'active'
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border inline-flex items-center gap-1.5 ${
+                              isPending
+                                ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                                : m.status === 'active'
                                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                : 'bg-slate-800 border-slate-700 text-slate-400'
                             }`}>
-                              {m.status || 'pending'}
+                              <span className={`w-1.5 h-1.5 rounded-full ${isPending ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+                              <span>{isPending ? 'Pending Invitation' : (m.status || 'Active')}</span>
                             </span>
                           </td>
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyInviteLink(m)}
+                                  title="Copy Registration Invite Link"
+                                  className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
+                                >
+                                  {copiedInviteId === (m.uid || m.email) ? (
+                                    <>
+                                      <Check className="w-3.5 h-3.5 text-brand-emerald" />
+                                      <span className="text-brand-emerald">Copied!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3.5 h-3.5" />
+                                      <span>Copy Link</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleStartEditManager(m)}
-                                title={isOwner ? 'Configure Primary Host Email Notifications' : 'Edit Staff Access & Email Notifications'}
+                                title={isOwner ? 'Configure Primary Host Email Notifications' : isPending ? 'Edit Pending Staff Role' : 'Edit Staff Access & Email Notifications'}
                                 className="p-1.5 rounded-lg bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
                               >
                                 <Edit2 className="w-3.5 h-3.5 text-brand-lime" />
-                                <span>Manage Access</span>
+                                <span>{isPending ? 'Edit Role' : 'Manage Access'}</span>
                               </button>
                               {!isOwner ? (
                                 <button
                                   type="button"
                                   onClick={() => setDeletingManager(m)}
-                                  title="Delete Staff Account"
+                                  title={isPending ? 'Revoke Staff Invitation' : 'Delete Staff Account'}
                                   className="p-1.5 rounded-lg bg-red-950/30 border border-red-900/40 text-red-400 hover:bg-red-900/80 hover:text-white transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold px-2.5"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
-                                  <span>Delete</span>
+                                  <span>{isPending ? 'Revoke' : 'Delete'}</span>
                                 </button>
                               ) : (
                                 <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider px-1.5">Primary Host</span>
@@ -1111,9 +1153,21 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                 </div>
 
                 <div className="text-center space-y-2">
-                  <h3 className="text-lg font-bold text-white">Delete Facility Manager?</h3>
+                  <h3 className="text-lg font-bold text-white">
+                    {deletingManager.status === 'pending' || deletingManager.isInvitedPending
+                      ? 'Revoke Staff Invitation?'
+                      : 'Remove Staff Member?'}
+                  </h3>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    Are you sure you want to remove manager <strong className="text-white">{deletingManager.name || deletingManager.email}</strong> from your facility? They will immediately lose access.
+                    {deletingManager.status === 'pending' || deletingManager.isInvitedPending ? (
+                      <>
+                        Are you sure you want to revoke the invitation for <strong className="text-white">{deletingManager.name || deletingManager.email}</strong>? The registration link will become invalid and this pending invitee will be removed from your team roster.
+                      </>
+                    ) : (
+                      <>
+                        Are you sure you want to remove staff member <strong className="text-white">{deletingManager.name || deletingManager.email}</strong> from your facility? They will immediately lose staff access.
+                      </>
+                    )}
                   </p>
                 </div>
 
@@ -1132,11 +1186,11 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                     className="flex-1 py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-all cursor-pointer shadow-lg shadow-red-600/20 flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {managerActionLoading ? (
-                      <span>Deleting...</span>
+                      <span>Processing...</span>
                     ) : (
                       <>
                         <Trash2 className="w-4 h-4" />
-                        <span>Confirm Delete</span>
+                        <span>{deletingManager.status === 'pending' || deletingManager.isInvitedPending ? 'Revoke Invitation' : 'Confirm Remove'}</span>
                       </>
                     )}
                   </button>

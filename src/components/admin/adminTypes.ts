@@ -811,11 +811,11 @@ export interface PlayerMatchStats {
  * Robustly matches whether a court belongs to a given company / facility
  * by checking company ID, company name, client admin email, creator email, and owner ID.
  */
-export function isCourtAssociatedWithCompany(court: Court | any, company: Company | any): boolean {
+export function isCourtAssociatedWithCompany(court: Court | any, company: Company | any, currentUser?: { uid?: string; email?: string } | null): boolean {
   if (!court || !company) return false;
 
   // 1. Direct companyId match
-  if (court.companyId && court.companyId === company.id) return true;
+  if (court.companyId && (court.companyId === company.id || (company.id && court.companyId.toString() === company.id.toString()))) return true;
 
   // 2. Company Name match (case-insensitive, ignoring generic placeholders)
   const compName = (company.name || '').trim().toLowerCase();
@@ -826,15 +826,27 @@ export function isCourtAssociatedWithCompany(court: Court | any, company: Compan
   }
 
   // 3. Client Admin Email / Creator Email match
-  const adminEmail = (company.clientAdminEmail || '').trim().toLowerCase();
+  const adminEmail = (company.clientAdminEmail || company.email || '').trim().toLowerCase();
   if (adminEmail) {
     if (court.ownerEmail && court.ownerEmail.trim().toLowerCase() === adminEmail) return true;
     if (court.createdByEmail && court.createdByEmail.trim().toLowerCase() === adminEmail) return true;
     if (court.ownerId && court.ownerId.trim().toLowerCase() === adminEmail) return true;
   }
 
-  // 4. Owner ID match with company ID
+  // 4. Owner ID match with company ID, company ownerId, or clientAdminUid
   if (court.ownerId && court.ownerId === company.id) return true;
+  if (court.ownerId && company.ownerId && court.ownerId === company.ownerId) return true;
+  if (court.ownerId && company.clientAdminUid && court.ownerId === company.clientAdminUid) return true;
+
+  // 5. Current User UID / Email match if court was authored by current client admin
+  if (currentUser) {
+    if (currentUser.uid && court.ownerId && court.ownerId === currentUser.uid) return true;
+    if (currentUser.email) {
+      const uEmail = currentUser.email.trim().toLowerCase();
+      if (court.ownerEmail && court.ownerEmail.trim().toLowerCase() === uEmail) return true;
+      if (court.createdByEmail && court.createdByEmail.trim().toLowerCase() === uEmail) return true;
+    }
+  }
 
   return false;
 }

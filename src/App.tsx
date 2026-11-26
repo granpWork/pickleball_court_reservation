@@ -919,7 +919,7 @@ function App() {
       ...loggedInUser,
       role: finalRole,
       status: userStatus,
-      isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
+      isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
     };
 
     setUser(updatedUser);

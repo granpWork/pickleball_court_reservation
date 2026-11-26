@@ -27,6 +27,7 @@ import {
   Tag,
   LayoutDashboard,
   MessageSquare,
+  Info,
 } from 'lucide-react';
 import { AdminMessengerPreviewModal } from '../modals/AdminMessengerPreviewModal';
 import { type BookingMessengerData } from '../../../utils/messengerTemplateUtils';
@@ -1418,6 +1419,28 @@ export const AdminBookingsTab: React.FC<AdminBookingsTabProps> = ({
                 )}
               </div>
             </div>
+
+            {/* Client Admin Scoped Empty State Notification */}
+            {!isSuperAdmin && calendarFilteredBookings.length === 0 && (
+              <div className="p-4 rounded-2xl bg-brand-lime/5 border border-brand-lime/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <Info className="w-4 h-4 text-brand-lime shrink-0" />
+                  <span className="text-slate-300">
+                    Your facility <strong className="text-white">{myCompany?.name || 'Venue'}</strong> has no reservations recorded yet. New public customer bookings and manual entries for your courts will appear here in real time.
+                  </span>
+                </div>
+                {onOpenManualBookingModal && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenManualBookingModal()}
+                    className="px-3.5 py-1.5 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs hover:bg-[#a6e224] transition-all cursor-pointer shrink-0 shadow-md active:scale-95 flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                    <span>Create First Reservation</span>
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Main Grid: Left Column Calendar (7 cols), Right Column Selected Day Schedule (5 cols) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">

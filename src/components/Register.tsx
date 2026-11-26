@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, User, Mail, Lock, Eye, EyeOff, AlertCircle, Shield, ShieldCheck, Loader2 } from 'lucide-react';
 import { auth, db, googleProvider, isFirebaseConfigured } from '../firebase';
 import { createUserWithEmailAndPassword, updateProfile, signInWithPopup, signOut, signInWithRedirect } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from '../services/emailService';
 
 interface RegisterProps {
@@ -47,6 +47,11 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
   const [invalidInviteReason, setInvalidInviteReason] = useState<string | null>(null);
   const [invitedRole, setInvitedRole] = useState<'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player' | null>(null);
   const [verifiedInviteData, setVerifiedInviteData] = useState<any>(null);
+
+  const urlRole = (new URLSearchParams(window.location.search).get('role') as any) || null;
+  const currentAssignedRole = invitedRole || verifiedInviteData?.role || urlRole;
+  const isStaffRole = currentAssignedRole === 'manager' || currentAssignedRole === 'editor';
+  const roleTitle = currentAssignedRole === 'editor' ? 'Staff Editor' : currentAssignedRole === 'manager' ? 'Facility Manager' : currentAssignedRole === 'super_admin' ? 'Super Admin' : 'Client Admin';
 
   useEffect(() => {
     const validateInviteToken = async () => {
@@ -159,6 +164,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           status: 'used',
           usedAt: new Date().toISOString()
         });
+        await deleteDoc(doc(db, 'users', `invited-${token}`)).catch(() => {});
       } catch (fErr) {
         console.warn('Could not mark invitation used in Firestore:', fErr);
       }
@@ -394,13 +400,20 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
 
         const finalRole = invitedRole
           ? invitedRole
+          : verifiedInviteData?.role
+          ? (verifiedInviteData.role as any)
+          : urlRole
+          ? (urlRole as any)
           : isClientAdminInvite
           ? 'client_admin'
           : googleEmail === 'admin@picklepoint.com'
           ? 'super_admin'
           : 'player';
 
-        const displayName = fbUser.displayName || name || 'Client Admin';
+        const isClientAdminFinal = finalRole === 'client_admin';
+        const finalCompanyId = verifiedInviteData?.companyId || urlCompanyId || '';
+        const finalCompanyName = verifiedInviteData?.company || invitedCompany || '';
+        const displayName = fbUser.displayName || name || (finalRole === 'editor' ? 'Staff Editor' : finalRole === 'manager' ? 'Facility Manager' : finalRole === 'client_admin' ? 'Client Admin' : 'Member');
 
         if (db) {
           try {
@@ -412,12 +425,28 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
                 name: displayName,
                 email: fbUser.email || '',
                 role: finalRole,
+                companyId: finalCompanyId,
+                companyName: finalCompanyName,
+                permissions: verifiedInviteData?.permissions || undefined,
                 status: 'active',
-                needsOnboarding: isClientAdminInvite,
+                needsOnboarding: isClientAdminFinal,
+                subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
+                subscriptionStatus: verifiedInviteData?.subscriptionStatus || 'active',
+                subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
+                isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
+                trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
                 createdAt: new Date().toISOString(),
               },
               { merge: true }
             );
+
+            // If client admin and company ID present, link email
+            if (finalCompanyId && isClientAdminFinal) {
+              await setDoc(doc(db, 'companies', finalCompanyId), {
+                clientAdminEmail: googleEmail,
+                name: finalCompanyName || undefined,
+              }, { merge: true });
+            }
           } catch (e) {
             console.error('Error checking user during Google registration:', e);
           }
@@ -442,8 +471,16 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
           name: displayName,
           email: fbUser.email || '',
           role: finalRole,
-          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager',
-          needsOnboarding: finalRole === 'client_admin',
+          companyId: finalCompanyId,
+          companyName: finalCompanyName,
+          permissions: verifiedInviteData?.permissions,
+          isAdmin: finalRole === 'super_admin' || finalRole === 'client_admin' || finalRole === 'manager' || finalRole === 'editor',
+          needsOnboarding: isClientAdminFinal,
+          subscriptionPlan: verifiedInviteData?.subscriptionPlan || (verifiedInviteData?.isTrialClient ? 'trial' : undefined),
+          subscriptionStatus: verifiedInviteData?.subscriptionStatus || 'active',
+          subscriptionExpiresAt: verifiedInviteData?.subscriptionExpiresAt || undefined,
+          isTrialClient: verifiedInviteData?.isTrialClient || verifiedInviteData?.subscriptionPlan === 'trial' || false,
+          trialExpiresAt: verifiedInviteData?.trialExpiresAt || undefined,
         });
         setLoading(false);
       } catch (err) {
@@ -592,21 +629,35 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
             </div>
           </div>
         ) : isVerifiedInvite ? (
-          <div className="mb-6 p-4 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-left animate-fade-in">
-            <div className="flex items-center gap-2 font-bold text-brand-lime text-xs uppercase tracking-wider mb-1">
-              <ShieldCheck className="w-4 h-4 text-brand-lime" /> Verified Client Admin Invitation
+          <div className="mb-6 p-4 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-left animate-fade-in space-y-2">
+            <div className="flex items-center gap-2 font-bold text-brand-lime text-xs uppercase tracking-wider">
+              <ShieldCheck className="w-4 h-4 text-brand-lime" /> Verified {roleTitle} Invitation
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              You are registering an authorized <strong>Client Admin</strong> account for <span className="text-brand-lime font-mono">{email}</span>. Complete your password to proceed to facility onboarding.
+              {isStaffRole ? (
+                <>
+                  You are registering an authorized <strong>{roleTitle}</strong> account for {invitedCompany ? <strong className="text-white">{invitedCompany}</strong> : 'your facility'} (<span className="text-brand-lime font-mono">{email}</span>). Set your password to complete setup and access the dashboard.
+                </>
+              ) : (
+                <>
+                  You are registering an authorized <strong>Client Admin</strong> account for <span className="text-brand-lime font-mono">{email}</span>. Complete your password to proceed to facility onboarding.
+                </>
+              )}
             </p>
+            {invitedCompany && (
+              <div className="pt-2 border-t border-brand-lime/20 flex items-center justify-between text-xs">
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Assigned Facility:</span>
+                <span className="font-extrabold text-white text-xs">{invitedCompany}</span>
+              </div>
+            )}
           </div>
         ) : urlEmail && (
-          <div className="mb-6 p-4 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-left animate-fade-in">
-            <div className="flex items-center gap-2 font-bold text-brand-lime text-xs uppercase tracking-wider mb-1">
-              <Shield className="w-4 h-4 text-brand-lime" /> Client Admin Invitation
+          <div className="mb-6 p-4 rounded-2xl bg-brand-lime/10 border border-brand-lime/30 text-left animate-fade-in space-y-1.5">
+            <div className="flex items-center gap-2 font-bold text-brand-lime text-xs uppercase tracking-wider">
+              <Shield className="w-4 h-4 text-brand-lime" /> {roleTitle} Invitation
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              You have been invited as Client Admin {invitedCompany ? `for ${invitedCompany}` : ''}! Register your account to activate your dashboard access.
+              You have been invited as {roleTitle} {invitedCompany ? `for ${invitedCompany}` : ''}! Register your account to activate your dashboard access.
             </p>
           </div>
         )}
@@ -624,7 +675,7 @@ export default function Register({ setView, onLoginSuccess, invitationNotice }: 
             </svg>
           </div>
           <h2 className="text-3xl font-bold text-white">
-            {isVerifiedInvite ? 'Client Admin Setup' : 'Create Account'}
+            {isVerifiedInvite ? `${roleTitle} Setup` : 'Create Account'}
           </h2>
           <p className="text-slate-400 text-base font-normal mt-1.5">
             {isVerifiedInvite ? 'Set your secure password to get started' : 'Join the Book Picklecourt community today'}

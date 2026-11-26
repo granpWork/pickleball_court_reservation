@@ -852,14 +852,34 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       showModalAlert('Access Denied', 'Only Administrators can send invitations.', 'warning');
       return;
     }
-    if (!isSuperAdmin && isClientAdmin && inviteRoleInput !== 'manager' && inviteRoleInput !== 'editor') {
-      showModalAlert('Access Denied', 'Client Administrators can only send invitations for Manager or Editor roles.', 'warning');
+    if (!isSuperAdmin && (inviteRoleInput === 'client_admin' || inviteRoleInput === 'super_admin' || inviteRoleInput === 'player')) {
+      showModalAlert('Access Denied', 'Client Administrators can only send invitations for Facility Manager or Staff Editor roles.', 'warning');
       return;
     }
     if (!inviteEmailInput) return;
     if (isSuperAdmin && inviteRoleInput === 'client_admin' && !inviteCompanyNameInput.trim()) {
       showModalAlert('Missing Field', 'Assigned Facility / Company Name is required when inviting a Client Admin.', 'warning');
       return;
+    }
+
+    // 1 Client Admin Rule: Enforce strictly 1 Client Admin per organization / company / club
+    if (inviteRoleInput === 'client_admin') {
+      const assignedTargetName = inviteCompanyNameInput.trim().toLowerCase();
+      const existingComp = companies.find(
+        (c) => c.name?.trim().toLowerCase() === assignedTargetName
+      );
+      if (
+        existingComp &&
+        existingComp.clientAdminEmail &&
+        existingComp.clientAdminEmail.toLowerCase() !== inviteEmailInput.toLowerCase().trim()
+      ) {
+        showModalAlert(
+          'Client Admin Limit Reached',
+          `Facility "${existingComp.name}" already has an assigned Client Admin (${existingComp.clientAdminEmail}). An organization can only have one Client Admin.`,
+          'warning'
+        );
+        return;
+      }
     }
 
     setInviteLoading(true);
@@ -893,7 +913,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         ? inviteCompanyNameInput.trim()
         : (inviteCompanyNameInput.trim() || 'Global Platform');
 
-      let targetCompanyId = myCompany?.id || (user as any)?.companyId || '';
+      let targetCompanyId = isClientAdmin
+        ? (myCompany?.id || (user as any)?.companyId || companies.find(c => c.clientAdminEmail?.toLowerCase() === (user?.email || '').toLowerCase())?.id || '')
+        : (myCompany?.id || (user as any)?.companyId || '');
 
       if (inviteRoleInput === 'client_admin') {
         const assignedCompName = assignedCompany;
@@ -971,7 +993,40 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       if (db) {
         await setDoc(doc(db, 'invitations', inviteToken), inviteData);
+
+        // Write placeholder user document with pending status and companyId so it immediately shows in the roster
+        const pendingUserPayload: Record<string, any> = {
+          uid: `invited-${inviteToken}`,
+          email: inviteEmailInput.toLowerCase().trim(),
+          name: inviteNameInput.trim() || (inviteRoleInput === 'editor' ? 'Invited Editor' : inviteRoleInput === 'manager' ? 'Invited Manager' : 'Invited Client Admin'),
+          role: inviteRoleInput,
+          companyId: targetCompanyId || '',
+          companyName: assignedCompany || '',
+          permissions: getUserEffectivePermissions({ role: inviteRoleInput }),
+          status: 'pending',
+          isInvitedPending: true,
+          inviteToken,
+          createdAt: new Date().toISOString(),
+          invitedBy: (user as any)?.email || 'admin@picklepoint.com',
+        };
+        await setDoc(doc(db, 'users', `invited-${inviteToken}`), pendingUserPayload);
       }
+
+      // Optimistically add to users state
+      const newPendingUserObj: UserAccount = {
+        uid: `invited-${inviteToken}`,
+        email: inviteEmailInput.toLowerCase().trim(),
+        name: inviteNameInput.trim() || (inviteRoleInput === 'editor' ? 'Invited Editor' : inviteRoleInput === 'manager' ? 'Invited Manager' : 'Invited Client Admin'),
+        role: inviteRoleInput,
+        companyId: targetCompanyId || '',
+        companyName: assignedCompany || '',
+        permissions: getUserEffectivePermissions({ role: inviteRoleInput }),
+        status: 'pending',
+        isInvitedPending: true,
+        inviteToken,
+        createdAt: new Date().toISOString(),
+      };
+      setUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== newPendingUserObj.email.toLowerCase()), newPendingUserObj]);
 
       await sendUserInvitationEmail({
         toEmail: inviteEmailInput.toLowerCase().trim(),
@@ -3356,9 +3411,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     try {
       if (isFirebaseConfigured && db) {
         // Parallel queries via Promise.allSettled to drastically reduce network round trips on mobile
-        const compPromise = isSuperAdmin
-          ? getDocs(collection(db, 'companies'))
-          : (currentUserEmail ? getDocs(query(collection(db, 'companies'), where('clientAdminEmail', '==', currentUserEmail))) : Promise.resolve(null));
+        // Fetch all companies globally so client admins and staff always resolve their facility record reliably
+        const compPromise = getDocs(collection(db, 'companies'));
         const courtsPromise = getDocs(collection(db, 'courts'));
         const bookingsPromise = getDocs(collection(db, 'bookings'));
         const usersPromise = getDocs(collection(db, 'users'));
@@ -5496,6 +5550,27 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const handleSaveManager = async (updatedManager: UserAccount) => {
     try {
       const targetEmailLower = updatedManager.email.toLowerCase();
+
+      // Guard: Client Admin cannot promote staff to client_admin or super_admin
+      if (!isSuperAdmin && (updatedManager.role === 'client_admin' || updatedManager.role === 'super_admin')) {
+        showModalAlert('Access Denied', 'Staff roles cannot be changed to Client Admin or Super Admin.', 'warning');
+        return;
+      }
+
+      // Single Client Admin Rule: Enforce strictly 1 Client Admin per company
+      if (updatedManager.role === 'client_admin') {
+        const compId = updatedManager.companyId || myCompany?.id;
+        const existingComp = companies.find((c) => c.id === compId);
+        if (existingComp?.clientAdminEmail && existingComp.clientAdminEmail.toLowerCase() !== targetEmailLower) {
+          showModalAlert(
+            'Client Admin Limit Reached',
+            `Facility "${existingComp.name}" already has an assigned Client Admin (${existingComp.clientAdminEmail}). An organization can only have one Client Admin.`,
+            'warning'
+          );
+          return;
+        }
+      }
+
       if (isFirebaseConfigured && db) {
         const currentDb = db;
         const querySnapshot = await getDocs(collection(currentDb, 'users'));
@@ -5517,7 +5592,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
 
         if (updatedManager.inviteToken || updatedManager.isInvitedPending) {
-          const invToken = updatedManager.inviteToken || updatedManager.uid?.replace('invite-', '');
+          const invToken = updatedManager.inviteToken || updatedManager.uid?.replace('invite-', '').replace('invited-', '');
           if (invToken) {
             await updateDoc(doc(currentDb, 'invitations', invToken), {
               name: updatedManager.name,
@@ -5594,7 +5669,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         const currentDb = db;
         const deletePromises: Promise<any>[] = [];
 
-        // 1. Update/Create matching user document in /users (preserve full record with role: 'player')
+        // 1. Update/Create matching user document in /users (preserve full record with role: 'player' unless invited pending)
         const querySnapshot = await getDocs(collection(currentDb, 'users'));
         let foundUserDoc = false;
 
@@ -5602,22 +5677,26 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           const dEmail = docSnap.data().email?.toLowerCase();
           if (dEmail === targetEmailLower || docSnap.id === managerToDelete.uid) {
             foundUserDoc = true;
-            deletePromises.push(
-              setDoc(doc(currentDb, 'users', docSnap.id), {
-                status: 'active',
-                role: 'player',
-                companyId: '',
-                companyName: '',
-                permissions: {},
-                isInvitedPending: false,
-                updatedAt: new Date().toISOString()
-              }, { merge: true }).catch(() => {})
-            );
+            if (docSnap.id.startsWith('invited-') || (managerToDelete.uid && managerToDelete.uid.startsWith('invited-'))) {
+              deletePromises.push(deleteDoc(doc(currentDb, 'users', docSnap.id)).catch(() => {}));
+            } else {
+              deletePromises.push(
+                setDoc(doc(currentDb, 'users', docSnap.id), {
+                  status: 'active',
+                  role: 'player',
+                  companyId: '',
+                  companyName: '',
+                  permissions: {},
+                  isInvitedPending: false,
+                  updatedAt: new Date().toISOString()
+                }, { merge: true }).catch(() => {})
+              );
+            }
           }
         });
 
-        // If no user document existed yet in /users (e.g. pending invited state), create one to preserve user data
-        if (!foundUserDoc) {
+        // If no user document existed yet in /users and not a pending invite, create one to preserve user data
+        if (!foundUserDoc && !managerToDelete.isInvitedPending && !managerToDelete.uid?.startsWith('invited-')) {
           const userDocId = managerToDelete.uid && !managerToDelete.uid.startsWith('invite-') 
             ? managerToDelete.uid 
             : `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -5653,7 +5732,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         }
 
         if (managerToDelete.inviteToken || managerToDelete.isInvitedPending) {
-          const invToken = managerToDelete.inviteToken || managerToDelete.uid?.replace('invite-', '');
+          const invToken = managerToDelete.inviteToken || managerToDelete.uid?.replace('invite-', '').replace('invited-', '');
           if (invToken) {
             deletePromises.push(
               updateDoc(doc(currentDb, 'invitations', invToken), {
@@ -5668,7 +5747,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       }
 
       setUsers((prev) => prev.filter((u) => u.email.toLowerCase() !== targetEmailLower));
-      showModalAlert('Staff Member Removed', `Staff member ${managerToDelete.name || managerToDelete.email} manager privileges removed. Account updated to Player role.`, 'success');
+      const wasPending = managerToDelete.status === 'pending' || managerToDelete.isInvitedPending;
+      showModalAlert(
+        wasPending ? 'Staff Invitation Revoked' : 'Staff Member Removed',
+        wasPending
+          ? `Invitation for ${managerToDelete.name || managerToDelete.email} has been revoked and removed from team roster.`
+          : `Staff member ${managerToDelete.name || managerToDelete.email} manager privileges removed. Account updated to Player role.`,
+        'success'
+      );
     } catch (err) {
       console.error('Failed to remove manager:', err);
       showModalAlert('Deletion Failed', 'Failed to remove manager: ' + (err as Error).message, 'error');
@@ -6901,8 +6987,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
   // 1. Scoped Courts & Court IDs
   const effectiveAdminCourts = isSuperAdmin
-    ? (targetScopedCompany ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetScopedCompany)) : courts)
-    : (targetScopedCompany ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetScopedCompany)) : availableAdminCourts);
+    ? (targetScopedCompany ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetScopedCompany, user as any)) : courts)
+    : (targetScopedCompany
+        ? courts.filter((c) => isCourtAssociatedWithCompany(c, targetScopedCompany, user as any) || (currentUserUid && c.ownerId === currentUserUid) || (currentUserEmail && c.ownerEmail?.toLowerCase() === currentUserEmail.toLowerCase()))
+        : availableAdminCourts);
   const effectiveAdminCourtIds = new Set(effectiveAdminCourts.map((c) => c.id));
 
   // Helper to verify if an open play / matrix event belongs to targetScopedCompany
@@ -6914,6 +7002,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (evEmail && targetScopedCompany.clientAdminEmail && evEmail.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase()) return true;
     if (ev.courtIds && ev.courtIds.some((id) => effectiveAdminCourtIds.has(id))) return true;
     if (ev.companyName && targetScopedCompany.name && ev.companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
+    if (currentUserEmail && evEmail && evEmail.toLowerCase() === currentUserEmail.toLowerCase()) return true;
     return false;
   };
 
@@ -6951,6 +7040,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     if (b.courtName && effectiveAdminCourts.some((c) => c.name.toLowerCase() === b.courtName?.toLowerCase())) return true;
     if (b.ownerCompanyName && targetScopedCompany.name && b.ownerCompanyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) return true;
     if (b.ownerEmail && targetScopedCompany.clientAdminEmail && b.ownerEmail.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase()) return true;
+    if (currentUserEmail && b.ownerEmail && b.ownerEmail.toLowerCase() === currentUserEmail.toLowerCase()) return true;
+    if (currentUserUid && b.courtOwnerId && b.courtOwnerId === currentUserUid) return true;
     return false;
   };
 
@@ -7628,7 +7719,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               }}
               teamMembers={users.filter(u =>
                 (u.role === 'manager' || u.role === 'editor' || u.role === 'client_admin') &&
-                (!targetSuperAdminComp && !myCompany?.id ? true : u.companyId === (targetSuperAdminComp?.id || myCompany?.id))
+                (isSuperAdmin && !targetScopedCompany ? true : targetScopedCompany ? (
+                  u.companyId === targetScopedCompany.id ||
+                  (u.companyName && targetScopedCompany.name && u.companyName.toLowerCase() === targetScopedCompany.name.toLowerCase()) ||
+                  (u.email && targetScopedCompany.clientAdminEmail && u.email.toLowerCase() === targetScopedCompany.clientAdminEmail.toLowerCase())
+                ) : myCompany?.id ? u.companyId === myCompany.id : true)
               )}
               onSaveManager={handleSaveManager}
               onDeleteManager={handleDeleteManager}
@@ -13040,12 +13135,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               </div>
               <div>
                 <h3 className="text-lg font-bold text-white">
-                  {isSuperAdmin ? 'Invite Platform User' : `Invite Facility Manager`}
+                  {isSuperAdmin ? 'Invite Platform User' : `Invite Facility Staff`}
                 </h3>
                 <p className="text-xs text-slate-400">
                   {isSuperAdmin
                     ? 'Issue an authorized invitation link to register a new user on Book Picklecourt.'
-                    : `Issue a single-use registration link for a new manager at ${effectiveOrgName || 'your facility'}.`}
+                    : `Issue an authorized registration link for a new staff member at ${effectiveOrgName || myCompany?.name || 'your facility'}.`}
                 </p>
               </div>
             </div>
@@ -13215,6 +13310,33 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime font-mono"
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Recipient Name (Optional)</label>
+                <input
+                  type="text"
+                  value={inviteNameInput}
+                  onChange={(e) => setInviteNameInput(e.target.value)}
+                  placeholder="e.g. Juan dela Cruz"
+                  className="w-full bg-[#050711] border border-slate-800 rounded-xl p-3 text-xs font-semibold text-white focus:outline-none focus:border-brand-lime"
+                />
+              </div>
+
+              {/* Locked Facility Badge for Client Admin */}
+              {!isSuperAdmin && (
+                <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1.5 animate-fade-in">
+                  <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                    Assigned Organization / Facility
+                  </label>
+                  <div className="flex items-center gap-2 text-xs font-bold text-brand-lime">
+                    <Building2 className="w-4 h-4 text-brand-lime/80" />
+                    <span>{effectiveOrgName || myCompany?.name || 'Your Facility'}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Invited staff member will be tagged as Pending and linked to this facility.
+                  </p>
+                </div>
+              )}
 
               {/* Dynamic Field: Facility / Company Name for Client Admin */}
               {inviteRoleInput === 'client_admin' && (
