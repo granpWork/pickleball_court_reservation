@@ -121,6 +121,7 @@ export interface Booking {
   refundRequestReason?: string;
   refundRequestedAt?: string;
   refundRequestStatus?: 'pending' | 'approved' | 'rejected';
+  issuedVoucherCode?: string;
   courtOwnerId?: string;
   ownerEmail?: string;
   ownerPhone?: string;

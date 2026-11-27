@@ -29,6 +29,8 @@ import {
   LayoutGrid,
   Table as TableIcon,
   MoreHorizontal,
+  Tag,
+  AlertCircle,
 } from 'lucide-react';
 import { type Booking, type GcashAccount, type UserAccount, type UserPermissions, type Court, type BookingUpdatePayload, SLOTS, getSlotPrice } from '../adminTypes';
 import { type OpenPlayEvent } from '../../OpenPlayDetails';
@@ -49,7 +51,7 @@ interface AdminCheckoutsTabProps {
   actionLoading: string | null;
   onApproveBooking: (b: Booking) => void;
   onRejectBooking: (b: Booking) => void;
-  onRefundBooking: (b: Booking) => void;
+  onRefundBooking: (b: Booking, initialMode?: 'refund' | 'voucher' | 'no_refund') => void;
   onViewReceipt: (url: string) => void;
   onNavigateToBookings?: () => void;
   onUpdateManualBooking?: (
@@ -407,8 +409,40 @@ Thank you!`;
     (b) => b.paymentStatus === 'pending_verification' || b.paymentStatus === 'pending' || b.status === 'pending'
   ).length;
 
+  const [showOnlyCancellationRequests, setShowOnlyCancellationRequests] = useState<boolean>(false);
+
+  const isUnresolvedCancellationRequest = (b: Booking): boolean => {
+    if (!b.refundRequested) return false;
+    if (b.refundRequestStatus === 'approved' || b.refundRequestStatus === 'rejected') return false;
+    if (b.paymentStatus === 'refunded' || b.paymentStatus === 'rebooking_credit' || b.paymentStatus === 'cancelled_no_refund') return false;
+    return true;
+  };
+
+  const canResolveOrRefundBooking = (b: Booking): boolean => {
+    if (b.paymentStatus === 'refunded' || b.paymentStatus === 'rebooking_credit' || b.paymentStatus === 'cancelled_no_refund') return false;
+    if (isUnresolvedCancellationRequest(b)) return true;
+    return b.paymentStatus === 'paid' || b.paymentStatus === 'completed' || b.status === 'approved';
+  };
+
+  const getIssuedVoucherCode = (b: Booking): string | undefined => {
+    if (b.issuedVoucherCode) return b.issuedVoucherCode;
+    if (b.refundReason && b.refundReason.startsWith('Credit Voucher Issued:')) {
+      return b.refundReason.replace('Credit Voucher Issued:', '').trim();
+    }
+    return undefined;
+  };
+
+  const pendingCancellationRequestsCount = useMemo(
+    () => checkouts.filter(isUnresolvedCancellationRequest).length,
+    [checkouts]
+  );
+
   const displayCheckouts = useMemo(() => {
-    return filteredCheckouts.filter((b) => {
+    const sourceList = showOnlyCancellationRequests
+      ? checkouts.filter((b) => b.refundRequested)
+      : filteredCheckouts;
+
+    return sourceList.filter((b) => {
       if (checkoutDateFilter) {
         const matchesDate = b.date === checkoutDateFilter || (b.createdAt && b.createdAt.startsWith(checkoutDateFilter));
         if (!matchesDate) return false;
@@ -421,18 +455,20 @@ Thank you!`;
         const bRef = (b.bookingReference || b.bookingId || b.id || '').toLowerCase();
         const bGcash = (b.gcashReferenceNumber || '').toLowerCase();
         const bCourt = (b.courtName || '').toLowerCase();
+        const bReason = (b.refundRequestReason || '').toLowerCase();
         const matchesSearch =
           bName.includes(q) ||
           bEmail.includes(q) ||
           bPhone.includes(q) ||
           bRef.includes(q) ||
           bGcash.includes(q) ||
-          bCourt.includes(q);
+          bCourt.includes(q) ||
+          bReason.includes(q);
         if (!matchesSearch) return false;
       }
       return true;
     });
-  }, [filteredCheckouts, checkoutDateFilter, searchQuery]);
+  }, [filteredCheckouts, checkouts, showOnlyCancellationRequests, checkoutDateFilter, searchQuery]);
 
   return (
     <div className="space-y-8 animate-fade-in text-left">
@@ -466,13 +502,16 @@ Thank you!`;
             </div>
           </div>
 
-          {/* Right: Queue Switcher (Action Required vs Audit History) */}
-          <div className="grid grid-cols-2 sm:flex items-center p-1 bg-slate-950/80 border border-slate-800 rounded-xl sm:rounded-2xl shrink-0 w-full sm:w-auto">
+          {/* Right: Queue Switcher (Action Required vs Cancellation Requests vs Audit History) */}
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1 p-1 bg-slate-950/80 border border-slate-800 rounded-xl sm:rounded-2xl shrink-0 w-full sm:w-auto">
             <button
               type="button"
-              onClick={() => setCheckoutStatusFilter('pending')}
-              className={`min-h-[44px] px-3.5 sm:px-4 py-2 rounded-lg sm:rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-                checkoutStatusFilter === 'pending'
+              onClick={() => {
+                setShowOnlyCancellationRequests(false);
+                setCheckoutStatusFilter('pending');
+              }}
+              className={`min-h-[44px] px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                !showOnlyCancellationRequests && checkoutStatusFilter === 'pending'
                   ? 'bg-amber-500/20 border border-amber-500/40 text-amber-300 shadow-md font-black'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
               }`}
@@ -487,15 +526,42 @@ Thank you!`;
 
             <button
               type="button"
-              onClick={() => setCheckoutStatusFilter('all')}
-              className={`min-h-[44px] px-3.5 sm:px-4 py-2 rounded-lg sm:rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
-                checkoutStatusFilter !== 'pending'
+              onClick={() => {
+                setShowOnlyCancellationRequests(false);
+                setCheckoutStatusFilter('all');
+              }}
+              className={`min-h-[44px] px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                !showOnlyCancellationRequests && checkoutStatusFilter !== 'pending'
                   ? 'bg-slate-800 border border-slate-700 text-white shadow-md font-black'
                   : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
               }`}
             >
               <span>Audit History</span>
               <span className="text-[10px] text-slate-400 font-mono">({checkouts.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowOnlyCancellationRequests((prev) => !prev)}
+              className={`col-span-2 sm:col-span-1 min-h-[44px] px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                showOnlyCancellationRequests
+                  ? 'bg-purple-600/30 border border-purple-400/60 text-purple-200 shadow-md font-black'
+                  : pendingCancellationRequestsCount > 0
+                  ? 'bg-purple-500/15 border border-purple-500/30 text-purple-300 hover:bg-purple-500/25'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+              }`}
+            >
+              <Tag className="w-3.5 h-3.5 text-brand-lime shrink-0" />
+              <span>Cancellation Requests</span>
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                  pendingCancellationRequestsCount > 0
+                    ? 'bg-brand-lime text-slate-950 animate-pulse'
+                    : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {pendingCancellationRequestsCount}
+              </span>
             </button>
           </div>
         </div>
@@ -949,24 +1015,152 @@ Thank you!`;
                       </div>
                     </div>
 
+                    {/* PLAYER CANCELLATION REQUEST & VOUCHER RESOLUTION BANNER (Mobile, Tablet & Desktop Card View) */}
+                    {(booking.refundRequested || booking.paymentStatus === 'rebooking_credit' || getIssuedVoucherCode(booking)) && (
+                      <div
+                        className={`p-3.5 sm:p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all ${
+                          isUnresolvedCancellationRequest(booking)
+                            ? 'bg-purple-950/30 border-purple-500/40 shadow-lg shadow-purple-950/20'
+                            : booking.paymentStatus === 'rebooking_credit' || getIssuedVoucherCode(booking)
+                            ? 'bg-brand-lime/10 border-brand-lime/30'
+                            : 'bg-slate-950/60 border-slate-800'
+                        }`}
+                      >
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                isUnresolvedCancellationRequest(booking)
+                                  ? 'bg-purple-500/20 border-purple-400/50 text-purple-200 animate-pulse'
+                                  : booking.paymentStatus === 'rebooking_credit' || getIssuedVoucherCode(booking)
+                                  ? 'bg-brand-lime/20 border-brand-lime/40 text-brand-lime'
+                                  : booking.paymentStatus === 'refunded'
+                                  ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                  : 'bg-rose-500/20 border-rose-500/40 text-rose-300'
+                              }`}
+                            >
+                              <AlertCircle className="w-3 h-3 shrink-0" />
+                              {isUnresolvedCancellationRequest(booking)
+                                ? 'Cancellation Request Pending Review'
+                                : booking.paymentStatus === 'rebooking_credit' || getIssuedVoucherCode(booking)
+                                ? 'Resolved via Rebooking Voucher'
+                                : booking.paymentStatus === 'refunded'
+                                ? 'Resolved via Monetary Refund'
+                                : 'Cancellation Request Rejected'}
+                            </span>
+
+                            {booking.refundRequestedAt && (
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Requested: {formatTimestamp(booking.refundRequestedAt)}
+                              </span>
+                            )}
+                          </div>
+
+                          {booking.refundRequestReason && (
+                            <div className="text-xs text-slate-200 bg-slate-950/70 border border-slate-800/80 rounded-xl px-3 py-2 leading-relaxed">
+                              <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 block mb-0.5">
+                                Player&apos;s Cancellation Reason:
+                              </span>
+                              <span className="font-medium text-white">&ldquo;{booking.refundRequestReason}&rdquo;</span>
+                            </div>
+                          )}
+
+                          {/* Issued Voucher Code Badge if resolved with voucher */}
+                          {(() => {
+                            const vCode = getIssuedVoucherCode(booking);
+                            if (!vCode) return null;
+                            return (
+                              <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                                <span className="text-[11px] text-slate-300 font-bold">Issued Voucher:</span>
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-brand-lime/40 font-mono text-xs font-black text-brand-lime">
+                                  <Tag className="w-3 h-3 text-brand-lime" />
+                                  {vCode}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(vCode);
+                                    setCopiedShareId(`vcode-${booking.id}`);
+                                    setTimeout(() => setCopiedShareId(null), 2500);
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  {copiedShareId === `vcode-${booking.id}` ? (
+                                    <>
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                      <span className="text-emerald-400">Copied</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3" />
+                                      <span>Copy Code</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Action Buttons for Unresolved Cancellation Request */}
+                        {!isSuperAdmin && isUnresolvedCancellationRequest(booking) && (
+                          <div className="flex flex-col xs:flex-row sm:flex-col md:flex-row items-stretch sm:items-end md:items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => onRefundBooking(booking, 'voucher')}
+                              className="min-h-[44px] px-4 py-2.5 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-brand-lime/20 transition-all active:scale-95"
+                            >
+                              <Tag className="w-4 h-4 stroke-[2.5]" />
+                              <span>Valid Reason &rarr; Issue Voucher</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onRefundBooking(booking, 'refund')}
+                              className="min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                              <span>Refund / Reject</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* INLINE COLLAPSIBLE DRAWER (EXPANDED ON "..." CLICK) */}
                     {isExpanded && (
                       <div className="space-y-3 pt-3 border-t border-slate-800/80 animate-fade-in text-xs">
-                        {/* Refund option (if booking is already paid) */}
-                        {!isSuperAdmin && (booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
-                          <div className="flex items-center justify-between p-3 rounded-xl bg-purple-950/20 border border-purple-500/30">
+                        {/* Refund / Voucher option (if booking is paid or has pending cancellation request) */}
+                        {!isSuperAdmin && canResolveOrRefundBooking(booking) && (
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-purple-950/20 border border-purple-500/30">
                             <div>
-                              <div className="font-bold text-white text-xs">Payment Approved & Active</div>
-                              <div className="text-[11px] text-slate-400">Need to cancel or issue cancellation credit?</div>
+                              <div className="font-bold text-white text-xs">
+                                {booking.refundRequested ? 'Resolve Player Cancellation Request' : 'Payment Approved & Active'}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                {booking.refundRequested
+                                  ? 'Review the player reason and issue a rebooking voucher if valid, or process a refund.'
+                                  : 'Need to cancel or issue a rebooking credit voucher?'}
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => onRefundBooking(booking)}
-                              className="min-h-[40px] px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow active:scale-95"
-                            >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Issue Refund</span>
-                            </button>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => onRefundBooking(booking, 'voucher')}
+                                className="min-h-[40px] flex-1 sm:flex-initial justify-center px-3.5 py-1.5 rounded-lg bg-brand-lime hover:bg-[#a6e224] text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow active:scale-95"
+                              >
+                                <Tag className="w-3.5 h-3.5" />
+                                <span>Provide Voucher</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onRefundBooking(booking, 'refund')}
+                                className="min-h-[40px] flex-1 sm:flex-initial justify-center px-3.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow active:scale-95"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Issue Refund</span>
+                              </button>
+                            </div>
                           </div>
                         )}
 
@@ -1238,33 +1432,72 @@ Thank you!`;
 
                           {/* Payment Status */}
                           <td className="py-4.5 px-6 text-center">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold uppercase border ${
-                                booking.paymentStatus === 'paid'
-                                  ? booking.refundRequested
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold uppercase border ${
+                                  booking.paymentStatus === 'paid'
+                                    ? booking.refundRequested
+                                      ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 animate-pulse'
+                                      : 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
+                                    : booking.paymentStatus === 'refunded'
+                                    ? 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                                    : booking.paymentStatus === 'rebooking_credit'
+                                    ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
+                                    : booking.paymentStatus === 'cancelled_no_refund' || booking.paymentStatus === 'failed'
+                                    ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                                    : booking.refundRequested
                                     ? 'bg-purple-500/20 border-purple-500/40 text-purple-300 animate-pulse'
-                                    : 'bg-brand-emerald/10 border-brand-emerald/30 text-brand-emerald'
+                                    : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                }`}
+                              >
+                                {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && !booking.refundRequested
+                                  ? 'Pending Review'
                                   : booking.paymentStatus === 'refunded'
-                                  ? 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                                  ? `Refunded (${booking.refundAmount ? `₱${booking.refundAmount}` : 'Full'})`
                                   : booking.paymentStatus === 'rebooking_credit'
-                                  ? 'bg-brand-lime/10 border-brand-lime/30 text-brand-lime'
-                                  : booking.paymentStatus === 'cancelled_no_refund' || booking.paymentStatus === 'failed'
-                                  ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                                  : 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
-                              }`}
-                            >
-                              {(booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending')
-                                ? 'Pending Review'
-                                : booking.paymentStatus === 'refunded'
-                                ? `Refunded (${booking.refundAmount ? `₱${booking.refundAmount}` : 'Full'})`
-                                : booking.paymentStatus === 'rebooking_credit'
-                                ? 'Rebooking Credit'
-                                : booking.paymentStatus === 'cancelled_no_refund'
-                                ? 'Cancelled (No Refund)'
-                                : booking.refundRequested
-                                ? 'Refund Requested'
-                                : booking.paymentStatus || 'unpaid'}
-                            </span>
+                                  ? 'Rebooking Voucher'
+                                  : booking.paymentStatus === 'cancelled_no_refund'
+                                  ? 'Cancelled (No Refund)'
+                                  : booking.refundRequested
+                                  ? 'Cancel Requested'
+                                  : booking.paymentStatus || 'unpaid'}
+                              </span>
+
+                              {booking.refundRequested && booking.refundRequestReason && (
+                                <div
+                                  className="max-w-[210px] truncate text-[10px] text-purple-200 bg-purple-950/40 border border-purple-500/30 rounded-md px-2 py-0.5 font-medium"
+                                  title={booking.refundRequestReason}
+                                >
+                                  &ldquo;{booking.refundRequestReason}&rdquo;
+                                </div>
+                              )}
+
+                              {(() => {
+                                const vCode = getIssuedVoucherCode(booking);
+                                if (!vCode) return null;
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(vCode);
+                                      setCopiedShareId(`tbl-vcode-${booking.id}`);
+                                      setTimeout(() => setCopiedShareId(null), 2500);
+                                    }}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-900 border border-brand-lime/40 text-[10px] font-mono font-bold text-brand-lime hover:bg-slate-800 cursor-pointer"
+                                    title="Click to copy issued voucher code"
+                                  >
+                                    <Tag className="w-2.5 h-2.5" />
+                                    <span>{vCode}</span>
+                                    {copiedShareId === `tbl-vcode-${booking.id}` ? (
+                                      <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-2.5 h-2.5 text-slate-400" />
+                                    )}
+                                  </button>
+                                );
+                              })()}
+                            </div>
                           </td>
 
                           {/* Action Buttons */}
@@ -1303,7 +1536,7 @@ Thank you!`;
                                     </span>
                                   )}
 
-                                  {!isSuperAdmin && (booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && (
+                                  {!isSuperAdmin && (booking.paymentStatus === 'pending_verification' || booking.paymentStatus === 'pending' || booking.status === 'pending') && !booking.refundRequested && (
                                     <>
                                       <button
                                         type="button"
@@ -1323,18 +1556,27 @@ Thank you!`;
                                       </button>
                                     </>
                                   )}
-                                  {!isSuperAdmin && (booking.paymentStatus === 'paid' || booking.paymentStatus === 'completed' || booking.status === 'approved') && (
+                                  {!isSuperAdmin && canResolveOrRefundBooking(booking) && (
                                     <button
-                                      onClick={() => onRefundBooking(booking)}
-                                      title="Issue Refund & Upload Receipt"
+                                      onClick={() => onRefundBooking(booking, isUnresolvedCancellationRequest(booking) ? 'voucher' : 'refund')}
+                                      title={isUnresolvedCancellationRequest(booking) ? 'Review Cancellation Reason & Issue Voucher' : 'Issue Refund or Rebooking Voucher'}
                                       className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold uppercase tracking-wider transition-all cursor-pointer shadow hover:scale-[1.02] flex items-center gap-1.5 ${
-                                        booking.refundRequested
-                                          ? 'bg-purple-600 border-purple-400 text-white animate-pulse'
+                                        isUnresolvedCancellationRequest(booking)
+                                          ? 'bg-brand-lime border-brand-lime text-slate-950 shadow-brand-lime/20'
                                           : 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white'
                                       }`}
                                     >
-                                      <RotateCcw className="w-3.5 h-3.5" />
-                                      {booking.refundRequested ? 'Approve Refund' : 'Refund'}
+                                      {isUnresolvedCancellationRequest(booking) ? (
+                                        <>
+                                          <Tag className="w-3.5 h-3.5" />
+                                          <span>Issue Voucher</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <RotateCcw className="w-3.5 h-3.5" />
+                                          <span>Refund</span>
+                                        </>
+                                      )}
                                     </button>
                                   )}
                                   {booking.paymentStatus === 'refunded' && (

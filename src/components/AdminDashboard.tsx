@@ -161,6 +161,7 @@ interface Booking {
   refundRequestReason?: string;
   refundRequestedAt?: string;
   refundRequestStatus?: 'pending' | 'approved' | 'rejected';
+  issuedVoucherCode?: string;
   courtOwnerId?: string;
   ownerEmail?: string;
   ownerPhone?: string;
@@ -2125,6 +2126,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [voucherMinSpendInput, setVoucherMinSpendInput] = useState<string>('');
   const [voucherMinSlotsInput, setVoucherMinSlotsInput] = useState<string>('');
   const [voucherCompanyIdInput, setVoucherCompanyIdInput] = useState<string>('');
+  const [voucherPlayerSearchQuery, setVoucherPlayerSearchQuery] = useState<string>('');
+  const [isVoucherPlayerDropdownOpen, setIsVoucherPlayerDropdownOpen] = useState<boolean>(false);
 
   // Policy Cancellation Modal States
   const [cancelBookingModalOpen, setCancelBookingModalOpen] = useState(false);
@@ -2214,6 +2217,158 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   };
 
   // Voucher Handlers
+  const activeVoucherCompany = useMemo(() => {
+    if (isSuperAdmin) {
+      const targetId = voucherCompanyIdInput || selectedSuperAdminCompanyId;
+      if (!targetId) return null;
+      return companies.find((c) => c.id === targetId) || null;
+    }
+    return currentCompany || myCompany || null;
+  }, [isSuperAdmin, voucherCompanyIdInput, selectedSuperAdminCompanyId, companies, currentCompany, myCompany]);
+
+  const eligibleVoucherPlayers = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        email: string;
+        name: string;
+        courtBookingsCount: number;
+        openPlayCount: number;
+        lastActivityDate: string;
+      }
+    >();
+
+    const recordActivity = (
+      rawEmail: string | undefined,
+      rawName: string | undefined,
+      kind: 'court' | 'openplay',
+      activityDate: string
+    ) => {
+      const email = (rawEmail || '').trim().toLowerCase();
+      if (!email || !email.includes('@')) return;
+      const existing = map.get(email);
+      const matchedUser = users.find((u) => u.email?.trim().toLowerCase() === email);
+      const bestName =
+        (rawName && rawName.trim()) ||
+        (matchedUser?.name && matchedUser.name.trim()) ||
+        existing?.name ||
+        email.split('@')[0];
+
+      if (existing) {
+        if (kind === 'court') existing.courtBookingsCount += 1;
+        else existing.openPlayCount += 1;
+        if (activityDate && (!existing.lastActivityDate || activityDate > existing.lastActivityDate)) {
+          existing.lastActivityDate = activityDate;
+        }
+        if (!existing.name && bestName) existing.name = bestName;
+      } else {
+        map.set(email, {
+          email,
+          name: bestName,
+          courtBookingsCount: kind === 'court' ? 1 : 0,
+          openPlayCount: kind === 'openplay' ? 1 : 0,
+          lastActivityDate: activityDate || '',
+        });
+      }
+    };
+
+    const doesBookingMatchCompany = (b: Booking, comp: Company | null): boolean => {
+      if (!comp) return true;
+      if (b.companyId && b.companyId === comp.id) return true;
+      if (
+        b.ownerCompanyName &&
+        comp.name &&
+        b.ownerCompanyName.trim().toLowerCase() === comp.name.trim().toLowerCase()
+      ) {
+        return true;
+      }
+      if (b.courtId) {
+        const matchedCourt = courts.find((c) => c.id === b.courtId);
+        if (matchedCourt && isCourtAssociatedWithCompany(matchedCourt, comp)) return true;
+      }
+      if (b.openPlayEventId) {
+        const matchedEv = openPlayEvents.find((ev) => ev.id === b.openPlayEventId);
+        if (matchedEv) {
+          if (matchedEv.companyId && matchedEv.companyId === comp.id) return true;
+          if (
+            (matchedEv as any).companyName &&
+            comp.name &&
+            String((matchedEv as any).companyName).trim().toLowerCase() === comp.name.trim().toLowerCase()
+          ) {
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    bookings.forEach((b) => {
+      if (!doesBookingMatchCompany(b, activeVoucherCompany)) return;
+      const isOP = b.type === 'openplay' || b.type === 'open_play' || Boolean(b.openPlayEventId);
+      const kind: 'court' | 'openplay' = isOP ? 'openplay' : 'court';
+      const actDate = b.date || b.createdAt || '';
+      recordActivity(b.user?.email || b.userEmail, b.user?.name || b.userName, kind, actDate);
+      if (Array.isArray(b.guests)) {
+        b.guests.forEach((g) => {
+          if (g?.email) recordActivity(g.email, g.name, kind, actDate);
+        });
+      }
+    });
+
+    openPlayRegistrations.forEach((r) => {
+      if (r.status === 'cancelled') return;
+      if (activeVoucherCompany) {
+        let matchesComp = false;
+        if (r.companyId && r.companyId === activeVoucherCompany.id) {
+          matchesComp = true;
+        } else if (r.eventId) {
+          const ev = openPlayEvents.find((e) => e.id === r.eventId);
+          if (ev) {
+            if (ev.companyId && ev.companyId === activeVoucherCompany.id) matchesComp = true;
+            else if (
+              (ev as any).companyName &&
+              activeVoucherCompany.name &&
+              String((ev as any).companyName).trim().toLowerCase() ===
+                activeVoucherCompany.name.trim().toLowerCase()
+            ) {
+              matchesComp = true;
+            } else if (
+              Array.isArray(ev.courtIds) &&
+              ev.courtIds.some((cid) => {
+                const c = courts.find((ct) => ct.id === cid);
+                return c ? isCourtAssociatedWithCompany(c, activeVoucherCompany) : false;
+              })
+            ) {
+              matchesComp = true;
+            }
+          }
+        }
+        if (!matchesComp) return;
+      }
+      recordActivity(
+        r.playerEmail || r.userEmail,
+        r.playerName || r.userName,
+        'openplay',
+        r.eventDate || (r as any).createdAt || ''
+      );
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const totalB = b.courtBookingsCount + b.openPlayCount;
+      const totalA = a.courtBookingsCount + a.openPlayCount;
+      if (totalB !== totalA) return totalB - totalA;
+      return a.name.localeCompare(b.name);
+    });
+  }, [bookings, openPlayRegistrations, openPlayEvents, courts, users, activeVoucherCompany]);
+
+  const cleanVoucherRecipientEmail = voucherRecipientEmail.trim().toLowerCase();
+  const matchedEligibleVoucherPlayer = useMemo(() => {
+    if (!cleanVoucherRecipientEmail) return null;
+    return eligibleVoucherPlayers.find((p) => p.email === cleanVoucherRecipientEmail) || null;
+  }, [cleanVoucherRecipientEmail, eligibleVoucherPlayers]);
+
+  const isVoucherRecipientUnverified = Boolean(cleanVoucherRecipientEmail && !matchedEligibleVoucherPlayer);
+
   const handleOpenCreateVoucher = () => {
     const randomCode = 'PROMO-' + Math.random().toString(36).substring(2, 7).toUpperCase();
     setVoucherCodeInput(randomCode);
@@ -2222,6 +2377,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setVoucherCourtId('all');
     setVoucherRecipientEmail('');
     setVoucherRecipientName('');
+    setVoucherPlayerSearchQuery('');
+    setIsVoucherPlayerDropdownOpen(false);
     setVoucherMaxUses(1);
     setVoucherExpiryDays(30);
     setVoucherMinSpendInput('');
@@ -2234,6 +2391,14 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     e.preventDefault();
     if (!voucherCodeInput.trim()) {
       alert('Voucher Code is required.');
+      return;
+    }
+
+    if (cleanVoucherRecipientEmail && !matchedEligibleVoucherPlayer) {
+      const facilityLabel = activeVoucherCompany?.name || 'this club/facility';
+      alert(
+        `Cannot lock voucher to "${voucherRecipientEmail.trim()}": This player has not previously reserved a court or joined an Open Play session at ${facilityLabel}.`
+      );
       return;
     }
 
@@ -5022,6 +5187,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           refundReason: refundReasonInput || 'Monetary refund issued',
           refundedAt: refundedAtIso,
           refundedBy: refundedByInfo,
+          refundRequestStatus: 'approved',
         });
 
         sendRefundConfirmationEmail({
@@ -5065,10 +5231,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           companyName: resolvedCompanyName,
           courtId: refundModalBooking.courtId,
           ownerId: targetCourt?.ownerId || refundModalBooking.courtOwnerId || currentUserUid,
+          sourceBookingId: refundModalBooking.id,
           expiryDate: expiryDate.toISOString().split('T')[0],
           createdAt: refundedAtIso,
-          issuedToEmail: refundModalBooking.user?.email,
-          issuedToName: refundModalBooking.user?.name,
+          issuedToEmail: refundModalBooking.user?.email || refundModalBooking.userEmail,
+          issuedToName: refundModalBooking.user?.name || refundModalBooking.userName,
+          redemptions: [],
         };
 
         if (isFirebaseConfigured && db) {
@@ -5086,6 +5254,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           refundReason: `Credit Voucher Issued: ${voucherCode}`,
           refundedAt: refundedAtIso,
           refundedBy: refundedByInfo,
+          refundRequestStatus: 'approved',
+          issuedVoucherCode: voucherCode,
         });
 
         // Always dual-write to localStorage for instant local availability
@@ -5097,8 +5267,8 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
         setVouchers((prev) => [voucherPayload, ...prev]);
 
         sendVoucherIssuedEmail({
-          userEmail: refundModalBooking.user?.email || '',
-          userName: refundModalBooking.user?.name || 'Valued Player',
+          userEmail: refundModalBooking.user?.email || refundModalBooking.userEmail || '',
+          userName: refundModalBooking.user?.name || refundModalBooking.userName || 'Valued Player',
           voucherCode,
           discountText: `₱${refundAmt.toLocaleString()} Credit`,
           reasonText: `Rebooking credit for cancelled reservation #${refundModalBooking.bookingReference || refundModalBooking.id}.`,
@@ -5117,6 +5287,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
           refundReason: finalReason,
           refundedAt: refundedAtIso,
           refundedBy: refundedByInfo,
+          refundRequestStatus: 'rejected',
         });
 
         sendNonRefundableCancellationEmail({
@@ -7603,6 +7774,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   return;
                 }
                 setRefundModalBooking(booking);
+                setCancellationResolutionMode(booking.refundRequested ? 'voucher' : 'refund');
                 setRefundAmountInput(booking.totalCost.toString());
                 setRefundReasonInput(booking.refundRequestReason ? `Player Requested: ${booking.refundRequestReason}` : '');
                 setRefundReceiptFile(null);
@@ -7702,12 +7874,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 setRejectCustomReason('');
                 setRejectSendEmail(true);
               }}
-              onRefundBooking={(booking) => {
+              onRefundBooking={(booking, initialMode) => {
                 if (isSuperAdmin) {
                   alert('Super Admins have view-only monitoring access and cannot refund checkouts.');
                   return;
                 }
                 setRefundModalBooking(booking);
+                setCancellationResolutionMode(initialMode || (booking.refundRequested ? 'voucher' : 'refund'));
                 setRefundAmountInput(booking.totalCost.toString());
                 setRefundReasonInput(booking.refundRequestReason ? `Player Requested: ${booking.refundRequestReason}` : '');
                 setRefundReceiptFile(null);
@@ -8157,41 +8330,125 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </div>
 
             {/* Scrollable Modal Content */}
-            <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1 custom-scrollbar">
-              {/* Mode Selector Pills */}
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCancellationResolutionMode('refund')}
-                  className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
-                    cancellationResolutionMode === 'refund'
-                      ? 'bg-purple-600 border-purple-400 text-white shadow-lg'
-                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  💸 Monetary Refund
-                </button>
+            <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 custom-scrollbar">
+              {/* PLAYER CANCELLATION REQUEST & VALIDITY ASSESSMENT CARD */}
+              {(refundModalBooking.refundRequested || refundModalBooking.refundRequestReason) && (() => {
+                // Compute advance notice hours between request (or now) and scheduled booking slot
+                let noticeHours: number | null = null;
+                try {
+                  if (refundModalBooking.date) {
+                    const firstSlotStr = refundModalBooking.slots?.[0] || '08:00 AM';
+                    const slotObj = SLOTS.find((s) => s.time === firstSlotStr);
+                    const startHr = slotObj ? slotObj.startHour : 8;
+                    const matchTime = new Date(`${refundModalBooking.date}T00:00:00`);
+                    matchTime.setHours(startHr, 0, 0, 0);
+                    const reqTime = refundModalBooking.refundRequestedAt
+                      ? new Date(refundModalBooking.refundRequestedAt)
+                      : new Date();
+                    noticeHours = Math.round((matchTime.getTime() - reqTime.getTime()) / (1000 * 60 * 60));
+                  }
+                } catch {}
+
+                // Check player past booking & open play history at this facility
+                const pEmail = (refundModalBooking.user?.email || refundModalBooking.userEmail || '').trim().toLowerCase();
+                const pastBookingsCount = pEmail
+                  ? bookings.filter(
+                      (b) =>
+                        b.id !== refundModalBooking.id &&
+                        (b.user?.email || b.userEmail || '').trim().toLowerCase() === pEmail
+                    ).length
+                  : 0;
+
+                return (
+                  <div className="p-4 rounded-2xl bg-purple-950/30 border border-purple-500/40 space-y-3 text-xs shadow-inner">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/20 border border-purple-400/50 text-purple-200 text-[10px] font-black uppercase tracking-wider">
+                        <AlertCircle className="w-3.5 h-3.5 text-brand-lime" />
+                        Player Cancellation Request Review
+                      </span>
+                      {noticeHours !== null && (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                            noticeHours >= 24
+                              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                              : noticeHours >= 12
+                              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                              : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                          }`}
+                        >
+                          <Clock className="w-3 h-3" />
+                          {noticeHours >= 0
+                            ? `${noticeHours}h Advance Notice`
+                            : 'Requested After Match Time'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-1">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-purple-300 block">
+                        Submitted Reason from Player:
+                      </span>
+                      <p className="text-sm font-bold text-white leading-relaxed">
+                        &ldquo;{refundModalBooking.refundRequestReason || 'Player requested cancellation without additional notes.'}&rdquo;
+                      </p>
+                      {refundModalBooking.refundRequestedAt && (
+                        <span className="text-[10px] font-mono text-slate-400 block pt-1">
+                          Submitted: {formatTimestamp(refundModalBooking.refundRequestedAt)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap text-[11px] text-slate-300 pt-0.5">
+                      <span>
+                        Customer History:{' '}
+                        <strong className="text-brand-lime">
+                          {pastBookingsCount > 0
+                            ? `${pastBookingsCount} other reservation(s) on record`
+                            : 'First reservation on record'}
+                        </strong>
+                      </span>
+                      <span className="text-slate-400 italic">
+                        Valid reason? Select <strong className="text-brand-lime">🎟️ Rebooking Voucher</strong> below.
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Mode Selector Pills (Responsive for Mobile & Tablet) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <button
                   type="button"
                   onClick={() => setCancellationResolutionMode('voucher')}
-                  className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
+                  className={`min-h-[44px] py-2.5 px-3 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
                     cancellationResolutionMode === 'voucher'
-                      ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg'
+                      ? 'bg-brand-lime text-dark-bg border-brand-lime shadow-lg font-black'
                       : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
                   }`}
                 >
-                  🎟️ Rebooking Voucher
+                  <span>🎟️ Rebooking Voucher</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCancellationResolutionMode('refund')}
+                  className={`min-h-[44px] py-2.5 px-3 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                    cancellationResolutionMode === 'refund'
+                      ? 'bg-purple-600 border-purple-400 text-white shadow-lg font-black'
+                      : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <span>💸 Monetary Refund</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setCancellationResolutionMode('no_refund')}
-                  className={`py-2 px-2.5 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center ${
+                  className={`min-h-[44px] py-2.5 px-3 rounded-xl border text-xs font-extrabold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
                     cancellationResolutionMode === 'no_refund'
-                      ? 'bg-red-600 border-red-400 text-white shadow-lg'
+                      ? 'bg-red-600 border-red-400 text-white shadow-lg font-black'
                       : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
                   }`}
                 >
-                  ❌ Cancel (No Refund)
+                  <span>❌ Reject / No Refund</span>
                 </button>
               </div>
 
@@ -8341,11 +8598,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
                     {/* Quick Percentage Voucher Value Selector */}
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center justify-between flex-wrap gap-1">
                         <span>Voucher Credit Percentage</span>
                         <span className="text-[10px] text-brand-lime font-normal normal-case">Or enter custom value below</span>
                       </label>
-                      <div className="grid grid-cols-4 gap-2 mb-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
                         {[20, 50, 80, 100].map((pct) => {
                           const calculatedVal = (refundModalBooking.totalCost * (pct / 100));
                           const calculatedStr = Number.isInteger(calculatedVal) ? calculatedVal.toString() : calculatedVal.toFixed(2);
@@ -8356,7 +8613,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                               key={pct}
                               type="button"
                               onClick={() => setRefundAmountInput(calculatedStr)}
-                              className={`py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
+                              className={`min-h-[44px] py-2 px-2 rounded-xl border text-xs font-extrabold transition-all cursor-pointer flex flex-col items-center justify-center ${
                                 isSelected
                                   ? 'bg-brand-lime/20 border-brand-lime text-brand-lime shadow-lg scale-[1.02]'
                                   : 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-brand-lime/50 hover:text-brand-lime'
@@ -9208,13 +9465,16 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
 
       {/* CREATE VOUCHER MODAL */}
       {voucherModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
-          <div className="glass-panel border border-slate-800 rounded-3xl p-6 max-w-lg w-full text-left space-y-5 shadow-2xl relative animate-scale-up my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
+          <div className="glass-panel border border-slate-800 rounded-3xl p-5 sm:p-6 max-w-lg w-full text-left space-y-5 shadow-2xl relative animate-scale-up my-4 sm:my-8 max-h-[92vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center pb-3 border-b border-slate-800">
               <h3 className="text-base font-extrabold text-white flex items-center gap-2">
                 <Tag className="w-5 h-5 text-brand-lime" /> Issue New Credit Voucher / Promo
               </h3>
-              <button onClick={() => setVoucherModalOpen(false)} className="text-slate-400 hover:text-white transition-colors cursor-pointer">
+              <button
+                onClick={() => setVoucherModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -9229,7 +9489,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <select
                     value={voucherCompanyIdInput}
                     onChange={(e) => setVoucherCompanyIdInput(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime cursor-pointer"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime cursor-pointer"
                   >
                     <option value="">PicklePoint Platform Default (All Venues)</option>
                     {companies.map((c) => (
@@ -9250,11 +9510,11 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   value={voucherCodeInput}
                   onChange={(e) => setVoucherCodeInput(e.target.value.toUpperCase())}
                   placeholder="e.g. SUMMER50"
-                  className="w-full bg-slate-900 border border-slate-800 text-brand-lime font-mono font-bold text-sm rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime uppercase"
+                  className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-brand-lime font-mono font-bold text-sm rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime uppercase"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
                     Discount Type
@@ -9262,7 +9522,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                   <select
                     value={voucherDiscountType}
                     onChange={(e) => setVoucherDiscountType(e.target.value as any)}
-                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime cursor-pointer"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime cursor-pointer"
                   >
                     <option value="percentage">Percentage (%)</option>
                     <option value="fixed_amount">Fixed Amount (₱)</option>
@@ -9277,25 +9537,215 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     type="number"
                     value={voucherDiscountValue}
                     onChange={(e) => setVoucherDiscountValue(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
-                  Recipient Player Email (Optional - Lock to specific player)
-                </label>
-                <input
-                  type="email"
-                  value={voucherRecipientEmail}
-                  onChange={(e) => setVoucherRecipientEmail(e.target.value)}
-                  placeholder="e.g. player@gmail.com"
-                  className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
-                />
+              {/* SEARCHABLE RECIPIENT PLAYER WITH VENUE HISTORY VALIDATION */}
+              <div className="space-y-2 relative">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <label className="block text-slate-400 font-bold uppercase tracking-wider">
+                    Recipient Player Email (Optional - Lock to player)
+                  </label>
+                  <span className="text-[10px] font-bold text-brand-lime bg-brand-lime/10 border border-brand-lime/30 px-2 py-0.5 rounded-full">
+                    {eligibleVoucherPlayers.length} Verified Club {eligibleVoucherPlayers.length === 1 ? 'Player' : 'Players'}
+                  </span>
+                </div>
+
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={voucherRecipientEmail}
+                    onFocus={() => setIsVoucherPlayerDropdownOpen(true)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setVoucherRecipientEmail(val);
+                      setVoucherPlayerSearchQuery(val);
+                      setIsVoucherPlayerDropdownOpen(true);
+                      const exactMatch = eligibleVoucherPlayers.find(
+                        (p) => p.email === val.trim().toLowerCase()
+                      );
+                      setVoucherRecipientName(exactMatch ? exactMatch.name : '');
+                    }}
+                    placeholder={`Search by name or email (${activeVoucherCompany?.name || 'All Venues'})...`}
+                    className={`w-full min-h-[44px] bg-slate-900 border rounded-xl pl-10 pr-20 py-2.5 text-white focus:outline-none transition-all ${
+                      matchedEligibleVoucherPlayer
+                        ? 'border-emerald-500/60 focus:border-emerald-400'
+                        : isVoucherRecipientUnverified
+                        ? 'border-rose-500/60 focus:border-rose-400'
+                        : 'border-slate-800 focus:border-brand-lime'
+                    }`}
+                  />
+
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {voucherRecipientEmail && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVoucherRecipientEmail('');
+                          setVoucherRecipientName('');
+                          setVoucherPlayerSearchQuery('');
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                        title="Clear recipient player"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsVoucherPlayerDropdownOpen((prev) => !prev)}
+                      className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold cursor-pointer"
+                    >
+                      {isVoucherPlayerDropdownOpen ? 'Hide' : 'Browse'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Searchable Dropdown List of Eligible Players (Mobile & Tablet Responsive) */}
+                {isVoucherPlayerDropdownOpen && (() => {
+                  const q = (voucherPlayerSearchQuery || voucherRecipientEmail).trim().toLowerCase();
+                  const matchingEligible = eligibleVoucherPlayers.filter(
+                    (p) => !q || p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)
+                  );
+                  const matchingIneligibleUsers = q
+                    ? users
+                        .filter((u) => {
+                          const uEmail = (u.email || '').trim().toLowerCase();
+                          if (!uEmail || eligibleVoucherPlayers.some((ep) => ep.email === uEmail)) return false;
+                          return (
+                            (u.name && u.name.toLowerCase().includes(q)) ||
+                            uEmail.includes(q)
+                          );
+                        })
+                        .slice(0, 5)
+                    : [];
+
+                  return (
+                    <div className="rounded-2xl bg-slate-950 border border-slate-700/80 shadow-2xl overflow-hidden max-h-56 overflow-y-auto divide-y divide-slate-800/70 z-30">
+                      <div className="px-3 py-2 bg-slate-900/90 flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                        <span>
+                          Verified Players ({activeVoucherCompany?.name || 'All Venues'})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsVoucherPlayerDropdownOpen(false)}
+                          className="text-slate-400 hover:text-white cursor-pointer"
+                        >
+                          Close
+                        </button>
+                      </div>
+
+                      {matchingEligible.length === 0 && matchingIneligibleUsers.length === 0 ? (
+                        <div className="p-4 text-center text-slate-400 text-xs">
+                          No players found matching &ldquo;{voucherRecipientEmail}&rdquo; with court reservations or Open Play history at {activeVoucherCompany?.name || 'this club'}.
+                        </div>
+                      ) : (
+                        <>
+                          {matchingEligible.slice(0, 25).map((player) => {
+                            const isSelected = cleanVoucherRecipientEmail === player.email;
+                            return (
+                              <button
+                                key={player.email}
+                                type="button"
+                                onClick={() => {
+                                  setVoucherRecipientEmail(player.email);
+                                  setVoucherRecipientName(player.name);
+                                  setVoucherPlayerSearchQuery('');
+                                  setIsVoucherPlayerDropdownOpen(false);
+                                }}
+                                className={`w-full min-h-[48px] px-3.5 py-2.5 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 hover:bg-slate-900 transition-colors cursor-pointer ${
+                                  isSelected ? 'bg-brand-lime/10' : ''
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="font-bold text-white text-xs truncate flex items-center gap-1.5">
+                                    <span>{player.name}</span>
+                                    {isSelected && <CheckCircle className="w-3.5 h-3.5 text-brand-lime shrink-0" />}
+                                  </div>
+                                  <div className="text-[11px] font-mono text-slate-400 truncate">{player.email}</div>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                                  {player.courtBookingsCount > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-300 text-[10px] font-bold">
+                                      🎾 {player.courtBookingsCount} {player.courtBookingsCount === 1 ? 'Court' : 'Courts'}
+                                    </span>
+                                  )}
+                                  {player.openPlayCount > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-brand-lime/15 border border-brand-lime/30 text-brand-lime text-[10px] font-bold">
+                                      🏓 {player.openPlayCount} Open Play
+                                    </span>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+
+                          {matchingIneligibleUsers.map((u) => (
+                            <button
+                              key={u.email}
+                              type="button"
+                              onClick={() => {
+                                setVoucherRecipientEmail(u.email);
+                                setVoucherRecipientName(u.name || '');
+                                setIsVoucherPlayerDropdownOpen(false);
+                              }}
+                              className="w-full min-h-[48px] px-3.5 py-2.5 text-left flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 bg-rose-950/15 hover:bg-rose-950/30 transition-colors cursor-pointer opacity-80"
+                            >
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-300 text-xs truncate">{u.name || 'Registered User'}</div>
+                                <div className="text-[11px] font-mono text-slate-500 truncate">{u.email}</div>
+                              </div>
+                              <span className="px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[10px] font-bold shrink-0">
+                                No history at this club
+                              </span>
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Verified Customer Confirmation Banner */}
+                {matchedEligibleVoucherPlayer && (
+                  <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-extrabold text-emerald-300 truncate">
+                          Verified Customer: {matchedEligibleVoucherPlayer.name}
+                        </div>
+                        <div className="text-[10px] text-slate-300">
+                          {matchedEligibleVoucherPlayer.courtBookingsCount} Court Reservation(s) •{' '}
+                          {matchedEligibleVoucherPlayer.openPlayCount} Open Play Registration(s) at{' '}
+                          {activeVoucherCompany?.name || 'Partner Venues'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Unverified Customer Warning Banner */}
+                {isVoucherRecipientUnverified && (
+                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2.5 text-rose-300">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5 text-[11px] leading-relaxed">
+                      <div className="font-extrabold text-rose-300">
+                        Unverified Club Customer
+                      </div>
+                      <p className="text-slate-300">
+                        <strong className="text-white font-mono">{voucherRecipientEmail.trim()}</strong> has not previously reserved a court or joined an Open Play session at{' '}
+                        <strong className="text-white">{activeVoucherCompany?.name || 'this facility'}</strong>. Please select a verified player above or clear this field to issue an unlocked voucher.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
                     Max Redemption Uses
@@ -9304,7 +9754,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     type="number"
                     value={voucherMaxUses}
                     onChange={(e) => setVoucherMaxUses(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime"
                   />
                 </div>
 
@@ -9316,13 +9766,13 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     type="number"
                     value={voucherExpiryDays}
                     onChange={(e) => setVoucherExpiryDays(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime"
                   />
                 </div>
               </div>
 
               {/* Minimum Requirements */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
                     Min Booking Spend (₱)
@@ -9332,7 +9782,7 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     value={voucherMinSpendInput}
                     onChange={(e) => setVoucherMinSpendInput(e.target.value)}
                     placeholder="Optional (e.g. 800)"
-                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime"
                   />
                 </div>
 
@@ -9345,22 +9795,23 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     value={voucherMinSlotsInput}
                     onChange={(e) => setVoucherMinSlotsInput(e.target.value)}
                     placeholder="Optional (e.g. 2)"
-                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
+                    className="w-full min-h-[44px] bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand-lime"
                   />
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-3">
+              <div className="flex flex-col-reverse sm:flex-row gap-2.5 sm:gap-3 pt-3">
                 <button
                   type="button"
                   onClick={() => setVoucherModalOpen(false)}
-                  className="flex-1 py-3 rounded-xl bg-slate-900 text-slate-300 font-bold text-xs hover:bg-slate-800 transition-all cursor-pointer"
+                  className="flex-1 min-h-[44px] py-3 rounded-xl bg-slate-900 text-slate-300 font-bold text-xs hover:bg-slate-800 transition-all cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] transition-all cursor-pointer shadow-lg shadow-brand-lime/20"
+                  disabled={isVoucherRecipientUnverified}
+                  className="flex-1 min-h-[44px] py-3 rounded-xl bg-brand-lime text-dark-bg font-extrabold text-xs uppercase tracking-wider hover:bg-[#a6e224] disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-lg shadow-brand-lime/20"
                 >
                   Save & Issue Voucher
                 </button>
