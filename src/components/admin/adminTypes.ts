@@ -142,6 +142,17 @@ export interface BookingUpdatePayload {
   status?: 'pending' | 'approved' | 'cancelled';
 }
 
+export interface VoucherRedemptionRecord {
+  id: string;
+  bookingReference: string;
+  customerName: string;
+  customerEmail: string;
+  discountAmount: number;
+  redeemedAt: string;
+  courtName?: string;
+  companyName?: string;
+}
+
 export interface Voucher {
   id: string;
   code: string;
@@ -160,6 +171,11 @@ export interface Voucher {
   expiryDate?: string;
   status: 'active' | 'exhausted' | 'expired';
   createdAt: string;
+  minSpend?: number;
+  minSlots?: number;
+  batchId?: string;
+  batchPrefix?: string;
+  redemptions?: VoucherRedemptionRecord[];
 }
 
 export type UserRole = 'super_admin' | 'client_admin' | 'manager' | 'editor' | 'player';

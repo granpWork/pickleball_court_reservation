@@ -5,7 +5,7 @@ import {
   Download, Lock, Check, Shield, X,
   Copy, UploadCloud, ExternalLink, Tag, Sparkles, Users, Building2, Zap, Trophy, QrCode
 } from 'lucide-react';
-import type { Voucher } from './AdminDashboard';
+import type { Voucher, VoucherRedemptionRecord } from './admin/adminTypes';
 import { db, isFirebaseConfigured } from '../firebase';
 import { doc, getDoc, setDoc, getDocs, collection, query, where, updateDoc } from 'firebase/firestore';
 import { sendBookingConfirmationEmail, sendOpenPlayInvitationEmail, sendNewCheckoutAdminNotificationEmail, resolveVenueNotificationRecipients } from '../services/emailService';
@@ -481,6 +481,23 @@ export default function Checkout({
     // 6. Court-Specific Scoping (If explicitly restricted to single court)
     if (foundVoucher.courtId && foundVoucher.courtId !== checkoutDetails.courtId) {
       setVoucherError('This voucher code is exclusively valid for a specific court.');
+      return;
+    }
+
+    // 7. Minimum Spend Requirement
+    if (foundVoucher.minSpend && rawSubtotal < foundVoucher.minSpend) {
+      setVoucherError(
+        `This voucher requires a minimum booking subtotal of ₱${foundVoucher.minSpend.toLocaleString()} (current subtotal is ₱${rawSubtotal.toLocaleString()}).`
+      );
+      return;
+    }
+
+    // 8. Minimum Slots / Hours Requirement
+    const bookedSlotCount = Array.isArray(checkoutDetails.slots) ? checkoutDetails.slots.length : 1;
+    if (foundVoucher.minSlots && bookedSlotCount < foundVoucher.minSlots) {
+      setVoucherError(
+        `This voucher requires booking at least ${foundVoucher.minSlots} hour(s)/slot(s) (current booking has ${bookedSlotCount} slot(s)).`
+      );
       return;
     }
 
@@ -1110,12 +1127,27 @@ export default function Checkout({
       const updatedCount = (appliedVoucher.usedCount || 0) + 1;
       const updatedStatus = updatedCount >= (appliedVoucher.maxUses || 1) ? 'exhausted' as const : 'active' as const;
 
+      const newRedemptionRecord: VoucherRedemptionRecord = {
+        id: `red_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        bookingReference: refNum,
+        customerName: name || user?.name || 'Player',
+        customerEmail: (email || user?.email || '').toLowerCase(),
+        discountAmount: discountAmount,
+        redeemedAt: new Date().toISOString(),
+        courtName: checkoutDetails.courtName,
+        companyName: checkoutDetails.ownerCompanyName || checkoutDetails.companyName,
+      };
+
+      const existingRedemptions = Array.isArray(appliedVoucher.redemptions) ? appliedVoucher.redemptions : [];
+      const updatedRedemptions = [newRedemptionRecord, ...existingRedemptions];
+
       if (isFirebaseConfigured && db) {
         try {
           await updateDoc(doc(db, 'vouchers', appliedVoucher.id), {
             usedCount: updatedCount,
             status: updatedStatus,
             lastUsedAt: new Date().toISOString(),
+            redemptions: updatedRedemptions,
           });
         } catch (vErr) {
           console.warn('Failed to update voucher status in Firestore (check security rules):', vErr);
@@ -1126,7 +1158,12 @@ export default function Checkout({
       if (vStr) {
         try {
           const localV = JSON.parse(vStr) as Voucher[];
-          const updated = localV.map(v => v.id === appliedVoucher.id || v.code === appliedVoucher.code ? { ...v, usedCount: updatedCount, status: updatedStatus } : v);
+          const updated = localV.map(v => v.id === appliedVoucher.id || v.code === appliedVoucher.code ? {
+            ...v,
+            usedCount: updatedCount,
+            status: updatedStatus,
+            redemptions: updatedRedemptions,
+          } : v);
           localStorage.setItem('picklepoint_vouchers', JSON.stringify(updated));
         } catch (e) {}
       }
@@ -2494,6 +2531,16 @@ export default function Checkout({
                     {appliedVoucher.expiryDate && (
                       <span className="text-[9.5px] text-slate-400 font-mono block">
                         Valid until: {appliedVoucher.expiryDate}
+                      </span>
+                    )}
+                    {appliedVoucher.minSpend && (
+                      <span className="text-[9.5px] text-amber-300 font-bold block">
+                        Min. booking: ₱{appliedVoucher.minSpend.toLocaleString()}
+                      </span>
+                    )}
+                    {appliedVoucher.minSlots && (
+                      <span className="text-[9.5px] text-sky-300 font-bold block">
+                        Min. duration: {appliedVoucher.minSlots} hour(s)
                       </span>
                     )}
                   </div>

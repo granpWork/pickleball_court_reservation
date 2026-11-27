@@ -17,7 +17,7 @@ import { AdminShortenerTab } from './admin/tabs/AdminShortenerTab';
 import { AdminSupportTicketsTab } from './admin/tabs/AdminSupportTicketsTab';
 import { AdminImageConverterTab } from './admin/tabs/AdminImageConverterTab';
 import { AdminIntegrationsTab } from './admin/tabs/AdminIntegrationsTab';
-import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, type Company, getUserEffectivePermissions, isSubscriptionExpired, isCourtAssociatedWithCompany } from './admin/adminTypes';
+import { type AdminTab, type AdminSettingsSubTab, type AdminCourtsSubTab, type AdminBookingsSubTab, type AdminCompaniesSubTab, type AdminIntegrationsSubTab, type ShortLink, type UserPermissions, type BookingUpdatePayload, type Company, type VoucherRedemptionRecord, getUserEffectivePermissions, isSubscriptionExpired, isCourtAssociatedWithCompany } from './admin/adminTypes';
 import { AdminModalAlert, type AdminModalAlertData } from './admin/modals/AdminModalAlert';
 import { AdminContactSupportModal } from './admin/modals/AdminContactSupportModal';
 import { AdminClientTicketsModal } from './admin/modals/AdminClientTicketsModal';
@@ -187,6 +187,11 @@ export interface Voucher {
   expiryDate?: string;
   status: 'active' | 'exhausted' | 'expired';
   createdAt: string;
+  minSpend?: number;
+  minSlots?: number;
+  batchId?: string;
+  batchPrefix?: string;
+  redemptions?: VoucherRedemptionRecord[];
 }
 
 interface UserAccount {
@@ -2117,6 +2122,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
   const [voucherRecipientName, setVoucherRecipientName] = useState<string>('');
   const [voucherMaxUses, setVoucherMaxUses] = useState<number>(1);
   const [voucherExpiryDays, setVoucherExpiryDays] = useState<number>(30);
+  const [voucherMinSpendInput, setVoucherMinSpendInput] = useState<string>('');
+  const [voucherMinSlotsInput, setVoucherMinSlotsInput] = useState<string>('');
+  const [voucherCompanyIdInput, setVoucherCompanyIdInput] = useState<string>('');
 
   // Policy Cancellation Modal States
   const [cancelBookingModalOpen, setCancelBookingModalOpen] = useState(false);
@@ -2216,6 +2224,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     setVoucherRecipientName('');
     setVoucherMaxUses(1);
     setVoucherExpiryDays(30);
+    setVoucherMinSpendInput('');
+    setVoucherMinSlotsInput('');
+    setVoucherCompanyIdInput(targetSuperAdminComp?.id || myCompany?.id || '');
     setVoucherModalOpen(true);
   };
 
@@ -2231,8 +2242,12 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     expiryDate.setDate(expiryDate.getDate() + Number(voucherExpiryDays || 30));
 
     const targetCourt = voucherCourtId !== 'all' ? courts.find(c => c.id === voucherCourtId) : courts[0];
-    const resolvedCompanyId = targetSuperAdminComp?.id || targetCourt?.companyId || '';
-    const resolvedCompanyName = targetSuperAdminComp?.name || targetCourt?.ownerCompanyName || orgProfileName || effectiveOrgName || 'Facility';
+    const selectedComp = companies.find(c => c.id === voucherCompanyIdInput) || targetSuperAdminComp || myCompany;
+    const resolvedCompanyId = selectedComp?.id || targetCourt?.companyId || '';
+    const resolvedCompanyName = selectedComp?.name || targetCourt?.ownerCompanyName || orgProfileName || effectiveOrgName || 'Facility';
+
+    const minSpendNum = Number(voucherMinSpendInput);
+    const minSlotsNum = Number(voucherMinSlotsInput);
 
     const payload: Voucher = {
       id: vId,
@@ -2251,6 +2266,9 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
       expiryDate: expiryDate.toISOString().split('T')[0],
       status: 'active',
       createdAt: new Date().toISOString(),
+      minSpend: minSpendNum > 0 ? minSpendNum : undefined,
+      minSlots: minSlotsNum > 0 ? minSlotsNum : undefined,
+      redemptions: [],
     };
 
     setActionLoading(vId);
@@ -2285,6 +2303,76 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const handleBulkCreateVouchers = async (data: {
+    quantity: number;
+    prefix: string;
+    discountType: 'percentage' | 'fixed_amount';
+    discountValue: number;
+    companyId?: string;
+    maxUses: number;
+    expiryDays: number;
+    minSpend?: number;
+    minSlots?: number;
+  }): Promise<Voucher[]> => {
+    const batchId = `batch_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + Number(data.expiryDays || 30));
+    const expiryDateStr = expiryDate.toISOString().split('T')[0];
+
+    const selectedComp = companies.find((c) => c.id === data.companyId) || targetSuperAdminComp || myCompany;
+    const resolvedCompanyId = selectedComp?.id || '';
+    const resolvedCompanyName = selectedComp?.name || effectiveOrgName || 'Facility';
+
+    const newVouchers: Voucher[] = [];
+    const cleanPrefix = data.prefix ? data.prefix.trim().toUpperCase() : 'PROMO-';
+
+    for (let i = 0; i < data.quantity; i++) {
+      const randomSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
+      const code = `${cleanPrefix}${randomSuffix}`;
+      const vId = `vouch-${Date.now()}-${i}-${randomSuffix}`;
+
+      const v: Voucher = {
+        id: vId,
+        code,
+        type: 'promo',
+        discountType: data.discountType,
+        discountValue: Number(data.discountValue) || 0,
+        companyId: resolvedCompanyId || undefined,
+        companyName: resolvedCompanyName,
+        ownerId: currentUserUid,
+        maxUses: Number(data.maxUses) || 1,
+        usedCount: 0,
+        expiryDate: expiryDateStr,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        minSpend: data.minSpend && data.minSpend > 0 ? data.minSpend : undefined,
+        minSlots: data.minSlots && data.minSlots > 0 ? data.minSlots : undefined,
+        batchId,
+        batchPrefix: cleanPrefix,
+        redemptions: [],
+      };
+      newVouchers.push(v);
+    }
+
+    if (isFirebaseConfigured && db) {
+      for (const v of newVouchers) {
+        try {
+          await setDoc(doc(db, 'vouchers', v.id), JSON.parse(JSON.stringify(v)));
+        } catch (err) {
+          console.error('Error saving bulk voucher to Firestore:', err);
+        }
+      }
+    }
+
+    const vStr = localStorage.getItem('picklepoint_vouchers');
+    const localVouchers = vStr ? (JSON.parse(vStr) as Voucher[]) : [];
+    const updatedLocal = [...newVouchers, ...localVouchers];
+    localStorage.setItem('picklepoint_vouchers', JSON.stringify(updatedLocal));
+
+    setVouchers((prev) => [...newVouchers, ...prev]);
+    return newVouchers;
   };
 
   const handleRevokeVoucher = async (vId: string) => {
@@ -7698,6 +7786,10 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               onOpenCreateVoucherModal={handleOpenCreateVoucher}
               onDeleteVoucher={handleRevokeVoucher}
               onCopyVoucherCode={(code) => { navigator.clipboard.writeText(code); }}
+              companies={companies}
+              isSuperAdmin={isSuperAdmin}
+              myCompany={targetSuperAdminComp || currentCompany || myCompany}
+              onBulkCreateVouchers={handleBulkCreateVouchers}
             />
           )}
 
@@ -9128,6 +9220,27 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
             </div>
 
             <form onSubmit={handleSaveVoucher} className="space-y-4 text-xs">
+              {/* Super Admin Facility Selector */}
+              {isSuperAdmin && companies.length > 0 && (
+                <div>
+                  <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Facility / Club Ownership
+                  </label>
+                  <select
+                    value={voucherCompanyIdInput}
+                    onChange={(e) => setVoucherCompanyIdInput(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime cursor-pointer"
+                  >
+                    <option value="">PicklePoint Platform Default (All Venues)</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
                   Voucher Code
@@ -9203,6 +9316,35 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                     type="number"
                     value={voucherExpiryDays}
                     onChange={(e) => setVoucherExpiryDays(Number(e.target.value))}
+                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
+                  />
+                </div>
+              </div>
+
+              {/* Minimum Requirements */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Min Booking Spend (₱)
+                  </label>
+                  <input
+                    type="number"
+                    value={voucherMinSpendInput}
+                    onChange={(e) => setVoucherMinSpendInput(e.target.value)}
+                    placeholder="Optional (e.g. 800)"
+                    className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Min Booking Hours
+                  </label>
+                  <input
+                    type="number"
+                    value={voucherMinSlotsInput}
+                    onChange={(e) => setVoucherMinSlotsInput(e.target.value)}
+                    placeholder="Optional (e.g. 2)"
                     className="w-full bg-slate-900 border border-slate-800 text-white font-bold rounded-xl px-4 py-3 focus:outline-none focus:border-brand-lime"
                   />
                 </div>
