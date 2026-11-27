@@ -19,7 +19,7 @@ import { auth, db, isFirebaseConfigured } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc, increment, deleteDoc } from 'firebase/firestore';
 import { sendRegistrationConfirmationEmail } from './services/emailService';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2, Clock, Building2, ArrowRight } from 'lucide-react';
 
 function App() {
   const [currentView, setView] = useState<'landing' | 'login' | 'register' | 'admin' | 'details' | 'checkout' | 'lookup' | 'profile' | 'openplay' | 'bootcamp' | 'client_onboarding' | 'privacy' | 'upload_receipt' | 'venue_pricing'>(() => {
@@ -67,6 +67,15 @@ function App() {
   const [isRedirectingShortLink, setIsRedirectingShortLink] = useState<boolean>(() => {
     return window.location.pathname.startsWith('/s/') || Boolean(new URLSearchParams(window.location.search).get('s'));
   });
+
+  const [inactiveShortLinkNotice, setInactiveShortLinkNotice] = useState<{
+    isInactive: boolean;
+    isExpired: boolean;
+    linkTitle?: string;
+    companyName?: string;
+    companyLogoUrl?: string;
+    destinationVenueUrl?: string;
+  } | null>(null);
 
   const [openPlayEventId, setOpenPlayEventId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -157,16 +166,31 @@ function App() {
     setView(nextView);
   };
 
-  // Handle Short Link /s/:slug redirection
+  // Handle Short Link /s/:companySlug/:slug or /s/:slug redirection
   useEffect(() => {
     const path = window.location.pathname;
     const searchParams = new URLSearchParams(window.location.search);
+    let companySlug: string | null = null;
     let shortSlug: string | null = null;
 
     if (path.startsWith('/s/')) {
-      shortSlug = path.substring(3).trim();
+      const raw = path.substring(3).trim();
+      const segments = raw.split('/').filter(Boolean);
+      if (segments.length >= 2) {
+        companySlug = segments[0].toLowerCase();
+        shortSlug = segments.slice(1).join('/').toLowerCase();
+      } else if (segments.length === 1) {
+        shortSlug = segments[0].toLowerCase();
+      }
     } else if (searchParams.get('s')) {
-      shortSlug = searchParams.get('s')!.trim();
+      const raw = searchParams.get('s')!.trim();
+      const segments = raw.split('/').filter(Boolean);
+      if (segments.length >= 2) {
+        companySlug = segments[0].toLowerCase();
+        shortSlug = segments.slice(1).join('/').toLowerCase();
+      } else {
+        shortSlug = raw.toLowerCase();
+      }
     }
 
     if (shortSlug) {
@@ -178,11 +202,20 @@ function App() {
             const q = query(collection(db, 'short_links'), where('shortSlug', '==', shortSlug));
             const snap = await getDocs(q);
             if (!snap.empty) {
-              const docSnap = snap.docs[0];
-              matchedLink = { id: docSnap.id, ...docSnap.data() };
-              updateDoc(doc(db, 'short_links', docSnap.id), {
-                clickCount: increment(1),
-              }).catch(() => {});
+              if (companySlug) {
+                const found = snap.docs.find((d) => {
+                  const data = d.data();
+                  return (
+                    data.companySlug?.toLowerCase() === companySlug ||
+                    (data.companyName && data.companyName.toLowerCase().replace(/[^a-z0-9-]/g, '') === companySlug)
+                  );
+                });
+                const chosenDoc = found || snap.docs[0];
+                matchedLink = { id: chosenDoc.id, ...chosenDoc.data() };
+              } else {
+                const docSnap = snap.docs[0];
+                matchedLink = { id: docSnap.id, ...docSnap.data() };
+              }
             }
           } catch (fErr) {
             console.warn('Firestore short_links fetch warning:', fErr);
@@ -194,20 +227,67 @@ function App() {
           if (localStr) {
             try {
               const localLinks = JSON.parse(localStr);
-              matchedLink = localLinks.find((l: any) => l.shortSlug?.toLowerCase() === shortSlug?.toLowerCase());
-              if (matchedLink) {
-                matchedLink.clickCount = (matchedLink.clickCount || 0) + 1;
-                localStorage.setItem('picklepoint_short_links', JSON.stringify(localLinks));
+              if (companySlug) {
+                matchedLink =
+                  localLinks.find((l: any) => {
+                    const matchSlug = l.shortSlug?.toLowerCase() === shortSlug?.toLowerCase();
+                    const matchComp =
+                      l.companySlug?.toLowerCase() === companySlug ||
+                      (l.companyName && l.companyName.toLowerCase().replace(/[^a-z0-9-]/g, '') === companySlug);
+                    return matchSlug && matchComp;
+                  }) || localLinks.find((l: any) => l.shortSlug?.toLowerCase() === shortSlug?.toLowerCase());
+              } else {
+                matchedLink = localLinks.find((l: any) => l.shortSlug?.toLowerCase() === shortSlug?.toLowerCase());
               }
             } catch (e) {}
           }
         }
 
-        if (matchedLink?.originalUrl) {
-          window.location.replace(matchedLink.originalUrl);
-        } else {
-          setIsRedirectingShortLink(false);
+        if (matchedLink) {
+          const isPaused = matchedLink.isActive === false;
+          const isExpired = Boolean(matchedLink.expiresAt && new Date(matchedLink.expiresAt) < new Date());
+
+          if (isPaused || isExpired) {
+            setIsRedirectingShortLink(false);
+            const venueUrl = matchedLink.companyId
+              ? `/venue/${matchedLink.companyId}`
+              : (matchedLink.originalUrl || '/');
+            setInactiveShortLinkNotice({
+              isInactive: isPaused,
+              isExpired,
+              linkTitle: matchedLink.title,
+              companyName: matchedLink.companyName,
+              companyLogoUrl: matchedLink.companyLogoUrl,
+              destinationVenueUrl: venueUrl,
+            });
+            return;
+          }
+
+          if (isFirebaseConfigured && db && matchedLink.id) {
+            updateDoc(doc(db, 'short_links', matchedLink.id), {
+              clickCount: increment(1),
+            }).catch(() => {});
+          }
+
+          const localStr = localStorage.getItem('picklepoint_short_links');
+          if (localStr) {
+            try {
+              const localLinks = JSON.parse(localStr);
+              const target = localLinks.find((l: any) => l.id === matchedLink.id || l.shortSlug === matchedLink.shortSlug);
+              if (target) {
+                target.clickCount = (target.clickCount || 0) + 1;
+                localStorage.setItem('picklepoint_short_links', JSON.stringify(localLinks));
+              }
+            } catch (e) {}
+          }
+
+          if (matchedLink.originalUrl) {
+            window.location.replace(matchedLink.originalUrl);
+            return;
+          }
         }
+
+        setIsRedirectingShortLink(false);
       };
       handleShortLinkRedirect();
     } else {
@@ -1094,6 +1174,62 @@ function App() {
           <Loader2 className="w-6 h-6 animate-spin text-brand-lime" />
         </div>
         <p className="text-sm font-bold text-slate-200 animate-pulse">Redirecting to short link destination...</p>
+      </div>
+    );
+  }
+
+  if (inactiveShortLinkNotice) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 sm:p-6 selection:bg-brand-lime selection:text-slate-950">
+        <div className="glass-panel border border-slate-800 rounded-3xl max-w-md w-full p-6 sm:p-8 bg-slate-900 shadow-2xl text-center space-y-5 animate-fade-in">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto shadow-lg shadow-amber-500/10">
+            <Clock className="w-7 h-7" />
+          </div>
+
+          <div>
+            <h2 className="text-xl font-black text-white">
+              {inactiveShortLinkNotice.isExpired ? 'Short Link Expired' : 'Short Link Temporarily Paused'}
+            </h2>
+            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+              The promotional link <strong className="text-white font-bold">"{inactiveShortLinkNotice.linkTitle || 'Special Offer'}"</strong> {inactiveShortLinkNotice.isExpired ? 'has passed its expiration date' : 'has been temporarily paused by the facility'}.
+            </p>
+          </div>
+
+          {inactiveShortLinkNotice.companyName && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-bold text-slate-300">
+              {inactiveShortLinkNotice.companyLogoUrl ? (
+                <img src={inactiveShortLinkNotice.companyLogoUrl} alt={inactiveShortLinkNotice.companyName} className="w-4 h-4 rounded-sm object-cover" />
+              ) : (
+                <Building2 className="w-3.5 h-3.5 text-brand-lime" />
+              )}
+              <span>{inactiveShortLinkNotice.companyName}</span>
+            </div>
+          )}
+
+          <div className="pt-2 space-y-2.5">
+            <button
+              onClick={() => {
+                if (inactiveShortLinkNotice.destinationVenueUrl?.startsWith('http')) {
+                  window.location.replace(inactiveShortLinkNotice.destinationVenueUrl);
+                } else {
+                  window.location.href = inactiveShortLinkNotice.destinationVenueUrl || '/';
+                }
+              }}
+              className="w-full py-3 px-4 rounded-xl bg-brand-lime hover:bg-[#a6e224] text-slate-950 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-brand-lime/10 transition-all cursor-pointer active:scale-98"
+            >
+              <span>Visit Facility Page</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                window.location.href = '/';
+              }}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition-colors cursor-pointer"
+            >
+              Go to PicklePoint Home
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

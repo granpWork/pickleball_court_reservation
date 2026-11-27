@@ -487,13 +487,17 @@ export interface ShortLink {
   id: string;
   title: string;
   shortSlug: string;
+  companySlug?: string;
   shortUrl: string;
   originalUrl: string;
   companyId?: string;
   companyName?: string;
+  companyLogoUrl?: string;
   createdByEmail?: string;
   createdAt: string;
   clickCount: number;
+  isActive?: boolean;
+  expiresAt?: string | null;
 }
 
 export interface SupportTicket {

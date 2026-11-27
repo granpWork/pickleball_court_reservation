@@ -7706,23 +7706,32 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
               key={shortenerResetKey}
               shortLinks={effectiveAdminShortLinks}
               loading={loading}
+              myCompany={targetSuperAdminComp || myCompany}
+              companies={companies}
+              isSuperAdmin={isSuperAdmin}
               onCreateShortLink={async (data) => {
                 const baseAppUrl = import.meta.env.VITE_APP_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://bookpicklecourt.com');
                 const cleanBaseUrl = baseAppUrl.replace(/\/+$/, '');
+                const activeComp = targetSuperAdminComp || currentCompany || myCompany;
+                const compSlug = data.companySlug || activeComp?.subdomain || (activeComp?.name ? activeComp.name.toLowerCase().replace(/[^a-z0-9-]/g, '') : 'picklepoint');
                 const slugToUse = data.shortSlug || Math.random().toString(36).substring(2, 8);
-                const shortUrl = `${cleanBaseUrl}/s/${slugToUse}`;
+                const shortUrl = `${cleanBaseUrl}/s/${compSlug}/${slugToUse}`;
 
                 const newLink: ShortLink = {
                   id: `sl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
                   title: data.title,
                   shortSlug: slugToUse,
+                  companySlug: compSlug,
                   shortUrl,
                   originalUrl: data.originalUrl,
-                  companyId: targetSuperAdminComp?.id || currentCompany?.id || undefined,
-                  companyName: targetSuperAdminComp?.name || currentCompany?.name || undefined,
+                  companyId: activeComp?.id || undefined,
+                  companyName: activeComp?.name || undefined,
+                  companyLogoUrl: activeComp?.logoUrl || undefined,
                   createdByEmail: user?.email || '',
                   createdAt: new Date().toISOString(),
                   clickCount: 0,
+                  isActive: data.isActive !== undefined ? data.isActive : true,
+                  expiresAt: data.expiresAt || null,
                 };
 
                 if (isFirebaseConfigured && db) {
@@ -7739,6 +7748,55 @@ export default function AdminDashboard({ setView, user, onLogout }: AdminDashboa
                 localStorage.setItem('picklepoint_short_links', JSON.stringify(updatedList));
 
                 setShortLinks((prev) => [newLink, ...prev]);
+              }}
+              onUpdateShortLink={async (id, updateData) => {
+                const cleanBaseUrl = (import.meta.env.VITE_APP_BASE_URL || window.location.origin).replace(/\/+$/, '');
+                const activeComp = targetSuperAdminComp || currentCompany || myCompany;
+                const defaultCompSlug = activeComp?.subdomain || (activeComp?.name ? activeComp.name.toLowerCase().replace(/[^a-z0-9-]/g, '') : 'picklepoint');
+
+                setShortLinks((prev) =>
+                  prev.map((l) => {
+                    if (l.id !== id) return l;
+                    const updatedCompSlug = updateData.companySlug || l.companySlug || defaultCompSlug;
+                    const updatedSlug = updateData.shortSlug || l.shortSlug;
+                    const updatedShortUrl = `${cleanBaseUrl}/s/${updatedCompSlug}/${updatedSlug}`;
+                    const updatedItem: ShortLink = {
+                      ...l,
+                      ...updateData,
+                      companySlug: updatedCompSlug,
+                      shortSlug: updatedSlug,
+                      shortUrl: updatedShortUrl,
+                    };
+
+                    if (isFirebaseConfigured && db) {
+                      updateDoc(doc(db, 'short_links', id), updatedItem as any).catch((err) =>
+                        console.error('Error updating short link in Firestore:', err)
+                      );
+                    }
+
+                    return updatedItem;
+                  })
+                );
+
+                const existingStr = localStorage.getItem('picklepoint_short_links');
+                if (existingStr) {
+                  try {
+                    const existingList: ShortLink[] = JSON.parse(existingStr);
+                    const updatedList = existingList.map((l) => {
+                      if (l.id !== id) return l;
+                      const updatedCompSlug = updateData.companySlug || l.companySlug || defaultCompSlug;
+                      const updatedSlug = updateData.shortSlug || l.shortSlug;
+                      return {
+                        ...l,
+                        ...updateData,
+                        companySlug: updatedCompSlug,
+                        shortSlug: updatedSlug,
+                        shortUrl: `${cleanBaseUrl}/s/${updatedCompSlug}/${updatedSlug}`,
+                      };
+                    });
+                    localStorage.setItem('picklepoint_short_links', JSON.stringify(updatedList));
+                  } catch (e) {}
+                }
               }}
               onDeleteShortLink={async (id) => {
                 if (isFirebaseConfigured && db) {
